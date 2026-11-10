@@ -41,7 +41,6 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       "textarea",
       [
         attribute.id(control_id),
-        // `lustre/dev/query.test_id` matches `data-test-id`.
         attribute.data("test-id", "editor"),
         attribute.aria_label("Note text"),
         // Normal mode locks the control: no typing, paste, drop or IME.

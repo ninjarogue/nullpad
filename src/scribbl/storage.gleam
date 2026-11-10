@@ -135,7 +135,6 @@ pub type Reply(a) =
 /// upsert, so repeating it is harmless. Implementations: `indexeddb` (M1), a
 /// folder of .md files (M6). Sync fits later as a `Backend` wrapping a local
 /// and a remote one and comparing `modified_ms`. Nothing above this changes.
-/// A record of functions is also easy to fake in a test.
 pub type Backend {
   Backend(
     all: fn(Reply(List(Record))) -> Nil,
