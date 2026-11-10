@@ -1,5 +1,6 @@
 //// Small browser facilities that are neither the editor nor storage: a
-//// timer, one remembered setting, a global shortcut, the clipboard.
+//// timer, one remembered setting, a global shortcut, the page being hidden,
+//// the clipboard.
 //// Imported by: the app shell and `scribbl.main`. Imports: lustre/effect.
 
 import lustre/effect.{type Effect}
@@ -11,11 +12,20 @@ pub fn after(ms: Int, msg: msg) -> Effect(msg) {
   set_timeout(ms, fn() { dispatch(msg) })
 }
 
-/// Deliver `msg` whenever Ctrl (or Cmd on a Mac) plus `key` is pressed
-/// anywhere on the page. Start it once, from `init`.
+/// Deliver `msg` whenever Ctrl plus `key` (Cmd plus `key` on Apple devices)
+/// is pressed anywhere on the page. `key` is a lowercase letter. Start it once, from `init`.
 pub fn on_shortcut(key: String, msg: msg) -> Effect(msg) {
   use dispatch <- effect.from
   listen_for_shortcut(key, fn() { dispatch(msg) })
+}
+
+/// Deliver `msg` each time the page is hidden: the tab is switched or closed,
+/// or a phone sends the browser to the background. Start it once, from
+/// `init`. This is the moment to save, because a hidden page can be thrown
+/// away without another warning.
+pub fn on_hide(msg: msg) -> Effect(msg) {
+  use dispatch <- effect.from
+  listen_for_hide(fn() { dispatch(msg) })
 }
 
 /// Write text to the system clipboard (vim's `"+y`, later).
@@ -44,6 +54,9 @@ fn set_timeout(ms: Int, run: fn() -> Nil) -> Nil
 
 @external(javascript, "./platform.ffi.mjs", "listenForShortcut")
 fn listen_for_shortcut(key: String, run: fn() -> Nil) -> Nil
+
+@external(javascript, "./platform.ffi.mjs", "listenForHide")
+fn listen_for_hide(run: fn() -> Nil) -> Nil
 
 @external(javascript, "./platform.ffi.mjs", "writeClipboard")
 fn write_clipboard(text: String) -> Nil

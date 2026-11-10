@@ -1,25 +1,31 @@
-// All editor JavaScript: four functions, about fifteen lines once written.
-// Nothing here may touch `document` at import time (gleeunit runs in node).
+// All editor JavaScript. Nothing here touches `document` at import time
+// (gleeunit runs in Node).
 
-// Make the control show `text` with selection start..end (UTF-16 offsets)
-// and give it focus. Assign `value` only if it differs (assigning resets
-// native undo); set the selection only if it differs. Do nothing if the
-// element is missing.
+// Make the control show `text` with the selection start..end (UTF-16
+// offsets). `value` is assigned only when it differs, because assigning
+// resets the browser's own undo history.
 export function writeControl(id, text, start, end) {
-  throw new Error("not implemented");
+  const control = globalThis.document?.getElementById(id);
+  if (!control) return;
+  if (control.value !== text) control.value = text;
+  if (control.selectionStart !== start || control.selectionEnd !== end) {
+    control.setSelectionRange(start, end);
+  }
 }
 
-// Scroll the mirror's [data-cursor] (a sibling of the control) into view.
-export function revealCursor(id) {
-  throw new Error("not implemented");
+// Give the control focus and scroll the mirror's [data-cursor] (a sibling of
+// the control) into view.
+export function focusControl(id) {
+  const control = globalThis.document?.getElementById(id);
+  control?.focus();
+  const cursor = control?.parentElement?.querySelector("[data-cursor]");
+  cursor?.scrollIntoView({ block: "nearest" });
 }
 
-// return [text.slice(0, offset), text.slice(offset)];
 export function utf16Split(text, offset) {
-  throw new Error("not implemented");
+  return [text.slice(0, offset), text.slice(offset)];
 }
 
-// return text.length;
 export function utf16Length(text) {
-  throw new Error("not implemented");
+  return text.length;
 }

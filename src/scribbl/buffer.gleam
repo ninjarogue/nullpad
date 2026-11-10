@@ -3,6 +3,12 @@
 //// The text field on screen only mirrors it (see `scribbl/surface`).
 //// Imported by: any module. Imports: gleam_stdlib only.
 
+import gleam/int
+import gleam/list
+import gleam/order
+import gleam/result
+import gleam/string
+
 /// A place *between* two graphemes, both numbers counted from 0. `col` counts
 /// graphemes (what a person calls a character), never bytes or UTF-16 units.
 /// Browser offsets are converted in `surface` and nowhere else.
@@ -22,14 +28,13 @@ pub opaque type Buffer {
 
 /// Split on "\n" (after turning "\r\n" into "\n"). Cursor at the start.
 pub fn from_text(text: String) -> Buffer {
-  let _ = text
-  todo as "not implemented"
+  let start = Position(row: 0, col: 0)
+  Buffer(lines: to_lines(text), anchor: start, head: start)
 }
 
 /// The lines joined with "\n". Law: `text(from_text(t)) == t` (no "\r" in t).
 pub fn text(buffer: Buffer) -> String {
-  let _ = buffer
-  todo as "not implemented"
+  string.join(buffer.lines, "\n")
 }
 
 pub fn lines(buffer: Buffer) -> List(String) {
@@ -54,8 +59,11 @@ pub fn select(
   anchor anchor: Position,
   head head: Position,
 ) -> Buffer {
-  let _ = #(buffer, anchor, head)
-  todo as "not implemented"
+  Buffer(
+    ..buffer,
+    anchor: clamp(buffer.lines, anchor),
+    head: clamp(buffer.lines, head),
+  )
 }
 
 /// Put the cursor at `position` with nothing selected.
@@ -73,9 +81,45 @@ pub fn replace(
   to to: Position,
   with new: String,
 ) -> Buffer {
-  // head = line from.row up to from.col; tail = line to.row after to.col
-  // middle = string.split(head <> new <> tail, "\n")
-  // lines = rows above from.row ++ middle ++ rows below to.row
-  let _ = #(buffer, from, to, new)
-  todo as "not implemented"
+  let #(from, to) = in_order(clamp(buffer.lines, from), clamp(buffer.lines, to))
+  let before = string.slice(line(buffer.lines, from.row), 0, from.col)
+  let after = string.drop_start(line(buffer.lines, to.row), to.col)
+  // Everything up to the new cursor. Its last line tells us where that is.
+  let typed = to_lines(before <> new)
+  let end =
+    Position(
+      row: from.row + list.length(typed) - 1,
+      col: list.last(typed) |> result.unwrap("") |> string.length,
+    )
+  let lines =
+    list.flatten([
+      list.take(buffer.lines, from.row),
+      to_lines(before <> new <> after),
+      list.drop(buffer.lines, to.row + 1),
+    ])
+  Buffer(lines:, anchor: end, head: end)
+}
+
+fn to_lines(text: String) -> List(String) {
+  text |> string.replace("\r\n", "\n") |> string.split("\n")
+}
+
+/// The text of a row, or "" for a row that does not exist.
+fn line(lines: List(String), row: Int) -> String {
+  lines |> list.drop(row) |> list.first |> result.unwrap("")
+}
+
+/// The nearest position that is inside the text.
+fn clamp(lines: List(String), position: Position) -> Position {
+  let row = int.clamp(position.row, min: 0, max: list.length(lines) - 1)
+  let width = string.length(line(lines, row))
+  Position(row:, col: int.clamp(position.col, min: 0, max: width))
+}
+
+fn in_order(a: Position, b: Position) -> #(Position, Position) {
+  let by_row = int.compare(a.row, b.row)
+  case order.break_tie(by_row, int.compare(a.col, b.col)) {
+    order.Gt -> #(b, a)
+    order.Lt | order.Eq -> #(a, b)
+  }
 }

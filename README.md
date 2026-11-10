@@ -1,24 +1,15 @@
 # scribbl
 
-[![Package Version](https://img.shields.io/hexpm/v/scribbl)](https://hex.pm/packages/scribbl)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://md-editor.hexdocs.pm/)
-
-```sh
-gleam add scribbl@1
-```
-```gleam
-import scribbl
-
-pub fn main() -> Nil {
-  // TODO: An example of the project in use
-}
-```
-
-Further documentation can be found at <https://md-editor.hexdocs.pm/>.
+A markdown editor written in [Gleam](https://gleam.run) with
+[Lustre](https://lustre.build). It runs in the browser and keeps its notes in
+the browser's own storage.
 
 ## Development
 
 ```sh
-gleam run   # Run the project
-gleam test  # Run the tests
+gleam run -m lustre/dev start   # Serve the app at http://localhost:1234 and reload on change
+gleam test                      # Run the tests (no browser needed)
+gleam format src test           # Format the code
 ```
+
+Styles live in `assets/scribbl.css`.

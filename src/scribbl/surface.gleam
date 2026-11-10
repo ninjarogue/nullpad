@@ -8,13 +8,16 @@
 //// `Key`), and from M6 `markdown` (for `highlight`).
 
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
+import gleam/list
 import gleam/result
+import gleam/string
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import scribbl/buffer.{type Buffer}
+import scribbl/buffer.{type Buffer, type Position, Position}
 import scribbl/editor.{type Editor}
 import scribbl/vim
 
@@ -66,8 +69,10 @@ pub fn sync(sync: editor.Sync) -> Effect(msg) {
         // Runs right after `update`, before any other browser event, so the
         // next event's snapshot already includes this write.
         effect.from(fn(_) { write_control(control_id, text, start, end) }),
-        // After the mirror re-rendered: scroll its cursor mark into view.
-        effect.before_paint(fn(_, _) { reveal_cursor(control_id) }),
+        // After the next render, because a pane that was hidden cannot take
+        // focus until it is back on screen, and the mirror has to be redrawn
+        // before its cursor mark can be scrolled to.
+        effect.before_paint(fn(_, _) { focus_control(control_id) }),
       ])
     }
   }
@@ -77,20 +82,40 @@ pub fn sync(sync: editor.Sync) -> Effect(msg) {
 /// `selectionStart` / `selectionEnd` (UTF-16 offsets) become a `Buffer`.
 /// Public only so gleeunit can test it with emoji.
 pub fn from_control(text: String, start: Int, end: Int) -> Buffer {
-  // position(offset): #(before, _) = utf16_split(text, offset)
-  //   row = count of "\n" in before; col = graphemes after the last "\n"
-  // buffer.from_text(text)
-  // |> buffer.select(anchor: position(start), head: position(end))
-  let _ = #(text, start, end, utf16_split)
-  todo as "not implemented"
+  buffer.from_text(text)
+  |> buffer.select(anchor: position(text, start), head: position(text, end))
+}
+
+fn position(text: String, offset: Int) -> Position {
+  let #(before, _) = utf16_split(text, offset)
+  let lines_before = string.split(before, "\n")
+  Position(
+    row: list.length(lines_before) - 1,
+    col: list.last(lines_before) |> result.unwrap("") |> string.length,
+  )
 }
 
 /// Domain -> browser: `#(value, selectionStart, selectionEnd)`.
 /// Law: `to_control(from_control(t, s, e)) == #(t, s, e)`.
 pub fn to_control(buffer: Buffer) -> #(String, Int, Int) {
-  // offset(position) = utf16_length(the text before that position)
-  let _ = #(buffer, utf16_length)
-  todo as "not implemented"
+  let #(anchor, head) = buffer.selection(buffer)
+  let lines = buffer.lines(buffer)
+  let anchor = offset(lines, anchor)
+  let head = offset(lines, head)
+  // The control always reports start <= end, whichever way it was selected.
+  #(buffer.text(buffer), int.min(anchor, head), int.max(anchor, head))
+}
+
+fn offset(lines: List(String), position: Position) -> Int {
+  let rows_above =
+    list.take(lines, position.row)
+    |> list.fold(0, fn(sum, line) { sum + utf16_length(line) + 1 })
+  let in_row =
+    list.drop(lines, position.row)
+    |> list.first
+    |> result.unwrap("")
+    |> string.slice(0, position.col)
+  rows_above + utf16_length(in_row)
 }
 
 fn shown_decoder() -> Decoder(Buffer) {
@@ -138,8 +163,14 @@ fn key_decoder(
 /// "Process", "Dead"...) and whenever `ignore` is true (Meta/Alt chord, IME
 /// composing).
 fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
-  let _ = #(name, ctrl, ignore)
-  todo as "not implemented"
+  case ignore, name, string.length(name) {
+    True, _, _ -> Error(Nil)
+    False, "Escape", _ -> Ok(vim.Escape)
+    False, "Enter", _ -> Ok(vim.Enter)
+    False, _, 1 if ctrl -> Ok(vim.Ctrl(name))
+    False, _, 1 -> Ok(vim.Char(name))
+    False, _, _ -> Error(Nil)
+  }
 }
 
 /// The picture layer: drawn by Lustre from the model, stacked exactly under
@@ -152,15 +183,18 @@ fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
 ///   `[data-cursor]` as a block in normal mode.
 /// - M6: one keyed row per line, spans from `markdown.highlight`.
 fn mirror(editor: Editor) -> Element(msg) {
-  let _ = editor
-  todo as "not implemented"
+  case editor.mode(editor) {
+    editor.Plain -> element.none()
+    // M4 draws the text and the block cursor here.
+    editor.Normal | editor.Insert -> element.none()
+  }
 }
 
 @external(javascript, "./surface.ffi.mjs", "writeControl")
 fn write_control(id: String, text: String, start: Int, end: Int) -> Nil
 
-@external(javascript, "./surface.ffi.mjs", "revealCursor")
-fn reveal_cursor(id: String) -> Nil
+@external(javascript, "./surface.ffi.mjs", "focusControl")
+fn focus_control(id: String) -> Nil
 
 /// `#(before, after)` around a UTF-16 offset. Pure.
 @external(javascript, "./surface.ffi.mjs", "utf16Split")

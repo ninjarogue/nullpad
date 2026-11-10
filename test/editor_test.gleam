@@ -8,9 +8,9 @@ import scribbl/buffer.{Position}
 import scribbl/editor.{type Editor, type Outcome, Outcome}
 import scribbl/vim
 
-/// M1. The property the whole design rests on: we never answer the user's
-/// own typing with a write to the text field.
-pub fn pending_typing_never_writes_back() {
+/// The property the whole design rests on: we never answer the user's own
+/// typing with a write to the text field.
+pub fn typing_never_writes_back_test() {
   let shown = buffer.from_text("héllo 👋")
   let Outcome(editor: ed, sync:, ..) =
     editor.new(vim: False) |> editor.update(editor.ControlChanged(shown:))
@@ -19,16 +19,26 @@ pub fn pending_typing_never_writes_back() {
   assert editor.text(ed) == "héllo 👋"
 }
 
-/// M1
-pub fn pending_replace_is_the_one_edit() {
-  let start = Position(row: 0, col: 0)
-  let next_row = Position(row: 1, col: 0)
-  let deleted =
-    buffer.from_text("one\ntwo")
-    |> buffer.replace(from: start, to: next_row, with: "")
+/// Moving the caret is also a `ControlChanged`. The text is the same, the
+/// selection is new, and still nothing is written back.
+pub fn moving_the_caret_never_writes_back_test() {
+  let end = Position(row: 0, col: 2)
+  let shown = buffer.from_text("hi") |> buffer.select(anchor: end, head: end)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.new(vim: False) |> editor.update(editor.ControlChanged(shown:))
 
-  assert buffer.text(deleted) == "two"
-  assert buffer.cursor(deleted) == start
+  assert sync == editor.InSync
+  assert buffer.cursor(editor.buffer(ed)) == end
+}
+
+/// Loading a note is the model's turn to speak: the text field must be
+/// written.
+pub fn opening_a_note_writes_test() {
+  let Outcome(editor: ed, sync:, ..) =
+    editor.new(vim: False) |> editor.open("one\ntwo")
+
+  assert editor.text(ed) == "one\ntwo"
+  assert sync == editor.Write(editor.buffer(ed))
 }
 
 /// M4
@@ -55,14 +65,23 @@ pub fn pending_one_insert_is_one_undo_step() {
   assert editor.text(escaped.editor) == "ab"
 }
 
-/// M4: ticking a task from the rendered page rewrites one line.
-pub fn pending_change_line() {
+/// Ticking a task from the rendered page rewrites one line.
+pub fn change_line_test() {
   let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb")
   let Outcome(editor: ed, sync:, ..) =
     editor.change_line(ed, 1, string.uppercase)
 
   assert editor.text(ed) == "a\nB"
   assert sync == editor.Write(editor.buffer(ed))
+}
+
+pub fn change_line_ignores_a_missing_row_test() {
+  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb")
+  let Outcome(editor: unchanged, sync:, ..) =
+    editor.change_line(ed, 7, string.uppercase)
+
+  assert editor.text(unchanged) == "a\nb"
+  assert sync == editor.InSync
 }
 
 /// Press each character as a key, the way `surface` would report it: with
