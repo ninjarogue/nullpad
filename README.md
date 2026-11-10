@@ -9,7 +9,7 @@ the browser's own storage.
 ```sh
 gleam run -m lustre/dev start         # Serve the app at http://localhost:1234 and reload on change
 gleam test                            # Run the unit tests
-cd e2e && npm install && npx e2e run  # Run the browser tests
+cd e2e && npm install && npm test     # Run the browser tests
 gleam format src test                 # Format the code
 ```
 

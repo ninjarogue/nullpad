@@ -46,7 +46,7 @@ jobs:
       - run: npm ci
       - run: npx tsc
       - run: npx @e2e-dev/web install chromium --with-deps
-      - run: npx e2e run
+      - run: npm test
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
