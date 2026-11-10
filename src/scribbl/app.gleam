@@ -57,7 +57,7 @@ pub type Model {
     showing: Showing,
     vim: Bool,
     can_vim: Bool,
-    asked_to_delete: Bool,
+    deletion: Deletion,
     /// Last storage failure, shown in a banner.
     problem: Option(String),
   )
@@ -85,6 +85,14 @@ pub type SaveState {
   Saved
 }
 
+pub type Deletion {
+  NotAsked
+  Asked
+  /// Storage has the request. Nothing is saved until it answers, or the
+  /// save would bring the note back.
+  Deleting
+}
+
 pub type Showing {
   Source
   Rendered
@@ -98,7 +106,7 @@ pub type Msg {
   StorageLoaded(Result(Note, Failure))
   StorageCreated(Result(Note, Failure))
   StorageSaved(id: NoteId, edits: Int, result: Result(Nil, Failure))
-  StorageDeleted(Result(Nil, Failure))
+  StorageDeleted(id: NoteId, result: Result(Nil, Failure))
   UserPickedNote(NoteId)
   UserAskedForNewNote
   UserAskedToDelete
@@ -124,7 +132,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
       showing: Source,
       vim:,
       can_vim:,
-      asked_to_delete: False,
+      deletion: NotAsked,
       problem: None,
     )
   let start =
@@ -200,23 +208,28 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, showing: Source, leaving_for: Some(NewNote))
       |> leave_when_saved
 
-    UserAskedToDelete, _ -> #(
-      Model(..model, asked_to_delete: True),
-      effect.none(),
+    UserAskedToDelete, _ -> #(Model(..model, deletion: Asked), effect.none())
+    UserKeptNote, _ -> #(Model(..model, deletion: NotAsked), effect.none())
+    UserDeletedNote(id), _ -> #(
+      Model(..model, deletion: Deleting, leaving_for: None),
+      storage.delete(model.storage, id, StorageDeleted(id, _)),
     )
-    UserKeptNote, _ -> #(Model(..model, asked_to_delete: False), effect.none())
-    UserDeletedNote(id), open -> {
-      let model = case open {
-        Some(open) if open.id == id ->
-          Model(..model, open: None, leaving_for: None)
-        _ -> model
+    StorageDeleted(id:, result:), Some(open) if open.id == id -> {
+      let model = Model(..model, deletion: NotAsked)
+      case result {
+        Ok(_) -> {
+          let #(model, left) = leave_when_saved(Model(..model, open: None))
+          #(model, effect.batch([left, list_notes(model)]))
+        }
+        Error(failure) -> {
+          let model = Model(..model, problem: Some(describe(failure)))
+          let #(model, left) = leave_when_saved(model)
+          let retry = platform.after(retry_save_ms, AutosaveDue(model.edits))
+          #(model, effect.batch([left, retry]))
+        }
       }
-      #(
-        Model(..model, asked_to_delete: False),
-        storage.delete(model.storage, id, StorageDeleted),
-      )
     }
-    StorageDeleted(Ok(_)), _ -> #(model, list_notes(model))
+    StorageDeleted(result: Ok(_), ..), _ -> #(model, list_notes(model))
 
     UserToggledRendered, _ ->
       case model.showing {
@@ -236,7 +249,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     StorageListed(Error(failure)), _
     | StorageLoaded(Error(failure)), _
     | StorageCreated(Error(failure)), _
-    | StorageDeleted(Error(failure)), _
+    | StorageDeleted(result: Error(failure), ..), _
     -> #(Model(..model, problem: Some(describe(failure))), effect.none())
   }
 }
@@ -303,15 +316,16 @@ fn start_autosave_timer(model: Model) -> Effect(Msg) {
 }
 
 fn save(model: Model) -> #(Model, Effect(Msg)) {
-  case model.open {
-    Some(Open(id:, title:, save_state: Unsaved) as open) -> {
+  case model.open, model.deletion {
+    _, Deleting -> #(model, effect.none())
+    Some(Open(id:, title:, save_state: Unsaved) as open), _ -> {
       let note = Note(id:, title:, body: editor.text(model.editor))
       #(
         Model(..model, open: Some(Open(..open, save_state: Saving))),
         storage.save(model.storage, note, StorageSaved(id, model.edits, _)),
       )
     }
-    _ -> #(model, effect.none())
+    _, _ -> #(model, effect.none())
   }
 }
 
@@ -338,7 +352,7 @@ fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
       editor:,
       open: Some(open),
       leaving_for: None,
-      asked_to_delete: False,
+      deletion: NotAsked,
       problem: None,
     ),
     surface.sync(sync),
@@ -529,8 +543,8 @@ fn mode_label(mode: String) -> Element(Msg) {
 }
 
 fn delete_buttons(model: Model, open: Open) -> Element(Msg) {
-  case model.asked_to_delete {
-    False ->
+  case model.deletion {
+    NotAsked | Deleting ->
       html.button(
         [
           attribute.data("test-id", "delete-note"),
@@ -538,7 +552,7 @@ fn delete_buttons(model: Model, open: Open) -> Element(Msg) {
         ],
         [element.text("Delete")],
       )
-    True ->
+    Asked ->
       html.span([attribute.class("confirm")], [
         element.text("Delete this note?"),
         html.button(

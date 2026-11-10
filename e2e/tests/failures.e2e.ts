@@ -115,7 +115,7 @@ test('a note that cannot be made says so', async ({ app, disk, page }) => {
   expect(await disk.notes()).toEqual([trip, groceries]);
 });
 
-test('a delete that fails says so', async ({ app, disk, page }) => {
+test('a delete that fails says so and keeps the note open', async ({ app, disk, page }) => {
   await app.open('/');
   await expect(page.text).toHaveValue('milk');
 
@@ -123,7 +123,34 @@ test('a delete that fails says so', async ({ app, disk, page }) => {
   await page.delete.tap();
   await page.confirmDelete.tap();
   await expect(page.problem).toHaveText(notWorking);
-  expect(await disk.notes()).toEqual([trip, groceries]);
+  await expect(page.currentRow).toHaveText('Groceries');
+  await expect(page.text).toHaveValue('milk');
+  await expect(page.saveState).toHaveText('Saved');
+
+  await disk.recover();
+  await page.text.fill('milk, eggs');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
+});
+
+test('typing while a delete is under way does not bring the note back', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await app.open('/');
+  await expect(page.text).toHaveValue('milk');
+
+  await disk.hold();
+  await page.delete.tap();
+  await page.confirmDelete.tap();
+  await page.text.fill('milk, eggs');
+  await pause(autosaveMs + timerSlackMs);
+  await disk.release();
+
+  await expect(page.rows).toHaveText(['Trip']);
+  await expect(page.text).toHaveValue('# Trip');
+  expect(await disk.notes()).toEqual([trip]);
 });
 
 test('a note deleted in another tab leaves the list', async ({ app, disk, page }) => {
