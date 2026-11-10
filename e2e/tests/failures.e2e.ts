@@ -144,6 +144,7 @@ test('typing while a delete is under way does not bring the note back', async ({
   await disk.hold();
   await page.delete.tap();
   await page.confirmDelete.tap();
+  await expect(page.delete).toBeDisabled();
   await page.text.fill('milk, eggs');
   await pause(autosaveMs + timerSlackMs);
   await disk.release();

@@ -208,6 +208,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, showing: Source, leaving_for: Some(NewNote))
       |> leave_when_saved
 
+    UserAskedToDelete, _ | UserKeptNote, _ if model.deletion == Deleting -> #(
+      model,
+      effect.none(),
+    )
     UserAskedToDelete, _ -> #(Model(..model, deletion: Asked), effect.none())
     UserKeptNote, _ -> #(Model(..model, deletion: NotAsked), effect.none())
     UserDeletedNote(id), _ -> #(
@@ -548,6 +552,7 @@ fn delete_buttons(model: Model, open: Open) -> Element(Msg) {
       html.button(
         [
           attribute.data("test-id", "delete-note"),
+          attribute.disabled(model.deletion == Deleting),
           event.on_click(UserAskedToDelete),
         ],
         [element.text("Delete")],
