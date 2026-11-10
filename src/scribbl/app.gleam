@@ -183,9 +183,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, keep_a_note_open(model))
     }
 
-    StorageLoaded(Ok(note)), _ -> open_note(model, note)
+    StorageLoaded(Ok(note)), _ -> open_when_saved(model, note)
     StorageCreated(Ok(note)), _ -> {
-      let #(model, opened) = open_note(model, note)
+      let #(model, opened) = open_when_saved(model, note)
       #(model, effect.batch([opened, list_notes(model)]))
     }
 
@@ -315,8 +315,21 @@ fn save(model: Model) -> #(Model, Effect(Msg)) {
   }
 }
 
+fn open_when_saved(model: Model, note: Note) -> #(Model, Effect(Msg)) {
+  let typed_while_it_was_loading = case model.open {
+    Some(Open(save_state: Unsaved, ..)) | Some(Open(save_state: Saving, ..)) ->
+      True
+    Some(Open(save_state: Saved, ..)) | None -> False
+  }
+  case typed_while_it_was_loading {
+    True ->
+      Model(..model, leaving_for: Some(ExistingNote(note.id)))
+      |> leave_when_saved
+    False -> open_note(model, note)
+  }
+}
+
 fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
-  let #(model, typed_while_loading) = save(model)
   let Outcome(editor:, sync:, ..) = editor.open(model.editor, note.body)
   let open = Open(id: note.id, title: note.title, save_state: Saved)
   #(
@@ -328,7 +341,7 @@ fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
       asked_to_delete: False,
       problem: None,
     ),
-    effect.batch([typed_while_loading, surface.sync(sync)]),
+    surface.sync(sync),
   )
 }
 

@@ -140,6 +140,42 @@ pub fn a_failed_save_can_be_tried_again_test() {
   assert shows(retried, "save-state", "Saved")
 }
 
+pub fn text_typed_while_the_next_note_loads_is_saved_before_it_opens_test() {
+  let model = start(harness.backend_holding(two_notes()))
+  let #(leaving, load) = app.update(model, app.UserPickedNote(id_of("trip")))
+  let assert [app.StorageLoaded(Ok(trip))] = harness.messages(load)
+  let #(typed, _) = app.update(leaving, typing("milk, eggs"))
+
+  let #(waiting, save) = app.update(typed, app.StorageLoaded(Ok(trip)))
+  assert editor.text(waiting.editor) == "milk, eggs"
+  let assert [app.StorageSaved(id:, edits: 1, result: Ok(Nil))] =
+    harness.messages(save)
+  assert id == id_of("groceries")
+
+  let arrived = send(typed, app.StorageLoaded(Ok(trip)))
+  assert editor.text(arrived.editor) == "# Trip"
+}
+
+pub fn text_typed_while_a_new_note_is_made_is_saved_before_it_opens_test() {
+  let model = start(harness.backend_holding(two_notes()))
+  let #(leaving, create) = app.update(model, app.UserAskedForNewNote)
+  let assert [app.StorageCreated(Ok(new_note))] = harness.messages(create)
+  let #(typed, _) = app.update(leaving, typing("milk, eggs"))
+
+  let #(waiting, effect) = app.update(typed, app.StorageCreated(Ok(new_note)))
+  assert editor.text(waiting.editor) == "milk, eggs"
+  let saves =
+    list.filter(harness.messages(effect), fn(msg) {
+      case msg {
+        app.StorageSaved(..) -> True
+        _ -> False
+      }
+    })
+  let assert [app.StorageSaved(id:, edits: 1, result: Ok(Nil))] = saves
+  assert id == id_of("groceries")
+  assert waiting.leaving_for == Some(app.ExistingNote(new_note.id))
+}
+
 pub fn picking_the_open_note_again_cancels_leaving_test() {
   let typed =
     start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
