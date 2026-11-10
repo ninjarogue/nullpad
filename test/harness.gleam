@@ -16,9 +16,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import scribbl/app
 import scribbl/platform
-import scribbl/storage.{
-  type Backend, type Failure, type Record, Backend, NotFound, Record,
-}
+import scribbl/storage.{type Backend, type Failure, Backend, Record}
 
 pub type Stored {
   Stored(key: String, title: Option(String), body: String)
@@ -489,26 +487,6 @@ fn strip_tags(html: String, text: String) -> String {
         Error(Nil) -> text <> before
       }
   }
-}
-
-pub fn messages(effect: Effect(msg)) -> List(msg) {
-  run(effect)
-}
-
-pub fn backend_holding(records: List(Record)) -> Backend {
-  Backend(
-    all: fn(reply) { reply(Ok(records)) },
-    get: fn(key, reply) {
-      list.find(records, fn(record) { record.key == key })
-      |> result.replace_error(NotFound)
-      |> reply
-    },
-    put: fn(_key, _title, _body, reply) { reply(Ok(Nil)) },
-    add: fn(reply) {
-      reply(Ok(Record(key: "added", title: None, body: "", modified_ms: 0)))
-    },
-    remove: fn(_key, reply) { reply(Ok(Nil)) },
-  )
 }
 
 @external(javascript, "./harness.ffi.mjs", "newCell")
