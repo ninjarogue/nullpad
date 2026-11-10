@@ -11,7 +11,6 @@
 ////   delete-note       asks; then confirm-delete / cancel-delete answer
 ////   problem           the storage error banner
 
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import lustre/attribute
@@ -51,6 +50,7 @@ pub type Model {
     open: Option(Open),
     /// The text lives here and nowhere else in the model.
     editor: Editor,
+    edits: Int,
     showing: Showing,
     vim: Bool,
     can_vim: Bool,
@@ -67,10 +67,14 @@ pub type Open {
     id: NoteId,
     /// The title the user typed. `None` means "derive it from the text".
     title: Option(String),
-    edits: Int,
-    sent: Int,
-    saved: Int,
+    save_state: SaveState,
   )
+}
+
+pub type SaveState {
+  Unsaved
+  Saving
+  Saved
 }
 
 pub type Showing {
@@ -84,6 +88,7 @@ pub type Msg {
   PageHidden
   StorageListed(Result(List(Summary), Failure))
   StorageLoaded(Result(Note, Failure))
+  StorageCreated(Result(Note, Failure))
   StorageSaved(id: NoteId, edits: Int, result: Result(Nil, Failure))
   StorageDeleted(Result(Nil, Failure))
   UserPickedNote(NoteId)
@@ -106,6 +111,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
       notes: [],
       open: None,
       editor: editor.new(vim: vim && can_vim),
+      edits: 0,
       showing: Source,
       vim:,
       can_vim:,
@@ -114,7 +120,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
     )
   let start =
     effect.batch([
-      storage.list(storage, StorageListed),
+      list_notes(model),
       // Ctrl+E (Cmd+E on a Mac) flips between source and rendered page.
       platform.on_shortcut("e", UserToggledRendered),
       platform.on_hide(PageHidden),
@@ -135,59 +141,44 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         "" -> None
         _ -> Some(title)
       }
-      touch(Model(..model, open: Some(Open(..open, title:))))
+      let model = count_edit(Model(..model, open: Some(Open(..open, title:))))
+      #(model, start_autosave_timer(model))
     }
     UserRenamedNote(_), None -> #(model, effect.none())
 
-    AutosaveDue(edits), Some(open) if edits == open.edits -> save(model)
-    // A timer that was overtaken by newer edits, or by closing the note.
+    AutosaveDue(edits), _ if edits == model.edits -> save(model)
     AutosaveDue(_), _ -> #(model, effect.none())
     PageHidden, _ -> save(model)
 
-    StorageSaved(id:, edits:, result: Ok(_)), open -> {
-      let open = case open {
-        Some(open) if open.id == id ->
-          Some(Open(..open, saved: int.max(open.saved, edits)))
-        other -> other
+    StorageSaved(id:, edits:, result:), open -> {
+      let is_about_the_text_on_screen = edits == model.edits
+      let open = case open, is_about_the_text_on_screen, result {
+        Some(Open(save_state: Saving, ..) as open), True, Ok(_)
+          if open.id == id
+        -> Some(Open(..open, save_state: Saved))
+        Some(Open(save_state: Saving, ..) as open), True, Error(_)
+          if open.id == id
+        -> Some(Open(..open, save_state: Unsaved))
+        open, _, _ -> open
       }
-      #(Model(..model, open:, problem: None), list_notes(model))
-    }
-    StorageSaved(id:, result: Error(failure), ..), open -> {
-      let open = case open {
-        Some(open) if open.id == id -> Some(Open(..open, sent: open.saved))
-        other -> other
+      case result {
+        Ok(_) -> #(Model(..model, open:, problem: None), list_notes(model))
+        Error(failure) -> #(
+          Model(..model, open:, problem: Some(describe(failure))),
+          effect.none(),
+        )
       }
-      #(Model(..model, open:, problem: Some(describe(failure))), effect.none())
     }
 
-    StorageListed(Ok(notes)), open -> {
+    StorageListed(Ok(notes)), _ -> {
       let model = Model(..model, notes:)
-      case open, notes {
-        Some(_), _ -> #(model, effect.none())
-        None, [newest, ..] -> #(model, load(model, newest.id))
-        None, [] -> #(model, create(model))
-      }
+      #(model, keep_a_note_open(model))
     }
 
-    StorageLoaded(Ok(note)), _ -> {
-      let Outcome(editor:, sync:, ..) = editor.open(model.editor, note.body)
-      let open =
-        Open(id: note.id, title: note.title, edits: 0, sent: 0, saved: 0)
-      let listed = list.any(model.notes, fn(summary) { summary.id == note.id })
-      let relist = case listed {
-        True -> effect.none()
-        False -> list_notes(model)
-      }
-      #(
-        Model(
-          ..model,
-          editor:,
-          open: Some(open),
-          asked_to_delete: False,
-          problem: None,
-        ),
-        effect.batch([surface.sync(sync), relist]),
-      )
+    StorageLoaded(Ok(note)), _ -> open_note(model, note)
+    StorageCreated(Ok(note)), _ -> {
+      let #(model, opened) = open_note(model, note)
+      #(model, effect.batch([opened, list_notes(model)]))
     }
 
     UserPickedNote(id), Some(open) if id == open.id -> #(model, effect.none())
@@ -221,10 +212,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserToggledRendered, _ ->
       case model.showing {
         Source -> #(Model(..model, showing: Rendered), effect.none())
-        Rendered -> #(
-          Model(..model, showing: Source),
-          surface.sync(editor.Write(editor.buffer(model.editor))),
-        )
+        Rendered -> #(Model(..model, showing: Source), surface.focus())
       }
 
     UserToggledVim(on), _ -> {
@@ -238,6 +226,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
     StorageListed(Error(failure)), _
     | StorageLoaded(Error(failure)), _
+    | StorageCreated(Error(failure)), _
     | StorageDeleted(Error(failure)), _
     -> #(Model(..model, problem: Some(describe(failure))), effect.none())
   }
@@ -248,7 +237,10 @@ fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
   let text_changed = editor.text(editor) != editor.text(model.editor)
   let model = Model(..model, editor:)
   let #(model, autosave) = case text_changed {
-    True -> touch(model)
+    True -> {
+      let model = count_edit(model)
+      #(model, start_autosave_timer(model))
+    }
     False -> #(model, effect.none())
   }
   let #(model, asked) = {
@@ -266,29 +258,48 @@ fn perform(model: Model, request: vim.Request) -> #(Model, Effect(Msg)) {
   }
 }
 
-fn touch(model: Model) -> #(Model, Effect(Msg)) {
-  case model.open {
-    Some(open) -> {
-      let edits = open.edits + 1
-      #(
-        Model(..model, open: Some(Open(..open, edits:))),
-        platform.after(autosave_ms, AutosaveDue(edits)),
-      )
-    }
-    None -> #(model, effect.none())
-  }
+fn count_edit(model: Model) -> Model {
+  let unsaved = fn(open) { Open(..open, save_state: Unsaved) }
+  Model(..model, edits: model.edits + 1, open: option.map(model.open, unsaved))
+}
+
+fn start_autosave_timer(model: Model) -> Effect(Msg) {
+  platform.after(autosave_ms, AutosaveDue(model.edits))
 }
 
 fn save(model: Model) -> #(Model, Effect(Msg)) {
   case model.open {
-    Some(Open(id:, title:, edits:, sent:, ..) as open) if edits > sent -> {
+    Some(Open(id:, title:, save_state: Unsaved) as open) -> {
       let note = Note(id:, title:, body: editor.text(model.editor))
       #(
-        Model(..model, open: Some(Open(..open, sent: edits))),
-        storage.save(model.storage, note, StorageSaved(id, edits, _)),
+        Model(..model, open: Some(Open(..open, save_state: Saving))),
+        storage.save(model.storage, note, StorageSaved(id, model.edits, _)),
       )
     }
     _ -> #(model, effect.none())
+  }
+}
+
+fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
+  let Outcome(editor:, sync:, ..) = editor.open(model.editor, note.body)
+  let open = Open(id: note.id, title: note.title, save_state: Saved)
+  #(
+    Model(
+      ..model,
+      editor:,
+      open: Some(open),
+      asked_to_delete: False,
+      problem: None,
+    ),
+    surface.sync(sync),
+  )
+}
+
+fn keep_a_note_open(model: Model) -> Effect(Msg) {
+  case model.open, model.notes {
+    Some(_), _ -> effect.none()
+    None, [newest, ..] -> load(model, newest.id)
+    None, [] -> create(model)
   }
 }
 
@@ -301,7 +312,7 @@ fn load(model: Model, id: NoteId) -> Effect(Msg) {
 }
 
 fn create(model: Model) -> Effect(Msg) {
-  storage.create(model.storage, StorageLoaded)
+  storage.create(model.storage, StorageCreated)
 }
 
 fn describe(failure: Failure) -> String {
@@ -409,7 +420,7 @@ fn toolbar(model: Model) -> Element(Msg) {
           attribute.data("test-id", "save-state"),
           attribute.role("status"),
         ],
-        [element.text(save_state(open))],
+        [element.text(save_state_label(open.save_state))],
       ),
       toggles(model),
       delete_buttons(model, open),
@@ -417,11 +428,11 @@ fn toolbar(model: Model) -> Element(Msg) {
   })
 }
 
-fn save_state(open: Open) -> String {
-  case open.edits == open.saved, open.edits == open.sent {
-    True, _ -> "Saved"
-    False, True -> "Saving…"
-    False, False -> "Unsaved"
+fn save_state_label(save_state: SaveState) -> String {
+  case save_state {
+    Saved -> "Saved"
+    Saving -> "Saving…"
+    Unsaved -> "Unsaved"
   }
 }
 

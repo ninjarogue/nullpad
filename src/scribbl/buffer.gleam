@@ -95,7 +95,6 @@ pub fn replace(
   Buffer(lines:, anchor: end, head: end)
 }
 
-/// The position just after the last grapheme of `text`.
 pub fn end_of(text: String) -> Position {
   let lines = to_lines(text)
   Position(

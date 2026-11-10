@@ -129,10 +129,72 @@ pub fn picking_a_note_saves_the_open_one_test() {
   assert shows(switched, "save-state", "Saved")
 }
 
+pub fn an_answer_about_older_text_leaves_the_save_state_alone_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(first_save_in_flight, _) = app.update(typed, app.AutosaveDue(edits: 1))
+  let #(typed_again, _) =
+    app.update(first_save_in_flight, typing("milk, eggs, jam"))
+  let #(both_saves_in_flight, _) = app.update(typed_again, app.PageHidden)
+  assert shows(both_saves_in_flight, "save-state", "Saving…")
+
+  let older_failed =
+    send(
+      both_saves_in_flight,
+      app.StorageSaved(id_of("groceries"), 1, Error(Unavailable("disk full"))),
+    )
+  assert shows(older_failed, "problem", "Storage is not working: disk full")
+  assert shows(older_failed, "save-state", "Saving…")
+
+  let newer_saved =
+    send(older_failed, app.StorageSaved(id_of("groceries"), 2, Ok(Nil)))
+  assert shows(newer_saved, "save-state", "Saved")
+}
+
+pub fn an_answer_from_before_the_note_was_reopened_is_ignored_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(save_in_flight, _) = app.update(typed, app.AutosaveDue(edits: 1))
+  let reopened_and_typed =
+    save_in_flight
+    |> send(app.UserPickedNote(id_of("trip")))
+    |> send(app.UserPickedNote(id_of("groceries")))
+    |> send(typing("milk and jam"))
+
+  let late_answer =
+    send(reopened_and_typed, app.StorageSaved(id_of("groceries"), 1, Ok(Nil)))
+  assert shows(late_answer, "save-state", "Unsaved")
+}
+
+pub fn a_created_note_joins_the_list_test() {
+  let model = start(harness.backend_holding(two_notes()))
+  let #(_, asked) = app.update(model, app.UserAskedForNewNote)
+  let assert [app.StorageCreated(Ok(note))] = harness.messages(asked)
+
+  let #(opened, relist) = app.update(model, app.StorageCreated(Ok(note)))
+  let assert Some(open) = opened.open
+  assert open.id == note.id
+  let assert [app.StorageListed(Ok(_))] = harness.messages(relist)
+}
+
+pub fn deleting_the_open_note_opens_the_newest_one_left_test() {
+  let assert [trip, _groceries] = two_notes()
+  let model = start(harness.backend_holding(two_notes()))
+  let after_the_delete = storage.new(harness.backend_holding([trip]))
+
+  let deleted =
+    app.Model(..model, storage: after_the_delete)
+    |> send(app.UserDeletedNote(id_of("groceries")))
+
+  let assert Some(open) = deleted.open
+  assert storage.id_text(open.id) == "trip"
+  assert editor.text(deleted.editor) == "# Trip"
+}
+
 pub fn renaming_test() {
   let model =
     start(harness.backend_holding(two_notes()))
-    |> send(app.UserPickedNote(trip_id()))
+    |> send(app.UserPickedNote(id_of("trip")))
   assert shows(model, "note-trip", "Trip")
 
   let renamed = send(model, app.UserRenamedNote("Japan"))
@@ -229,13 +291,13 @@ fn two_notes() -> List(Record) {
   ]
 }
 
-fn trip_id() -> storage.NoteId {
+fn id_of(key: String) -> storage.NoteId {
   let store = storage.new(harness.backend_holding(two_notes()))
   let assert [Ok(rows)] =
     harness.messages(storage.list(store, fn(rows) { rows }))
-  let assert [trip] =
-    list.filter(rows, fn(row) { storage.id_text(row.id) == "trip" })
-  trip.id
+  let assert [row] =
+    list.filter(rows, fn(row) { storage.id_text(row.id) == key })
+  row.id
 }
 
 /// A backend that never answers: enough for tests that send replies by hand.

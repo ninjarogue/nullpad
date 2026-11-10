@@ -69,13 +69,16 @@ pub fn sync(sync: editor.Sync) -> Effect(msg) {
         // Runs right after `update`, before any other browser event, so the
         // next event's snapshot already includes this write.
         effect.from(fn(_) { write_control(control_id, text, start, end) }),
-        // After the next render, because a pane that was hidden cannot take
-        // focus until it is back on screen, and the mirror has to be redrawn
-        // before its cursor mark can be scrolled to.
-        effect.before_paint(fn(_, _) { focus_control(control_id) }),
+        focus(),
       ])
     }
   }
+}
+
+pub fn focus() -> Effect(msg) {
+  // A pane that was hidden cannot take focus until the next render puts it
+  // back on screen.
+  effect.before_paint(fn(_, _) { focus_control(control_id) })
 }
 
 /// Boundary parse, browser -> domain: the control's `value` and its

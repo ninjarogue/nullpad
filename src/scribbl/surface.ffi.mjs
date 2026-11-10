@@ -14,10 +14,7 @@ export function writeControl(id, text, start, end) {
 }
 
 export function focusControl(id) {
-  const control = globalThis.document?.getElementById(id);
-  control?.focus();
-  const cursor = control?.parentElement?.querySelector("[data-cursor]");
-  cursor?.scrollIntoView({ block: "nearest" });
+  globalThis.document?.getElementById(id)?.focus();
 }
 
 export function utf16Split(text, offset) {
