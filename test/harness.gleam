@@ -203,7 +203,7 @@ pub fn start_with(
   storage answering: Answering,
 ) -> App {
   let shelf = shelf(notes)
-  write(shelf.state, ShelfState(..read(shelf.state), answering:))
+  set_answering(shelf, answering)
   boot(shelf, new_browser(True))
 }
 
@@ -353,9 +353,12 @@ pub fn press_shortcut(app: App, key: String) -> App {
 }
 
 pub fn storage_becomes(app: App, answering: Answering) -> App {
-  let state = app.shelf.state
-  write(state, ShelfState(..read(state), answering:))
+  set_answering(app.shelf, answering)
   app
+}
+
+fn set_answering(shelf: Shelf, answering: Answering) -> Nil {
+  write(shelf.state, ShelfState(..read(shelf.state), answering:))
 }
 
 pub fn deleted_elsewhere(app: App, key: String) -> App {

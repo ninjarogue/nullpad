@@ -29,7 +29,6 @@ export function newBrowser(keyboard) {
     control: newControl(),
     settings: new Map(),
     visibility: "visible",
-    active: false,
   };
 }
 
@@ -58,7 +57,9 @@ function fakes(browser) {
       get visibilityState() {
         return browser.visibility;
       },
-      addEventListener: (type, listener) => browser.listeners.push({ type, listener }),
+      addEventListener: (type, listener) => {
+        browser.listeners.push({ type, listener });
+      },
       getElementById: (_id) => browser.control,
     },
     localStorage: {
@@ -66,23 +67,25 @@ function fakes(browser) {
       setItem: (key, value) => browser.settings.set(key, String(value)),
     },
     matchMedia: (_query) => ({ matches: browser.keyboard }),
-    // Node's own navigator reports the host, and on a Mac the shortcut key is Cmd.
+    // Node's own navigator reports the host, and on a Mac the shortcut key is
+    // Cmd.
     navigator: { platform: "Linux x86_64" },
   };
 }
 
 export function inBrowser(browser, run) {
-  if (browser.active) return run();
   const swapped = Object.entries(fakes(browser)).map(([name, fake]) => {
     const real = Object.getOwnPropertyDescriptor(globalThis, name);
-    Object.defineProperty(globalThis, name, { value: fake, configurable: true, writable: true });
+    Object.defineProperty(globalThis, name, {
+      value: fake,
+      configurable: true,
+      writable: true,
+    });
     return [name, real];
   });
-  browser.active = true;
   try {
     return run();
   } finally {
-    browser.active = false;
     for (const [name, real] of swapped) {
       if (real) Object.defineProperty(globalThis, name, real);
       else delete globalThis[name];
@@ -119,17 +122,27 @@ export function hide(browser) {
 }
 
 export function shortcut(browser, key) {
-  emit(browser, "keydown", { key, ctrlKey: true, metaKey: false, altKey: false, preventDefault() {} });
+  emit(browser, "keydown", {
+    key,
+    ctrlKey: true,
+    metaKey: false,
+    altKey: false,
+    preventDefault() {},
+  });
 }
 
 function emit(browser, type, event) {
-  for (const entry of [...browser.listeners]) if (entry.type === type) entry.listener(event);
+  for (const entry of [...browser.listeners]) {
+    if (entry.type === type) entry.listener(event);
+  }
 }
 
 export function typeAtCaret(browser, text) {
   const control = browser.control;
-  control.value = control.value.slice(0, control.selectionStart) + text + control.value.slice(control.selectionEnd);
-  control.selectionStart = control.selectionEnd = control.selectionStart + text.length;
+  const before = control.value.slice(0, control.selectionStart);
+  const after = control.value.slice(control.selectionEnd);
+  control.value = before + text + after;
+  control.selectionStart = control.selectionEnd = before.length + text.length;
 }
 
 export function selectAll(browser) {
@@ -146,9 +159,22 @@ export function blur(browser) {
   browser.control.focused = false;
 }
 
-// Lustre keeps paint effects out of `effect.perform`, so this reads Effect's own fields.
+// Lustre keeps paint effects out of `effect.perform`, so this reads Effect's
+// own fields.
 export function performPaint(effect, dispatch) {
-  if (!effect.before_paint || !effect.after_paint) throw new globalThis.Error("lustre Effect changed shape");
-  const actions = { dispatch, emit() {}, select() {}, root: () => undefined, provide() {}, subscribe() {}, unsubscribe() {} };
-  for (const run of [...effect.before_paint, ...effect.after_paint]) run(actions);
+  if (!effect.before_paint || !effect.after_paint) {
+    throw new globalThis.Error("lustre Effect changed shape");
+  }
+  const actions = {
+    dispatch,
+    emit() {},
+    select() {},
+    root: () => undefined,
+    provide() {},
+    subscribe() {},
+    unsubscribe() {},
+  };
+  for (const run of [...effect.before_paint, ...effect.after_paint]) {
+    run(actions);
+  }
 }
