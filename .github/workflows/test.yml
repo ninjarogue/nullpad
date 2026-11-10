@@ -21,3 +21,38 @@ jobs:
       - run: gleam deps download
       - run: gleam test
       - run: gleam format --check src test
+
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      E2E_TELEMETRY_DISABLED: "1"
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          gleam-version: "1.19.2"
+          rebar3-version: "3"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: gleam deps download
+        working-directory: .
+      - run: npm ci
+      - run: npx tsc
+      - run: npx @e2e-dev/web install chromium --with-deps
+      - run: npx e2e run
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: e2e-results
+          path: |
+            e2e/.e2e/report.json
+            e2e/.e2e/results
+          if-no-files-found: warn
+          retention-days: 7
