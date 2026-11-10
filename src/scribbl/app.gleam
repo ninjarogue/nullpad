@@ -31,6 +31,8 @@ import scribbl/vim
 /// How long after the last edit the note is saved.
 const autosave_ms = 800
 
+const retry_save_ms = 5000
+
 /// What `main` hands to `init`. Tests build this by hand.
 pub type Flags {
   Flags(
@@ -51,6 +53,7 @@ pub type Model {
     /// The text lives here and nowhere else in the model.
     editor: Editor,
     edits: Int,
+    leaving_for: Option(Destination),
     showing: Showing,
     vim: Bool,
     can_vim: Bool,
@@ -69,6 +72,11 @@ pub type Open {
     title: Option(String),
     save_state: SaveState,
   )
+}
+
+pub type Destination {
+  ExistingNote(NoteId)
+  NewNote
 }
 
 pub type SaveState {
@@ -112,6 +120,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
       open: None,
       editor: editor.new(vim: vim && can_vim),
       edits: 0,
+      leaving_for: None,
       showing: Source,
       vim:,
       can_vim:,
@@ -150,23 +159,22 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     AutosaveDue(_), _ -> #(model, effect.none())
     PageHidden, _ -> save(model)
 
-    StorageSaved(id:, edits:, result:), open -> {
-      let is_about_the_text_on_screen = edits == model.edits
-      let open = case open, is_about_the_text_on_screen, result {
-        Some(Open(save_state: Saving, ..) as open), True, Ok(_)
-          if open.id == id
-        -> Some(Open(..open, save_state: Saved))
-        Some(Open(save_state: Saving, ..) as open), True, Error(_)
-          if open.id == id
-        -> Some(Open(..open, save_state: Unsaved))
-        open, _, _ -> open
+    StorageSaved(id:, edits:, result: Ok(_)), _ -> {
+      let model = case is_awaited_answer(model, id, edits) {
+        True -> with_save_state(model, Saved)
+        False -> model
       }
-      case result {
-        Ok(_) -> #(Model(..model, open:, problem: None), list_notes(model))
-        Error(failure) -> #(
-          Model(..model, open:, problem: Some(describe(failure))),
-          effect.none(),
+      let #(model, left) = leave_when_saved(Model(..model, problem: None))
+      #(model, effect.batch([left, list_notes(model)]))
+    }
+    StorageSaved(id:, edits:, result: Error(failure)), _ -> {
+      let model = Model(..model, problem: Some(describe(failure)))
+      case is_awaited_answer(model, id, edits) {
+        True -> #(
+          Model(..with_save_state(model, Unsaved), leaving_for: None),
+          platform.after(retry_save_ms, AutosaveDue(model.edits)),
         )
+        False -> #(model, effect.none())
       }
     }
 
@@ -181,16 +189,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.batch([opened, list_notes(model)]))
     }
 
-    UserPickedNote(id), Some(open) if id == open.id -> #(model, effect.none())
-    UserPickedNote(id), _ -> {
-      let #(model, saved) = save(model)
-      #(model, effect.batch([saved, load(model, id)]))
-    }
+    UserPickedNote(id), Some(open) if id == open.id -> #(
+      Model(..model, leaving_for: None),
+      effect.none(),
+    )
+    UserPickedNote(id), _ ->
+      leave_when_saved(Model(..model, leaving_for: Some(ExistingNote(id))))
 
-    UserAskedForNewNote, _ -> {
-      let #(model, saved) = save(model)
-      #(Model(..model, showing: Source), effect.batch([saved, create(model)]))
-    }
+    UserAskedForNewNote, _ ->
+      Model(..model, showing: Source, leaving_for: Some(NewNote))
+      |> leave_when_saved
 
     UserAskedToDelete, _ -> #(
       Model(..model, asked_to_delete: True),
@@ -198,12 +206,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
     UserKeptNote, _ -> #(Model(..model, asked_to_delete: False), effect.none())
     UserDeletedNote(id), open -> {
-      let open = case open {
-        Some(open) if open.id == id -> None
-        other -> other
+      let model = case open {
+        Some(open) if open.id == id ->
+          Model(..model, open: None, leaving_for: None)
+        _ -> model
       }
       #(
-        Model(..model, open:, asked_to_delete: False),
+        Model(..model, asked_to_delete: False),
         storage.delete(model.storage, id, StorageDeleted),
       )
     }
@@ -259,8 +268,34 @@ fn perform(model: Model, request: vim.Request) -> #(Model, Effect(Msg)) {
 }
 
 fn count_edit(model: Model) -> Model {
-  let unsaved = fn(open) { Open(..open, save_state: Unsaved) }
-  Model(..model, edits: model.edits + 1, open: option.map(model.open, unsaved))
+  Model(..with_save_state(model, Unsaved), edits: model.edits + 1)
+}
+
+fn with_save_state(model: Model, save_state: SaveState) -> Model {
+  let open = option.map(model.open, fn(open) { Open(..open, save_state:) })
+  Model(..model, open:)
+}
+
+fn is_awaited_answer(model: Model, id: NoteId, edits: Int) -> Bool {
+  case model.open {
+    Some(Open(save_state: Saving, ..) as open) ->
+      open.id == id && edits == model.edits
+    _ -> False
+  }
+}
+
+fn leave_when_saved(model: Model) -> #(Model, Effect(Msg)) {
+  case model.leaving_for, model.open {
+    None, _ -> #(model, effect.none())
+    Some(_), Some(Open(save_state: Unsaved, ..)) -> save(model)
+    Some(_), Some(Open(save_state: Saving, ..)) -> #(model, effect.none())
+    Some(destination), Some(Open(save_state: Saved, ..))
+    | Some(destination), None
+    -> #(Model(..model, leaving_for: None), case destination {
+      ExistingNote(id) -> load(model, id)
+      NewNote -> create(model)
+    })
+  }
 }
 
 fn start_autosave_timer(model: Model) -> Effect(Msg) {
@@ -281,6 +316,7 @@ fn save(model: Model) -> #(Model, Effect(Msg)) {
 }
 
 fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
+  let #(model, typed_while_loading) = save(model)
   let Outcome(editor:, sync:, ..) = editor.open(model.editor, note.body)
   let open = Open(id: note.id, title: note.title, save_state: Saved)
   #(
@@ -288,10 +324,11 @@ fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
       ..model,
       editor:,
       open: Some(open),
+      leaving_for: None,
       asked_to_delete: False,
       problem: None,
     ),
-    surface.sync(sync),
+    effect.batch([typed_while_loading, surface.sync(sync)]),
   )
 }
 

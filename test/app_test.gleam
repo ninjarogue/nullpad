@@ -90,15 +90,8 @@ pub fn saving_shows_until_storage_answers_test() {
 }
 
 pub fn failed_save_test() {
-  let full =
-    Backend(
-      ..harness.backend_holding(two_notes()),
-      put: fn(_key, _title, _body, reply) {
-        reply(Error(Unavailable("disk full")))
-      },
-    )
   let model =
-    start(full)
+    start(storage_is_full())
     |> send(typing("milk, eggs"))
     |> send(app.AutosaveDue(edits: 1))
 
@@ -106,27 +99,58 @@ pub fn failed_save_test() {
   assert shows(model, "save-state", "Unsaved")
 }
 
-pub fn picking_a_note_saves_the_open_one_test() {
+pub fn picking_a_note_saves_the_open_one_before_leaving_test() {
   let typed =
     start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
-  let assert [trip] =
-    list.filter(typed.notes, fn(row) { storage.id_text(row.id) == "trip" })
-  let #(_, effect) = app.update(typed, app.UserPickedNote(trip.id))
+  let #(waiting, effect) = app.update(typed, app.UserPickedNote(id_of("trip")))
 
-  // Lustre does not promise an order for batched effects, so look for it.
-  let saves =
-    list.filter_map(harness.messages(effect), fn(msg) {
-      case msg {
-        app.StorageSaved(id:, edits:, result:) -> Ok(#(id, edits, result))
-        _ -> Error(Nil)
-      }
-    })
-  let assert [#(id, 1, Ok(Nil))] = saves
-  assert storage.id_text(id) == "groceries"
+  let assert [app.StorageSaved(id:, edits: 1, result: Ok(Nil))] =
+    harness.messages(effect)
+  assert id == id_of("groceries")
+  assert editor.text(waiting.editor) == "milk, eggs"
+  assert shows(waiting, "save-state", "Saving…")
 
-  let switched = send(typed, app.UserPickedNote(trip.id))
+  let switched = send(typed, app.UserPickedNote(id_of("trip")))
   assert editor.text(switched.editor) == "# Trip"
   assert shows(switched, "save-state", "Saved")
+}
+
+pub fn a_failed_save_keeps_you_on_the_note_test() {
+  let typed = start(storage_is_full()) |> send(typing("milk, eggs"))
+
+  let stayed = send(typed, app.UserPickedNote(id_of("trip")))
+  assert editor.text(stayed.editor) == "milk, eggs"
+  assert shows(stayed, "problem", "Storage is not working: disk full")
+  assert shows(stayed, "save-state", "Unsaved")
+
+  let still_there = send(typed, app.UserAskedForNewNote)
+  assert editor.text(still_there.editor) == "milk, eggs"
+}
+
+pub fn a_failed_save_can_be_tried_again_test() {
+  let failed =
+    start(storage_is_full())
+    |> send(typing("milk, eggs"))
+    |> send(app.AutosaveDue(edits: 1))
+  let storage_works_again = storage.new(harness.backend_holding(two_notes()))
+
+  let retried =
+    app.Model(..failed, storage: storage_works_again)
+    |> send(app.AutosaveDue(edits: 1))
+  assert shows(retried, "save-state", "Saved")
+}
+
+pub fn picking_the_open_note_again_cancels_leaving_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(waiting, _) = app.update(typed, app.UserPickedNote(id_of("trip")))
+
+  let stayed =
+    waiting
+    |> send(app.UserPickedNote(id_of("groceries")))
+    |> send(app.StorageSaved(id_of("groceries"), 1, Ok(Nil)))
+  assert editor.text(stayed.editor) == "milk, eggs"
+  assert shows(stayed, "save-state", "Saved")
 }
 
 pub fn an_answer_about_older_text_leaves_the_save_state_alone_test() {
@@ -154,12 +178,15 @@ pub fn an_answer_about_older_text_leaves_the_save_state_alone_test() {
 pub fn an_answer_from_before_the_note_was_reopened_is_ignored_test() {
   let typed =
     start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
-  let #(save_in_flight, _) = app.update(typed, app.AutosaveDue(edits: 1))
+  let #(first_save_in_flight, _) = app.update(typed, app.AutosaveDue(edits: 1))
   let reopened_and_typed =
-    save_in_flight
+    first_save_in_flight
+    |> send(typing("milk, eggs, jam"))
     |> send(app.UserPickedNote(id_of("trip")))
     |> send(app.UserPickedNote(id_of("groceries")))
     |> send(typing("milk and jam"))
+  let assert Some(open) = reopened_and_typed.open
+  assert open.id == id_of("groceries")
 
   let late_answer =
     send(reopened_and_typed, app.StorageSaved(id_of("groceries"), 1, Ok(Nil)))
@@ -289,6 +316,15 @@ fn two_notes() -> List(Record) {
       modified_ms: 2,
     ),
   ]
+}
+
+fn storage_is_full() -> Backend {
+  Backend(
+    ..harness.backend_holding(two_notes()),
+    put: fn(_key, _title, _body, reply) {
+      reply(Error(Unavailable("disk full")))
+    },
+  )
 }
 
 fn id_of(key: String) -> storage.NoteId {
