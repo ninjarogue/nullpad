@@ -201,7 +201,7 @@ button:hover {
   grid-area: 1 / 1;
 }
 
-.editor textarea,
+.editor > *,
 .preview {
   font: 1rem/1.6 var(--text-font);
   margin: 0;
