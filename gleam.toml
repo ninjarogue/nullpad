@@ -22,7 +22,6 @@ gleeunit = ">= 1.0.0 and < 2.0.0"
 lustre_dev_tools = ">= 2.4.0 and < 3.0.0"
 gleam_json = ">= 3.1.0 and < 4.0.0"
 
-# The page that `gleam run -m lustre/dev start` and `build` generate.
 [tools.lustre.html]
 title = "scribbl"
 stylesheets = [{ href = "/scribbl.css" }]

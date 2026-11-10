@@ -1,7 +1,3 @@
-//// The app shell: Lustre's Model / Msg / update / view. It wires the editor
-//// and storage together and holds no editing, parsing or storage logic.
-//// `scribbl.main` starts it.
-////
 //// Stable test ids (`data-test-id`), for `lustre/dev/query` and Playwright:
 ////   editor            the text field               (set in `surface`)
 ////   preview           the rendered page
@@ -58,7 +54,6 @@ pub type Model {
     showing: Showing,
     vim: Bool,
     can_vim: Bool,
-    /// True between pressing Delete and answering "Delete this note?".
     asked_to_delete: Bool,
     /// Last storage failure, shown in a banner.
     problem: Option(String),
@@ -67,17 +62,11 @@ pub type Model {
 
 /// Set only when a load finishes, so text is never saved under another
 /// note's id.
-///
-/// The three counters say how far saving has got. `edits` goes up by one on
-/// every change. `sent` is the count that was last handed to storage and
-/// `saved` the count storage last confirmed, so `saved <= sent <= edits`.
 pub type Open {
   Open(
     id: NoteId,
     /// The title the user typed. `None` means "derive it from the text".
     title: Option(String),
-    /// An autosave timer carries the count it was started with, and is
-    /// ignored if more changes came after it.
     edits: Int,
     sent: Int,
     saved: Int,
@@ -92,12 +81,9 @@ pub type Showing {
 pub type Msg {
   EditorSent(editor.Event)
   AutosaveDue(edits: Int)
-  /// The tab was switched or closed, or the phone left the browser.
   PageHidden
   StorageListed(Result(List(Summary), Failure))
   StorageLoaded(Result(Note, Failure))
-  /// Which note and which edit count the answer is about: by the time it
-  /// arrives another note may be open.
   StorageSaved(id: NoteId, edits: Int, result: Result(Nil, Failure))
   StorageDeleted(Result(Nil, Failure))
   UserPickedNote(NoteId)
@@ -153,7 +139,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
     UserRenamedNote(_), None -> #(model, effect.none())
 
-    // Saving ----------------------------------------------------------------
     AutosaveDue(edits), Some(open) if edits == open.edits -> save(model)
     // A timer that was overtaken by newer edits, or by closing the note.
     AutosaveDue(_), _ -> #(model, effect.none())
@@ -165,19 +150,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           Some(Open(..open, saved: int.max(open.saved, edits)))
         other -> other
       }
-      // The list again, so the saved note's title and place are right.
       #(Model(..model, open:, problem: None), list_notes(model))
     }
     StorageSaved(id:, result: Error(failure), ..), open -> {
       let open = case open {
-        // Forget that it was sent, so the next save tries again.
         Some(open) if open.id == id -> Some(Open(..open, sent: open.saved))
         other -> other
       }
       #(Model(..model, open:, problem: Some(describe(failure))), effect.none())
     }
 
-    // Opening ---------------------------------------------------------------
     StorageListed(Ok(notes)), open -> {
       let model = Model(..model, notes:)
       case open, notes {
@@ -194,7 +176,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let listed = list.any(model.notes, fn(summary) { summary.id == note.id })
       let relist = case listed {
         True -> effect.none()
-        // A note that was just created.
         False -> list_notes(model)
       }
       #(
@@ -217,11 +198,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     UserAskedForNewNote, _ -> {
       let #(model, saved) = save(model)
-      // A new note is for typing in, so show the source.
       #(Model(..model, showing: Source), effect.batch([saved, create(model)]))
     }
 
-    // Deleting --------------------------------------------------------------
     UserAskedToDelete, _ -> #(
       Model(..model, asked_to_delete: True),
       effect.none(),
@@ -229,7 +208,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserKeptNote, _ -> #(Model(..model, asked_to_delete: False), effect.none())
     UserDeletedNote(id), open -> {
       let open = case open {
-        // Closed at once, so nothing can save it back into storage.
         Some(open) if open.id == id -> None
         other -> other
       }
@@ -238,14 +216,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         storage.delete(model.storage, id, StorageDeleted),
       )
     }
-    // With no note open, the fresh list opens the newest one that is left.
     StorageDeleted(Ok(_)), _ -> #(model, list_notes(model))
 
-    // Settings --------------------------------------------------------------
     UserToggledRendered, _ ->
       case model.showing {
         Source -> #(Model(..model, showing: Rendered), effect.none())
-        // Coming back: the control kept its text, so this only returns focus.
         Rendered -> #(
           Model(..model, showing: Source),
           surface.sync(editor.Write(editor.buffer(model.editor))),
@@ -257,8 +232,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(Model(..model, editor:, vim: on), platform.remember_vim_setting(on))
     }
 
-    // Failures --------------------------------------------------------------
-    // The note is gone, so the list on screen is out of date too.
     StorageLoaded(Error(storage.NotFound as failure)), _ -> #(
       Model(..model, problem: Some(describe(failure))),
       list_notes(model),
@@ -270,9 +243,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-/// Take an editor outcome and do everything it implies, in one place: keep
-/// the new editor, write to the text field if asked, count the change and
-/// start an autosave timer if the text changed, and carry out vim's requests.
 fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
   let Outcome(editor:, sync:, requests:) = outcome
   let text_changed = editor.text(editor) != editor.text(model.editor)
@@ -289,7 +259,6 @@ fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
   #(model, effect.batch([surface.sync(sync), autosave, ..asked]))
 }
 
-/// No wildcard: a new `vim.Request` fails the build here until it is handled.
 fn perform(model: Model, request: vim.Request) -> #(Model, Effect(Msg)) {
   case request {
     vim.SaveNow -> save(model)
@@ -297,7 +266,6 @@ fn perform(model: Model, request: vim.Request) -> #(Model, Effect(Msg)) {
   }
 }
 
-/// The open note changed: count it and start an autosave timer.
 fn touch(model: Model) -> #(Model, Effect(Msg)) {
   case model.open {
     Some(open) -> {
@@ -311,7 +279,6 @@ fn touch(model: Model) -> #(Model, Effect(Msg)) {
   }
 }
 
-/// Hand the open note to storage, unless storage already has these edits.
 fn save(model: Model) -> #(Model, Effect(Msg)) {
   case model.open {
     Some(Open(id:, title:, edits:, sent:, ..) as open) if edits > sent -> {
@@ -344,8 +311,6 @@ fn describe(failure: Failure) -> String {
   }
 }
 
-// VIEW ------------------------------------------------------------------------
-
 pub fn view(model: Model) -> Element(Msg) {
   html.main([attribute.class("app")], [
     sidebar(model),
@@ -377,10 +342,6 @@ pub fn view(model: Model) -> Element(Msg) {
   ])
 }
 
-/// M1 stand-in for the rendered page: the note's text exactly as typed.
-/// M2 replaces the body with
-/// `markdown.parse(editor.text(model.editor)) |> preview.view(UserTickedTask)`,
-/// so the parser runs only while the rendered page is showing.
 fn rendered(model: Model) -> Element(Msg) {
   html.pre([attribute.class("preview"), attribute.data("test-id", "preview")], [
     element.text(editor.text(model.editor)),
@@ -409,7 +370,6 @@ fn sidebar(model: Model) -> Element(Msg) {
 
 fn note_row(model: Model, summary: Summary) -> Element(Msg) {
   let #(title, current) = case model.open {
-    // The open note shows its title as it is right now, not as last saved.
     Some(open) if open.id == summary.id -> #(
       storage.display_title(open.title, editor.text(model.editor)),
       "true",
@@ -436,7 +396,6 @@ fn toolbar(model: Model) -> Element(Msg) {
         attribute.type_("text"),
         attribute.aria_label("Title"),
         attribute.autocomplete("off"),
-        // What the title will be if this stays empty.
         attribute.placeholder(storage.display_title(
           None,
           editor.text(model.editor),
@@ -508,7 +467,6 @@ fn mode_label(mode: String) -> Element(Msg) {
   ])
 }
 
-/// Deleting takes two presses, because a deleted note cannot be brought back.
 fn delete_buttons(model: Model, open: Open) -> Element(Msg) {
   case model.asked_to_delete {
     False ->

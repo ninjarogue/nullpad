@@ -3,12 +3,12 @@
 //// answers.
 
 import gleam/dynamic
+import gleam/list
+import gleam/option.{None}
+import gleam/result
 import lustre/effect.{type Effect}
+import scribbl/storage.{type Backend, type Record, Backend, NotFound, Record}
 
-/// Run an effect and return the messages it sent before it finished. Works
-/// for effects that answer at once, like storage on a backend made in the
-/// test. A timer answers later, so its message is not in the list.
-///
 /// `effect.perform` is marked internal in Lustre 5: its docs offer it for
 /// testing, but it may change in a minor release. This is its only caller.
 pub fn messages(effect: Effect(msg)) -> List(msg) {
@@ -27,3 +27,19 @@ pub fn messages(effect: Effect(msg)) -> List(msg) {
 
 @external(javascript, "./harness.ffi.mjs", "collect")
 fn collect(run: fn(fn(value) -> Nil) -> Nil) -> List(value)
+
+pub fn backend_holding(records: List(Record)) -> Backend {
+  Backend(
+    all: fn(reply) { reply(Ok(records)) },
+    get: fn(key, reply) {
+      list.find(records, fn(record) { record.key == key })
+      |> result.replace_error(NotFound)
+      |> reply
+    },
+    put: fn(_key, _title, _body, reply) { reply(Ok(Nil)) },
+    add: fn(reply) {
+      reply(Ok(Record(key: "added", title: None, body: "", modified_ms: 0)))
+    },
+    remove: fn(_key, reply) { reply(Ok(Nil)) },
+  )
+}

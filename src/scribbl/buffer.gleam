@@ -84,13 +84,8 @@ pub fn replace(
   let #(from, to) = in_order(clamp(buffer.lines, from), clamp(buffer.lines, to))
   let before = string.slice(line(buffer.lines, from.row), 0, from.col)
   let after = string.drop_start(line(buffer.lines, to.row), to.col)
-  // Everything up to the new cursor. Its last line tells us where that is.
-  let typed = to_lines(before <> new)
-  let end =
-    Position(
-      row: from.row + list.length(typed) - 1,
-      col: list.last(typed) |> result.unwrap("") |> string.length,
-    )
+  let inserted_end = end_of(before <> new)
+  let end = Position(row: from.row + inserted_end.row, col: inserted_end.col)
   let lines =
     list.flatten([
       list.take(buffer.lines, from.row),
@@ -100,16 +95,23 @@ pub fn replace(
   Buffer(lines:, anchor: end, head: end)
 }
 
+/// The position just after the last grapheme of `text`.
+pub fn end_of(text: String) -> Position {
+  let lines = to_lines(text)
+  Position(
+    row: list.length(lines) - 1,
+    col: list.last(lines) |> result.unwrap("") |> string.length,
+  )
+}
+
 fn to_lines(text: String) -> List(String) {
   text |> string.replace("\r\n", "\n") |> string.split("\n")
 }
 
-/// The text of a row, or "" for a row that does not exist.
 fn line(lines: List(String), row: Int) -> String {
   lines |> list.drop(row) |> list.first |> result.unwrap("")
 }
 
-/// The nearest position that is inside the text.
 fn clamp(lines: List(String), position: Position) -> Position {
   let row = int.clamp(position.row, min: 0, max: list.length(lines) - 1)
   let width = string.length(line(lines, row))

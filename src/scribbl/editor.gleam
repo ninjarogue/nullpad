@@ -131,7 +131,6 @@ pub fn change_line(
 ) -> Outcome {
   case list.drop(buffer.lines(editor.buffer), row) {
     [line, ..] if row >= 0 -> {
-      let #(anchor, head) = buffer.selection(editor.buffer)
       let buffer =
         editor.buffer
         |> buffer.replace(
@@ -139,8 +138,7 @@ pub fn change_line(
           to: Position(row:, col: string.length(line)),
           with: change(line),
         )
-        // The edit came from outside the control: leave the cursor alone.
-        |> buffer.select(anchor:, head:)
+        |> with_selection_of(editor.buffer)
       Outcome(
         editor: Editor(..editor, buffer:),
         sync: Write(buffer),
@@ -149,6 +147,11 @@ pub fn change_line(
     }
     _ -> Outcome(editor:, sync: InSync, requests: [])
   }
+}
+
+fn with_selection_of(buffer: Buffer, other: Buffer) -> Buffer {
+  let #(anchor, head) = buffer.selection(other)
+  buffer.select(buffer, anchor:, head:)
 }
 
 pub fn buffer(editor: Editor) -> Buffer {

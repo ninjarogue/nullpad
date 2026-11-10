@@ -8,8 +8,6 @@ import scribbl/buffer.{Position}
 import scribbl/editor.{type Editor, type Outcome, Outcome}
 import scribbl/vim
 
-/// The property the whole design rests on: we never answer the user's own
-/// typing with a write to the text field.
 pub fn typing_never_writes_back_test() {
   let shown = buffer.from_text("héllo 👋")
   let Outcome(editor: ed, sync:, ..) =
@@ -19,8 +17,6 @@ pub fn typing_never_writes_back_test() {
   assert editor.text(ed) == "héllo 👋"
 }
 
-/// Moving the caret is also a `ControlChanged`. The text is the same, the
-/// selection is new, and still nothing is written back.
 pub fn moving_the_caret_never_writes_back_test() {
   let end = Position(row: 0, col: 2)
   let shown = buffer.from_text("hi") |> buffer.select(anchor: end, head: end)
@@ -31,8 +27,6 @@ pub fn moving_the_caret_never_writes_back_test() {
   assert buffer.cursor(editor.buffer(ed)) == end
 }
 
-/// Loading a note is the model's turn to speak: the text field must be
-/// written.
 pub fn opening_a_note_writes_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.new(vim: False) |> editor.open("one\ntwo")
@@ -65,7 +59,6 @@ pub fn pending_one_insert_is_one_undo_step() {
   assert editor.text(escaped.editor) == "ab"
 }
 
-/// Ticking a task from the rendered page rewrites one line.
 pub fn change_line_test() {
   let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb")
   let Outcome(editor: ed, sync:, ..) =

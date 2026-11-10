@@ -13,8 +13,6 @@ export function writeControl(id, text, start, end) {
   }
 }
 
-// Give the control focus and scroll the mirror's [data-cursor] (a sibling of
-// the control) into view.
 export function focusControl(id) {
   const control = globalThis.document?.getElementById(id);
   control?.focus();

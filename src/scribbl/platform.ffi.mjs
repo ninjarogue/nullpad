@@ -51,7 +51,5 @@ export function readVimSetting() {
 export function writeVimSetting(on) {
   try {
     globalThis.localStorage?.setItem(VIM_SETTING, on ? "on" : "off");
-  } catch {
-    // The setting lasts until the page closes.
-  }
+  } catch {}
 }

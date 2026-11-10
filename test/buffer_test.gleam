@@ -18,7 +18,6 @@ pub fn windows_line_ends_become_plain_ones_test() {
   assert buffer.text(buffer.from_text("one\r\ntwo")) == "one\ntwo"
 }
 
-/// A position outside the text lands on the nearest one inside it.
 pub fn select_clamps_test() {
   let far = Position(row: 9, col: 9)
   let before = Position(row: -1, col: -1)
@@ -29,7 +28,6 @@ pub fn select_clamps_test() {
     == #(Position(row: 0, col: 0), Position(row: 1, col: 4))
 }
 
-/// Columns count what a person calls a character, so an emoji is one.
 pub fn columns_count_graphemes_test() {
   let after_wave = Position(row: 0, col: 1)
   let typed =
@@ -50,8 +48,6 @@ pub fn replace_is_the_one_edit_test() {
   assert buffer.cursor(deleted) == start
 }
 
-/// Pasting two lines into the middle of a line: the cursor ends up just
-/// after what was pasted.
 pub fn replace_with_several_lines_test() {
   let at = Position(row: 0, col: 2)
   let pasted =
@@ -62,7 +58,6 @@ pub fn replace_with_several_lines_test() {
   assert buffer.cursor(pasted) == Position(row: 1, col: 1)
 }
 
-/// `from` and `to` may come in either order.
 pub fn replace_backwards_test() {
   let replaced =
     buffer.from_text("hello world")

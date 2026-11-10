@@ -2,7 +2,5 @@
 *.ez
 /build
 erl_crash.dump
-
-# Lustre dev tools: downloaded binaries and build output
 /.lustre
 /dist

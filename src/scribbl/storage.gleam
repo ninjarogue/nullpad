@@ -13,7 +13,6 @@ import gleam/result
 import gleam/string
 import lustre/effect.{type Effect}
 
-/// A title taken from the body is cut to about this many graphemes.
 const title_limit = 60
 
 /// Names one note for its whole life. Opaque: only this module makes one,
@@ -67,25 +66,21 @@ pub fn display_title(title: Option(String), body: String) -> String {
   }
 }
 
-/// "## Trip **notes**" -> "Trip notes". A rough cut on purpose: it knows the
-/// markers that start a line and the loudest inline ones, not the grammar.
 fn strip_markers(line: String) -> String {
   let line = string.trim(line)
-  case line {
-    "#" <> rest | ">" <> rest -> strip_markers(rest)
-    "- " <> rest | "* " <> rest | "+ " <> rest -> strip_markers(rest)
-    "[ ] " <> rest | "[x] " <> rest -> strip_markers(rest)
-    _ ->
-      case string.split_once(line, ". ") {
-        // An ordered list item: "1. Pack"
-        Ok(#(number, rest)) ->
-          case int.parse(number) {
-            Ok(_) -> strip_markers(rest)
-            Error(_) -> strip_inline(line)
-          }
-        Error(_) -> strip_inline(line)
-      }
+  case line, after_list_number(line) {
+    "#" <> rest, _ | ">" <> rest, _ -> strip_markers(rest)
+    "- " <> rest, _ | "* " <> rest, _ | "+ " <> rest, _ -> strip_markers(rest)
+    "[ ] " <> rest, _ | "[x] " <> rest, _ -> strip_markers(rest)
+    _, Ok(rest) -> strip_markers(rest)
+    _, Error(Nil) -> strip_inline(line)
   }
+}
+
+fn after_list_number(line: String) -> Result(String, Nil) {
+  use #(number, rest) <- result.try(string.split_once(line, ". "))
+  use _ <- result.map(int.parse(number))
+  rest
 }
 
 fn strip_inline(text: String) -> String {
@@ -96,22 +91,34 @@ fn strip_inline(text: String) -> String {
   |> string.trim
 }
 
-/// Cut a long line at the last whole word that fits and add "…".
 fn shorten(line: String) -> String {
   case string.length(line) <= title_limit {
     True -> line
-    False -> {
-      // One grapheme past the limit, so a word ending exactly on it is kept.
-      let words = string.slice(line, 0, title_limit + 1) |> string.split(" ")
-      let whole_words =
-        list.take(words, list.length(words) - 1)
-        |> string.join(" ")
-        |> string.trim_end
-      case whole_words {
+    False ->
+      case words_that_fit(string.split(line, " "), "") {
         "" -> string.slice(line, 0, title_limit) <> "…"
-        _ -> whole_words <> "…"
+        whole_words -> string.trim_end(whole_words) <> "…"
       }
-    }
+  }
+}
+
+fn words_that_fit(words: List(String), fitted: String) -> String {
+  case words, fitted {
+    [], _ -> fitted
+    [word, ..rest], "" -> take_word_if_it_fits(word, rest, fitted)
+    [word, ..rest], _ ->
+      take_word_if_it_fits(fitted <> " " <> word, rest, fitted)
+  }
+}
+
+fn take_word_if_it_fits(
+  longer: String,
+  rest: List(String),
+  fitted: String,
+) -> String {
+  case string.length(longer) <= title_limit {
+    True -> words_that_fit(rest, longer)
+    False -> fitted
   }
 }
 

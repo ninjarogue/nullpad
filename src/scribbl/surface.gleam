@@ -17,7 +17,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import scribbl/buffer.{type Buffer, type Position, Position}
+import scribbl/buffer.{type Buffer, type Position}
 import scribbl/editor.{type Editor}
 import scribbl/vim
 
@@ -88,11 +88,7 @@ pub fn from_control(text: String, start: Int, end: Int) -> Buffer {
 
 fn position(text: String, offset: Int) -> Position {
   let #(before, _) = utf16_split(text, offset)
-  let lines_before = string.split(before, "\n")
-  Position(
-    row: list.length(lines_before) - 1,
-    col: list.last(lines_before) |> result.unwrap("") |> string.length,
-  )
+  buffer.end_of(before)
 }
 
 /// Domain -> browser: `#(value, selectionStart, selectionEnd)`.
@@ -182,12 +178,8 @@ fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
 ///   <span data-cursor>grapheme or " "</span>, text after. CSS paints
 ///   `[data-cursor]` as a block in normal mode.
 /// - M6: one keyed row per line, spans from `markdown.highlight`.
-fn mirror(editor: Editor) -> Element(msg) {
-  case editor.mode(editor) {
-    editor.Plain -> element.none()
-    // M4 draws the text and the block cursor here.
-    editor.Normal | editor.Insert -> element.none()
-  }
+fn mirror(_editor: Editor) -> Element(msg) {
+  element.none()
 }
 
 @external(javascript, "./surface.ffi.mjs", "writeControl")

@@ -1,6 +1,3 @@
-/* scribbl's whole stylesheet. Served from /scribbl.css by the Lustre dev
-   tools (see [tools.lustre.html] in gleam.toml). */
-
 :root {
   color-scheme: light dark;
   --paper: #fbfaf7;
@@ -73,8 +70,6 @@ button:hover {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-
-/* Layout: the note list beside the open note. */
 
 .app {
   display: grid;
@@ -186,9 +181,6 @@ button:hover {
   padding: 0.5rem 0.75rem;
 }
 
-/* The editing pane. The mirror (M4) and the text field share one grid cell,
-   so they must keep the same font, padding and wrapping. */
-
 .page,
 .preview {
   flex: 1;
@@ -229,8 +221,6 @@ button:hover {
 .preview {
   overflow-y: auto;
 }
-
-/* Phones: the note list becomes a strip above the note. */
 
 @media (max-width: 40rem) {
   .app {

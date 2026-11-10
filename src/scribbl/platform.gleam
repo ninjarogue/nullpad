@@ -1,6 +1,3 @@
-//// Small browser facilities that are neither the editor nor storage: a
-//// timer, one remembered setting, a global shortcut, the page being hidden,
-//// the clipboard.
 //// Imported by: the app shell and `scribbl.main`. Imports: lustre/effect.
 
 import lustre/effect.{type Effect}

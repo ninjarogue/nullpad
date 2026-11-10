@@ -3,17 +3,13 @@
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import scribbl/storage.{
   type Backend, type Failure, type Record, type Reply, Backend, NotFound, Record,
   Unavailable,
 }
 
-/// Each `Backend` field adapts one function of `indexeddb.ffi.mjs`. The JS
-/// side speaks plain values and callbacks. What it hands back is decoded
-/// here, so JavaScript never constructs Gleam data and a record of the wrong
-/// shape becomes a `Failure`, not a crash later on.
 pub fn backend() -> Backend {
   Backend(
     all: fn(reply) {
@@ -29,7 +25,7 @@ pub fn backend() -> Backend {
     },
     put: fn(key, title, body, reply) {
       let done = fn() { reply(Ok(Nil)) }
-      put(key, option.unwrap(title, ""), body, done, failed(reply))
+      put(key, or_null(title), body, done, failed(reply))
     },
     add: fn(reply) {
       let added = fn(record) { reply(parse(record, record_decoder())) }
@@ -51,17 +47,18 @@ fn parse(stored: Dynamic, decoder: Decoder(a)) -> Result(a, Failure) {
   |> result.replace_error(Unavailable("a stored note could not be read"))
 }
 
-/// A stored record is `{ key, title, body, modified }`. A note without a
-/// typed title is stored with the title "".
+fn or_null(text: Option(String)) -> Dynamic {
+  case text {
+    Some(text) -> dynamic.string(text)
+    None -> dynamic.nil()
+  }
+}
+
 fn record_decoder() -> Decoder(Record) {
   use key <- decode.field("key", decode.string)
-  use title <- decode.field("title", decode.string)
+  use title <- decode.field("title", decode.optional(decode.string))
   use body <- decode.field("body", decode.string)
   use modified_ms <- decode.field("modified", decode.int)
-  let title = case title {
-    "" -> None
-    _ -> Some(title)
-  }
   decode.success(Record(key:, title:, body:, modified_ms:))
 }
 
@@ -79,7 +76,7 @@ fn get(
 @external(javascript, "./indexeddb.ffi.mjs", "put")
 fn put(
   key: String,
-  title: String,
+  title: Dynamic,
   body: String,
   done: fn() -> Nil,
   fail: fn(String) -> Nil,
