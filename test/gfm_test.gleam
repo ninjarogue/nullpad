@@ -1,4 +1,4 @@
-import commonmark/expected.{type Listing, Tables}
+import commonmark/expected.{type Listing, Autolinks, LinkReferences, RawHtml}
 import commonmark/report.{type Outcome}
 import commonmark/spec
 import gleam/io
@@ -7,31 +7,9 @@ import gleam/list
 const name = "GFM tables, strikethrough and task lists"
 
 const expected_failures: Listing = [
-  #(Tables, [
-    198,
-    199,
-    200,
-    201,
-    202,
-    204,
-    205,
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    8,
-    9,
-    10,
-    11,
-    12,
-    13,
-    14,
-    15,
-    16,
-    27,
-  ]),
+  #(LinkReferences, [13]),
+  #(Autolinks, [27]),
+  #(RawHtml, [12]),
 ]
 
 fn outcomes() -> List(Outcome) {

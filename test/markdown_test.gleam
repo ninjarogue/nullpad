@@ -4,9 +4,10 @@ import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
 import nullpad/markdown.{
-  Block, BulletList, Code, CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
-  Item, Link, Loose, OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task,
-  Text, Tight,
+  type Alignment, type Cell, Block, BulletList, Center, Code, CodeBlock, Column,
+  Emphasis, H1, H2, H3, H4, H5, H6, Heading, Item, Left, Link, Loose,
+  OrderedList, Paragraph, Quote, Right, Rule, Strike, Strong, Table, Task, Text,
+  Tight, Unaligned,
 }
 import nullpad/preview
 
@@ -882,6 +883,361 @@ pub fn first_text_reads_the_first_line_of_code_test() {
 pub fn first_text_keeps_marks_that_do_not_close_test() {
   assert markdown.first_text("**bold") == "**bold"
   assert markdown.first_text("\\*a\\*") == "*a*"
+}
+
+pub fn a_delimiter_row_under_a_line_makes_a_table_test() {
+  assert markdown.parse("| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |")
+    == [
+      Block(
+        0,
+        3,
+        Table([column(Unaligned, "a"), column(Unaligned, "b")], [
+          row(["1", "2"]),
+          row(["3", "4"]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_table_may_be_a_header_alone_test() {
+  assert markdown.parse("| a |\n| - |")
+    == [Block(0, 1, Table([column(Unaligned, "a")], []))]
+}
+
+pub fn colons_in_the_delimiter_row_set_each_alignment_test() {
+  assert markdown.parse("a | b | c | d\n:-- | :-: | --: | ---")
+    == [
+      Block(
+        0,
+        1,
+        Table(
+          [
+            column(Left, "a"),
+            column(Center, "b"),
+            column(Right, "c"),
+            column(Unaligned, "d"),
+          ],
+          [],
+        ),
+      ),
+    ]
+}
+
+pub fn the_pipes_at_the_ends_of_a_row_are_optional_test() {
+  let table =
+    Table([column(Unaligned, "a"), column(Unaligned, "b")], [row(["c", "d"])])
+
+  assert markdown.parse("a | b\n-|-\nc | d") == [Block(0, 2, table)]
+  assert markdown.parse("|a|b|\n|-|-|\n|c|d|") == [Block(0, 2, table)]
+}
+
+pub fn an_empty_cell_between_pipes_is_a_cell_test() {
+  assert markdown.parse("| a | b | c |\n|-|-|-|\n| d || e |")
+    == [
+      Block(
+        0,
+        2,
+        Table(
+          [
+            column(Unaligned, "a"),
+            column(Unaligned, "b"),
+            column(Unaligned, "c"),
+          ],
+          [row(["d", "", "e"])],
+        ),
+      ),
+    ]
+}
+
+pub fn short_rows_are_padded_and_long_rows_are_cut_test() {
+  assert markdown.parse(
+      "| a | b | c |\n|---|---|---|\n| x |\n| 1 | 2 | 3 | 4 | 5 |",
+    )
+    == [
+      Block(
+        0,
+        3,
+        Table(
+          [
+            column(Unaligned, "a"),
+            column(Unaligned, "b"),
+            column(Unaligned, "c"),
+          ],
+          [row(["x", "", ""]), row(["1", "2", "3"])],
+        ),
+      ),
+    ]
+}
+
+pub fn a_header_and_a_delimiter_row_that_disagree_make_no_table_test() {
+  let text = "| a | b | c |\n| --- | --- |\n| 1 | 2 | 3 |"
+
+  assert markdown.parse(text) == [Block(0, 2, Paragraph([Text(text)]))]
+}
+
+pub fn a_dash_underline_makes_a_heading_before_it_makes_a_table_test() {
+  assert markdown.parse("a\n---") == [Block(0, 1, Heading(H2, [Text("a")]))]
+  assert markdown.parse("a\n|-|")
+    == [Block(0, 1, Table([column(Unaligned, "a")], []))]
+  assert markdown.parse("a\n:-")
+    == [Block(0, 1, Table([column(Left, "a")], []))]
+}
+
+pub fn a_delimiter_row_has_only_dashes_colons_pipes_and_spaces_test() {
+  let text = "a | b\n-|-x"
+
+  assert markdown.parse(text) == [Block(0, 1, Paragraph([Text(text)]))]
+  assert markdown.parse("a | b\n: | -") == [para_lines(0, ["a | b", ": | -"])]
+}
+
+pub fn an_escaped_pipe_stays_in_its_cell_test() {
+  assert markdown.parse("| a |\n|---|\n| b \\| c |\n| `d\\|e` |")
+    == [
+      Block(
+        0,
+        3,
+        Table([column(Unaligned, "a")], [row(["b | c"]), [[Code("d|e")]]]),
+      ),
+    ]
+}
+
+pub fn a_backslash_before_a_pipe_escapes_it_after_another_backslash_too_test() {
+  assert markdown.parse("| a |\n|---|\n| x\\\\|y |")
+    == [Block(0, 2, Table([column(Unaligned, "a")], [row(["x|y"])]))]
+}
+
+pub fn a_code_span_does_not_hold_a_pipe_test() {
+  assert markdown.parse("| a | b |\n|-|-|\n| `x|y` |")
+    == [
+      Block(
+        0,
+        2,
+        Table([column(Unaligned, "a"), column(Unaligned, "b")], [
+          row(["`x", "y`"]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_cell_is_trimmed_and_read_for_inlines_test() {
+  assert markdown.parse("|  *a*\t| [b](/u) |\n|-|-|\n| **c** | `d` ~~e~~ |")
+    == [
+      Block(
+        0,
+        2,
+        Table(
+          [
+            Column(Unaligned, [Emphasis([Text("a")])]),
+            Column(Unaligned, [Link([Text("b")], "/u", None)]),
+          ],
+          [
+            [
+              [Strong([Text("c")])],
+              [Code("d"), Text(" "), Strike([Text("e")])],
+            ],
+          ],
+        ),
+      ),
+    ]
+}
+
+pub fn a_mark_does_not_reach_into_the_next_cell_test() {
+  assert markdown.parse("| *a | b* |\n|-|-|")
+    == [
+      Block(0, 1, Table([column(Unaligned, "*a"), column(Unaligned, "b*")], [])),
+    ]
+}
+
+pub fn a_table_ends_at_a_blank_line_test() {
+  assert markdown.parse("a|b\n-|-\nc|d\n\ne|f")
+    == [Block(0, 2, two_columns([row(["c", "d"])])), para(4, "e|f")]
+}
+
+pub fn a_line_that_starts_no_block_is_a_row_test() {
+  assert markdown.parse("a|b\n-|-\nplain\n   indented")
+    == [Block(0, 3, two_columns([row(["plain", ""]), row(["indented", ""])]))]
+}
+
+pub fn another_block_ends_a_table_test() {
+  let table = Block(0, 1, two_columns([]))
+
+  assert markdown.parse("a|b\n-|-\n> q")
+    == [table, Block(2, 2, Quote([para(2, "q")]))]
+  assert markdown.parse("a|b\n-|-\n# h")
+    == [table, Block(2, 2, Heading(H1, [Text("h")]))]
+  assert markdown.parse("a|b\n-|-\n```\nc")
+    == [table, Block(2, 3, CodeBlock(None, "c\n"))]
+  assert markdown.parse("a|b\n-|-\n***") == [table, Block(2, 2, Rule)]
+  assert markdown.parse("a|b\n-|-\n---") == [table, Block(2, 2, Rule)]
+  assert markdown.parse("a|b\n-|-\n    code")
+    == [table, Block(2, 2, CodeBlock(None, "code\n"))]
+  assert markdown.parse("a|b\n-|-\n- i")
+    == [table, Block(2, 2, BulletList(Tight, [item(2, [para(2, "i")])]))]
+  assert markdown.parse("a|b\n-|-\n2. i")
+    == [
+      table,
+      Block(2, 2, OrderedList(2, Tight, [item(2, [para(2, "i")])])),
+    ]
+}
+
+pub fn a_line_with_no_cell_ends_a_table_test() {
+  assert markdown.parse("a|b\n-|-\n|\nc")
+    == [
+      Block(0, 1, two_columns([])),
+      Block(2, 3, Paragraph([Text("|\nc")])),
+    ]
+}
+
+pub fn a_table_is_not_continued_lazily_test() {
+  assert markdown.parse("> a|b\n> -|-\nc|d")
+    == [Block(0, 1, Quote([Block(0, 1, two_columns([]))])), para(2, "c|d")]
+}
+
+pub fn a_table_inside_a_quote_ends_with_the_quote_test() {
+  assert markdown.parse("> a|b\n> -|-\n> c|d")
+    == [Block(0, 2, Quote([Block(0, 2, two_columns([row(["c", "d"])]))]))]
+}
+
+pub fn a_table_inside_an_item_ends_with_the_item_test() {
+  assert markdown.parse("- a|b\n  -|-\n  c|d\n- e")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Tight, [
+          item(0, [Block(0, 2, two_columns([row(["c", "d"])]))]),
+          item(3, [para(3, "e")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_table_header_may_be_the_first_line_after_a_marker_and_a_box_test() {
+  let assert [
+    Block(content: BulletList(items: [Item(task: Some(_), ..)], ..), ..),
+  ] = markdown.parse("- [ ] a|b\n  -|-")
+}
+
+pub fn lines_above_the_header_are_a_paragraph_of_their_own_test() {
+  assert markdown.parse("123\n456\n| a | b |\n| --- | --- |\nd | e")
+    == [
+      Block(0, 1, Paragraph([Text("123\n456")])),
+      Block(2, 4, two_columns([row(["d", "e"])])),
+    ]
+}
+
+pub fn lines_above_the_header_lose_the_backslash_of_an_escaped_pipe_test() {
+  assert markdown.parse("`a\\|b`\nc|d\n-|-")
+    == [
+      Block(0, 0, Paragraph([Code("a|b")])),
+      Block(1, 2, Table([column(Unaligned, "c"), column(Unaligned, "d")], [])),
+    ]
+}
+
+pub fn a_delimiter_row_no_header_matches_ends_the_search_in_its_paragraph_test() {
+  let text = "a|b\n-|-|-\nc|d\n-|-"
+
+  assert markdown.parse(text) == [Block(0, 3, Paragraph([Text(text)]))]
+  assert markdown.parse("a|b\n-|-|-\n\nc|d\n-|-")
+    == [
+      Block(0, 1, Paragraph([Text("a|b\n-|-|-")])),
+      Block(3, 4, Table([column(Unaligned, "c"), column(Unaligned, "d")], [])),
+    ]
+}
+
+pub fn a_delimiter_row_indented_four_spaces_is_text_test() {
+  assert markdown.parse("a|b\n    -|-") == [para_lines(0, ["a|b", "-|-"])]
+  assert markdown.parse("a|b\n   -|-") == [Block(0, 1, two_columns([]))]
+}
+
+pub fn a_delimiter_row_needs_every_container_matched_test() {
+  assert markdown.parse("> a|b\n-|-")
+    == [Block(0, 1, Quote([para_lines(0, ["a|b", "-|-"])]))]
+}
+
+pub fn a_table_keeps_its_rows_for_the_list_spacing_test() {
+  assert spacing("- a\n  b|c\n  -|-\n  d|e") == Tight
+  assert spacing("- a\n\n  b|c\n  -|-") == Loose
+  assert spacing("- b|c\n  -|-\n  d|e\n\n  f") == Loose
+  assert spacing("- b|c\n  -|-\n- d") == Tight
+}
+
+pub fn rows_stop_when_their_padding_passes_the_bound_test() {
+  let columns = 1000
+  let header = "|" <> string.repeat("a|", columns) <> "\n"
+  let delimiter = "|" <> string.repeat("-|", columns) <> "\n"
+  let accepted = 524_288 / { columns - 1 } + 1
+  let blocks = markdown.parse(header <> delimiter <> string.repeat("x\n", 600))
+
+  let assert [
+    Block(last_row: table_end, content: Table(rows:, ..), ..),
+    Block(first_row:, content: Paragraph([Text(text)]), ..),
+  ] = blocks
+  assert list.length(rows) == accepted
+  assert table_end == accepted + 1
+  assert first_row == accepted + 2
+  assert text == string.repeat("x\n", 600 - accepted - 1) <> "x"
+}
+
+pub fn a_row_of_a_hundred_thousand_cells_is_that_many_cells_test() {
+  let row = "|" <> string.repeat("a|", 100_000) <> "\n"
+  let delimiter = "|" <> string.repeat("-|", 100_000) <> "\n"
+  let assert [Block(content: Table(columns:, rows: [cells]), ..)] =
+    markdown.parse(row <> delimiter <> row)
+
+  assert list.length(columns) == 100_000
+  assert list.length(cells) == 100_000
+}
+
+pub fn a_hundred_thousand_rows_are_that_many_rows_test() {
+  let assert [Block(last_row:, content: Table(rows:, ..), ..)] =
+    markdown.parse("|a|\n|-|\n" <> string.repeat("|x|\n", 100_000))
+
+  assert list.length(rows) == 100_000
+  assert last_row == 100_001
+}
+
+pub fn first_text_of_a_table_is_its_first_cell_with_words_test() {
+  assert markdown.first_text("| | **b** |\n|-|-|\n| c | d |") == "b"
+  assert markdown.first_text("| |\n|-|\n| *c* |") == "c"
+}
+
+pub fn a_box_in_a_cell_is_no_task_test() {
+  assert markdown.set_task("| a |\n|-|\n| [ ] |", Task(False, 2, 3), True)
+    == Error(Nil)
+}
+
+fn column(alignment: Alignment, text: String) -> markdown.Column {
+  Column(alignment, cell(text))
+}
+
+fn row(texts: List(String)) -> List(Cell) {
+  list.map(texts, cell)
+}
+
+fn cell(text: String) -> Cell {
+  case text {
+    "" -> []
+    _ -> [Text(text)]
+  }
+}
+
+fn two_columns(rows: List(List(Cell))) -> markdown.Content {
+  Table([column(Unaligned, "a"), column(Unaligned, "b")], rows)
+}
+
+fn para_lines(row: Int, lines: List(String)) -> markdown.Block {
+  Block(
+    row,
+    row + list.length(lines) - 1,
+    Paragraph([Text(string.join(lines, "\n"))]),
+  )
+}
+
+fn spacing(source: String) -> markdown.Spacing {
+  let assert [Block(content: BulletList(spacing:, ..), ..)] =
+    markdown.parse(source)
+  spacing
 }
 
 fn depth(inlines: List(markdown.Inline)) -> Int {

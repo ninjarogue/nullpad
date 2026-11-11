@@ -16,8 +16,6 @@ pub type Reason {
   RawHtml
   HardBreaks
   Entities
-  // Until the parser reads them: every table example.
-  Tables
 }
 
 /// The examples that may fail, by the missing feature each one needs.
