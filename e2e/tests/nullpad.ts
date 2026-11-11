@@ -14,6 +14,9 @@ export const retryMs = 5000;
 /** A browser timer can fire a little early by the test's clock. */
 export const timerSlackMs = 50;
 
+export const contrast = (a: number, b: number) =>
+  (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
 export const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type PageDisk = {
@@ -177,6 +180,10 @@ class Page {
   readonly quotes: Locator;
   readonly codeBlocks: Locator;
   readonly rules: Locator;
+  readonly tables: Locator;
+  readonly tableBoxes: Locator;
+  readonly headers: Locator;
+  readonly cells: Locator;
   readonly delete: Locator;
   readonly confirmDelete: Locator;
   readonly keep: Locator;
@@ -211,6 +218,10 @@ class Page {
     this.quotes = this.inPreview('blockquote');
     this.codeBlocks = this.inPreview('pre');
     this.rules = this.preview.getByRole('separator');
+    this.tables = this.inPreview('table');
+    this.tableBoxes = this.preview.getByRole('region', 'Table');
+    this.headers = this.preview.getByRole('columnheader');
+    this.cells = this.preview.getByRole('cell');
     this.delete = screen.getByTestId('delete-note');
     this.confirmDelete = screen.getByTestId('confirm-delete');
     this.keep = screen.getByRole('button', 'Keep');
@@ -265,6 +276,58 @@ class Page {
         marker: getComputedStyle(item).listStyleType,
       };
     }, nth);
+  }
+
+  /** The room left of the nth `th` or `td`'s text and right of it, inside the cell's padding. */
+  measureCell(tag: 'th' | 'td', nth: number) {
+    return this.browser.evaluate(
+      (which: { tag: string; nth: number }) => {
+        const cell = document.querySelectorAll(`[data-test-id="preview"] ${which.tag}`)[which.nth];
+        const words = document.createRange();
+        words.selectNodeContents(cell);
+        const text = words.getBoundingClientRect();
+        const box = cell.getBoundingClientRect();
+        const style = getComputedStyle(cell);
+        return {
+          before: text.left - (box.left + parseFloat(style.paddingLeft)),
+          after: box.right - parseFloat(style.paddingRight) - text.right,
+        };
+      },
+      { tag, nth },
+    );
+  }
+
+  /** How far the page, the rendered page and each table's box overflow sideways. */
+  measureTables() {
+    return this.browser.evaluate(() => {
+      const preview = document.querySelector('[data-test-id="preview"]')!;
+      const boxes = [...preview.querySelectorAll('.table-scroll')];
+      return {
+        window: innerWidth,
+        page: document.documentElement.scrollWidth,
+        previewClient: preview.clientWidth,
+        previewScroll: preview.scrollWidth,
+        boxRights: boxes.map((box) => box.getBoundingClientRect().right),
+        boxOverflow: boxes.map((box) => box.scrollWidth - box.clientWidth),
+        boxScrolled: boxes.map((box) => box.scrollLeft),
+      };
+    });
+  }
+
+  /** The relative luminance of each CSS colour given, as the eye weighs it. */
+  luminances(colors: string[]) {
+    return this.browser.evaluate((colors: string[]) => {
+      const canvas = document.createElement('canvas').getContext('2d')!;
+      return colors.map((color) => {
+        canvas.fillStyle = color;
+        canvas.fillRect(0, 0, 1, 1);
+        const [r, g, b] = [...canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((channel) => {
+          const unit = channel / 255;
+          return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      });
+    }, colors);
   }
 
   async hide() {
