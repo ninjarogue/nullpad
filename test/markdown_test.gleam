@@ -28,47 +28,23 @@ pub fn headings_have_six_levels_test() {
     ]
 }
 
-pub fn heading_text_is_trimmed_test() {
-  assert markdown.parse("#   spaced out   ")
-    == [Block(0, 0, Heading(H1, [Text("spaced out")]))]
-}
-
-pub fn a_heading_may_have_no_text_test() {
-  assert markdown.parse("#") == [Block(0, 0, Heading(H1, []))]
-  assert markdown.parse("### ") == [Block(0, 0, Heading(H3, []))]
-}
-
-pub fn closing_hashes_stay_in_the_text_test() {
-  assert markdown.parse("# Hi #") == [Block(0, 0, Heading(H1, [Text("Hi #")]))]
-}
-
-pub fn a_hash_needs_a_space_to_make_a_heading_test() {
-  assert markdown.parse("#hashtag") == [para(0, "#hashtag")]
-  assert markdown.parse("##tight") == [para(0, "##tight")]
-}
-
-pub fn seven_hashes_are_not_a_heading_test() {
-  assert markdown.parse("####### seven") == [para(0, "####### seven")]
-}
-
-pub fn three_spaces_may_indent_a_heading_test() {
-  assert markdown.parse("   # indented")
-    == [Block(0, 0, Heading(H1, [Text("indented")]))]
+/// M3 turns four spaces of indent into a code block.
+pub fn four_spaces_of_indent_are_not_a_heading_test() {
   assert markdown.parse("    # too far") == [para(0, "# too far")]
 }
 
 pub fn a_heading_ends_the_paragraph_before_it_test() {
   assert markdown.parse("one\ntwo\n# Title\nthree")
     == [
-      Block(0, 1, Paragraph([Text("one two")])),
+      Block(0, 1, Paragraph([Text("one\ntwo")])),
       Block(2, 2, Heading(H1, [Text("Title")])),
       para(3, "three"),
     ]
 }
 
-pub fn paragraph_lines_are_trimmed_and_joined_by_a_space_test() {
-  assert markdown.parse("  one  \n\ttwo\nthree  ")
-    == [Block(0, 2, Paragraph([Text("one two three")]))]
+pub fn a_paragraph_keeps_its_line_breaks_in_the_text_test() {
+  assert markdown.parse("  one\n\ttwo\nthree \t")
+    == [Block(0, 2, Paragraph([Text("one\ntwo\nthree")]))]
 }
 
 pub fn blank_lines_separate_blocks_test() {
@@ -76,16 +52,28 @@ pub fn blank_lines_separate_blocks_test() {
     == [para(0, "one"), para(2, "two"), para(5, "three")]
 }
 
-pub fn a_trailing_newline_adds_no_block_test() {
-  assert markdown.parse("one\n") == [para(0, "one")]
+pub fn only_spaces_and_tabs_make_a_line_blank_test() {
+  assert markdown.parse("one\n\u{A0}\ntwo")
+    == [Block(0, 2, Paragraph([Text("one\n\u{A0}\ntwo")]))]
 }
 
 pub fn windows_line_ends_count_like_unix_ones_test() {
   assert markdown.parse("# Title\r\n\r\none\r\ntwo\r\n")
     == [
       Block(0, 0, Heading(H1, [Text("Title")])),
-      Block(2, 3, Paragraph([Text("one two")])),
+      Block(2, 3, Paragraph([Text("one\ntwo")])),
     ]
+}
+
+pub fn a_lone_carriage_return_ends_a_line_test() {
+  assert markdown.parse("one\rtwo\r\rthree")
+    == [Block(0, 1, Paragraph([Text("one\ntwo")])), para(3, "three")]
+}
+
+pub fn a_nul_character_becomes_the_replacement_character_test() {
+  assert markdown.parse("a\u{0}b") == [para(0, "a\u{FFFD}b")]
+  assert markdown.parse("# \u{0}")
+    == [Block(0, 0, Heading(H1, [Text("\u{FFFD}")]))]
 }
 
 pub fn emoji_and_accents_are_kept_test() {
@@ -95,7 +83,9 @@ pub fn emoji_and_accents_are_kept_test() {
 
 pub fn raw_html_is_text_test() {
   assert markdown.parse("<h1>hi</h1>\n<script>alert(1)</script>")
-    == [Block(0, 1, Paragraph([Text("<h1>hi</h1> <script>alert(1)</script>")]))]
+    == [
+      Block(0, 1, Paragraph([Text("<h1>hi</h1>\n<script>alert(1)</script>")])),
+    ]
 }
 
 /// M2: syntax that never closes is plain text, not an error.

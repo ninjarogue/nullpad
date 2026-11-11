@@ -1,7 +1,7 @@
 //// Hand-written markdown parser. Pure Gleam: text in, tree out. Not
 //// CommonMark-complete on purpose.
 ////
-//// The rule that keeps it small: inline markup never spans a line break.
+//// The lines of a paragraph are joined with "\n" before inline parsing.
 //// Two private layers, shared by `parse` and `highlight` so there is one
 //// grammar and the editor and the rendered page cannot disagree:
 ////   classify(line) -> LineKind   Blank | HeadingLine(level, text) |
@@ -30,7 +30,8 @@ pub type Block {
 pub type Content {
   // M2
   Heading(level: Level, text: List(Inline))
-  /// Source lines are joined with one space.
+  /// A line break between source lines stays in the text as "\n" (a soft
+  /// break). The page shows it as a space, because HTML collapses it.
   Paragraph(text: List(Inline))
   // M3
   BulletList(items: List(Item))
@@ -82,74 +83,95 @@ pub type Inline {
 /// is no error type.
 pub fn parse(source: String) -> List(Block) {
   source
-  |> string.replace("\r\n", "\n")
-  |> string.split("\n")
+  |> string.replace("\u{0}", "\u{FFFD}")
+  |> characters
+  |> split_lines([], [])
   |> list.index_map(fn(line, row) { #(row, classify(line)) })
   |> read_blocks([])
 }
 
+/// One string per code point: the spec's "character".
+fn characters(text: String) -> List(String) {
+  text
+  |> string.to_utf_codepoints
+  |> list.map(fn(codepoint) { string.from_utf_codepoints([codepoint]) })
+}
+
+fn split_lines(
+  chars: List(String),
+  line: List(String),
+  done: List(List(String)),
+) -> List(List(String)) {
+  case chars {
+    [] -> list.reverse([list.reverse(line), ..done])
+    ["\r", "\n", ..rest] | ["\r", ..rest] | ["\n", ..rest] ->
+      split_lines(rest, [], [list.reverse(line), ..done])
+    [char, ..rest] -> split_lines(rest, [char, ..line], done)
+  }
+}
+
 type LineKind {
   Blank
-  HeadingLine(level: Level, text: String)
-  TextLine(text: String)
+  HeadingLine(level: Level, text: List(String))
+  /// Leading spaces and tabs already dropped.
+  TextLine(text: List(String))
 }
 
 type Lines =
   List(#(Int, LineKind))
 
-fn classify(line: String) -> LineKind {
-  case trim(line) {
-    "" -> Blank
+fn classify(line: List(String)) -> LineKind {
+  case drop_spaces(line) {
+    [] -> Blank
     text ->
-      case heading(line) {
+      case heading(drop_indent(line, 3)) {
         Ok(#(level, heading_text)) -> HeadingLine(level, heading_text)
         Error(Nil) -> TextLine(text)
       }
   }
 }
 
-fn heading(line: String) -> Result(#(Level, String), Nil) {
-  case drop_indent(line, 3) {
-    "######" <> rest -> heading_text(H6, rest)
-    "#####" <> rest -> heading_text(H5, rest)
-    "####" <> rest -> heading_text(H4, rest)
-    "###" <> rest -> heading_text(H3, rest)
-    "##" <> rest -> heading_text(H2, rest)
-    "#" <> rest -> heading_text(H1, rest)
+fn heading(line: List(String)) -> Result(#(Level, List(String)), Nil) {
+  let #(marks, after_marks) = list.split_while(line, fn(char) { char == "#" })
+  let level = case list.length(marks) {
+    1 -> Ok(H1)
+    2 -> Ok(H2)
+    3 -> Ok(H3)
+    4 -> Ok(H4)
+    5 -> Ok(H5)
+    6 -> Ok(H6)
     _ -> Error(Nil)
+  }
+  case level, after_marks {
+    Ok(level), [] | Ok(level), [" ", ..] | Ok(level), ["\t", ..] ->
+      Ok(#(level, heading_content(after_marks)))
+    _, _ -> Error(Nil)
   }
 }
 
-fn heading_text(
-  level: Level,
-  after_marks: String,
-) -> Result(#(Level, String), Nil) {
-  case after_marks {
-    "" | " " <> _ -> Ok(#(level, trim(after_marks)))
-    _ -> Error(Nil)
+/// The optional closing run of `#` goes when a space or tab comes before it,
+/// or when it is all there is: `# foo #` is "foo", `# foo#` is "foo#".
+fn heading_content(after_marks: List(String)) -> List(String) {
+  let backwards = after_marks |> drop_spaces |> list.reverse |> drop_spaces
+  case list.drop_while(backwards, fn(char) { char == "#" }) {
+    [] -> []
+    [" ", ..] as before | ["\t", ..] as before ->
+      before |> drop_spaces |> list.reverse
+    _ -> list.reverse(backwards)
   }
 }
 
-/// What `string.trim` does, without its quadratic end: its regex retries from
-/// every space of a long run of spaces inside the text.
-fn trim(text: String) -> String {
-  text
-  |> string.trim_start
-  |> string.to_utf_codepoints
-  |> list.reverse
-  |> list.drop_while(fn(codepoint) {
-    case string.utf_codepoint_to_int(codepoint) {
-      9 | 10 | 11 | 12 | 13 | 32 | 0x85 | 0x2028 | 0x2029 -> True
-      _ -> False
-    }
-  })
-  |> list.reverse
-  |> string.from_utf_codepoints
+fn drop_spaces(chars: List(String)) -> List(String) {
+  list.drop_while(chars, fn(char) { char == " " || char == "\t" })
 }
 
-fn drop_indent(line: String, allowed: Int) -> String {
+fn drop_spaces_end(chars: List(String)) -> List(String) {
+  chars |> list.reverse |> drop_spaces |> list.reverse
+}
+
+fn drop_indent(line: List(String), allowed: Int) -> List(String) {
   case line {
-    " " <> rest if allowed > 0 -> drop_indent(rest, allowed - 1)
+    [" ", ..rest] if allowed > 0 -> drop_indent(rest, allowed - 1)
     _ -> line
   }
 }
@@ -163,28 +185,33 @@ fn read_blocks(lines: Lines, done: List(Block)) -> List(Block) {
       read_blocks(rest, [block, ..done])
     }
     [#(row, TextLine(text)), ..rest] -> {
-      let #(block, rest) = read_paragraph(row, row, [inlines(text)], rest)
+      let #(block, rest) = read_paragraph(row, row, [text], rest)
       read_blocks(rest, [block, ..done])
     }
   }
 }
 
+/// `read` holds the lines so far, last first.
 fn read_paragraph(
   first_row: Int,
   last_row: Int,
-  read: List(List(Inline)),
+  read: List(List(String)),
   lines: Lines,
 ) -> #(Block, Lines) {
   case lines {
     [#(row, TextLine(text)), ..rest] ->
-      read_paragraph(first_row, row, [inlines(text), ..read], rest)
+      read_paragraph(first_row, row, [text, ..read], rest)
     [] | [#(_, Blank), ..] | [#(_, HeadingLine(..)), ..] -> {
+      let raw = case read {
+        [last, ..before] -> [drop_spaces_end(last), ..before]
+        [] -> []
+      }
       let text =
-        read
+        raw
         |> list.reverse
-        |> list.intersperse([Text(" ")])
+        |> list.intersperse(["\n"])
         |> list.flatten
-        |> normalize
+        |> inlines
       #(Block(first_row, last_row, Paragraph(text)), lines)
     }
   }
@@ -215,8 +242,8 @@ type Weight {
   Triple
 }
 
-fn inlines(text: String) -> List(Inline) {
-  text |> string.to_graphemes |> tokenize("", []) |> pair
+fn inlines(chars: List(String)) -> List(Inline) {
+  chars |> string.concat |> string.to_graphemes |> tokenize("", []) |> pair
 }
 
 /// `previous` is the grapheme just before `graphemes`, or "" at the start.
