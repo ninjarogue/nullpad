@@ -22,6 +22,7 @@ import lustre/event
 import scribbl/editor.{type Editor, type Outcome, Outcome}
 import scribbl/markdown
 import scribbl/platform
+import scribbl/preview
 import scribbl/storage.{
   type Failure, type Note, type NoteId, type Storage, type Summary, Note,
 }
@@ -422,9 +423,7 @@ pub fn view(model: Model) -> Element(Msg) {
 }
 
 fn rendered(model: Model) -> Element(Msg) {
-  html.pre([attribute.class("preview"), attribute.data("test-id", "preview")], [
-    element.text(editor.text(model.editor)),
-  ])
+  markdown.parse(editor.text(model.editor)) |> preview.view(UserTickedTask)
 }
 
 fn sidebar(model: Model) -> Element(Msg) {

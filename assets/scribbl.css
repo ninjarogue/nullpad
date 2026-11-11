@@ -203,12 +203,15 @@ button:hover {
 
 .editor > *,
 .preview {
-  font: 1rem/1.6 var(--text-font);
   margin: 0;
   padding: 1.25rem max(1.25rem, calc((100% - 46rem) / 2));
+  overflow-wrap: break-word;
+}
+
+.editor > * {
+  font: 1rem/1.6 var(--text-font);
   tab-size: 4;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
 }
 
 .editor textarea {
@@ -219,7 +222,45 @@ button:hover {
 }
 
 .preview {
+  font: 1rem/1.7 var(--ui-font);
   overflow-y: auto;
+}
+
+.preview > :first-child {
+  margin-top: 0;
+}
+
+.preview p {
+  margin: 0 0 1em;
+}
+
+.preview :is(h1, h2, h3, h4, h5, h6) {
+  font-size: 1rem;
+  line-height: 1.25;
+  margin: 1.6em 0 0.5em;
+}
+
+.preview h1 {
+  font-size: 2rem;
+}
+
+.preview h2 {
+  font-size: 1.5rem;
+}
+
+.preview h3 {
+  font-size: 1.25rem;
+}
+
+.preview code {
+  background: var(--panel);
+  border-radius: 4px;
+  font: 0.9em var(--text-font);
+  padding: 0.1em 0.35em;
+}
+
+.preview a {
+  color: var(--accent);
 }
 
 @media (max-width: 40rem) {
