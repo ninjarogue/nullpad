@@ -954,7 +954,7 @@ fn open_table(
 /// check, so a line of prose costs one step.
 fn delimiter_alignments(text: List(String)) -> Result(List(Alignment), Nil) {
   let is_delimiter = fn(char) {
-    char == "-" || char == ":" || char == "|" || is_space_or_tab(char)
+    char == "-" || char == ":" || char == "|" || is_table_space(char)
   }
   case list.all(text, is_delimiter) {
     False -> Error(Nil)
@@ -966,15 +966,24 @@ fn delimiter_alignments(text: List(String)) -> Result(List(Alignment), Nil) {
   }
 }
 
+/// A vertical tab or form feed beside the colon makes the cell valid but
+/// leaves it unaligned on that side, as in cmark-gfm.
 fn alignment(cell: List(String)) -> Result(Alignment, Nil) {
-  let #(left, after_colon) = case cell {
+  let core =
+    cell
+    |> drop_table_spaces
+    |> list.reverse
+    |> drop_table_spaces
+    |> list.reverse
+  let #(colon_before, after_colon) = case core {
     [":", ..rest] -> #(True, rest)
-    _ -> #(False, cell)
+    _ -> #(False, core)
   }
+  let left = colon_before && list.first(cell) == Ok(":")
   case count_run(after_colon, "-", 0) {
     #(0, _) -> Error(Nil)
     #(_, []) -> Ok(align(left, False))
-    #(_, [":"]) -> Ok(align(left, True))
+    #(_, [":"]) -> Ok(align(left, list.last(cell) == Ok(":")))
     _ -> Error(Nil)
   }
 }
@@ -994,7 +1003,7 @@ fn align(left: Bool, right: Bool) -> Alignment {
 /// none of the cells has a line break. A row with no cells is not a row.
 fn split_cells(chars: List(String)) -> List(List(String)) {
   case chars {
-    ["|", ..rest] -> read_cells(drop_spaces(rest), [], [])
+    ["|", ..rest] -> read_cells(drop_table_spaces(rest), [], [])
     _ -> read_cells(chars, [], [])
   }
 }
@@ -1010,7 +1019,7 @@ fn read_cells(
     [], _ -> list.reverse([end_cell(cell), ..cells])
     ["\\", "|", ..rest], _ -> read_cells(rest, ["|", ..cell], cells)
     ["|", ..rest], _ ->
-      read_cells(drop_spaces(rest), [], [end_cell(cell), ..cells])
+      read_cells(drop_table_spaces(rest), [], [end_cell(cell), ..cells])
     [char, ..rest], _ -> read_cells(rest, [char, ..cell], cells)
   }
 }
@@ -1025,6 +1034,17 @@ fn unescape_pipes(chars: List(String), done: List(String)) -> List(String) {
 
 fn end_cell(backwards: List(String)) -> List(String) {
   backwards |> drop_spaces |> list.reverse
+}
+
+/// A vertical tab and a form feed count as spaces to cmark-gfm's table scanner
+/// when it skips past a pipe and in a delimiter row, but not when it trims a
+/// cell.
+fn is_table_space(char: String) -> Bool {
+  is_space_or_tab(char) || char == "\u{B}" || char == "\u{C}"
+}
+
+fn drop_table_spaces(chars: List(String)) -> List(String) {
+  list.drop_while(chars, is_table_space)
 }
 
 /// One cell for each of `width` columns: the cells past the last column are

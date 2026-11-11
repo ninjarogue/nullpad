@@ -931,6 +931,26 @@ pub fn the_pipes_at_the_ends_of_a_row_are_optional_test() {
   assert markdown.parse("|a|b|\n|-|-|\n|c|d|") == [Block(0, 2, table)]
 }
 
+pub fn a_vertical_tab_and_a_form_feed_are_spaces_after_a_pipe_test() {
+  let table =
+    Table([column(Unaligned, "a"), column(Left, "b")], [row(["c", "d"])])
+
+  assert markdown.parse("|\u{B}a|\u{C}b|\n|-\u{B}|\u{C}:-|\u{B}\n|c|\u{B}d|")
+    == [Block(0, 2, table)]
+}
+
+pub fn a_vertical_tab_beside_a_colon_leaves_that_side_unaligned_test() {
+  let table = Table([column(Unaligned, "a"), column(Left, "b")], [])
+
+  assert markdown.parse("a|b\n-:\u{B}|:-") == [Block(0, 1, table)]
+}
+
+pub fn a_vertical_tab_at_the_end_of_a_cell_stays_in_it_test() {
+  let table = Table([column(Unaligned, "a\u{B}")], [row(["b\u{C}"])])
+
+  assert markdown.parse("|a\u{B}|\n|-|\n|b\u{C}|") == [Block(0, 2, table)]
+}
+
 pub fn an_empty_cell_between_pipes_is_a_cell_test() {
   assert markdown.parse("| a | b | c |\n|-|-|-|\n| d || e |")
     == [
