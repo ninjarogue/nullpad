@@ -97,6 +97,34 @@ const inputs = {
   "indented code, blank lines after": (n) => "    a\n" + "\n".repeat(n),
   "tabs": (n) => "\t".repeat(n) + "a",
   "tabs after a bullet": (n) => "-" + "\t".repeat(n) + "a",
+  "a table of many columns": (n) =>
+    "|a".repeat(n) + "|\n" + "|-".repeat(n) + "|\n" + "|b".repeat(n) + "|",
+  "a table of many rows": (n) => "a|b\n-|-\n" + "c|d\n".repeat(n),
+  "a wide header over short rows": (n) =>
+    "|a".repeat(n) + "|\n" + "|-".repeat(n) + "|\n" + "|b|\n".repeat(n),
+  "a thousand columns over short rows": (n) =>
+    "|a".repeat(1000) + "|\n" + "|-".repeat(1000) + "|\n" + "|b|\n".repeat(n),
+  "a delimiter row that almost matches": (n) =>
+    "a|b\n" + "-|".repeat(n) + "-x\n" + "c|d",
+  "a delimiter row of too few cells": (n) =>
+    "a|b|c\n-|-\n".repeat(n),
+  "header lines with no delimiter row": (n) => "a|b\n".repeat(n),
+  "many small tables": (n) => "a|b\n-|-\n\n".repeat(n),
+  "a paragraph before each table": (n) => "x\ny|z\n-|-\n\n".repeat(n),
+  "rows that are escaped pipes": (n) =>
+    "|a|\n|-|\n|" + "\\|".repeat(n * 2) + "|",
+  "pipes and backslashes taking turns": (n) => "a|b\n-|-\n" + "|\\".repeat(n * 2),
+  "pipes in a code span that never closes": (n) =>
+    "a|b\n-|-\n" + "`a|".repeat(n),
+  "a code span cut by pipes, in every row": (n) =>
+    "a|b\n-|-\n" + "`a|b`|c\n".repeat(n),
+  "a table in a deep quote": (n) =>
+    "> ".repeat(40) + "a|b\n" + "> ".repeat(40) + "-|-\n" +
+    ("> ".repeat(40) + "c|d\n").repeat(n / 40),
+  "a table in a deep list": (n) =>
+    Array.from({ length: 30 }, (_, i) => "  ".repeat(i) + "- a\n").join("") +
+    " ".repeat(60) + "a|b\n" + " ".repeat(60) + "-|-\n" +
+    (" ".repeat(60) + "c|d\n").repeat(n / 10),
 };
 
 const titles = {
