@@ -164,6 +164,11 @@ class Page {
   readonly showPreview: Locator;
   readonly showSource: Locator;
   readonly preview: Locator;
+  readonly paragraphs: Locator;
+  readonly everything: Locator;
+  readonly strong: Locator;
+  readonly emphasis: Locator;
+  readonly code: Locator;
   readonly delete: Locator;
   readonly confirmDelete: Locator;
   readonly keep: Locator;
@@ -185,6 +190,12 @@ class Page {
     this.showPreview = screen.getByRole('button', 'Preview');
     this.showSource = screen.getByRole('button', 'Edit');
     this.preview = screen.getByTestId('preview');
+    const inPreview = (selector: string) => browser.locator(`[data-test-id="preview"] ${selector}`);
+    this.paragraphs = inPreview('p');
+    this.everything = inPreview('*');
+    this.strong = inPreview('strong');
+    this.emphasis = inPreview('em');
+    this.code = inPreview('code');
     this.delete = screen.getByTestId('delete-note');
     this.confirmDelete = screen.getByTestId('confirm-delete');
     this.keep = screen.getByRole('button', 'Keep');
