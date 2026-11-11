@@ -232,6 +232,53 @@ pub fn link_url_ends_at_the_first_paren_test() {
     == paragraph([Link([Text("a")], "b"), Text("c)")])
 }
 
+pub fn a_url_may_hold_balanced_parentheses_test() {
+  assert markdown.parse(
+      "[Rust](https://en.wikipedia.org/wiki/Rust_(programming_language))",
+    )
+    == paragraph([
+      Link(
+        [Text("Rust")],
+        "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+      ),
+    ])
+  assert markdown.parse("[x](javascript:alert(1))")
+    == paragraph([Link([Text("x")], "javascript:alert(1)")])
+  assert markdown.parse("[a](b(c(d)e)f)")
+    == paragraph([Link([Text("a")], "b(c(d)e)f")])
+}
+
+pub fn an_unbalanced_paren_ends_the_url_or_the_link_test() {
+  assert markdown.parse("[a](b(c)") == paragraph([Text("[a](b(c)")])
+  assert markdown.parse("[a](b(c) d)") == paragraph([Text("[a](b(c) d)")])
+  assert markdown.parse("[a](b))")
+    == paragraph([Link([Text("a")], "b"), Text(")")])
+  assert markdown.parse("[a]()") == paragraph([Link([Text("a")], "")])
+}
+
+pub fn parentheses_in_a_url_nest_32_deep_test() {
+  let level_32 = string.repeat("(", 32) <> string.repeat(")", 32)
+  assert markdown.parse("[a](" <> level_32 <> ")")
+    == paragraph([Link([Text("a")], level_32)])
+
+  let level_33 = string.repeat("(", 33) <> string.repeat(")", 33)
+  let text = "[a](" <> level_33 <> ")"
+  assert markdown.parse(text) == paragraph([Text(text)])
+}
+
+pub fn a_long_url_is_still_a_link_test() {
+  let url = string.repeat("x", 20_000)
+  assert markdown.parse("[a](" <> url <> ")")
+    == paragraph([Link([Text("a")], url)])
+}
+
+pub fn lines_of_link_starts_that_never_close_are_text_test() {
+  let starts = string.repeat("](", 20_000)
+  assert markdown.parse(starts) == paragraph([Text(starts)])
+  let opens = "[a](" <> string.repeat("(", 20_000)
+  assert markdown.parse(opens) == paragraph([Text(opens)])
+}
+
 pub fn links_do_not_nest_test() {
   assert markdown.parse("[[a](b)](c)")
     == paragraph([Text("["), Link([Text("a")], "b"), Text("](c)")])

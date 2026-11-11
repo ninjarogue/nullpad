@@ -369,7 +369,7 @@ fn read_delimiter(
 fn read_link_end(graphemes: List(String)) -> #(Token, List(String)) {
   case graphemes {
     ["]", "(", ..after] ->
-      case find_url_end(after, 0) {
+      case find_url_end(after, 0, 0) {
         Ok(#(length, rest)) -> {
           let url = after |> list.take(length) |> string.concat
           #(CloseLink(url), rest)
@@ -380,20 +380,31 @@ fn read_link_end(graphemes: List(String)) -> #(Token, List(String)) {
   }
 }
 
-/// Every `](` starts a scan, so a line of nothing but `](` would scan to its
-/// end from each one. A url longer than this is not a link.
-const max_url_length = 1000
+/// A `(` in a url that never closes raises the depth of every earlier scan
+/// still reading it, so no character is read by more than this many failing
+/// scans, plus one.
+const max_nesting = 32
 
 fn find_url_end(
   graphemes: List(String),
   length: Int,
+  depth: Int,
 ) -> Result(#(Int, List(String)), Nil) {
   case graphemes {
-    [")", ..rest] -> Ok(#(length, rest))
+    [")", ..rest] ->
+      case depth {
+        0 -> Ok(#(length, rest))
+        _ -> find_url_end(rest, length + 1, depth - 1)
+      }
+    ["(", ..rest] ->
+      case depth < max_nesting {
+        True -> find_url_end(rest, length + 1, depth + 1)
+        False -> Error(Nil)
+      }
     [grapheme, ..rest] ->
-      case is_space(grapheme) || length >= max_url_length {
+      case is_space(grapheme) {
         True -> Error(Nil)
-        False -> find_url_end(rest, length + 1)
+        False -> find_url_end(rest, length + 1, depth)
       }
     [] -> Error(Nil)
   }
