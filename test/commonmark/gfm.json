@@ -1,5 +1,93 @@
 [
   {
+    "markdown": "| foo | bar |\n| --- | --- |\n| baz | bim |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>foo</th>\n<th>bar</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>baz</td>\n<td>bim</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 198,
+    "start_line": 3326,
+    "end_line": 3345,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
+    "markdown": "| abc | defghi |\n:-: | -----------:\nbar | baz\n",
+    "html": "<table>\n<thead>\n<tr>\n<th align=\"center\">abc</th>\n<th align=\"right\">defghi</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td align=\"center\">bar</td>\n<td align=\"right\">baz</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 199,
+    "start_line": 3350,
+    "end_line": 3369,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
+    "markdown": "| f\\|oo  |\n| ------ |\n| b `\\|` az |\n| b **\\|** im |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>f|oo</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>b <code>|</code> az</td>\n</tr>\n<tr>\n<td>b <strong>|</strong> im</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 200,
+    "start_line": 3374,
+    "end_line": 3395,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
+    "markdown": "| abc | def |\n| --- | --- |\n| bar | baz |\n> bar\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>bar</td>\n<td>baz</td>\n</tr>\n</tbody>\n</table>\n<blockquote>\n<p>bar</p>\n</blockquote>\n",
+    "example": 201,
+    "start_line": 3400,
+    "end_line": 3423,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
+    "markdown": "| abc | def |\n| --- | --- |\n| bar | baz |\nbar\n\nbar\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>bar</td>\n<td>baz</td>\n</tr>\n<tr>\n<td>bar</td>\n<td></td>\n</tr>\n</tbody>\n</table>\n<p>bar</p>\n",
+    "example": 202,
+    "start_line": 3425,
+    "end_line": 3452,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
+    "markdown": "| abc | def |\n| --- |\n| bar |\n",
+    "html": "<p>| abc | def |\n| --- |\n| bar |</p>\n",
+    "example": 203,
+    "start_line": 3457,
+    "end_line": 3465,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
+    "markdown": "| abc | def |\n| --- | --- |\n| bar |\n| bar | baz | boo |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>bar</td>\n<td></td>\n</tr>\n<tr>\n<td>bar</td>\n<td>baz</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 204,
+    "start_line": 3471,
+    "end_line": 3495,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
+    "markdown": "| abc | def |\n| --- | --- |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n</table>\n",
+    "example": 205,
+    "start_line": 3499,
+    "end_line": 3511,
+    "section": "Tables (extension)",
+    "extensions": [
+      "table"
+    ]
+  },
+  {
     "markdown": "~~Hi~~ Hello, world!\n",
     "html": "<p><del>Hi</del> Hello, world!</p>\n",
     "example": 491,
@@ -20,6 +108,150 @@
     "extensions": [
       "strikethrough"
     ]
+  },
+  {
+    "markdown": "| abc | def |\n| --- | --- |\n| ghi | jkl |\n| mno | pqr |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>ghi</td>\n<td>jkl</td>\n</tr>\n<tr>\n<td>mno</td>\n<td>pqr</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 1,
+    "start_line": 13,
+    "end_line": 37,
+    "section": "Tables",
+    "extensions": []
+  },
+  {
+    "markdown": "Hello!\n\n| _abc_ | \u30bb\u30f3 |\n| ----- | ---- |\n| 1. Block elements inside cells don't work. | |\n| But _**inline elements do**_. | x |\n\nHi!\n",
+    "html": "<p>Hello!</p>\n<table>\n<thead>\n<tr>\n<th><em>abc</em></th>\n<th>\u30bb\u30f3</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1. Block elements inside cells don't work.</td>\n<td></td>\n</tr>\n<tr>\n<td>But <em><strong>inline elements do</strong></em>.</td>\n<td>x</td>\n</tr>\n</tbody>\n</table>\n<p>Hi!</p>\n",
+    "example": 2,
+    "start_line": 43,
+    "end_line": 73,
+    "section": "Tables",
+    "extensions": []
+  },
+  {
+    "markdown": "| Not enough table | to be considered table |\n\n| Not enough table | to be considered table |\n| Not enough table | to be considered table |\n\n| Just enough table | to be considered table |\n| ----------------- | ---------------------- |\n\n| ---- | --- |\n\n|x|\n|-|\n\n| xyz |\n| --- |\n",
+    "html": "<p>| Not enough table | to be considered table |</p>\n<p>| Not enough table | to be considered table |\n| Not enough table | to be considered table |</p>\n<table>\n<thead>\n<tr>\n<th>Just enough table</th>\n<th>to be considered table</th>\n</tr>\n</thead>\n</table>\n<p>| ---- | --- |</p>\n<table>\n<thead>\n<tr>\n<th>x</th>\n</tr>\n</thead>\n</table>\n<table>\n<thead>\n<tr>\n<th>xyz</th>\n</tr>\n</thead>\n</table>\n",
+    "example": 3,
+    "start_line": 77,
+    "end_line": 120,
+    "section": "Tables",
+    "extensions": []
+  },
+  {
+    "markdown": "abc | def\n--- | ---\nxyz | ghi\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>xyz</td>\n<td>ghi</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 4,
+    "start_line": 124,
+    "end_line": 143,
+    "section": "Tables",
+    "extensions": []
+  },
+  {
+    "markdown": "Hello!\n\n| _abc_ | \u30bb\u30f3 |\n| ----- | ---- |\n| this row has a space at the end | | \n| But _**inline elements do**_. | x |\n\nHi!\n",
+    "html": "<p>Hello!</p>\n<table>\n<thead>\n<tr>\n<th><em>abc</em></th>\n<th>\u30bb\u30f3</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>this row has a space at the end</td>\n<td></td>\n</tr>\n<tr>\n<td>But <em><strong>inline elements do</strong></em>.</td>\n<td>x</td>\n</tr>\n</tbody>\n</table>\n<p>Hi!</p>\n",
+    "example": 5,
+    "start_line": 148,
+    "end_line": 178,
+    "section": "Tables",
+    "extensions": []
+  },
+  {
+    "markdown": "aaa | bbb | ccc | ddd | eee\n:-- | --- | :-: | --- | --:\nfff | ggg | hhh | iii | jjj\n",
+    "html": "<table>\n<thead>\n<tr>\n<th align=\"left\">aaa</th>\n<th>bbb</th>\n<th align=\"center\">ccc</th>\n<th>ddd</th>\n<th align=\"right\">eee</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td align=\"left\">fff</td>\n<td>ggg</td>\n<td align=\"center\">hhh</td>\n<td>iii</td>\n<td align=\"right\">jjj</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 6,
+    "start_line": 182,
+    "end_line": 207,
+    "section": "Tables",
+    "extensions": []
+  },
+  {
+    "markdown": "| a | b | c |\n| --- | --- |\n| this | isn't | okay |\n",
+    "html": "<p>| a | b | c |\n| --- | --- |\n| this | isn't | okay |</p>\n",
+    "example": 7,
+    "start_line": 213,
+    "end_line": 221,
+    "section": "Table cell count mismatches",
+    "extensions": []
+  },
+  {
+    "markdown": "| a | b | c |\n| --- | --- | ---\n| x\n| a | b\n| 1 | 2 | 3 | 4 | 5 |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n<th>c</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>x</td>\n<td></td>\n<td></td>\n</tr>\n<tr>\n<td>a</td>\n<td>b</td>\n<td></td>\n</tr>\n<tr>\n<td>1</td>\n<td>2</td>\n<td>3</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 8,
+    "start_line": 226,
+    "end_line": 259,
+    "section": "Table cell count mismatches",
+    "extensions": []
+  },
+  {
+    "markdown": "| a | b |\n| --- | --- |\n| Escaped pipes are \\|okay\\|. | Like \\| this. |\n| Within `\\|code\\| is okay` too. |\n| _**`c\\|`**_ \\| complex\n| don't **\\_reparse\\_**\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Escaped pipes are |okay|.</td>\n<td>Like | this.</td>\n</tr>\n<tr>\n<td>Within <code>|code| is okay</code> too.</td>\n<td></td>\n</tr>\n<tr>\n<td><em><strong><code>c|</code></strong></em> | complex</td>\n<td></td>\n</tr>\n<tr>\n<td>don't <strong>_reparse_</strong></td>\n<td></td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 9,
+    "start_line": 265,
+    "end_line": 299,
+    "section": "Embedded pipes",
+    "extensions": []
+  },
+  {
+    "markdown": "| a |\n--- |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n</table>\n",
+    "example": 10,
+    "start_line": 305,
+    "end_line": 316,
+    "section": "Oddly-formatted markers",
+    "extensions": []
+  },
+  {
+    "markdown": "| a | b |\n| --- | --- |\n| \\\\ | `\\\\` |\n| \\\\\\\\ | `\\\\\\\\` |\n| \\_ | `\\_` |\n| \\| | `\\|` |\n| \\a | `\\a` |\n\n\\\\ `\\\\`\n\n\\\\\\\\ `\\\\\\\\`\n\n\\_ `\\_`\n\n\\| `\\|`\n\n\\a `\\a`\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>\\</td>\n<td><code>\\\\</code></td>\n</tr>\n<tr>\n<td>\\\\</td>\n<td><code>\\\\\\\\</code></td>\n</tr>\n<tr>\n<td>_</td>\n<td><code>\\_</code></td>\n</tr>\n<tr>\n<td>|</td>\n<td><code>|</code></td>\n</tr>\n<tr>\n<td>\\a</td>\n<td><code>\\a</code></td>\n</tr>\n</tbody>\n</table>\n<p>\\ <code>\\\\</code></p>\n<p>\\\\ <code>\\\\\\\\</code></p>\n<p>_ <code>\\_</code></p>\n<p>| <code>\\|</code></p>\n<p>\\a <code>\\a</code></p>\n",
+    "example": 11,
+    "start_line": 320,
+    "end_line": 374,
+    "section": "Escaping",
+    "extensions": []
+  },
+  {
+    "markdown": "| a |\n| --- |\n| <strong>hello</strong> |\n| ok <br> sure |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><strong>hello</strong></td>\n</tr>\n<tr>\n<td>ok <br> sure</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 12,
+    "start_line": 378,
+    "end_line": 399,
+    "section": "Embedded HTML",
+    "extensions": []
+  },
+  {
+    "markdown": "Here's a link to [Freedom Planet 2][].\n\n| Here's a link to [Freedom Planet 2][] in a table header. |\n| --- |\n| Here's a link to [Freedom Planet 2][] in a table row. |\n\n[Freedom Planet 2]: http://www.freedomplanet2.com/\n",
+    "html": "<p>Here's a link to <a href=\"http://www.freedomplanet2.com/\">Freedom Planet 2</a>.</p>\n<table>\n<thead>\n<tr>\n<th>Here's a link to <a href=\"http://www.freedomplanet2.com/\">Freedom Planet 2</a> in a table header.</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Here's a link to <a href=\"http://www.freedomplanet2.com/\">Freedom Planet 2</a> in a table row.</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 13,
+    "start_line": 403,
+    "end_line": 425,
+    "section": "Reference-style links",
+    "extensions": []
+  },
+  {
+    "markdown": "| a | b | c |\n| --- | --- | --- |\n| d || e |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n<th>c</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>d</td>\n<td></td>\n<td>e</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 14,
+    "start_line": 429,
+    "end_line": 450,
+    "section": "Sequential cells",
+    "extensions": []
+  },
+  {
+    "markdown": "| a | b |\n| --- | --- |\n|***(a)***|\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><em><strong>(a)</strong></em></td>\n<td></td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 15,
+    "start_line": 454,
+    "end_line": 473,
+    "section": "Interaction with emphasis",
+    "extensions": []
+  },
+  {
+    "markdown": "123\n456\n| a | b |\n| ---| --- |\nd | e\n",
+    "html": "<p>123\n456</p>\n<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>d</td>\n<td>e</td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 16,
+    "start_line": 477,
+    "end_line": 500,
+    "section": "a table can be recognised when separated from a paragraph of text without an empty line",
+    "extensions": []
   },
   {
     "markdown": "A proper ~strikethrough~.\n",
@@ -64,6 +296,15 @@
     "start_line": 889,
     "end_line": 920,
     "section": "Task lists",
+    "extensions": []
+  },
+  {
+    "markdown": "| a | b |\n| --- | --- |\n| https://github.com www.github.com | http://pokemon.com |\n",
+    "html": "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><a href=\"https://github.com\">https://github.com</a> <a href=\"http://www.github.com\">www.github.com</a></td>\n<td><a href=\"http://pokemon.com\">http://pokemon.com</a></td>\n</tr>\n</tbody>\n</table>\n",
+    "example": 27,
+    "start_line": 814,
+    "end_line": 833,
+    "section": "Interop",
     "extensions": []
   }
 ]
