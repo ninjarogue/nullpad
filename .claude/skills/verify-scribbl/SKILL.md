@@ -48,7 +48,9 @@ To look at the app by hand, run `node e2e/serve.mjs 4173`. It runs `gleam build`
 sh .claude/skills/verify-scribbl/doctor.sh
 ```
 
-It changes nothing. Every line must start with `ok`. A `MISSING` line names the command that fixes it.
+It changes nothing. Every line must start with `ok`. A `MISSING` line names the fix.
+
+A fresh clone runs no checks on `git push` until `git config core.hooksPath .githooks` is set. Without it, run the gate by hand before pushing: `gleam format --check src test && gleam test && (cd e2e && npx tsc && npm test)`.
 
 ## Drive
 
@@ -103,6 +105,8 @@ A proof is good when:
 - It shows the action and the result, not only the last screen.
 - A saved note is proved by reloading the page and reading it again, not by the "Saved" label.
 - It visits every entry point the feature file lists (button and Ctrl+E are two).
+
+Passing checks are not the result. After the run, look at every screenshot and say what looked wrong or surprising to a person, apart from the check counts. Bugs found so far came from looking, not from a failed check.
 
 ## Cleanup
 

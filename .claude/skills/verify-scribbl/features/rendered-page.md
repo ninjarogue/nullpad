@@ -31,3 +31,4 @@ Preconditions: a fresh run. A ready journey is `journeys/rendered-page.mjs`.
 - Nesting stops at 32 levels. Deeper pairs show their marks as text.
 - Lists, quotes and fences are not built. They render as paragraphs or nothing.
 - Read the DOM for checks. A screenshot cannot tell `<em>` from styled text.
+- Known oddity, to be decided in M2b: a link with an unsafe scheme shows only its label, so the brackets and URL the person typed vanish from the page. "No link" is the safe part. The missing text is not settled behavior.

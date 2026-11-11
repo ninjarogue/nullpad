@@ -30,3 +30,4 @@ Preconditions: a fresh run with some text typed in the first note.
 
 - Switching right after typing is the risky path: check the first note's last characters after switching back.
 - With one note left, deleting it leaves an empty state. Check what the page offers then.
+- Known bug, to be fixed in M2b: the title is worked out by its own rules in `storage.gleam`, not by the parser, so it can disagree with the page. `**unclosed bold` loses its stars in the title and `#hashtag notes` loses its `#`, while the page keeps both. Do not assert these as correct.
