@@ -3,7 +3,6 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -12,8 +11,6 @@ import scribbl/markdown.{
   H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
   Strong, Text,
 }
-
-const safe_schemes = ["http", "https", "mailto"]
 
 /// Safe by construction: all text goes through `element.text` (escaped) and
 /// this module never uses `element.unsafe_raw_html`. A link is clickable only
@@ -70,14 +67,14 @@ fn inline(inline: Inline) -> List(Element(msg)) {
   }
 }
 
-/// A link that is not safe to follow shows as the text that was typed, so
-/// nothing the user wrote goes missing from the page.
+/// The parser never builds a link that is not safe to follow. A tree from
+/// anywhere else is checked again here, where the address becomes an `href`.
 fn link(
   label: List(Inline),
   url: String,
   title: Option(String),
 ) -> List(Element(msg)) {
-  case is_safe(url), title {
+  case markdown.is_safe_url(url), title {
     True, Some(title) -> [anchor(label, url, [attribute.title(title)])]
     True, None -> [anchor(label, url, [])]
     False, Some(title) -> typed(label, "](" <> url <> " \"" <> title <> "\")")
@@ -103,19 +100,4 @@ fn anchor(
 
 fn typed(label: List(Inline), tail: String) -> List(Element(msg)) {
   [element.text("["), ..inlines(label)] |> list.append([element.text(tail)])
-}
-
-// Browsers drop tabs, newlines and leading control characters from a URL before
-// reading its scheme. Taking everything before the first colon as the scheme,
-// whitespace included, keeps such a URL from matching the list.
-fn is_safe(url: String) -> Bool {
-  case string.split_once(url, ":") {
-    Error(Nil) -> True
-    Ok(#(scheme, _)) ->
-      is_path(scheme) || list.contains(safe_schemes, string.lowercase(scheme))
-  }
-}
-
-fn is_path(before_colon: String) -> Bool {
-  list.any(["/", "?", "#"], string.contains(before_colon, _))
 }

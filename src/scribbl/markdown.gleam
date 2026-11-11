@@ -2,7 +2,8 @@
 //// CommonMark 0.31.2 for what scribbl supports (ATX headings, paragraphs,
 //// code spans, emphasis, inline links, backslash escapes). Everything else
 //// stays text as typed. `test/commonmark_test.gleam` measures it against the
-//// spec's examples.
+//// spec's examples. One rule is scribbl's own: a link to an address it will
+//// not follow (`is_safe_url`) stays text.
 ////
 //// Blocks: `classify` looks at one line, no context: Blank | HeadingLine |
 //// TextLine, and in M3 FenceLine | QuoteLine | ItemLine | RuleLine. Runs of
@@ -248,10 +249,44 @@ type Scan {
 }
 
 /// A pair of `*` or `_` marks, or a link, that would nest deeper than this is
-/// not built: its marks stay text around its content. Everything that walks the tree (the
-/// page, Lustre's diff, `==`) recurses once per level, so a tree as deep as
-/// the text is long overflows the stack.
+/// not built: its marks stay text around its content. Everything that walks
+/// the tree (the page, Lustre's diff, `==`) recurses once per level, so a
+/// tree as deep as the text is long overflows the stack.
 const max_depth = 32
+
+const safe_schemes = ["http", "https", "mailto"]
+
+/// Whether scribbl follows a link to `url`: only http, https, mailto and
+/// relative paths. The parser leaves any other link as the text that was
+/// typed, so the page, the note list and a later export all agree and
+/// nothing the user wrote goes missing.
+pub fn is_safe_url(url: String) -> Bool {
+  case string.split_once(url, ":") {
+    Error(Nil) -> True
+    Ok(#(before_colon, _)) ->
+      list.contains(safe_schemes, string.lowercase(before_colon))
+      || !may_be_scheme(before_colon)
+  }
+}
+
+/// A scheme holds only ASCII letters, digits, `+`, `-` and `.`, so text with
+/// anything else before the first colon is a relative path. Spaces and
+/// control characters are the exception: browsers drop some of them before
+/// they read the scheme, so they do not make a URL relative here.
+fn may_be_scheme(before_colon: String) -> Bool {
+  before_colon
+  |> string.to_utf_codepoints
+  |> list.all(fn(codepoint) {
+    case string.utf_codepoint_to_int(codepoint) {
+      code if code <= 0x20 -> True
+      0x2B | 0x2D | 0x2E -> True
+      code if code >= 0x30 && code <= 0x39 -> True
+      code if code >= 0x41 && code <= 0x5A -> True
+      code if code >= 0x61 && code <= 0x7A -> True
+      _ -> False
+    }
+  })
+}
 
 fn inlines(chars: List(String)) -> List(Inline) {
   let Scan(pieces:, ..) = scan(chars, "", "", Scan([], [], 0))
@@ -445,10 +480,12 @@ fn is_ascii_control(char: String) -> Bool {
 }
 
 /// Links do not nest, so once a link forms no `[` to its left may start one.
+/// A link that is too deep or not safe to follow stays as typed, and still
+/// uses up the brackets, so its text is never paired twice.
 fn close_link(scan: Scan, id: Int, tail: Tail) -> Scan {
   let #(text, outside) = split_at_bracket(scan.pieces, id, [])
   let #(children, depth) = emphasize(text)
-  let pieces = case depth < max_depth {
+  let pieces = case depth < max_depth && is_safe_url(tail.url) {
     True -> [Done(Link(children, tail.url, tail.title), depth + 1), ..outside]
     False -> {
       let opened = [Done(Text("["), 0), ..outside]

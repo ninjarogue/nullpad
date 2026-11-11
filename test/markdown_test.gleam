@@ -130,9 +130,32 @@ pub fn strong_around_emoji_test() {
 }
 
 /// The page decides what is safe to click. The parser only reads the syntax.
-pub fn a_javascript_url_is_still_a_link_test() {
+pub fn a_link_scribbl_will_not_follow_stays_as_typed_test() {
   assert markdown.parse("[x](javascript:alert(1))")
-    == paragraph([Link([Text("x")], "javascript:alert(1)", None)])
+    == paragraph([Text("[x](javascript:alert(1))")])
+  assert markdown.parse("[**x**](<data:text/html,hi> \"t\") *y*")
+    == paragraph([
+      Text("["),
+      Strong([Text("x")]),
+      Text("](<data:text/html,hi> \"t\") "),
+      Emphasis([Text("y")]),
+    ])
+}
+
+pub fn web_mail_and_relative_links_are_followed_test() {
+  assert markdown.is_safe_url("https://example.com/a:b")
+  assert markdown.is_safe_url("HTTP://example.com")
+  assert markdown.is_safe_url("mailto:a@example.com")
+  assert markdown.is_safe_url("notes/today.md")
+  assert markdown.is_safe_url("/a?time=10:30")
+  assert markdown.is_safe_url("#part:two")
+  assert !markdown.is_safe_url("javascript:alert(1)")
+  assert !markdown.is_safe_url(" javascript:alert(1)")
+  assert !markdown.is_safe_url("java\tscript:alert(1)")
+  assert !markdown.is_safe_url("data:text/html,hi")
+  assert !markdown.is_safe_url(":alert(1)")
+  assert markdown.is_safe_url("java%73cript:alert(1)")
+  assert markdown.is_safe_url("a(b):c")
 }
 
 pub fn parentheses_in_a_url_nest_32_deep_test() {

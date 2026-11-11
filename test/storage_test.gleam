@@ -56,3 +56,8 @@ pub fn typed_title_is_kept_whole_test() {
 
   assert storage.display_title(Some(long), "") == long
 }
+
+pub fn a_link_that_stays_text_on_the_page_stays_text_in_the_title_test() {
+  assert storage.display_title(None, "[x](javascript:alert(1))")
+    == "[x](javascript:alert(1))"
+}
