@@ -409,6 +409,7 @@ pub fn set_task_ticks_and_unticks_a_box_test() {
 pub fn set_task_leaves_a_box_already_in_that_state_test() {
   assert markdown.set_task("- [x] a", Task(False, 0, 3), True) == Ok("- [x] a")
   assert markdown.set_task("- [ ] a", Task(True, 0, 3), False) == Ok("- [ ] a")
+  assert markdown.set_task("- [X] a", Task(True, 0, 3), True) == Ok("- [X] a")
 }
 
 pub fn set_task_refuses_a_place_with_no_box_test() {

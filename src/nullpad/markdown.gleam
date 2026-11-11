@@ -1706,46 +1706,46 @@ fn first_shown(things: List(a), show: fn(a) -> String) -> String {
 }
 
 /// Line `task.row` of `source` with the task's box set to `checked`: the
-/// whole line, to put in place of the old one. The note is parsed again, so
-/// a stale tick changes nothing (`Error`) when no task has its box at that
-/// place any more, for example after the line became code.
+/// whole line, to put in place of the old one. A box already in that state
+/// keeps its line as typed. The note is parsed again, so a stale tick
+/// changes nothing (`Error`) when no task has its box at that place any
+/// more, for example after the line became code.
 pub fn set_task(
   source: String,
   task: Task,
   checked: Bool,
 ) -> Result(String, Nil) {
-  let mark = case checked {
-    True -> "x"
-    False -> " "
-  }
-  case
-    has_task(parse(source), task),
-    list.drop(code_point_lines(source), task.row)
-  {
-    True, [line, ..] ->
+  use found <- result.try(find_task(parse(source), task.row, task.col))
+  case list.drop(code_point_lines(source), task.row) {
+    [line, ..] if found.checked == checked -> Ok(string.concat(line))
+    [line, ..] -> {
+      let mark = case checked {
+        True -> "x"
+        False -> " "
+      }
       [list.take(line, task.col), [mark], list.drop(line, task.col + 1)]
       |> list.flatten
       |> string.concat
       |> Ok
-    _, _ -> Error(Nil)
+    }
+    [] -> Error(Nil)
   }
 }
 
-/// Whether a task in `blocks` has its box at the place of `task`. It
-/// recurses once per container, and the parser nests at most
-/// `max_block_depth` of them.
-fn has_task(blocks: List(Block), task: Task) -> Bool {
-  use block <- list.any(blocks)
+/// The task in `blocks` whose box is at `row` and `col`. It recurses once
+/// per container, and the parser nests at most `max_block_depth` of them.
+fn find_task(blocks: List(Block), row: Int, col: Int) -> Result(Task, Nil) {
+  use block <- list.find_map(blocks)
   case block.content {
-    Quote(blocks) -> has_task(blocks, task)
+    Quote(blocks) -> find_task(blocks, row, col)
     BulletList(items:, ..) | OrderedList(items:, ..) -> {
-      use item <- list.any(items)
+      use item <- list.find_map(items)
       case item.task {
-        Some(Task(row:, col:, ..)) if row == task.row && col == task.col -> True
-        _ -> has_task(item.blocks, task)
+        Some(found) if found.row == row && found.col == col -> Ok(found)
+        _ -> find_task(item.blocks, row, col)
       }
     }
-    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule -> False
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule -> Error(Nil)
   }
 }
 
