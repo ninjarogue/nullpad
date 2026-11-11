@@ -30,4 +30,20 @@ cd e2e && npm install && npx @e2e-dev/web install chromium
 The hook tests the files in your working folder, so commit or stash first.
 `git push --no-verify` skips it.
 
+## Markdown
+
+The parser is hand-written and follows [CommonMark](https://spec.commonmark.org/0.31.2/)
+for what scribbl supports: headings, paragraphs, emphasis, code spans, inline
+links and backslash escapes. `gleam test` runs the spec's 652 examples and
+prints how many pass. An example may fail only when it is listed in
+`test/commonmark_test.gleam` under the feature it needs and scribbl lacks, and
+a listed example that starts to pass fails the suite until it is taken off the
+list.
+
+```sh
+gleam run -m commonmark_test            # Pass count for each section of the spec
+gleam run -m commonmark_test -- Lists   # The listed examples of one missing feature
+gleam build && node test/hostile_input.mjs   # Time the parser on inputs built to be slow
+```
+
 Styles live in `assets/scribbl.css`.
