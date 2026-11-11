@@ -38,5 +38,32 @@
     "end_line": 533,
     "section": "Strikethroughs",
     "extensions": []
+  },
+  {
+    "markdown": "- [ ] foo\n- [x] bar\n",
+    "html": "<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> foo</li>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> bar</li>\n</ul>\n",
+    "example": 28,
+    "start_line": 837,
+    "end_line": 845,
+    "section": "Task lists",
+    "extensions": []
+  },
+  {
+    "markdown": "- [x] foo\n  - [ ] bar\n  - [x] baz\n- [ ] bim\n\nShow a regular (non task) list to show that it has the same structure\n- [@] foo\n  - [@] bar\n  - [@] baz\n- [@] bim\n",
+    "html": "<ul>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> foo\n<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> bar</li>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> baz</li>\n</ul>\n</li>\n<li><input type=\"checkbox\" disabled=\"\" /> bim</li>\n</ul>\n<p>Show a regular (non task) list to show that it has the same structure</p>\n<ul>\n<li>[@] foo\n<ul>\n<li>[@] bar</li>\n<li>[@] baz</li>\n</ul>\n</li>\n<li>[@] bim</li>\n</ul>\n",
+    "example": 29,
+    "start_line": 854,
+    "end_line": 885,
+    "section": "Task lists",
+    "extensions": []
+  },
+  {
+    "markdown": "- [x] foo\n    - [ ] bar\n    - [x] baz\n- [ ] bim\n\nShow a regular (non task) list to show that it has the same structure\n- [@] foo\n    - [@] bar\n    - [@] baz\n- [@] bim\n",
+    "html": "<ul>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> foo\n<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> bar</li>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> baz</li>\n</ul>\n</li>\n<li><input type=\"checkbox\" disabled=\"\" /> bim</li>\n</ul>\n<p>Show a regular (non task) list to show that it has the same structure</p>\n<ul>\n<li>[@] foo\n<ul>\n<li>[@] bar</li>\n<li>[@] baz</li>\n</ul>\n</li>\n<li>[@] bim</li>\n</ul>\n",
+    "example": 30,
+    "start_line": 889,
+    "end_line": 920,
+    "section": "Task lists",
+    "extensions": []
   }
 ]

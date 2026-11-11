@@ -59,15 +59,16 @@ pub type Spacing {
 
 /// An item is a list of blocks, so a nested list is just a list block inside
 /// an item: nesting falls out of the recursion. `row` is the item's first
-/// line, the one that holds its `- [ ]` marker.
+/// line, the one that holds its marker.
 pub type Item {
-  Item(row: Int, task: Task, blocks: List(Block))
+  Item(row: Int, task: Option(Task), blocks: List(Block))
 }
 
+/// The box of a task item: `[ ]`, or `[x]` when `checked`, at the start of
+/// the item's first paragraph. `row` and `col` place the character between
+/// the brackets, `col` counted in code points from the start of the line.
 pub type Task {
-  NotATask
-  Unchecked
-  Checked
+  Task(checked: Bool, row: Int, col: Int)
 }
 
 /// Six variants, not an Int: the renderer's `case` is exhaustive and a
@@ -104,10 +105,13 @@ pub fn parse(source: String) -> List(Block) {
   |> finish(list.length(lines))
 }
 
-/// One string per code point (the spec's "character") per line.
 fn source_lines(source: String) -> List(List(String)) {
+  source |> string.replace("\u{0}", "\u{FFFD}") |> code_point_lines
+}
+
+/// One string per code point (the spec's "character") per line.
+fn code_point_lines(source: String) -> List(List(String)) {
   source
-  |> string.replace("\u{0}", "\u{FFFD}")
   |> string.to_utf_codepoints
   |> list.fold([], fn(backwards, codepoint) {
     [string.from_utf_codepoints([codepoint]), ..backwards]
@@ -136,6 +140,8 @@ fn split_lines(
 type Line {
   Line(
     row: Int,
+    /// Characters eaten so far.
+    offset: Int,
     /// Columns eaten so far. A tab reaches the next multiple of 4.
     column: Int,
     /// Columns of a tab that a container ate only part of (">\tfoo").
@@ -150,7 +156,7 @@ type Line {
 }
 
 fn new_line(row: Int, chars: List(String)) -> Line {
-  measure(Line(row, 0, 0, [], 0, []), chars)
+  measure(Line(row, 0, 0, 0, [], 0, []), chars)
 }
 
 fn measure(line: Line, chars: List(String)) -> Line {
@@ -168,6 +174,7 @@ fn measure(line: Line, chars: List(String)) -> Line {
 fn skip_margin(line: Line) -> Line {
   Line(
     ..line,
+    offset: line.offset + list.length(line.margin),
     column: line.column + line.indent,
     owed: 0,
     margin: [],
@@ -194,7 +201,13 @@ fn eat_columns(line: Line, count: Int) -> Line {
     }
     [" ", ..margin] ->
       eat_columns(
-        Line(..line, column: line.column + 1, margin:, indent: line.indent - 1),
+        Line(
+          ..line,
+          offset: line.offset + 1,
+          column: line.column + 1,
+          margin:,
+          indent: line.indent - 1,
+        ),
         count - 1,
       )
     ["\t", ..margin] -> {
@@ -203,6 +216,7 @@ fn eat_columns(line: Line, count: Int) -> Line {
       eat_columns(
         Line(
           ..line,
+          offset: line.offset + 1,
           column: line.column + eaten,
           owed: width - eaten,
           margin:,
@@ -219,7 +233,7 @@ fn eat_columns(line: Line, count: Int) -> Line {
 fn eat_text(line: Line, count: Int) -> Line {
   let line = skip_margin(line)
   measure(
-    Line(..line, column: line.column + count),
+    Line(..line, offset: line.offset + count, column: line.column + count),
     list.drop(line.text, count),
   )
 }
@@ -271,7 +285,7 @@ type OpenList {
 /// `width` is how many columns a later line must be indented to belong to
 /// the item: the marker's own indent, the marker, and the spaces after it.
 type OpenItem {
-  OpenItem(row: Int, width: Int)
+  OpenItem(row: Int, width: Int, task: Option(Task))
 }
 
 /// An item joins a list whose marker is equal: the same bullet, or the same
@@ -380,7 +394,7 @@ fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
     ItemStart(marker:, number:, width:, sibling: False, rest:), _ -> {
       let of = OpenList(row, row, marker, number, [], Tight)
       close_to(open, matched, row)
-      |> push_frame(InList(of, Some(OpenItem(row, width))))
+      |> push_frame(InList(of, Some(OpenItem(row, width, None))))
       |> start_blocks(matched + 1, rest)
     }
     HeadingStart(level, text), _ ->
@@ -518,8 +532,41 @@ fn setext_level(text: List(String)) -> Result(Level, Nil) {
   }
 }
 
+/// A box at the start of an item's first paragraph makes the item a task
+/// and is not part of the text. The box may be all the item has.
 fn open_paragraph(open: Open, line: Line) -> Open {
-  Open(..open, leaf: ParagraphLeaf(line.row, line.row, [line.text]))
+  let line = skip_margin(line)
+  let paragraph = fn(open: Open, text) {
+    Open(..open, leaf: ParagraphLeaf(line.row, line.row, [text]))
+  }
+  case open.frames, task_box(line) {
+    [Frame(InList(of, Some(OpenItem(task: None, ..) as item)), []), ..outer],
+      Ok(#(task, rest))
+    -> {
+      let item = OpenItem(..item, task: Some(task))
+      let open =
+        Open(..open, frames: [Frame(InList(of, Some(item)), []), ..outer])
+      case rest {
+        [] -> open
+        text -> paragraph(open, text)
+      }
+    }
+    _, _ -> paragraph(open, line.text)
+  }
+}
+
+/// `[ ]`, `[x]` or `[X]`, then a space, a tab or the end of the line. Gives
+/// the text after it.
+fn task_box(line: Line) -> Result(#(Task, List(String)), Nil) {
+  case line.text {
+    ["[", mark, "]", ..after] if mark == " " || mark == "x" || mark == "X" ->
+      case after {
+        [] | [" ", ..] | ["\t", ..] ->
+          Ok(#(Task(mark != " ", line.row, line.offset + 1), drop_spaces(after)))
+        _ -> Error(Nil)
+      }
+    _ -> Error(Nil)
+  }
 }
 
 fn push_frame(open: Open, container: Container) -> Open {
@@ -581,7 +628,7 @@ fn end_item(of: OpenList, item: OpenItem, blocks: List(Block)) -> OpenList {
   OpenList(
     ..of,
     last_row:,
-    items: [Item(item.row, NotATask, list.reverse(blocks)), ..of.items],
+    items: [Item(item.row, item.task, list.reverse(blocks)), ..of.items],
     spacing: loosen(of.spacing, has_gap(blocks)),
   )
 }
@@ -593,17 +640,21 @@ fn next_item(open: Open, row: Int, width: Int) -> Open {
       let of = end_open_item(of, item, blocks)
       let of =
         OpenList(..of, spacing: loosen(of.spacing, row > of.last_row + 1))
-      let frame = Frame(InList(of, Some(OpenItem(row, width))), [])
+      let frame = Frame(InList(of, Some(OpenItem(row, width, None))), [])
       Open(..open, frames: [frame, ..outer])
     }
     _ -> open
   }
 }
 
-/// On a blank line, an item whose first line was only its marker ends.
+/// On a blank line, an item whose first line was only its marker ends. A
+/// box counts as content.
 fn end_empty_item(open: Open, row: Int) -> Open {
   case open.frames, open.leaf {
-    [Frame(InList(of, Some(item)), []), ..outer], NoLeaf if item.row < row -> {
+    [Frame(InList(of, Some(OpenItem(task: None, ..) as item)), []), ..outer],
+      NoLeaf
+      if item.row < row
+    -> {
       let frame = Frame(InList(end_item(of, item, []), None), [])
       Open(..open, frames: [frame, ..outer])
     }
@@ -1436,12 +1487,48 @@ pub fn plain_text(inlines: List(Inline)) -> String {
   |> string.concat
 }
 
-/// Flip the task marker on one source line: "- [ ] milk" <-> "- [x] milk".
-/// A line that is not a task item comes back unchanged. Lives here so the
-/// task syntax is known in one module only.
-pub fn toggle_task(line: String) -> String {
-  let _ = line
-  todo as "not implemented"
+/// Line `task.row` of `source` with the task's box set to `checked`: the
+/// whole line, to put in place of the old one. The note is parsed again, so
+/// a stale tick changes nothing (`Error`) when no task has its box at that
+/// place any more, for example after the line became code.
+pub fn set_task(
+  source: String,
+  task: Task,
+  checked: Bool,
+) -> Result(String, Nil) {
+  let mark = case checked {
+    True -> "x"
+    False -> " "
+  }
+  case
+    has_task(parse(source), task),
+    list.drop(code_point_lines(source), task.row)
+  {
+    True, [line, ..] ->
+      [list.take(line, task.col), [mark], list.drop(line, task.col + 1)]
+      |> list.flatten
+      |> string.concat
+      |> Ok
+    _, _ -> Error(Nil)
+  }
+}
+
+/// Whether a task in `blocks` has its box at the place of `task`. It
+/// recurses once per container, and the parser nests at most
+/// `max_block_depth` of them.
+fn has_task(blocks: List(Block), task: Task) -> Bool {
+  use block <- list.any(blocks)
+  case block.content {
+    Quote(blocks) -> has_task(blocks, task)
+    BulletList(items:, ..) | OrderedList(items:, ..) -> {
+      use item <- list.any(items)
+      case item.task {
+        Some(Task(row:, col:, ..)) if row == task.row && col == task.col -> True
+        _ -> has_task(item.blocks, task)
+      }
+    }
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule -> False
+  }
 }
 
 /// One styled piece of *source* text, for the editor's mirror (M6).

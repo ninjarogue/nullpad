@@ -22,6 +22,9 @@ pub fn every_section_has_its_examples_test() {
       "Strikethrough (extension)",
       "Strikethroughs",
       "Strikethroughs",
+      "Task lists",
+      "Task lists",
+      "Task lists",
     ]
 }
 

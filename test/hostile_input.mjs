@@ -87,6 +87,8 @@ const inputs = {
     Array.from({ length: 200 }, (_, i) => "  ".repeat(i) + "- a\n")
       .join("")
       .repeat(n / 10_000),
+  "many tasks": (n) => "- [ ] a\n".repeat(n),
+  "boxes alone": (n) => "- [x]\n".repeat(n),
   "tabs": (n) => "\t".repeat(n) + "a",
   "tabs after a bullet": (n) => "-" + "\t".repeat(n) + "a",
 };

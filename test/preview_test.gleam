@@ -10,7 +10,8 @@ import nullpad/markdown.{
 import nullpad/preview
 
 pub fn the_page_is_a_marked_preview_root_test() {
-  let html = element.to_string(preview.view([], fn(row) { row }))
+  let html =
+    element.to_string(preview.view([], fn(task, checked) { #(task, checked) }))
 
   assert string.contains(html, "class=\"preview\"")
   assert string.contains(html, "data-test-id=\"preview\"")
@@ -251,6 +252,45 @@ pub fn an_ordered_list_names_its_start_unless_it_is_one_test() {
   )
 }
 
+pub fn a_task_is_an_li_that_starts_with_its_checkbox_test() {
+  let html =
+    render(
+      BulletList(Tight, [
+        task(False, [Block(0, 0, Paragraph([Text("milk")]))]),
+        task(True, [Block(1, 1, Paragraph([Text("eggs")]))]),
+        item(2, [Block(2, 2, Paragraph([Text("bread")]))]),
+      ]),
+    )
+
+  assert string.contains(
+    html,
+    "<li class=\"task\"><input aria-label=\"milk\" type=\"checkbox\">milk</li>",
+  )
+  assert string.contains(
+    html,
+    "<li class=\"task\"><input aria-label=\"eggs\" checked type=\"checkbox\">eggs</li>",
+  )
+  assert string.contains(html, "<li>bread</li>")
+}
+
+pub fn a_checkbox_is_named_after_the_words_of_the_first_paragraph_test() {
+  let words = [Text("buy "), Emphasis([Text("fresh\nmilk")])]
+  let nested = Block(1, 1, BulletList(Tight, [item(1, [])]))
+
+  assert string.contains(
+    render(BulletList(Loose, [task(False, [Block(0, 0, Paragraph(words))])])),
+    "aria-label=\"buy fresh milk\"",
+  )
+  assert string.contains(
+    render(BulletList(Tight, [task(False, [nested])])),
+    "aria-label=\"Task\"",
+  )
+  assert string.contains(
+    render(BulletList(Tight, [task(False, [])])),
+    "aria-label=\"Task\"",
+  )
+}
+
 pub fn blocks_the_parser_cannot_produce_yet_render_nothing_test() {
   let html = render_blocks([Block(3, 3, CodeBlock(None, "code"))])
 
@@ -262,11 +302,17 @@ fn render(content: Content) -> String {
 }
 
 fn render_blocks(blocks: List(markdown.Block)) -> String {
-  element.to_string(preview.view(blocks, fn(row) { row }))
+  element.to_string(
+    preview.view(blocks, fn(task, checked) { #(task, checked) }),
+  )
 }
 
 fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
-  markdown.Item(row:, task: markdown.NotATask, blocks:)
+  markdown.Item(row:, task: None, blocks:)
+}
+
+fn task(checked: Bool, blocks: List(markdown.Block)) -> markdown.Item {
+  markdown.Item(row: 0, task: Some(markdown.Task(checked, 0, 3)), blocks:)
 }
 
 fn paragraph(inline: Inline) -> Content {

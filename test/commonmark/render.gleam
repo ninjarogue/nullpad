@@ -6,7 +6,7 @@ import gleam/string
 import nullpad/markdown.{
   type Block, type Inline, type Item, type Level, type Spacing, BulletList, Code,
   CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Link, OrderedList,
-  Paragraph, Quote, Rule, Strike, Strong, Text, Tight,
+  Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
 }
 
 pub fn html(blocks: List(Block)) -> String {
@@ -41,9 +41,16 @@ fn list_items(spacing: Spacing, items: List(Item)) -> String {
 }
 
 /// In a tight list an item's own paragraphs are bare inline text. Any other
-/// block starts on a line of its own.
+/// block starts on a line of its own. A task's box is cmark-gfm's.
 fn list_item(spacing: Spacing, item: Item) -> String {
-  list.fold(item.blocks, "<li>", fn(done, child) {
+  let start = case item.task {
+    Some(Task(checked: True, ..)) ->
+      "<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> "
+    Some(Task(checked: False, ..)) ->
+      "<li><input type=\"checkbox\" disabled=\"\" /> "
+    None -> "<li>"
+  }
+  list.fold(item.blocks, start, fn(done, child) {
     case child.content, spacing, string.ends_with(done, "\n") {
       Paragraph(text:), Tight, _ -> done <> inlines(text)
       _, _, True -> done <> block(child)

@@ -1,17 +1,13 @@
-//// Examples of how the parser is used. The two `pending_` functions are tests
-//// that wait for M3: rename one so it ends in `_test` when you start on it
-//// (`pending_toggle_task` -> `toggle_task_test`), watch it fail, then make it
-//// pass.
+//// Examples of how the parser is used.
 
 import gleam/int
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
 import nullpad/markdown.{
-  Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
-  Item, Link, Loose, OrderedList, Paragraph, Quote, Rule, Strike, Strong, Text,
-  Tight, Unchecked,
+  Block, BulletList, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Item, Link,
+  Loose, OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
 }
 import nullpad/preview
 
@@ -134,7 +130,7 @@ pub fn quotes_stop_at_thirty_two_levels_test() {
 
   assert depth == 32
   assert innermost == [para(0, string.repeat("> ", 9968) <> "a")]
-  let html = element.to_string(preview.view(blocks, fn(_) { Nil }))
+  let html = element.to_string(preview.view(blocks, fn(_, _) { Nil }))
   assert list.length(string.split(html, "<blockquote>")) == 33
 }
 
@@ -286,13 +282,13 @@ pub fn lists_stop_at_thirty_two_levels_test() {
 
   assert depth == 32
   assert innermost == [para(0, string.repeat("- ", 9968) <> "a")]
-  let html = element.to_string(preview.view(blocks, fn(_) { Nil }))
+  let html = element.to_string(preview.view(blocks, fn(_, _) { Nil }))
   assert list.length(string.split(html, "<ul>")) == 33
 }
 
 pub fn quotes_and_lists_share_the_thirty_two_levels_test() {
   let blocks = markdown.parse(string.repeat("> 1. ", 5000) <> "a")
-  let html = element.to_string(preview.view(blocks, fn(_) { Nil }))
+  let html = element.to_string(preview.view(blocks, fn(_, _) { Nil }))
 
   assert list.length(string.split(html, "<blockquote>")) == 17
   assert list.length(string.split(html, "<ol>")) == 17
@@ -310,7 +306,127 @@ fn innermost_item(
 }
 
 fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
-  Item(row, markdown.NotATask, blocks)
+  Item(row, None, blocks)
+}
+
+// Tasks, from GFM
+
+pub fn a_box_after_the_marker_makes_a_task_test() {
+  let milk = Item(0, Some(Task(False, 0, 3)), [para(0, "milk")])
+  let eggs = Item(1, Some(Task(True, 1, 3)), [para(1, "eggs")])
+
+  assert markdown.parse("- [ ] milk\n- [x] eggs")
+    == [Block(0, 1, BulletList(Tight, [milk, eggs]))]
+}
+
+pub fn a_capital_x_is_checked_and_a_box_may_be_all_there_is_test() {
+  let one = Item(0, Some(Task(True, 0, 4)), [para(0, "a")])
+  let two = Item(1, Some(Task(False, 1, 4)), [])
+
+  assert markdown.parse("1. [X] a\n2. [ ]")
+    == [Block(0, 1, OrderedList(1, Tight, [one, two]))]
+}
+
+pub fn a_box_alone_keeps_its_item_open_across_a_blank_line_test() {
+  let task = Item(0, Some(Task(False, 0, 3)), [para(2, "a")])
+
+  assert markdown.parse("- [ ]\n\n  a")
+    == [Block(0, 2, BulletList(Tight, [task]))]
+}
+
+pub fn a_box_needs_a_space_after_it_and_one_mark_inside_test() {
+  assert markdown.parse("- [x]a\n- [ x]\n- [@] b\n- [] c")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Tight, [
+          item(0, [para(0, "[x]a")]),
+          item(1, [para(1, "[ x]")]),
+          item(2, [para(2, "[@] b")]),
+          item(3, [para(3, "[] c")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_box_outside_a_list_or_after_the_first_line_is_text_test() {
+  assert markdown.parse("[ ] a") == [para(0, "[ ] a")]
+  assert markdown.parse("- a\n  [ ] b")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [
+          item(0, [Block(0, 1, Paragraph([Text("a\n[ ] b")]))]),
+        ]),
+      ),
+    ]
+  assert markdown.parse("- a\n\n  [ ] b")
+    == [
+      Block(
+        0,
+        2,
+        BulletList(Loose, [item(0, [para(0, "a"), para(2, "[ ] b")])]),
+      ),
+    ]
+}
+
+pub fn a_task_knows_its_place_inside_a_quote_and_a_nested_list_test() {
+  let task = Item(1, Some(Task(True, 1, 7)), [para(1, "b")])
+  let inner = Block(1, 1, BulletList(Tight, [task]))
+
+  assert markdown.parse("> - a\n>   - [x] b")
+    == [
+      Block(
+        0,
+        1,
+        Quote([Block(0, 1, BulletList(Tight, [item(0, [para(0, "a"), inner])]))]),
+      ),
+    ]
+}
+
+pub fn a_tab_before_the_box_is_one_character_test() {
+  assert markdown.parse("-\t[ ] a")
+    == [
+      Block(
+        0,
+        0,
+        BulletList(Tight, [Item(0, Some(Task(False, 0, 3)), [para(0, "a")])]),
+      ),
+    ]
+}
+
+pub fn set_task_ticks_and_unticks_a_box_test() {
+  let source = "# List\n- [ ] milk\n  - [x] eggs"
+
+  assert markdown.set_task(source, Task(False, 1, 3), True) == Ok("- [x] milk")
+  assert markdown.set_task(source, Task(True, 2, 5), False)
+    == Ok("  - [ ] eggs")
+}
+
+pub fn set_task_leaves_a_box_already_in_that_state_test() {
+  assert markdown.set_task("- [x] a", Task(False, 0, 3), True) == Ok("- [x] a")
+  assert markdown.set_task("- [ ] a", Task(True, 0, 3), False) == Ok("- [ ] a")
+}
+
+pub fn set_task_refuses_a_place_with_no_box_test() {
+  assert markdown.set_task("- [ ] a", Task(False, 0, 2), True) == Error(Nil)
+  assert markdown.set_task("- [ ] a", Task(False, 1, 3), True) == Error(Nil)
+  assert markdown.set_task("[ ] a", Task(False, 0, 1), True) == Error(Nil)
+  assert markdown.set_task("- a\n  [ ] b", Task(False, 1, 3), True)
+    == Error(Nil)
+}
+
+pub fn set_task_keeps_the_rest_of_the_line_as_typed_test() {
+  assert markdown.set_task("- [ ] a\u{0}\t*b*  ", Task(False, 0, 3), True)
+    == Ok("- [x] a\u{0}\t*b*  ")
+  assert markdown.set_task(
+      "x\r\n> 1. [x] \u{1F600}\r\n",
+      Task(True, 1, 6),
+      False,
+    )
+    == Ok("> 1. [ ] \u{1F600}")
 }
 
 /// M3 turns four spaces of indent into a code block.
@@ -695,22 +811,6 @@ fn depth(inlines: List(markdown.Inline)) -> Int {
       Strike(children) -> int.max(deepest, 1 + depth(children))
     }
   })
-}
-
-/// M3: each item knows its source row and whether it is a task.
-pub fn pending_task_list() {
-  let milk = Item(row: 0, task: Unchecked, blocks: [para(0, "milk")])
-  let eggs = Item(row: 1, task: Checked, blocks: [para(1, "eggs")])
-
-  assert markdown.parse("- [ ] milk\n- [x] eggs")
-    == [Block(0, 1, BulletList(Tight, [milk, eggs]))]
-}
-
-/// M3
-pub fn pending_toggle_task() {
-  assert markdown.toggle_task("- [x] eggs") == "- [ ] eggs"
-  assert markdown.toggle_task("  - [ ] milk") == "  - [x] milk"
-  assert markdown.toggle_task("just text") == "just text"
 }
 
 fn para(row: Int, text: String) -> markdown.Block {

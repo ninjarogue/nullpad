@@ -121,22 +121,17 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
   Outcome(editor: Editor(buffer: wanted, keys:), sync:, requests:)
 }
 
-/// Rewrite one line from outside the control, for example ticking a task in
-/// the rendered view. `change` gets the line's text and returns the new text.
-/// A row that does not exist changes nothing.
-pub fn change_line(
-  editor: Editor,
-  row: Int,
-  change: fn(String) -> String,
-) -> Outcome {
+/// Replace one line from outside the control, for example to tick a task on
+/// the rendered page. A row that does not exist changes nothing.
+pub fn replace_line(editor: Editor, row: Int, with line: String) -> Outcome {
   case list.drop(buffer.lines(editor.buffer), row) {
-    [line, ..] if row >= 0 -> {
+    [old, ..] if row >= 0 -> {
       let buffer =
         editor.buffer
         |> buffer.replace(
           from: Position(row:, col: 0),
-          to: Position(row:, col: string.length(line)),
-          with: change(line),
+          to: Position(row:, col: string.length(old)),
+          with: line,
         )
         |> with_selection_of(editor.buffer)
       Outcome(
