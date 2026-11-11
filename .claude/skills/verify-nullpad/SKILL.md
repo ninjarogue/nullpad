@@ -1,11 +1,11 @@
 ---
-name: verify-scribbl
-description: Drive scribbl, the markdown note editor web app, in real Chromium the way a person uses it, and record proof (video, screenshots, checks). Use after changing anything a user can see or do, before saying it works.
+name: verify-nullpad
+description: Drive nullpad, the markdown note editor web app, in real Chromium the way a person uses it, and record proof (video, screenshots, checks). Use after changing anything a user can see or do, before saying it works.
 ---
 
-# Verify scribbl
+# Verify nullpad
 
-scribbl is one web page. A person types markdown into a text field, flips to a rendered page with Ctrl+E, and keeps notes in a list. Notes live in the browser's IndexedDB, so every new browser context starts empty and two runs never share state.
+nullpad is one web page. A person types markdown into a text field, flips to a rendered page with Ctrl+E, and keeps notes in a list. Notes live in the browser's IndexedDB, so every new browser context starts empty and two runs never share state.
 
 Read [features/README.md](features/README.md) first. It lists each feature and the proof it needs.
 
@@ -30,7 +30,7 @@ export VERIFY_PLAYWRIGHT=$(node -p "require.resolve('playwright')")
 The regression suite needs links from the build numbers it wants to the ones installed. Set the path for that one command only, because the linked ffmpeg writes no video:
 
 ```sh
-links=/tmp/scribbl-browsers
+links=/tmp/nullpad-browsers
 mkdir -p $links
 for kind in chromium chromium-headless-shell; do
   want=$(node -p "require('./e2e/node_modules/playwright-core/browsers.json').browsers.find(b => b.name === '$kind').revision")
@@ -40,12 +40,12 @@ done
 (cd e2e && PLAYWRIGHT_BROWSERS_PATH=$links npm test)
 ```
 
-To look at the app by hand, run `node e2e/serve.mjs 4173`. It runs `gleam build` first and is ready when `http://127.0.0.1:4173/scribbl/scribbl.mjs` answers 200. Stop it with Ctrl+C. `gleam run -m lustre/dev start` needs Erlang and does not work in the cloud.
+To look at the app by hand, run `node e2e/serve.mjs 4173`. It runs `gleam build` first and is ready when `http://127.0.0.1:4173/nullpad/nullpad.mjs` answers 200. Stop it with Ctrl+C. `gleam run -m lustre/dev start` needs Erlang and does not work in the cloud.
 
 ## Doctor
 
 ```sh
-sh .claude/skills/verify-scribbl/doctor.sh
+sh .claude/skills/verify-nullpad/doctor.sh
 ```
 
 It changes nothing. Every line must start with `ok`. A `MISSING` line names the fix.
@@ -71,7 +71,7 @@ export default async ({ page, type, look, shot, check }) => {
 ```
 
 ```sh
-node .claude/skills/verify-scribbl/drive.mjs journey.mjs trip
+node .claude/skills/verify-nullpad/drive.mjs journey.mjs trip
 ```
 
 `page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot. `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
@@ -93,7 +93,7 @@ Handles that do not change:
 | Rendered page | `[data-test-id=preview]` |
 | Delete, confirm, keep | `[data-test-id=delete-note]`, `[data-test-id=confirm-delete]`, `getByRole('button', { name: 'Keep' })` |
 
-`e2e/tests/scribbl.ts` holds the same handles for the regression suite. Run that suite with `cd e2e && npm test`. It answers "did anything break". A journey answers "does this feature work for a person" and leaves proof.
+`e2e/tests/nullpad.ts` holds the same handles for the regression suite. Run that suite with `cd e2e && npm test`. It answers "did anything break". A journey answers "does this feature work for a person" and leaves proof.
 
 ## Evidence
 

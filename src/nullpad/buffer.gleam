@@ -1,6 +1,6 @@
 //// The note being edited: lines of text plus one selection. Pure Gleam.
 //// This is the single source of truth that the preview, storage and vim read.
-//// The text field on screen only mirrors it (see `scribbl/surface`).
+//// The text field on screen only mirrors it (see `nullpad/surface`).
 //// Imported by: any module. Imports: gleam_stdlib only.
 
 import gleam/int

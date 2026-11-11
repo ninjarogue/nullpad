@@ -1,6 +1,6 @@
-# scribbl verification map
+# nullpad verification map
 
-What a person can do in scribbl, and how to prove each part works. Read this, then the matching feature file.
+What a person can do in nullpad, and how to prove each part works. Read this, then the matching feature file.
 
 ## Baseline
 

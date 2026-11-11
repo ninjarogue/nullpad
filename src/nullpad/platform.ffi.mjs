@@ -1,6 +1,6 @@
-// Small browser calls for `scribbl/platform`.
+// Small browser calls for `nullpad/platform`.
 
-const VIM_SETTING = "scribbl.vim";
+const VIM_SETTING = "nullpad.vim";
 
 export function setTimeout(ms, run) {
   globalThis.setTimeout(run, ms);

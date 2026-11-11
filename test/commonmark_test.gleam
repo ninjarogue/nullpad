@@ -6,7 +6,7 @@ import gleam/list
 import gleam/string
 
 type Reason {
-  // Features scribbl does not have yet.
+  // Features nullpad does not have yet.
   ThematicBreaks
   SetextHeadings
   IndentedCode

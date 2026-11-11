@@ -5,7 +5,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/string
-import scribbl/markdown
+import nullpad/markdown
 
 pub type Outcome {
   Outcome(example: Example, actual: String)

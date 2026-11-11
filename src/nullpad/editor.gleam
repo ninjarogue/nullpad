@@ -11,8 +11,8 @@
 
 import gleam/list
 import gleam/string
-import scribbl/buffer.{type Buffer, Position}
-import scribbl/vim.{Step}
+import nullpad/buffer.{type Buffer, Position}
+import nullpad/vim.{Step}
 
 pub opaque type Editor {
   Editor(buffer: Buffer, keys: Keys)

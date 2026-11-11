@@ -4,9 +4,9 @@
 
 import gleam/list
 import gleam/string
-import scribbl/buffer.{Position}
-import scribbl/editor.{type Editor, type Outcome, Outcome}
-import scribbl/vim
+import nullpad/buffer.{Position}
+import nullpad/editor.{type Editor, type Outcome, Outcome}
+import nullpad/vim
 
 pub fn typing_never_writes_back_test() {
   let shown = buffer.from_text("héllo 👋")

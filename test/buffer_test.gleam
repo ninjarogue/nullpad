@@ -1,4 +1,4 @@
-import scribbl/buffer.{Position}
+import nullpad/buffer.{Position}
 
 pub fn text_round_trips_test() {
   let text = "one\n\nthree\n"

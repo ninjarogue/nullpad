@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { autosaveMs, groceries, pause, retryMs, test, timerSlackMs, trip } from './scribbl.ts';
+import { autosaveMs, groceries, pause, retryMs, test, timerSlackMs, trip } from './nullpad.ts';
 
 const notWorking = /^Storage is not working: /;
 

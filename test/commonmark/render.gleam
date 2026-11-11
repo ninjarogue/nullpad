@@ -3,7 +3,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import scribbl/markdown.{
+import nullpad/markdown.{
   type Block, type Inline, type Level, BulletList, Code, CodeBlock, Emphasis, H1,
   H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
   Strong, Text,

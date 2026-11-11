@@ -1,4 +1,4 @@
-# scribbl
+# nullpad
 
 A markdown editor written in [Gleam](https://gleam.run) with
 [Lustre](https://lustre.build). It runs in the browser and keeps its notes in
@@ -33,10 +33,10 @@ The hook tests the files in your working folder, so commit or stash first.
 ## Markdown
 
 The parser is hand-written and follows [CommonMark](https://spec.commonmark.org/0.31.2/)
-for what scribbl supports: headings, paragraphs, emphasis, code spans, inline
+for what nullpad supports: headings, paragraphs, emphasis, code spans, inline
 links and backslash escapes. `gleam test` runs the spec's 652 examples and
 prints how many pass. An example may fail only when it is listed in
-`test/commonmark_test.gleam` under the feature it needs and scribbl lacks, and
+`test/commonmark_test.gleam` under the feature it needs and nullpad lacks, and
 a listed example that starts to pass fails the suite until it is taken off the
 list.
 
@@ -46,4 +46,4 @@ gleam run -m commonmark_test -- Lists   # The listed examples of one missing fea
 gleam build && node test/hostile_input.mjs   # Time the parser on inputs built to be slow
 ```
 
-Styles live in `assets/scribbl.css`.
+Styles live in `assets/nullpad.css`.

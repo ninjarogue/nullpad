@@ -7,7 +7,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{None}
 import gleam/string
-import scribbl/markdown.{
+import nullpad/markdown.{
   Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
   Item, Link, Paragraph, Strong, Text, Unchecked,
 }
@@ -130,7 +130,7 @@ pub fn strong_around_emoji_test() {
 }
 
 /// The page decides what is safe to click. The parser only reads the syntax.
-pub fn a_link_scribbl_will_not_follow_stays_as_typed_test() {
+pub fn a_link_nullpad_will_not_follow_stays_as_typed_test() {
   assert markdown.parse("[x](javascript:alert(1))")
     == paragraph([Text("[x](javascript:alert(1))")])
   assert markdown.parse("[**x**](<data:text/html,hi> \"t\") *y*")

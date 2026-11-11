@@ -11,7 +11,7 @@
 //// Imports: `buffer`.
 
 import gleam/option.{type Option, None}
-import scribbl/buffer.{type Buffer}
+import nullpad/buffer.{type Buffer}
 
 /// A key press, already parsed from the browser's key name by `surface`.
 /// Keys vim has no use for (Shift, F5, IME keys) never become a `Key`.

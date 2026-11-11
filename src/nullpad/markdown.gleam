@@ -1,8 +1,8 @@
 //// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
-//// CommonMark 0.31.2 for what scribbl supports (ATX headings, paragraphs,
+//// CommonMark 0.31.2 for what nullpad supports (ATX headings, paragraphs,
 //// code spans, emphasis, inline links, backslash escapes). Everything else
 //// stays text as typed. `test/commonmark_test.gleam` measures it against the
-//// spec's examples. One rule is scribbl's own: a link to an address it will
+//// spec's examples. One rule is nullpad's own: a link to an address it will
 //// not follow (`is_safe_url`) stays text.
 ////
 //// Blocks: `classify` looks at one line, no context: Blank | HeadingLine |
@@ -256,7 +256,7 @@ const max_depth = 32
 
 const safe_schemes = ["http", "https", "mailto"]
 
-/// Whether scribbl follows a link to `url`: only http, https, mailto and
+/// Whether nullpad follows a link to `url`: only http, https, mailto and
 /// relative paths. The parser leaves any other link as the text that was
 /// typed, so the page, the note list and a later export all agree and
 /// nothing the user wrote goes missing.

@@ -3,7 +3,7 @@
 //// `Effect` that later delivers one message built by `then`.
 //// Hidden here so a backend stays five small functions: `NoteId`s, titles,
 //// ordering, and wrapping callbacks as effects.
-//// Imported by: the app shell, and `scribbl/storage/*` backends (for
+//// Imported by: the app shell, and `nullpad/storage/*` backends (for
 //// `Backend`, `Record`, `Reply`, `Failure`). Imports: lustre/effect, and
 //// `markdown` for titles.
 
@@ -13,7 +13,7 @@ import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import lustre/effect.{type Effect}
-import scribbl/markdown.{Block, Heading, Paragraph}
+import nullpad/markdown.{Block, Heading, Paragraph}
 
 const title_limit = 60
 

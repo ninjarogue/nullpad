@@ -6,8 +6,8 @@
 //
 // Not part of `gleam test`: timings are too noisy for CI.
 
-import { parse } from "../build/dev/javascript/scribbl/scribbl/markdown.mjs";
-import { display_title } from "../build/dev/javascript/scribbl/scribbl/storage.mjs";
+import { parse } from "../build/dev/javascript/nullpad/nullpad/markdown.mjs";
+import { display_title } from "../build/dev/javascript/nullpad/nullpad/storage.mjs";
 import { None } from "../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 
 const SIZE = 20_000;

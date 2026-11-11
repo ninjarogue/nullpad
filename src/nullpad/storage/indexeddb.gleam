@@ -1,11 +1,11 @@
 //// Browser storage backend (M1): one IndexedDB object store.
-//// Imported by: `scribbl.main` only. Imports: `storage`.
+//// Imported by: `nullpad.main` only. Imports: `storage`.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import scribbl/storage.{
+import nullpad/storage.{
   type Backend, type Failure, type Record, type Reply, Backend, NotFound, Record,
   Unavailable,
 }

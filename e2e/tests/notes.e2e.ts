@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { groceries, newNote, test, trip } from './scribbl.ts';
+import { groceries, newNote, test, trip } from './nullpad.ts';
 
 test.beforeEach(async ({ app, disk, page }) => {
   await disk.seed([trip, groceries]);

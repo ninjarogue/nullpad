@@ -1,4 +1,4 @@
-//// Imported by: the app shell and `scribbl.main`. Imports: lustre/effect.
+//// Imported by: the app shell and `nullpad.main`. Imports: lustre/effect.
 
 import lustre/effect.{type Effect}
 

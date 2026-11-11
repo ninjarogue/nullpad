@@ -2,12 +2,12 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
-import scribbl/markdown.{
+import nullpad/markdown.{
   type Content, type Inline, Block, BulletList, Code, CodeBlock, Emphasis, H1,
   H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
   Strong, Text,
 }
-import scribbl/preview
+import nullpad/preview
 
 pub fn the_page_is_a_marked_preview_root_test() {
   let html = element.to_string(preview.view([], fn(row) { row }))

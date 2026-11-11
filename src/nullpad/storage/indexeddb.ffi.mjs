@@ -1,4 +1,4 @@
-const DATABASE = "scribbl";
+const DATABASE = "nullpad";
 const STORE = "notes";
 
 let opening = null;

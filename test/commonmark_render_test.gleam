@@ -1,6 +1,6 @@
 import commonmark/render
 import gleam/option.{None, Some}
-import scribbl/markdown.{
+import nullpad/markdown.{
   Block, Code, Emphasis, H3, Heading, Link, Paragraph, Strong, Text,
 }
 

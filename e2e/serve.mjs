@@ -15,13 +15,13 @@ const app = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>scribbl</title>
-<link rel="stylesheet" href="/scribbl.css">
+<title>nullpad</title>
+<link rel="stylesheet" href="/nullpad.css">
 </head>
 <body>
 <div id="app"></div>
 <script type="module">
-import { main } from "/scribbl/scribbl.mjs";
+import { main } from "/nullpad/nullpad.mjs";
 main();
 </script>
 </body>

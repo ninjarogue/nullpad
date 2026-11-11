@@ -17,11 +17,11 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import scribbl/buffer.{type Buffer, type Position}
-import scribbl/editor.{type Editor}
-import scribbl/vim
+import nullpad/buffer.{type Buffer, type Position}
+import nullpad/editor.{type Editor}
+import nullpad/vim
 
-const control_id = "scribbl-control"
+const control_id = "nullpad-control"
 
 /// The editing pane. Render it once, unconditionally. To show the rendered
 /// page instead, hide this with CSS; do not remove it from the view.

@@ -48,7 +48,7 @@ function installTestDisk() {
 
   const transact = <T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => T) =>
     new Promise<T>((resolve, reject) => {
-      const open = indexedDB.open('scribbl', 1);
+      const open = indexedDB.open('nullpad', 1);
       open.onupgradeneeded = () => open.result.createObjectStore('notes', { keyPath: 'key' });
       open.onerror = () => reject(open.error);
       open.onsuccess = () => {

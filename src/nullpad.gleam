@@ -1,8 +1,8 @@
 import lustre
-import scribbl/app
-import scribbl/platform
-import scribbl/storage
-import scribbl/storage/indexeddb
+import nullpad/app
+import nullpad/platform
+import nullpad/storage
+import nullpad/storage/indexeddb
 
 const vim_keys_are_written = False
 

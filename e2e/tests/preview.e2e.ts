@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { test } from './scribbl.ts';
+import { test } from './nullpad.ts';
 
 test.beforeEach(async ({ app, page }) => {
   await app.open('/');

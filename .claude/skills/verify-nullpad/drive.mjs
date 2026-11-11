@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs one journey against a private copy of the app and records it.
-//   node .claude/skills/verify-scribbl/drive.mjs <journey.mjs> [name]
+//   node .claude/skills/verify-nullpad/drive.mjs <journey.mjs> [name]
 // Evidence lands in .verify/<name>/: session.webm, shots/*.png, report.json.
 
 import { spawn } from "node:child_process";
@@ -40,7 +40,7 @@ async function ready() {
   for (let tries = 0; tries < 120; tries++) {
     if (server.exitCode !== null) throw new Error("the server stopped, see its output above");
     try {
-      const app = await fetch(url + "scribbl/scribbl.mjs");
+      const app = await fetch(url + "nullpad/nullpad.mjs");
       if (app.ok) return;
     } catch {}
     await new Promise((wait) => setTimeout(wait, 500));

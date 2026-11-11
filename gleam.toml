@@ -1,4 +1,4 @@
-name = "scribbl"
+name = "nullpad"
 version = "1.0.0"
 target = "javascript"
 
@@ -22,5 +22,5 @@ gleeunit = ">= 1.0.0 and < 2.0.0"
 lustre_dev_tools = ">= 2.4.0 and < 3.0.0"
 
 [tools.lustre.html]
-title = "scribbl"
-stylesheets = [{ href = "/scribbl.css" }]
+title = "nullpad"
+stylesheets = [{ href = "/nullpad.css" }]

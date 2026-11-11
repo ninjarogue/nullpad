@@ -19,15 +19,15 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/keyed
 import lustre/event
-import scribbl/editor.{type Editor, type Outcome, Outcome}
-import scribbl/markdown
-import scribbl/platform
-import scribbl/preview
-import scribbl/storage.{
+import nullpad/editor.{type Editor, type Outcome, Outcome}
+import nullpad/markdown
+import nullpad/platform
+import nullpad/preview
+import nullpad/storage.{
   type Failure, type Note, type NoteId, type Storage, type Summary, Note,
 }
-import scribbl/surface
-import scribbl/vim
+import nullpad/surface
+import nullpad/vim
 
 /// How long after the last edit the note is saved.
 const autosave_ms = 800

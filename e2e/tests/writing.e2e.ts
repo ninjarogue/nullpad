@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { autosaveMs, groceries, newNote, pause, test, timerSlackMs, trip } from './scribbl.ts';
+import { autosaveMs, groceries, newNote, pause, test, timerSlackMs, trip } from './nullpad.ts';
 
 test('the first visit makes one empty note', async ({ app, disk, page }) => {
   await app.open('/');

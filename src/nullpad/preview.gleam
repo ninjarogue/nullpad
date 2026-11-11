@@ -6,7 +6,7 @@ import gleam/option.{type Option, None, Some}
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import scribbl/markdown.{
+import nullpad/markdown.{
   type Block, type Inline, type Level, BulletList, Code, CodeBlock, Emphasis, H1,
   H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
   Strong, Text,

@@ -3,7 +3,7 @@
 
 import gleam/option.{None, Some}
 import gleam/string
-import scribbl/storage
+import nullpad/storage
 
 pub fn display_title_test() {
   assert storage.display_title(Some("Groceries"), "# Other") == "Groceries"
