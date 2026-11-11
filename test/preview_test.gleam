@@ -3,9 +3,9 @@ import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
 import nullpad/markdown.{
-  type Content, type Inline, Block, BulletList, Code, CodeBlock, Emphasis, H1,
-  H2, H3, H4, H5, H6, Heading, Link, Loose, OrderedList, Paragraph, Quote, Rule,
-  Strike, Strong, Text, Tight,
+  type Content, type Inline, Block, BulletList, Center, Code, CodeBlock, Column,
+  Emphasis, H1, H2, H3, H4, H5, H6, Heading, Left, Link, Loose, OrderedList,
+  Paragraph, Quote, Right, Rule, Strike, Strong, Table, Text, Tight, Unaligned,
 }
 import nullpad/preview
 
@@ -303,6 +303,89 @@ pub fn code_names_its_language_in_a_class_test() {
     render(CodeBlock(Some("gleam"), "x\n")),
     "<pre><code class=\"language-gleam\">x\n</code></pre>",
   )
+}
+
+pub fn a_table_is_a_real_table_in_a_box_that_takes_the_keyboard_test() {
+  let html =
+    render(
+      Table([Column(Unaligned, [Text("a")]), Column(Unaligned, [Text("b")])], [
+        [[Text("1")], [Text("2")]],
+        [[Text("3")], []],
+      ]),
+    )
+
+  assert string.contains(
+    html,
+    "<div aria-label=\"Table\" class=\"table-scroll\" role=\"region\" tabindex=\"0\">"
+      <> "<table><thead><tr><th scope=\"col\">a</th><th scope=\"col\">b</th></tr></thead>"
+      <> "<tbody><tr><td>1</td><td>2</td></tr><tr><td>3</td><td></td></tr></tbody>"
+      <> "</table></div>",
+  )
+}
+
+pub fn a_table_with_no_rows_has_no_tbody_test() {
+  let html = render(Table([Column(Unaligned, [Text("a")])], []))
+
+  assert string.contains(
+    html,
+    "<table><thead><tr><th scope=\"col\">a</th></tr></thead></table>",
+  )
+  assert !string.contains(html, "tbody")
+}
+
+pub fn a_column_aligns_its_heading_and_its_cells_test() {
+  let html =
+    render(
+      Table(
+        [
+          Column(Left, [Text("l")]),
+          Column(Center, [Text("c")]),
+          Column(Right, [Text("r")]),
+          Column(Unaligned, [Text("n")]),
+        ],
+        [[[Text("1")], [Text("2")], [Text("3")], [Text("4")]]],
+      ),
+    )
+
+  assert string.contains(
+    html,
+    "<th align=\"left\" scope=\"col\">l</th><th align=\"center\" scope=\"col\">c</th>"
+      <> "<th align=\"right\" scope=\"col\">r</th><th scope=\"col\">n</th>",
+  )
+  assert string.contains(
+    html,
+    "<td align=\"left\">1</td><td align=\"center\">2</td><td align=\"right\">3</td><td>4</td>",
+  )
+}
+
+pub fn a_cell_shows_its_inlines_and_escapes_its_text_test() {
+  let html =
+    render(
+      Table([Column(Unaligned, [Strong([Text("<b>")])])], [
+        [[Text("x "), Code("a|b"), Text(" "), link("https://x.test/", "go")]],
+      ]),
+    )
+
+  assert string.contains(
+    html,
+    "<th scope=\"col\"><strong>&lt;b&gt;</strong></th>",
+  )
+  assert string.contains(
+    html,
+    "<td>x <code>a|b</code> <a href=\"https://x.test/\" rel=\"noopener noreferrer\" target=\"_blank\">go</a></td>",
+  )
+}
+
+pub fn a_table_in_a_tight_item_stays_a_table_test() {
+  let table = Block(1, 2, Table([Column(Unaligned, [Text("a")])], []))
+  let html =
+    render(
+      BulletList(Tight, [
+        item(0, [Block(0, 0, Paragraph([Text("x")])), table]),
+      ]),
+    )
+
+  assert string.contains(html, "<li>x<div aria-label=\"Table\"")
 }
 
 fn render(content: Content) -> String {

@@ -1,7 +1,7 @@
 //// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
 //// CommonMark 0.31.2 for what nullpad supports (headings, paragraphs, block
 //// quotes, lists, code blocks, thematic breaks, code spans, emphasis, inline
-//// links, backslash escapes), and GFM for strikethrough and task items.
+//// links, backslash escapes), and GFM for strikethrough, task items and tables.
 //// Everything else stays text as typed. Two rules are nullpad's own: a link to
 //// an address it will not follow (`is_safe_url`) stays text, and a box with
 //// nothing after it is a task.
@@ -36,9 +36,29 @@ pub type Content {
   Quote(blocks: List(Block))
   CodeBlock(language: Option(String), code: String)
   Rule
-  // After M3, in its own milestone: Table. Adding the variant makes the
-  // compiler list every `case` that must handle it.
+  /// A GFM pipe table. Every row has one cell for each column: the parser
+  /// pads a short row with empty cells and drops the cells past the last
+  /// column, so nothing that reads a table checks a length. A table with no
+  /// rows is a header alone.
+  Table(columns: List(Column), rows: List(List(Cell)))
 }
+
+/// A column holds its alignment and its heading together, so a header row and
+/// a delimiter row that disagree on the number of columns cannot exist.
+pub type Column {
+  Column(alignment: Alignment, heading: Cell)
+}
+
+pub type Alignment {
+  Unaligned
+  Left
+  Center
+  Right
+}
+
+/// What sits between two pipes: inlines only, on one line.
+pub type Cell =
+  List(Inline)
 
 /// A tight list shows each item's own paragraphs as bare text. A list is
 /// loose when two of its items, or two blocks directly inside one item, have
@@ -1575,6 +1595,11 @@ fn shown(blocks: List(Block)) -> String {
       use item <- first_shown(items)
       shown(item.blocks)
     }
+    Table(columns:, rows:) -> {
+      let headings = list.map(columns, fn(column) { column.heading })
+      use cell <- first_shown(list.append(headings, list.flatten(rows)))
+      first_line(words(cell))
+    }
     Rule -> ""
   }
 }
@@ -1637,7 +1662,7 @@ fn find_task(blocks: List(Block), row: Int, col: Int) -> Result(Task, Nil) {
         _ -> find_task(item.blocks, row, col)
       }
     }
-    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule -> Error(Nil)
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Table(..) | Rule -> Error(Nil)
   }
 }
 

@@ -4,9 +4,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import nullpad/markdown.{
-  type Block, type Inline, type Item, type Level, type Spacing, BulletList, Code,
-  CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Link, OrderedList,
-  Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
+  type Alignment, type Block, type Cell, type Column, type Inline, type Item,
+  type Level, type Spacing, BulletList, Center, Code, CodeBlock, Emphasis, H1,
+  H2, H3, H4, H5, H6, Heading, Left, Link, OrderedList, Paragraph, Quote, Right,
+  Rule, Strike, Strong, Table, Task, Text, Tight, Unaligned,
 }
 
 pub fn html(blocks: List(Block)) -> String {
@@ -40,7 +41,43 @@ fn block(block: Block) -> String {
       <> "</code></pre>\n"
     CodeBlock(language: None, code:) ->
       "<pre><code>" <> escape(code) <> "</code></pre>\n"
+    Table(columns:, rows:) -> {
+      let body = case rows {
+        [] -> ""
+        _ ->
+          "<tbody>\n"
+          <> string.concat(list.map(rows, row(columns, _)))
+          <> "</tbody>\n"
+      }
+      "<table>\n<thead>\n<tr>\n"
+      <> string.concat(
+        list.map(columns, fn(column) {
+          cell("th", column.alignment, column.heading)
+        }),
+      )
+      <> "</tr>\n</thead>\n"
+      <> body
+      <> "</table>\n"
+    }
   }
+}
+
+fn row(columns: List(Column), cells: List(Cell)) -> String {
+  let cells =
+    list.map2(columns, cells, fn(column, content) {
+      cell("td", column.alignment, content)
+    })
+  "<tr>\n" <> string.concat(cells) <> "</tr>\n"
+}
+
+fn cell(name: String, alignment: Alignment, content: Cell) -> String {
+  let attributes = case alignment {
+    Unaligned -> []
+    Left -> [#("align", "left")]
+    Center -> [#("align", "center")]
+    Right -> [#("align", "right")]
+  }
+  element(name, attributes, inlines(content)) <> "\n"
 }
 
 fn list_items(spacing: Spacing, items: List(Item)) -> String {
