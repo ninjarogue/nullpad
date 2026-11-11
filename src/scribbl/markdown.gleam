@@ -14,6 +14,7 @@
 
 import gleam/list
 import gleam/option.{type Option}
+import gleam/result
 import gleam/string
 
 /// A block plus the source rows it came from (inclusive, numbered like
@@ -170,12 +171,307 @@ fn read_paragraph(
   }
 }
 
-// Inline parsing. `inlines` is the only function that reads inside a line.
-// It is a stub: no markup is recognised yet.
+// Inline parsing: one line of text in, inlines out.
+//
+//   "a **b** `c`"  --tokenize-->  Word Word Delimiter Word Delimiter Word CodeSpan
+//                  --pair------>  [Text("a "), Strong([Text("b")]), Text(" "), Code("c")]
+//
+// `tokenize` reads left to right and never looks back. `pair` matches each
+// closing token with its opener and turns whatever stays unmatched into text.
+// The `read_*` functions, `count_run`, `close` and the arms of `step` are
+// yours to fill in, in the order of the pending tests. Until then each one
+// treats its markup as plain text.
+
+type Token {
+  Word(text: String)
+  Escaped(char: String)
+  /// `content` is the text between the backticks, untouched.
+  CodeSpan(ticks: Int, content: String)
+  Delimiter(symbol: Symbol, weight: Weight, opens: Bool, closes: Bool)
+  OpenBracket
+  CloseLink(url: String)
+}
+
+type Symbol {
+  Star
+  Underscore
+}
+
+type Weight {
+  Single
+  Double
+  Triple
+}
+
 fn inlines(text: String) -> List(Inline) {
-  case text {
-    "" -> []
-    _ -> [Text(text)]
+  text |> string.to_graphemes |> tokenize("", []) |> pair
+}
+
+/// `previous` is the grapheme just before `graphemes`, or "" at the start.
+fn tokenize(
+  graphemes: List(String),
+  previous: String,
+  done: List(Token),
+) -> List(Token) {
+  let read = fn(read: #(Token, List(String))) {
+    let #(token, rest) = read
+    let previous = token |> source |> string.last |> result.unwrap("")
+    tokenize(rest, previous, [token, ..done])
+  }
+  case graphemes {
+    [] -> list.reverse(done)
+    ["\\", ..] -> read(read_escape(graphemes))
+    ["`", ..] -> read(read_code(graphemes))
+    ["*", ..] -> read(read_delimiter(Star, graphemes, previous))
+    ["_", ..] -> read(read_delimiter(Underscore, graphemes, previous))
+    ["[", ..rest] -> read(#(OpenBracket, rest))
+    ["]", ..] -> read(read_link_end(graphemes))
+    [grapheme, ..rest] -> read(#(Word(grapheme), rest))
+  }
+}
+
+/// Every token remembers enough to print its source again, so nothing the
+/// user typed is ever lost.
+fn source(token: Token) -> String {
+  case token {
+    Word(text) -> text
+    Escaped(char) -> "\\" <> char
+    CodeSpan(ticks, content) -> {
+      let fence = string.repeat("`", ticks)
+      fence <> content <> fence
+    }
+    Delimiter(symbol, weight, ..) -> delimiter_source(symbol, weight)
+    OpenBracket -> "["
+    CloseLink(url) -> "](" <> url <> ")"
+  }
+}
+
+fn delimiter_source(symbol: Symbol, weight: Weight) -> String {
+  let char = case symbol {
+    Star -> "*"
+    Underscore -> "_"
+  }
+  case weight {
+    Single -> char
+    Double -> char <> char
+    Triple -> char <> char <> char
+  }
+}
+
+/// Step 1a. How many times `grapheme` repeats at the front, and what follows.
+///   count_run(["`", "`", "a"], "`") == #(2, ["a"])
+///   count_run(["a"], "`") == #(0, ["a"])
+/// Recurse while the head equals `grapheme`, adding one each time.
+fn count_run(
+  graphemes: List(String),
+  grapheme: String,
+) -> #(Int, List(String)) {
+  let _ = grapheme
+  #(0, graphemes)
+}
+
+/// Step 1b. `graphemes` starts with a backtick.
+///   n, after = count_run(graphemes, "`")
+///   Walk `after`, collecting graphemes, until a backtick run of exactly n:
+///     found   -> #(CodeSpan(n, collected), what follows the closing run)
+///     a run of another length is content: collect it and keep walking
+///     the end -> no code span: #(Word(n backticks), after)
+/// A helper `find_fence(graphemes, n, collected) -> Result(#(String,
+/// List(String)), Nil)` keeps this short.
+fn read_code(graphemes: List(String)) -> #(Token, List(String)) {
+  read_word(graphemes)
+}
+
+/// Step 2a. `graphemes` starts with `*` or `_`.
+///   n, after = count_run(graphemes, the symbol's character)
+///   next = first grapheme of `after`, or "" at the end
+///   n > 3 -> #(Word(the n characters), after)
+///   otherwise Delimiter(symbol, weight for n, opens, closes) where
+///     opens  = next is not a space, and for `_` previous is not a word character
+///     closes = previous is not a space, and for `_` next is not a word character
+/// `is_space` and `is_word_character` are below. Both treat "" as a space.
+fn read_delimiter(
+  symbol: Symbol,
+  graphemes: List(String),
+  previous: String,
+) -> #(Token, List(String)) {
+  let _ = #(symbol, previous)
+  read_word(graphemes)
+}
+
+/// Step 3a. `graphemes` starts with `]`.
+///   "](" then graphemes that are not spaces, then ")" -> #(CloseLink(url), rest)
+///   anything else (no "(", a space first, the end first) -> read_word(graphemes)
+fn read_link_end(graphemes: List(String)) -> #(Token, List(String)) {
+  read_word(graphemes)
+}
+
+/// Step 4a. `graphemes` starts with a backslash.
+///   backslash then a punctuation character -> #(Escaped(that character), rest)
+///   anything else -> read_word(graphemes)
+/// `is_punctuation` is below.
+fn read_escape(graphemes: List(String)) -> #(Token, List(String)) {
+  read_word(graphemes)
+}
+
+fn read_word(graphemes: List(String)) -> #(Token, List(String)) {
+  case graphemes {
+    [] -> #(Word(""), [])
+    [grapheme, ..rest] -> #(Word(grapheme), rest)
+  }
+}
+
+fn is_space(grapheme: String) -> Bool {
+  grapheme == "" || grapheme == " " || grapheme == "\t"
+}
+
+fn is_word_character(grapheme: String) -> Bool {
+  string.lowercase(grapheme) != string.uppercase(grapheme)
+  || list.contains(string.to_graphemes("0123456789"), grapheme)
+}
+
+fn is_punctuation(grapheme: String) -> Bool {
+  grapheme != ""
+  && string.contains("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", grapheme)
+}
+
+/// What `pair` holds while it walks the tokens: the inlines read so far at the
+/// innermost level (newest first), and one frame per opener still waiting for
+/// its closer (innermost first).
+///
+///   after "a **b [c"   inside: [Text("c")]
+///                      enclosing: [Frame(OpenLabel, [Text("b")]),
+///                                  Frame(OpenDelimiter(Star, Double), [Text("a ")])]
+type Pairing {
+  Pairing(inside: List(Inline), enclosing: List(Frame))
+}
+
+/// An opener, and the inlines that came before it at its own level (newest
+/// first).
+type Frame {
+  Frame(opener: Opener, before: List(Inline))
+}
+
+type Opener {
+  OpenDelimiter(symbol: Symbol, weight: Weight)
+  OpenLabel
+}
+
+fn pair(tokens: List(Token)) -> List(Inline) {
+  tokens |> list.fold(Pairing([], []), step) |> finish
+}
+
+/// Steps 1c, 2c, 3b and 4b: give each kind of token its own arm.
+///   CodeSpan(_, content) -> add Code(trim_code(content))
+///   Escaped(char)        -> add Text(char)
+///   Delimiter(symbol, weight, opens:, closes:) ->
+///     if `closes` and close(pairing, OpenDelimiter(symbol, weight)) is Ok:
+///       add emphasis(weight, children) to the pairing that `close` returned
+///     else if `opens`: open(pairing, OpenDelimiter(symbol, weight))
+///     else: add the token's source as Text
+///   OpenBracket    -> open(pairing, OpenLabel)
+///   CloseLink(url) ->
+///     if close(pairing, OpenLabel) is Ok:
+///       add Link(children, url) to abandon_labels(the returned pairing)
+///     else: add the token's source as Text
+fn step(pairing: Pairing, token: Token) -> Pairing {
+  case token {
+    Word(text) -> add(pairing, Text(text))
+    Escaped(_) | CodeSpan(..) | Delimiter(..) | OpenBracket | CloseLink(_) ->
+      add(pairing, Text(source(token)))
+  }
+}
+
+/// Step 2b. Find the nearest frame whose opener equals `opener`.
+///   no frames                 -> Error(Nil)
+///   innermost frame matches   -> Ok(#(children, pairing without that frame))
+///       children = normalize(list.reverse(pairing.inside))
+///       the new pairing's `inside` is the frame's `before`
+///   innermost does not match  -> close(abandon(pairing), opener)
+/// An Error costs nothing: the caller still has its own, unchanged pairing.
+fn close(
+  pairing: Pairing,
+  opener: Opener,
+) -> Result(#(List(Inline), Pairing), Nil) {
+  let _ = #(pairing, opener)
+  Error(Nil)
+}
+
+fn add(pairing: Pairing, inline: Inline) -> Pairing {
+  Pairing(..pairing, inside: [inline, ..pairing.inside])
+}
+
+fn open(pairing: Pairing, opener: Opener) -> Pairing {
+  Pairing([], [Frame(opener, pairing.inside), ..pairing.enclosing])
+}
+
+/// Gives up on the innermost opener: it becomes text in front of what it
+/// held.
+fn abandon(pairing: Pairing) -> Pairing {
+  case pairing.enclosing {
+    [] -> pairing
+    [Frame(opener, before), ..enclosing] ->
+      Pairing(
+        list.append(pairing.inside, [Text(opener_source(opener)), ..before]),
+        enclosing,
+      )
+  }
+}
+
+/// Links do not nest: once a link closes, every `[` still waiting around it
+/// becomes text.
+fn abandon_labels(pairing: Pairing) -> Pairing {
+  let #(inside, enclosing) = drop_labels(pairing.inside, pairing.enclosing)
+  Pairing(inside, enclosing)
+}
+
+fn drop_labels(
+  inside: List(Inline),
+  enclosing: List(Frame),
+) -> #(List(Inline), List(Frame)) {
+  case enclosing {
+    [] -> #(inside, [])
+    [Frame(OpenLabel, before), ..rest] ->
+      drop_labels(list.append(inside, [Text("["), ..before]), rest)
+    [Frame(OpenDelimiter(..) as opener, before), ..rest] -> {
+      let #(before, rest) = drop_labels(before, rest)
+      #(inside, [Frame(opener, before), ..rest])
+    }
+  }
+}
+
+fn finish(pairing: Pairing) -> List(Inline) {
+  case pairing.enclosing {
+    [] -> pairing.inside |> list.reverse |> normalize
+    [_, ..] -> finish(abandon(pairing))
+  }
+}
+
+fn opener_source(opener: Opener) -> String {
+  case opener {
+    OpenDelimiter(symbol, weight) -> delimiter_source(symbol, weight)
+    OpenLabel -> "["
+  }
+}
+
+fn emphasis(weight: Weight, children: List(Inline)) -> Inline {
+  case weight {
+    Single -> Emphasis(children)
+    Double -> Strong(children)
+    Triple -> Emphasis([Strong(children)])
+  }
+}
+
+/// "` a `" shows as "a", so a span can start or end with a backtick. A span
+/// of only spaces is kept as it is.
+fn trim_code(content: String) -> String {
+  let padded =
+    string.starts_with(content, " ")
+    && string.ends_with(content, " ")
+    && string.trim(content) != ""
+  case padded {
+    True -> content |> string.drop_start(1) |> string.drop_end(1)
+    False -> content
   }
 }
 
