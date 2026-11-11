@@ -258,60 +258,101 @@ fn delimiter_source(symbol: Symbol, weight: Weight) -> String {
   }
 }
 
-/// Step 1a. How many times `grapheme` repeats at the front, and what follows.
-///   count_run(["`", "`", "a"], "`") == #(2, ["a"])
-///   count_run(["a"], "`") == #(0, ["a"])
-/// Recurse while the head equals `grapheme`, adding one each time.
 fn count_run(
   graphemes: List(String),
   grapheme: String,
 ) -> #(Int, List(String)) {
-  let _ = grapheme
-  #(0, graphemes)
+  case graphemes {
+    [first, ..rest] if first == grapheme -> {
+      let #(count, after) = count_run(rest, grapheme)
+      #(count + 1, after)
+    }
+    _ -> #(0, graphemes)
+  }
 }
 
-/// Step 1b. `graphemes` starts with a backtick.
-///   n, after = count_run(graphemes, "`")
-///   Walk `after`, collecting graphemes, until a backtick run of exactly n:
-///     found   -> #(CodeSpan(n, collected), what follows the closing run)
-///     a run of another length is content: collect it and keep walking
-///     the end -> no code span: #(Word(n backticks), after)
-/// A helper `find_fence(graphemes, n, collected) -> Result(#(String,
-/// List(String)), Nil)` keeps this short.
 fn read_code(graphemes: List(String)) -> #(Token, List(String)) {
-  read_word(graphemes)
+  let #(ticks, after) = count_run(graphemes, "`")
+  case find_fence(after, ticks, "") {
+    Ok(#(content, rest)) -> #(CodeSpan(ticks, content), rest)
+    Error(Nil) -> #(Word(string.repeat("`", ticks)), after)
+  }
 }
 
-/// Step 2a. `graphemes` starts with `*` or `_`.
-///   n, after = count_run(graphemes, the symbol's character)
-///   next = first grapheme of `after`, or "" at the end
-///   n > 3 -> #(Word(the n characters), after)
-///   otherwise Delimiter(symbol, weight for n, opens, closes) where
-///     opens  = next is not a space, and for `_` previous is not a word character
-///     closes = previous is not a space, and for `_` next is not a word character
-/// `is_space` and `is_word_character` are below. Both treat "" as a space.
+fn find_fence(
+  graphemes: List(String),
+  ticks: Int,
+  collected: String,
+) -> Result(#(String, List(String)), Nil) {
+  case graphemes {
+    [] -> Error(Nil)
+    ["`", ..] -> {
+      let #(run, rest) = count_run(graphemes, "`")
+      case run == ticks {
+        True -> Ok(#(collected, rest))
+        False -> find_fence(rest, ticks, collected <> string.repeat("`", run))
+      }
+    }
+    [grapheme, ..rest] -> find_fence(rest, ticks, collected <> grapheme)
+  }
+}
+
 fn read_delimiter(
   symbol: Symbol,
   graphemes: List(String),
   previous: String,
 ) -> #(Token, List(String)) {
-  let _ = #(symbol, previous)
-  read_word(graphemes)
+  let char = delimiter_source(symbol, Single)
+  let #(count, after) = count_run(graphemes, char)
+  let next = case after {
+    [first, ..] -> first
+    [] -> ""
+  }
+  let opens =
+    !is_space(next)
+    && case symbol {
+      Star -> True
+      Underscore -> !is_word_character(previous)
+    }
+  let closes =
+    !is_space(previous)
+    && case symbol {
+      Star -> True
+      Underscore -> !is_word_character(next)
+    }
+  case count {
+    1 -> #(Delimiter(symbol, Single, opens, closes), after)
+    2 -> #(Delimiter(symbol, Double, opens, closes), after)
+    3 -> #(Delimiter(symbol, Triple, opens, closes), after)
+    _ -> #(Word(string.repeat(char, count)), after)
+  }
 }
 
-/// Step 3a. `graphemes` starts with `]`.
-///   "](" then graphemes that are not spaces, then ")" -> #(CloseLink(url), rest)
-///   anything else (no "(", a space first, the end first) -> read_word(graphemes)
 fn read_link_end(graphemes: List(String)) -> #(Token, List(String)) {
-  read_word(graphemes)
+  case graphemes {
+    ["]", "(", ..after] -> {
+      let #(url, rest) =
+        list.split_while(after, fn(grapheme) {
+          grapheme != ")" && !is_space(grapheme)
+        })
+      case rest {
+        [")", ..rest] -> #(CloseLink(string.concat(url)), rest)
+        _ -> read_word(graphemes)
+      }
+    }
+    _ -> read_word(graphemes)
+  }
 }
 
-/// Step 4a. `graphemes` starts with a backslash.
-///   backslash then a punctuation character -> #(Escaped(that character), rest)
-///   anything else -> read_word(graphemes)
-/// `is_punctuation` is below.
 fn read_escape(graphemes: List(String)) -> #(Token, List(String)) {
-  read_word(graphemes)
+  case graphemes {
+    ["\\", char, ..rest] ->
+      case is_punctuation(char) {
+        True -> #(Escaped(char), rest)
+        False -> read_word(graphemes)
+      }
+    _ -> read_word(graphemes)
+  }
 }
 
 fn read_word(graphemes: List(String)) -> #(Token, List(String)) {
@@ -361,40 +402,48 @@ fn pair(tokens: List(Token)) -> List(Inline) {
   tokens |> list.fold(Pairing([], []), step) |> finish
 }
 
-/// Steps 1c, 2c, 3b and 4b: give each kind of token its own arm.
-///   CodeSpan(_, content) -> add Code(trim_code(content))
-///   Escaped(char)        -> add Text(char)
-///   Delimiter(symbol, weight, opens:, closes:) ->
-///     if `closes` and close(pairing, OpenDelimiter(symbol, weight)) is Ok:
-///       add emphasis(weight, children) to the pairing that `close` returned
-///     else if `opens`: open(pairing, OpenDelimiter(symbol, weight))
-///     else: add the token's source as Text
-///   OpenBracket    -> open(pairing, OpenLabel)
-///   CloseLink(url) ->
-///     if close(pairing, OpenLabel) is Ok:
-///       add Link(children, url) to abandon_labels(the returned pairing)
-///     else: add the token's source as Text
 fn step(pairing: Pairing, token: Token) -> Pairing {
   case token {
     Word(text) -> add(pairing, Text(text))
-    Escaped(_) | CodeSpan(..) | Delimiter(..) | OpenBracket | CloseLink(_) ->
-      add(pairing, Text(source(token)))
+    CodeSpan(_, content) -> add(pairing, Code(trim_code(content)))
+    Delimiter(symbol, weight, opens:, closes:) -> {
+      let opener = OpenDelimiter(symbol, weight)
+      let closed = case closes {
+        True -> close(pairing, opener)
+        False -> Error(Nil)
+      }
+      case closed {
+        Ok(#(children, outer)) -> add(outer, emphasis(weight, children))
+        Error(Nil) ->
+          case opens {
+            True -> open(pairing, opener)
+            False -> add(pairing, Text(source(token)))
+          }
+      }
+    }
+    OpenBracket -> open(pairing, OpenLabel)
+    CloseLink(url) ->
+      case close(pairing, OpenLabel) {
+        Ok(#(children, outer)) ->
+          add(abandon_labels(outer), Link(children, url))
+        Error(Nil) -> add(pairing, Text(source(token)))
+      }
+    Escaped(char) -> add(pairing, Text(char))
   }
 }
 
-/// Step 2b. Find the nearest frame whose opener equals `opener`.
-///   no frames                 -> Error(Nil)
-///   innermost frame matches   -> Ok(#(children, pairing without that frame))
-///       children = normalize(list.reverse(pairing.inside))
-///       the new pairing's `inside` is the frame's `before`
-///   innermost does not match  -> close(abandon(pairing), opener)
-/// An Error costs nothing: the caller still has its own, unchanged pairing.
 fn close(
   pairing: Pairing,
   opener: Opener,
 ) -> Result(#(List(Inline), Pairing), Nil) {
-  let _ = #(pairing, opener)
-  Error(Nil)
+  case pairing.enclosing {
+    [] -> Error(Nil)
+    [Frame(found, before), ..enclosing] if found == opener -> {
+      let children = pairing.inside |> list.reverse |> normalize
+      Ok(#(children, Pairing(before, enclosing)))
+    }
+    [_, ..] -> close(abandon(pairing), opener)
+  }
 }
 
 fn add(pairing: Pairing, inline: Inline) -> Pairing {

@@ -133,73 +133,73 @@ pub fn a_backslash_before_a_letter_is_literal_test() {
 
 // 1. Code spans
 
-pub fn pending_code_span() {
+pub fn code_span_test() {
   assert markdown.parse("use `x` here")
     == paragraph([Text("use "), Code("x"), Text(" here")])
 }
 
-pub fn pending_code_content_is_literal() {
+pub fn code_content_is_literal_test() {
   assert markdown.parse("`**not** [bold](x)`")
     == paragraph([Code("**not** [bold](x)")])
 }
 
-pub fn pending_code_span_longer_fence() {
+pub fn code_span_longer_fence_test() {
   assert markdown.parse("`` a`b ``") == paragraph([Code("a`b")])
 }
 
-pub fn pending_code_span_strips_one_space_each_side() {
+pub fn code_span_strips_one_space_each_side_test() {
   assert markdown.parse("`  a  `") == paragraph([Code(" a ")])
   assert markdown.parse("`  `") == paragraph([Code("  ")])
 }
 
 // 2. Bold and italic
 
-pub fn pending_strong() {
+pub fn strong_test() {
   assert markdown.parse("a **b** c")
     == paragraph([Text("a "), Strong([Text("b")]), Text(" c")])
   assert markdown.parse("__b__") == paragraph([Strong([Text("b")])])
 }
 
-pub fn pending_emphasis() {
+pub fn emphasis_test() {
   assert markdown.parse("a *b* c")
     == paragraph([Text("a "), Emphasis([Text("b")]), Text(" c")])
   assert markdown.parse("_b_") == paragraph([Emphasis([Text("b")])])
 }
 
-pub fn pending_star_emphasis_works_inside_a_word() {
+pub fn star_emphasis_works_inside_a_word_test() {
   assert markdown.parse("foo*bar*baz")
     == paragraph([Text("foo"), Emphasis([Text("bar")]), Text("baz")])
 }
 
-pub fn pending_strong_around_emoji() {
+pub fn strong_around_emoji_test() {
   assert markdown.parse("**héllo 👋**") == paragraph([Strong([Text("héllo 👋")])])
 }
 
-pub fn pending_strong_nests_in_emphasis() {
+pub fn strong_nests_in_emphasis_test() {
   assert markdown.parse("***x***")
     == paragraph([Emphasis([Strong([Text("x")])])])
 }
 
-pub fn pending_emphasis_nests_in_strong() {
+pub fn emphasis_nests_in_strong_test() {
   assert markdown.parse("**a *b* c**")
     == paragraph([Strong([Text("a "), Emphasis([Text("b")]), Text(" c")])])
 }
 
-pub fn pending_a_run_closes_only_a_run_of_the_same_length() {
+pub fn a_run_closes_only_a_run_of_the_same_length_test() {
   assert markdown.parse("**a*") == paragraph([Text("**a*")])
   assert markdown.parse("*a**") == paragraph([Text("*a**")])
   assert markdown.parse("**a* *b*")
     == paragraph([Text("**a* "), Emphasis([Text("b")])])
 }
 
-pub fn pending_a_run_longer_than_three_is_text() {
+pub fn a_run_longer_than_three_is_text_test() {
   assert markdown.parse("****a****") == paragraph([Text("****a****")])
   assert markdown.parse("****a**** *b*")
     == paragraph([Text("****a**** "), Emphasis([Text("b")])])
 }
 
 /// M2
-pub fn pending_heading_and_bold() {
+pub fn heading_and_bold_test() {
   let bold = Paragraph([Text("some "), Strong([Text("bold")]), Text(" text")])
 
   assert markdown.parse("# Hi\n\nsome **bold** text")
@@ -211,7 +211,7 @@ pub fn pending_heading_and_bold() {
 
 // 3. Links
 
-pub fn pending_link() {
+pub fn link_test() {
   assert markdown.parse("see [docs](https://example.com/a?b=c) now")
     == paragraph([
       Text("see "),
@@ -220,39 +220,39 @@ pub fn pending_link() {
     ])
 }
 
-pub fn pending_link_label_is_parsed() {
+pub fn link_label_is_parsed_test() {
   assert markdown.parse("[**docs**](/x)")
     == paragraph([Link([Strong([Text("docs")])], "/x")])
 }
 
-pub fn pending_link_url_ends_at_the_first_paren() {
+pub fn link_url_ends_at_the_first_paren_test() {
   assert markdown.parse("[a](b)c)")
     == paragraph([Link([Text("a")], "b"), Text("c)")])
 }
 
-pub fn pending_links_do_not_nest() {
+pub fn links_do_not_nest_test() {
   assert markdown.parse("[[a](b)](c)")
     == paragraph([Text("["), Link([Text("a")], "b"), Text("](c)")])
 }
 
-pub fn pending_emphasis_wins_over_a_link_it_crosses() {
+pub fn emphasis_wins_over_a_link_it_crosses_test() {
   assert markdown.parse("**a [b** c](u)")
     == paragraph([Strong([Text("a [b")]), Text(" c](u)")])
 }
 
 // 4. Escapes
 
-pub fn pending_escaped_delimiters_are_text() {
+pub fn escaped_delimiters_are_text_test() {
   assert markdown.parse("\\*not emphasis\\*")
     == paragraph([Text("*not emphasis*")])
   assert markdown.parse("\\*a*") == paragraph([Text("*a*")])
 }
 
-pub fn pending_any_ascii_punctuation_can_be_escaped() {
+pub fn any_ascii_punctuation_can_be_escaped_test() {
   assert markdown.parse("\\# \\[ \\` \\\\") == paragraph([Text("# [ ` \\")])
 }
 
-pub fn pending_backslash_is_literal_in_code() {
+pub fn backslash_is_literal_in_code_test() {
   assert markdown.parse("a `\\` b")
     == paragraph([Text("a "), Code("\\"), Text(" b")])
 }
