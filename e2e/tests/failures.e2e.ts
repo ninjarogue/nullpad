@@ -129,6 +129,7 @@ test('a delete that fails says so and keeps the note open', async ({ app, disk, 
 
   await disk.recover();
   await page.text.fill('milk, eggs');
+  await expect(page.saveState).toHaveText('Unsaved');
   await expect(page.saveState).toHaveText('Saved');
   expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
 });
