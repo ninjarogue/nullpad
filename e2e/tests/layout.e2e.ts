@@ -191,3 +191,22 @@ test('struck text has a line through it', async ({ browser, page }) => {
   );
   expect(line).toBe('line-through');
 });
+
+test('marks such as === and ~~ show as the characters typed, in the source and in code', async ({
+  browser,
+  page,
+}) => {
+  await page.text.fill('Title\n===\n\n`a != b`\n\n```\n--- ~~ ===\n```');
+  const ligatures = (selector: string) =>
+    browser.evaluate(
+      (selector) =>
+        [...document.querySelectorAll(selector)].map(
+          (element) => getComputedStyle(element).fontVariantLigatures,
+        ),
+      selector,
+    );
+
+  expect(await ligatures('.editor > *')).toEqual(['none']);
+  await page.showPreview.tap();
+  expect(await ligatures('[data-test-id="preview"] code')).toEqual(['none', 'none']);
+});
