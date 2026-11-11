@@ -2,6 +2,7 @@
 //// Imported by: the app shell. Imports: `markdown`.
 
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
@@ -64,12 +65,20 @@ fn inline(inline: Inline) -> List(Element(msg)) {
     Strong(text) -> [html.strong([], inlines(text))]
     Emphasis(text) -> [html.em([], inlines(text))]
     Code(code) -> [html.code([], [element.text(code)])]
-    Link(label, url) -> link(label, url)
+    Link(label, url, title) -> link(label, url, title)
     Strike(text) -> inlines(text)
   }
 }
 
-fn link(label: List(Inline), url: String) -> List(Element(msg)) {
+fn link(
+  label: List(Inline),
+  url: String,
+  title: Option(String),
+) -> List(Element(msg)) {
+  let title = case title {
+    Some(title) -> [attribute.title(title)]
+    None -> []
+  }
   case is_safe(url) {
     True -> [
       html.a(
@@ -77,6 +86,7 @@ fn link(label: List(Inline), url: String) -> List(Element(msg)) {
           attribute.href(url),
           attribute.target("_blank"),
           attribute.rel("noopener noreferrer"),
+          ..title
         ],
         inlines(label),
       ),

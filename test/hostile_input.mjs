@@ -42,6 +42,10 @@ const inputs = {
   "emphasis inside many link texts": (n) => "[*a* **b**](u) ".repeat(n),
   "brackets inside deep emphasis": (n) =>
     "*a ".repeat(n) + "[b](u)" + " a*".repeat(n),
+  "code spans inside deep emphasis": (n) =>
+    "*`c` ".repeat(n) + "b" + " `c`*".repeat(n),
+  "brackets left open before a link": (n) => "[a ".repeat(n) + "[b](u)",
+  "one link around a long text": (n) => "[" + "a *b* ".repeat(n) + "](u)",
   "code spans": (n) => "`a` ".repeat(n),
   "backticks that never close": (n) => "`a ".repeat(n),
   "backslashes": (n) => "\\".repeat(n * 4),

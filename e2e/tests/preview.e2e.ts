@@ -93,6 +93,14 @@ test('italic shows as emphasis', async ({ page }) => {
   await expect(page.paragraphs).toHaveText(['a b c']);
 });
 
+test('emphasis may open on one line of a paragraph and close on the next', async ({ page }) => {
+  await page.text.fill('one *two\nthree* four');
+  await page.showPreview.tap();
+
+  await expect(page.emphasis).toHaveText(['two three']);
+  await expect(page.paragraphs).toHaveText(['one two three four']);
+});
+
 test('inline code shows as code', async ({ page }) => {
   await page.text.fill('run `go **build**` now');
   await page.showPreview.tap();
@@ -110,6 +118,16 @@ test('a link opens in a new tab', async ({ page }) => {
   await expect(link).toHaveAttribute('href', 'https://example.com/');
   await expect(link).toHaveAttribute('target', '_blank');
   await expect(link).toHaveAttribute('rel', /noopener/);
+  await expect(page.paragraphs).toHaveText(['see docs here']);
+});
+
+test('a link title shows when the pointer rests on the link', async ({ page }) => {
+  await page.text.fill('see [docs](https://example.com/ "The manual") here');
+  await page.showPreview.tap();
+
+  const link = page.preview.getByRole('link', 'docs');
+  await expect(link).toHaveAttribute('href', 'https://example.com/');
+  await expect(link).toHaveAttribute('title', 'The manual');
   await expect(page.paragraphs).toHaveText(['see docs here']);
 });
 

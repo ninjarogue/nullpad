@@ -1,6 +1,7 @@
 import gleam/bit_array
 import gleam/int
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import scribbl/markdown.{
   type Block, type Inline, type Level, BulletList, Code, CodeBlock, Emphasis, H1,
@@ -45,8 +46,13 @@ fn inline(inline: Inline) -> String {
     Code(code) -> element("code", [], escape(code))
     Emphasis(inner) -> element("em", [], inlines(inner))
     Strong(inner) -> element("strong", [], inlines(inner))
-    Link(label:, url:) ->
-      element("a", [#("href", percent_encode(url))], inlines(label))
+    Link(label:, url:, title:) -> {
+      let title = case title {
+        Some(title) -> [#("title", title)]
+        None -> []
+      }
+      element("a", [#("href", percent_encode(url)), ..title], inlines(label))
+    }
     Strike(_) -> panic as "the parser does not build strikethrough yet"
   }
 }

@@ -1,4 +1,5 @@
 import commonmark/render
+import gleam/option.{None, Some}
 import scribbl/markdown.{
   Block, Code, Emphasis, H3, Heading, Link, Paragraph, Strong, Text,
 }
@@ -8,7 +9,7 @@ fn paragraph(text: List(markdown.Inline)) -> String {
 }
 
 fn href(url: String) -> String {
-  paragraph([Link([Text("a")], url)])
+  paragraph([Link([Text("a")], url, None)])
 }
 
 pub fn blocks_end_with_a_newline_test() {
@@ -52,4 +53,9 @@ pub fn href_keeps_an_existing_escape_and_fixes_a_lone_percent_test() {
 
 pub fn href_escapes_ampersand_for_html_test() {
   assert href("/a?b=1&c=2") == "<p><a href=\"/a?b=1&amp;c=2\">a</a></p>\n"
+}
+
+pub fn a_title_follows_the_href_test() {
+  assert paragraph([Link([Text("a")], "/u", Some("t \"q\""))])
+    == "<p><a href=\"/u\" title=\"t &quot;q&quot;\">a</a></p>\n"
 }

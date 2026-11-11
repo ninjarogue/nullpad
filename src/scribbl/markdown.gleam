@@ -1,21 +1,24 @@
-//// Hand-written markdown parser. Pure Gleam: text in, tree out. Not
-//// CommonMark-complete on purpose.
+//// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
+//// CommonMark 0.31.2 for what scribbl supports (ATX headings, paragraphs,
+//// code spans, emphasis, inline links, backslash escapes). Everything else
+//// stays text as typed. `test/commonmark_test.gleam` measures it against the
+//// spec's examples.
 ////
-//// The lines of a paragraph are joined with "\n" before inline parsing.
-//// Two private layers, shared by `parse` and `highlight` so there is one
-//// grammar and the editor and the rendered page cannot disagree:
-////   classify(line) -> LineKind   Blank | HeadingLine(level, text) |
-////     TextLine(text), and in M3 FenceLine(language) | QuoteLine(rest) |
-////     ItemLine(indent, marker, rest) | RuleLine. One line only, no context.
-////   tokenize(text) -> List(Token)   Word | Escaped | CodeSpan | Delimiter |
-////     OpenBracket | CloseLink. Lossless: the tokens' source text
-////     concatenated gives the input back.
-//// Imported by: `preview`, `surface` (M6), the shell, tests. Imports: stdlib.
+//// Blocks: `classify` looks at one line, no context: Blank | HeadingLine |
+//// TextLine, and in M3 FenceLine | QuoteLine | ItemLine | RuleLine. Runs of
+//// text lines are joined with "\n" into a paragraph.
+//// Inlines, per heading or paragraph: `scan` settles escapes, code spans and
+//// links in one pass, then `emphasize` pairs the `*` and `_` runs.
+//// M6's `highlight` can reuse `classify`. Whether it reuses `scan` is
+//// undecided, because `scan` keeps no source positions.
+//// Imported by: `preview`, `storage`, `surface` (M6), the shell, tests.
+//// Imports: stdlib, and `markdown.ffi.mjs` for two Unicode classes.
 
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
-import gleam/option.{type Option}
+import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 
@@ -73,7 +76,7 @@ pub type Inline {
   Strong(List(Inline))
   Emphasis(List(Inline))
   Code(String)
-  Link(label: List(Inline), url: String)
+  Link(label: List(Inline), url: String, title: Option(String))
   // M3
   Strike(List(Inline))
 }
@@ -84,29 +87,28 @@ pub type Inline {
 pub fn parse(source: String) -> List(Block) {
   source
   |> string.replace("\u{0}", "\u{FFFD}")
-  |> characters
+  |> string.to_utf_codepoints
+  |> list.fold([], fn(backwards, codepoint) {
+    [string.from_utf_codepoints([codepoint]), ..backwards]
+  })
   |> split_lines([], [])
   |> list.index_map(fn(line, row) { #(row, classify(line)) })
   |> read_blocks([])
 }
 
-/// One string per code point: the spec's "character".
-fn characters(text: String) -> List(String) {
-  text
-  |> string.to_utf_codepoints
-  |> list.map(fn(codepoint) { string.from_utf_codepoints([codepoint]) })
-}
-
+/// Takes the characters (one string per code point, the spec's
+/// "character") from the last one back, so each line and the list of lines
+/// come out in order with no reverse. A line ends at "\n", "\r\n" or "\r".
 fn split_lines(
-  chars: List(String),
+  backwards: List(String),
   line: List(String),
-  done: List(List(String)),
+  lines: List(List(String)),
 ) -> List(List(String)) {
-  case chars {
-    [] -> list.reverse([list.reverse(line), ..done])
-    ["\r", "\n", ..rest] | ["\r", ..rest] | ["\n", ..rest] ->
-      split_lines(rest, [], [list.reverse(line), ..done])
-    [char, ..rest] -> split_lines(rest, [char, ..line], done)
+  case backwards {
+    [] -> [line, ..lines]
+    ["\n", "\r", ..rest] | ["\n", ..rest] | ["\r", ..rest] ->
+      split_lines(rest, [], [line, ..lines])
+    [char, ..rest] -> split_lines(rest, [char, ..line], lines)
   }
 }
 
@@ -203,32 +205,29 @@ fn read_paragraph(
       read_paragraph(first_row, row, [text, ..read], rest)
     [] | [#(_, Blank), ..] | [#(_, HeadingLine(..)), ..] -> {
       let raw = case read {
-        [last, ..before] -> [drop_spaces_end(last), ..before]
+        [last, ..before] ->
+          list.fold(before, drop_spaces_end(last), fn(raw, line) {
+            list.append(line, ["\n", ..raw])
+          })
         [] -> []
       }
-      let text =
-        raw
-        |> list.reverse
-        |> list.intersperse(["\n"])
-        |> list.flatten
-        |> inlines
-      #(Block(first_row, last_row, Paragraph(text)), lines)
+      #(Block(first_row, last_row, Paragraph(inlines(raw))), lines)
     }
   }
 }
 
-// Inline parsing, one line at a time. `tokenize` cuts the text into tokens
-// without looking back. `pair` matches each closer with its opener and leaves
-// what finds no partner as text.
+// Inline parsing, in two stages. `scan` reads the text once, left to right.
+// It settles escapes, code spans and links, and leaves each run of `*` or `_`
+// and each `[` that may still start a link in place. `emphasize` then pairs
+// the runs: the spec's "process emphasis". Links settle first because link
+// text binds tighter than emphasis: `*[a*](u)` is a link with a `*` inside.
 
-type Token {
-  Word(text: String)
-  Escaped(char: String)
-  /// `content` is the text between the backticks, untouched.
-  CodeSpan(ticks: Int, content: String)
-  Delimiter(symbol: Symbol, weight: Weight, opens: Bool, closes: Bool)
-  OpenBracket
-  CloseLink(url: String)
+type Piece {
+  /// Finished: text, a code span, a link. `depth` is how deeply it nests.
+  Done(inline: Inline, depth: Int)
+  DelimiterRun(symbol: Symbol, length: Int, opens: Bool, closes: Bool)
+  /// A `[` in place. Text, unless a later `]` makes a link of it.
+  Bracket(id: Int)
 }
 
 type Symbol {
@@ -236,167 +235,309 @@ type Symbol {
   Underscore
 }
 
-type Weight {
-  Single
-  Double
-  Triple
+/// One flat list of pieces for the whole text, so a `]` that makes no link
+/// costs one step, and a link pays only for its own text, which it consumes.
+type Scan {
+  Scan(
+    /// Newest first.
+    pieces: List(Piece),
+    /// The `[` that may still start a link, innermost first.
+    brackets: List(Int),
+    next_id: Int,
+  )
 }
+
+/// A pair of `*` or `_` marks, or a link, that would nest deeper than this is
+/// not built: its marks stay text around its content. Everything that walks the tree (the
+/// page, Lustre's diff, `==`) recurses once per level, so a tree as deep as
+/// the text is long overflows the stack.
+const max_depth = 32
 
 fn inlines(chars: List(String)) -> List(Inline) {
-  chars |> string.concat |> string.to_graphemes |> tokenize("", []) |> pair
+  let Scan(pieces:, ..) = scan(chars, "", "", Scan([], [], 0))
+  let #(inlines, _) = emphasize(list.reverse(pieces))
+  inlines
 }
 
-/// `previous` is the grapheme just before `graphemes`, or "" at the start.
-fn tokenize(
-  graphemes: List(String),
+/// `previous` is the source character just before `chars`, "" at the start.
+/// `text` is plain text read since the last piece.
+fn scan(
+  chars: List(String),
   previous: String,
-  done: List(Token),
-) -> List(Token) {
-  case graphemes {
-    [] -> list.reverse(done)
-    [_, ..] -> {
-      let #(token, rest) = read_token(graphemes, previous)
-      tokenize(rest, last_grapheme(token), [token, ..done])
+  text: String,
+  state: Scan,
+) -> Scan {
+  case chars {
+    [] -> add_text(state, text)
+    ["\\", char, ..rest] ->
+      case is_ascii_punctuation(char) {
+        True -> scan(rest, char, text <> char, state)
+        False -> scan([char, ..rest], "\\", text <> "\\", state)
+      }
+    ["`", ..] -> {
+      let #(ticks, after) = count_run(chars, "`", 0)
+      case code_span(after, ticks, []) {
+        Ok(#(code, rest)) ->
+          scan(rest, "`", "", add(add_text(state, text), Done(Code(code), 0)))
+        Error(Nil) -> scan(after, "`", text <> string.repeat("`", ticks), state)
+      }
     }
-  }
-}
-
-fn read_token(
-  graphemes: List(String),
-  previous: String,
-) -> #(Token, List(String)) {
-  case graphemes {
-    ["\\", ..] -> read_escape(graphemes)
-    ["`", ..] -> read_code(graphemes)
-    ["*", ..] -> read_delimiter(Star, graphemes, previous)
-    ["_", ..] -> read_delimiter(Underscore, graphemes, previous)
-    ["[", ..rest] -> #(OpenBracket, rest)
-    ["]", ..] -> read_link_end(graphemes)
-    _ -> read_word(graphemes)
-  }
-}
-
-/// The last grapheme of a token's source. A `Word` is one grapheme or a run of
-/// one mark, and `previous` is only ever asked whether it is a space or a
-/// letter, which a run answers like its mark.
-fn last_grapheme(token: Token) -> String {
-  case token {
-    Word(text) -> text
-    Escaped(char) -> char
-    CodeSpan(..) -> "`"
-    Delimiter(symbol, ..) -> delimiter_source(symbol, Single)
-    OpenBracket -> "["
-    CloseLink(_) -> ")"
-  }
-}
-
-/// Every token remembers enough to print its source again, so nothing the
-/// user typed is ever lost.
-fn source(token: Token) -> String {
-  case token {
-    Word(text) -> text
-    Escaped(char) -> "\\" <> char
-    CodeSpan(ticks, content) -> {
-      let fence = string.repeat("`", ticks)
-      fence <> content <> fence
+    ["*" as mark, ..] | ["_" as mark, ..] -> {
+      let #(length, after) = count_run(chars, mark, 0)
+      let next = case after {
+        [next, ..] -> next
+        [] -> ""
+      }
+      let run = delimiter_run(mark, length, previous, next)
+      scan(after, mark, "", add(add_text(state, text), run))
     }
-    Delimiter(symbol, weight, ..) -> delimiter_source(symbol, weight)
-    OpenBracket -> "["
-    CloseLink(url) -> "](" <> url <> ")"
+    ["[", ..rest] -> {
+      let Scan(pieces, brackets, id) = add_text(state, text)
+      scan(
+        rest,
+        "[",
+        "",
+        Scan([Bracket(id), ..pieces], [id, ..brackets], id + 1),
+      )
+    }
+    ["]", ..rest] ->
+      case state.brackets {
+        [] -> scan(rest, "]", text <> "]", state)
+        [id, ..outer] ->
+          case link_tail(rest) {
+            Error(Nil) ->
+              scan(rest, "]", text <> "]", Scan(..state, brackets: outer))
+            Ok(tail) ->
+              scan(
+                tail.rest,
+                ")",
+                "",
+                close_link(add_text(state, text), id, tail),
+              )
+          }
+      }
+    [" " as space, ..] | ["\t" as space, ..] -> {
+      let #(spaces, after) = list.split_while(chars, is_space_or_tab)
+      case after {
+        ["\n", ..] -> scan(after, space, text, state)
+        _ -> scan(after, space, text <> string.concat(spaces), state)
+      }
+    }
+    [char, ..rest] -> scan(rest, char, text <> char, state)
   }
 }
 
-fn delimiter_source(symbol: Symbol, weight: Weight) -> String {
-  let char = case symbol {
-    Star -> "*"
-    Underscore -> "_"
-  }
-  case weight {
-    Single -> char
-    Double -> char <> char
-    Triple -> char <> char <> char
+fn add(scan: Scan, piece: Piece) -> Scan {
+  Scan(..scan, pieces: [piece, ..scan.pieces])
+}
+
+fn add_text(scan: Scan, text: String) -> Scan {
+  case text {
+    "" -> scan
+    _ -> add(scan, Done(Text(text), 0))
   }
 }
 
 fn count_run(
-  graphemes: List(String),
-  grapheme: String,
+  chars: List(String),
+  mark: String,
+  count: Int,
 ) -> #(Int, List(String)) {
-  let #(run, after) = list.split_while(graphemes, fn(next) { next == grapheme })
-  #(list.length(run), after)
-}
-
-fn read_code(graphemes: List(String)) -> #(Token, List(String)) {
-  let #(ticks, after) = count_run(graphemes, "`")
-  case find_fence(after, ticks, 0) {
-    Ok(#(length, rest)) -> {
-      let content = after |> list.take(length) |> string.concat
-      #(CodeSpan(ticks, content), rest)
-    }
-    Error(Nil) -> #(Word(string.repeat("`", ticks)), after)
+  case chars {
+    [char, ..rest] if char == mark -> count_run(rest, mark, count + 1)
+    _ -> #(count, chars)
   }
 }
 
-fn find_fence(
-  graphemes: List(String),
+/// Reads up to the next run of exactly `ticks` backticks. `content` is what
+/// it read so far, last first, with each line ending already a space.
+fn code_span(
+  chars: List(String),
   ticks: Int,
-  length: Int,
-) -> Result(#(Int, List(String)), Nil) {
-  case graphemes {
+  content: List(String),
+) -> Result(#(String, List(String)), Nil) {
+  case chars {
     [] -> Error(Nil)
-    ["`", ..] -> {
-      let #(run, rest) = count_run(graphemes, "`")
-      case run == ticks {
-        True -> Ok(#(length, rest))
-        False -> find_fence(rest, ticks, length + run)
+    ["`", ..] ->
+      case count_run(chars, "`", 0) {
+        #(run, rest) if run == ticks -> Ok(#(code_content(content), rest))
+        #(run, rest) ->
+          code_span(rest, ticks, [string.repeat("`", run), ..content])
       }
-    }
-    [_, ..rest] -> find_fence(rest, ticks, length + 1)
+    ["\n", ..rest] -> code_span(rest, ticks, [" ", ..content])
+    [char, ..rest] -> code_span(rest, ticks, [char, ..content])
   }
 }
 
-fn read_delimiter(
-  symbol: Symbol,
-  graphemes: List(String),
-  previous: String,
-) -> #(Token, List(String)) {
-  let char = delimiter_source(symbol, Single)
-  let #(count, after) = count_run(graphemes, char)
-  let next = case after {
-    [first, ..] -> first
-    [] -> ""
-  }
-  let opens =
-    !is_space(next)
-    && case symbol {
-      Star -> True
-      Underscore -> !is_word_character(previous)
-    }
-  let closes =
-    !is_space(previous)
-    && case symbol {
-      Star -> True
-      Underscore -> !is_word_character(next)
-    }
-  case count {
-    1 -> #(Delimiter(symbol, Single, opens, closes), after)
-    2 -> #(Delimiter(symbol, Double, opens, closes), after)
-    3 -> #(Delimiter(symbol, Triple, opens, closes), after)
-    _ -> #(Word(string.repeat(char, count)), after)
+/// One space comes off each end when both ends have one and the code is not
+/// all spaces, so "`` `a` ``" is "`a`".
+fn code_content(backwards: List(String)) -> String {
+  let chars = list.reverse(backwards)
+  case chars, backwards {
+    [" ", ..], [" ", ..] ->
+      case list.all(chars, fn(char) { char == " " }) {
+        True -> string.concat(chars)
+        False ->
+          backwards
+          |> list.drop(1)
+          |> list.reverse
+          |> list.drop(1)
+          |> string.concat
+      }
+    _, _ -> string.concat(chars)
   }
 }
 
-fn read_link_end(graphemes: List(String)) -> #(Token, List(String)) {
-  case graphemes {
-    ["]", "(", ..after] ->
-      case find_url_end(after, 0, 0) {
-        Ok(#(length, rest)) -> {
-          let url = after |> list.take(length) |> string.concat
-          #(CloseLink(url), rest)
-        }
-        Error(Nil) -> read_word(graphemes)
+/// The flanking rules, 1 to 8 of "Emphasis and strong emphasis". The start
+/// and the end of the text count as whitespace.
+fn delimiter_run(
+  mark: String,
+  length: Int,
+  before: String,
+  after: String,
+) -> Piece {
+  let space_before = is_whitespace(before)
+  let space_after = is_whitespace(after)
+  let punctuation_before = is_punctuation(before)
+  let punctuation_after = is_punctuation(after)
+  let left =
+    !space_after && { !punctuation_after || space_before || punctuation_before }
+  let right =
+    !space_before && { !punctuation_before || space_after || punctuation_after }
+  case mark {
+    "_" ->
+      DelimiterRun(
+        Underscore,
+        length,
+        opens: left && { !right || punctuation_before },
+        closes: right && { !left || punctuation_after },
+      )
+    _ -> DelimiterRun(Star, length, opens: left, closes: right)
+  }
+}
+
+fn is_whitespace(char: String) -> Bool {
+  char == "" || is_unicode_whitespace(char)
+}
+
+fn is_punctuation(char: String) -> Bool {
+  char != "" && is_unicode_punctuation(char)
+}
+
+@external(javascript, "./markdown.ffi.mjs", "isUnicodeWhitespace")
+fn is_unicode_whitespace(char: String) -> Bool
+
+@external(javascript, "./markdown.ffi.mjs", "isUnicodePunctuation")
+fn is_unicode_punctuation(char: String) -> Bool
+
+fn is_ascii_punctuation(char: String) -> Bool {
+  char != "" && string.contains("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", char)
+}
+
+fn is_space_or_tab(char: String) -> Bool {
+  char == " " || char == "\t"
+}
+
+/// U+0000 to U+001F and U+007F. A one-code-point string sorts below " "
+/// exactly when it is one of the first 32.
+fn is_ascii_control(char: String) -> Bool {
+  string.compare(char, " ") == order.Lt || char == "\u{7F}"
+}
+
+/// Links do not nest, so once a link forms no `[` to its left may start one.
+fn close_link(scan: Scan, id: Int, tail: Tail) -> Scan {
+  let #(text, outside) = split_at_bracket(scan.pieces, id, [])
+  let #(children, depth) = emphasize(text)
+  let pieces = case depth < max_depth {
+    True -> [Done(Link(children, tail.url, tail.title), depth + 1), ..outside]
+    False -> {
+      let opened = [Done(Text("["), 0), ..outside]
+      let label =
+        list.fold(children, opened, fn(pieces, child) {
+          [Done(child, depth), ..pieces]
+        })
+      [Done(Text(tail.source), 0), ..label]
+    }
+  }
+  Scan(..scan, pieces:, brackets: [])
+}
+
+/// The pieces after `Bracket(id)`, oldest first, and the ones before it.
+fn split_at_bracket(
+  pieces: List(Piece),
+  id: Int,
+  text: List(Piece),
+) -> #(List(Piece), List(Piece)) {
+  case pieces {
+    [] -> #(text, [])
+    [Bracket(found), ..outside] if found == id -> #(text, outside)
+    [piece, ..rest] -> split_at_bracket(rest, id, [piece, ..text])
+  }
+}
+
+/// What an inline link has after its `]`: `(`, a destination, a title, `)`.
+/// `source` is all of it as typed, for a link the depth cap refuses.
+type Tail {
+  Tail(url: String, title: Option(String), rest: List(String), source: String)
+}
+
+/// Characters not read yet, and the source text read so far.
+type Reader {
+  Reader(rest: List(String), read: String)
+}
+
+fn link_tail(chars: List(String)) -> Result(Tail, Nil) {
+  case chars {
+    ["(", ..rest] -> {
+      let #(_, reader) = whitespace(Reader(rest, "]("), False, False)
+      use #(url, reader) <- result.try(destination(reader))
+      use #(title, reader) <- result.try(title(reader))
+      case reader.rest {
+        [")", ..rest] -> Ok(Tail(url, title, rest, reader.read <> ")"))
+        _ -> Error(Nil)
       }
-    _ -> read_word(graphemes)
+    }
+    _ -> Error(Nil)
+  }
+}
+
+/// Spaces, tabs and at most one line ending. `skipped` says whether there
+/// were any.
+fn whitespace(
+  reader: Reader,
+  line_ended: Bool,
+  skipped: Bool,
+) -> #(Bool, Reader) {
+  case reader.rest {
+    [" " as char, ..rest] | ["\t" as char, ..rest] ->
+      whitespace(Reader(rest, reader.read <> char), line_ended, True)
+    ["\n", ..rest] if !line_ended ->
+      whitespace(Reader(rest, reader.read <> "\n"), True, True)
+    _ -> #(skipped, reader)
+  }
+}
+
+fn destination(reader: Reader) -> Result(#(String, Reader), Nil) {
+  case reader.rest {
+    ["<", ..rest] -> pointy_destination(rest, "", reader.read <> "<")
+    _ -> plain_destination(reader.rest, "", reader.read, 0)
+  }
+}
+
+fn pointy_destination(
+  chars: List(String),
+  url: String,
+  read: String,
+) -> Result(#(String, Reader), Nil) {
+  case chars {
+    [">", ..rest] -> Ok(#(url, Reader(rest, read <> ">")))
+    [] | ["\n", ..] | ["<", ..] -> Error(Nil)
+    ["\\", char, ..rest] ->
+      case is_ascii_punctuation(char) {
+        True -> pointy_destination(rest, url <> char, read <> "\\" <> char)
+        False -> pointy_destination([char, ..rest], url <> "\\", read <> "\\")
+      }
+    [char, ..rest] -> pointy_destination(rest, url <> char, read <> char)
   }
 }
 
@@ -405,298 +546,305 @@ fn read_link_end(graphemes: List(String)) -> #(Token, List(String)) {
 /// scans, plus one.
 const max_nesting = 32
 
-fn find_url_end(
-  graphemes: List(String),
-  length: Int,
+/// Ends before a space, a control character or a `)` that closes nothing,
+/// and only where its parentheses balance.
+fn plain_destination(
+  chars: List(String),
+  url: String,
+  read: String,
   depth: Int,
-) -> Result(#(Int, List(String)), Nil) {
-  case graphemes {
-    [")", ..rest] ->
-      case depth {
-        0 -> Ok(#(length, rest))
-        _ -> find_url_end(rest, length + 1, depth - 1)
+) -> Result(#(String, Reader), Nil) {
+  case chars {
+    ["\\", char, ..rest] ->
+      case is_ascii_punctuation(char) {
+        True ->
+          plain_destination(rest, url <> char, read <> "\\" <> char, depth)
+        False ->
+          plain_destination([char, ..rest], url <> "\\", read <> "\\", depth)
       }
-    ["(", ..rest] ->
-      case depth < max_nesting {
-        True -> find_url_end(rest, length + 1, depth + 1)
-        False -> Error(Nil)
-      }
-    [grapheme, ..rest] ->
-      case is_space(grapheme) {
+    ["(", ..rest] if depth < max_nesting ->
+      plain_destination(rest, url <> "(", read <> "(", depth + 1)
+    [")", ..rest] if depth > 0 ->
+      plain_destination(rest, url <> ")", read <> ")", depth - 1)
+    [char, ..rest] ->
+      case char == "(" || char == ")" || char == " " || is_ascii_control(char) {
+        False -> plain_destination(rest, url <> char, read <> char, depth)
+        True if depth == 0 -> Ok(#(url, Reader(chars, read)))
         True -> Error(Nil)
-        False -> find_url_end(rest, length + 1, depth)
       }
+    [] if depth == 0 -> Ok(#(url, Reader(chars, read)))
     [] -> Error(Nil)
   }
 }
 
-fn read_escape(graphemes: List(String)) -> #(Token, List(String)) {
-  case graphemes {
-    ["\\", char, ..rest] ->
-      case is_punctuation(char) {
-        True -> #(Escaped(char), rest)
-        False -> read_word(graphemes)
+/// The optional title, which must be set off from the destination by
+/// whitespace, and the whitespace before the `)`.
+fn title(reader: Reader) -> Result(#(Option(String), Reader), Nil) {
+  case whitespace(reader, False, False) {
+    #(True, Reader(["\"" as open, ..rest], read))
+    | #(True, Reader(["'" as open, ..rest], read))
+    | #(True, Reader(["(" as open, ..rest], read)) -> {
+      let close = case open {
+        "(" -> ")"
+        _ -> open
       }
-    _ -> read_word(graphemes)
+      use #(title, after) <- result.map(title_text(
+        rest,
+        close,
+        "",
+        read <> open,
+      ))
+      #(Some(title), whitespace(after, False, False).1)
+    }
+    #(_, spaced) -> Ok(#(None, spaced))
   }
 }
 
-fn read_word(graphemes: List(String)) -> #(Token, List(String)) {
-  case graphemes {
-    [] -> #(Word(""), [])
-    [grapheme, ..rest] -> #(Word(grapheme), rest)
+/// `close` ends the title. A `(…)` title may not hold an unescaped `(`.
+fn title_text(
+  chars: List(String),
+  close: String,
+  title: String,
+  read: String,
+) -> Result(#(String, Reader), Nil) {
+  case chars {
+    [] -> Error(Nil)
+    ["\\", char, ..rest] ->
+      case is_ascii_punctuation(char) {
+        True -> title_text(rest, close, title <> char, read <> "\\" <> char)
+        False -> title_text([char, ..rest], close, title <> "\\", read <> "\\")
+      }
+    [char, ..rest] if char == close -> Ok(#(title, Reader(rest, read <> char)))
+    ["(", ..] if close == ")" -> Error(Nil)
+    [char, ..rest] -> title_text(rest, close, title <> char, read <> char)
   }
 }
 
-fn is_space(grapheme: String) -> Bool {
-  grapheme == "" || grapheme == " " || grapheme == "\t"
-}
-
-const digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
-
-fn is_word_character(grapheme: String) -> Bool {
-  string.lowercase(grapheme) != string.uppercase(grapheme)
-  || list.contains(digits, grapheme)
-}
-
-fn is_punctuation(grapheme: String) -> Bool {
-  grapheme != ""
-  && string.contains("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", grapheme)
-}
-
-/// What `pair` holds while it walks the tokens: the inlines read so far at the
-/// innermost level (newest first), one frame per opener still waiting for its
-/// closer (innermost first), and how many frames of each kind can still be
-/// closed. A closer whose kind has none fails without looking at the frames.
+/// What `emphasize` holds while it folds the pieces: the inlines at the
+/// innermost open level and how deeply they nest, the openers still waiting
+/// for a closer (innermost first) and how many there are, and the floors.
 ///
-///   after "a **b [c"   inside: [Text("c")]
-///                      enclosing: [Frame(OpenLabel, [Text("b")]),
-///                                  Frame(OpenDelimiter(Star, Double), [Text("a ")])]
+/// A floor is the spec's `openers_bottom`: for each kind of closer, the
+/// height below which no opener can pair with it. A search stops there, so
+/// a closer that finds nothing never makes the next one look again.
 type Pairing {
   Pairing(
-    inside: List(Inline),
+    inside: Rope,
     depth: Int,
-    enclosing: List(Frame),
-    waiting: Dict(Opener, Int),
+    openers: List(Opener),
+    height: Int,
+    floors: Dict(#(Symbol, Bool, Int), Int),
   )
 }
 
-/// An opener, and the inlines that came before it at its own level (newest
-/// first), with how deeply those nest.
-type Frame {
-  Frame(opener: Opener, before: List(Inline), depth: Int)
-}
-
+/// `length` is the run's length as typed, for rules 9 and 10. `left` is how
+/// many of its characters no pair has used yet. `before` is what came before
+/// it at its own level.
 type Opener {
-  OpenDelimiter(symbol: Symbol, weight: Weight)
-  OpenLabel
+  Opener(
+    symbol: Symbol,
+    length: Int,
+    left: Int,
+    closes: Bool,
+    before: Rope,
+    before_depth: Int,
+  )
 }
 
-type Closed {
-  Closed(children: List(Inline), depth: Int, outer: Pairing)
+/// Inlines in source order that join in one step. A pair the depth cap
+/// refuses hands its content back to the level around it, and an outer
+/// refused pair hands it back again: with a list that copies the content
+/// once per level, and ten thousand levels of it is quadratic.
+type Rope {
+  Empty
+  Leaf(Inline)
+  Join(older: Rope, newer: Rope)
 }
 
-/// A pair that would nest deeper than this stays text. Everything that walks
-/// the tree (the page, Lustre's diff, `==`) recurses once per level, so a
-/// tree as deep as the line is long overflows the stack.
-const max_depth = 32
-
-fn pair(tokens: List(Token)) -> List(Inline) {
-  tokens |> list.fold(Pairing([], 0, [], dict.new()), step) |> finish
+fn emphasize(pieces: List(Piece)) -> #(List(Inline), Int) {
+  let pairing =
+    list.fold(pieces, Pairing(Empty, 0, [], 0, dict.new()), pair_piece)
+  let #(content, depth) =
+    give_up(pairing.openers, pairing.inside, pairing.depth)
+  #(flatten([content], []), depth)
 }
 
-fn step(pairing: Pairing, token: Token) -> Pairing {
-  case token {
-    Word(text) -> add(pairing, Text(text))
-    CodeSpan(_, content) -> add(pairing, Code(trim_code(content)))
-    Delimiter(symbol, weight, opens:, closes:) -> {
-      let opener = OpenDelimiter(symbol, weight)
-      let closed = case closes {
-        True -> close(pairing, opener)
-        False -> Error(Nil)
-      }
-      case closed {
-        Ok(closed) ->
-          wrap(closed, levels(weight), emphasis(weight, _), opener, token)
-        Error(Nil) ->
-          case opens {
-            True -> open(pairing, opener)
-            False -> add(pairing, Text(source(token)))
-          }
-      }
-    }
-    OpenBracket -> open(pairing, OpenLabel)
-    CloseLink(url) ->
-      case close(pairing, OpenLabel) {
-        Ok(closed) ->
-          Closed(..closed, outer: forget_labels(closed.outer))
-          |> wrap(1, Link(_, url), OpenLabel, token)
-        Error(Nil) -> add(pairing, Text(source(token)))
-      }
-    Escaped(char) -> add(pairing, Text(char))
+fn pair_piece(pairing: Pairing, piece: Piece) -> Pairing {
+  case piece {
+    Done(inline, depth) -> add_inline(pairing, Leaf(inline), depth)
+    Bracket(_) -> add_inline(pairing, Leaf(Text("[")), 0)
+    DelimiterRun(symbol, length, opens:, closes: True) ->
+      close(pairing, symbol, length, length, opens)
+    DelimiterRun(symbol, length, opens: True, closes: False) ->
+      push(pairing, symbol, length, length, False)
+    DelimiterRun(symbol, length, opens: False, closes: False) ->
+      add_inline(pairing, marks(symbol, length), 0)
   }
 }
 
-fn wrap(
-  closed: Closed,
-  levels: Int,
-  build: fn(List(Inline)) -> Inline,
-  opener: Opener,
-  closer: Token,
-) -> Pairing {
-  let Closed(children, depth, outer) = closed
-  case depth + levels <= max_depth {
-    True -> add_nested(outer, build(children), depth + levels)
-    False ->
-      [Text(opener_source(opener)), ..children]
-      |> list.fold(outer, add)
-      |> add_nested(Text(source(closer)), depth)
-  }
-}
-
-fn close(pairing: Pairing, opener: Opener) -> Result(Closed, Nil) {
-  case waiting_for(pairing.waiting, opener) {
-    0 -> Error(Nil)
-    _ ->
-      close_loop(
-        pairing.enclosing,
-        pairing.waiting,
-        opener,
-        [list.reverse(pairing.inside)],
-        pairing.depth,
-      )
-  }
-}
-
-fn close_loop(
-  enclosing: List(Frame),
-  waiting: Dict(Opener, Int),
-  opener: Opener,
-  read: List(List(Inline)),
-  depth: Int,
-) -> Result(Closed, Nil) {
-  case enclosing {
-    [] -> Error(Nil)
-    [Frame(found, before, before_depth), ..outer] if found == opener ->
-      Ok(Closed(
-        read |> list.flatten |> normalize,
-        depth,
-        Pairing(before, before_depth, outer, count_frame(waiting, found, -1)),
-      ))
-    [Frame(skipped, ..) as frame, ..outer] ->
-      close_loop(
-        outer,
-        count_frame(waiting, skipped, -1),
-        opener,
-        give_up(read, frame),
-        int.max(depth, frame.depth),
-      )
-  }
-}
-
-fn give_up(read: List(List(Inline)), frame: Frame) -> List(List(Inline)) {
-  [list.reverse(frame.before), [Text(opener_source(frame.opener))], ..read]
-}
-
-fn add(pairing: Pairing, inline: Inline) -> Pairing {
-  Pairing(..pairing, inside: [inline, ..pairing.inside])
-}
-
-fn add_nested(pairing: Pairing, inline: Inline, depth: Int) -> Pairing {
+fn add_inline(pairing: Pairing, rope: Rope, depth: Int) -> Pairing {
   Pairing(
     ..pairing,
-    inside: [inline, ..pairing.inside],
+    inside: Join(pairing.inside, rope),
     depth: int.max(pairing.depth, depth),
   )
 }
 
-fn open(pairing: Pairing, opener: Opener) -> Pairing {
+fn push(
+  pairing: Pairing,
+  symbol: Symbol,
+  length: Int,
+  left: Int,
+  closes: Bool,
+) -> Pairing {
+  let opener =
+    Opener(symbol, length, left, closes, pairing.inside, pairing.depth)
   Pairing(
-    [],
-    0,
-    [Frame(opener, pairing.inside, pairing.depth), ..pairing.enclosing],
-    count_frame(pairing.waiting, opener, 1),
+    ..pairing,
+    inside: Empty,
+    depth: 0,
+    openers: [opener, ..pairing.openers],
+    height: pairing.height + 1,
   )
 }
 
-/// Links do not nest: once a link closes, every `[` still waiting around it
-/// can no longer close. They stay in `enclosing` and become text when a later
-/// walk passes them. New labels open on top of them, so the live ones are the
-/// innermost `waiting` says there are.
-fn forget_labels(pairing: Pairing) -> Pairing {
-  Pairing(..pairing, waiting: dict.insert(pairing.waiting, OpenLabel, 0))
-}
-
-fn waiting_for(waiting: Dict(Opener, Int), opener: Opener) -> Int {
-  dict.get(waiting, opener) |> result.unwrap(0)
-}
-
-fn count_frame(
-  waiting: Dict(Opener, Int),
-  opener: Opener,
-  change: Int,
-) -> Dict(Opener, Int) {
-  let count = int.max(0, waiting_for(waiting, opener) + change)
-  dict.insert(waiting, opener, count)
-}
-
-fn finish(pairing: Pairing) -> List(Inline) {
-  pairing.enclosing
-  |> list.fold([list.reverse(pairing.inside)], give_up)
-  |> list.flatten
-  |> normalize
-}
-
-fn levels(weight: Weight) -> Int {
-  case weight {
-    Single | Double -> 1
-    Triple -> 2
+/// A run that can close, with `left` of its `length` characters not used.
+fn close(
+  pairing: Pairing,
+  symbol: Symbol,
+  length: Int,
+  left: Int,
+  opens: Bool,
+) -> Pairing {
+  let kind = #(symbol, opens, length % 3)
+  let floor = dict.get(pairing.floors, kind) |> result.unwrap(0)
+  let search = pairing.height - floor
+  case find_opener(pairing.openers, search, symbol, length, opens, []) {
+    Error(Nil) -> {
+      let floors = dict.insert(pairing.floors, kind, pairing.height)
+      let pairing = Pairing(..pairing, floors:)
+      case opens {
+        True -> push(pairing, symbol, length, left, True)
+        False -> add_inline(pairing, marks(symbol, left), 0)
+      }
+    }
+    Ok(#(passed, opener, below)) -> {
+      let used = case left >= 2 && opener.left >= 2 {
+        True -> 2
+        False -> 1
+      }
+      let #(content, depth) = give_up(passed, pairing.inside, pairing.depth)
+      let #(node, depth) = case depth < max_depth {
+        True -> #(Leaf(emphasis(used, flatten([content], []))), depth + 1)
+        False -> {
+          let used_marks = marks(symbol, used)
+          #(Join(Join(used_marks, content), used_marks), depth)
+        }
+      }
+      let height = pairing.height - list.length(passed)
+      let pairing = case opener.left - used {
+        0 ->
+          Pairing(
+            ..pairing,
+            inside: Join(opener.before, node),
+            depth: int.max(opener.before_depth, depth),
+            openers: below,
+            height: height - 1,
+          )
+        unused ->
+          Pairing(
+            ..pairing,
+            inside: node,
+            depth:,
+            openers: [Opener(..opener, left: unused), ..below],
+            height:,
+          )
+      }
+      let floors =
+        dict.map_values(pairing.floors, fn(_, floor) {
+          int.min(floor, pairing.height)
+        })
+      let pairing = Pairing(..pairing, floors:)
+      case left - used {
+        0 -> pairing
+        unused -> close(pairing, symbol, length, unused, opens)
+      }
+    }
   }
 }
 
-fn opener_source(opener: Opener) -> String {
-  case opener {
-    OpenDelimiter(symbol, weight) -> delimiter_source(symbol, weight)
-    OpenLabel -> "["
+/// The nearest of the top `search` openers that the closer can pair with,
+/// the openers above it (innermost first), and the ones below it.
+fn find_opener(
+  openers: List(Opener),
+  search: Int,
+  symbol: Symbol,
+  length: Int,
+  opens: Bool,
+  passed: List(Opener),
+) -> Result(#(List(Opener), Opener, List(Opener)), Nil) {
+  case openers {
+    [opener, ..below] if search > 0 ->
+      case can_pair(opener, symbol, length, opens) {
+        True -> Ok(#(list.reverse(passed), opener, below))
+        False ->
+          find_opener(below, search - 1, symbol, length, opens, [
+            opener,
+            ..passed
+          ])
+      }
+    _ -> Error(Nil)
   }
 }
 
-fn emphasis(weight: Weight, children: List(Inline)) -> Inline {
-  case weight {
-    Single -> Emphasis(children)
-    Double -> Strong(children)
-    Triple -> Emphasis([Strong(children)])
+/// Rules 9 and 10: when either run can both open and close, the two lengths
+/// as typed may not sum to a multiple of 3, unless both are multiples of 3.
+fn can_pair(opener: Opener, symbol: Symbol, length: Int, opens: Bool) -> Bool {
+  opener.symbol == symbol
+  && {
+    !{ opens || opener.closes }
+    || { opener.length + length } % 3 != 0
+    || { opener.length % 3 == 0 && length % 3 == 0 }
   }
 }
 
-/// "` a `" shows as "a", so a span can start or end with a backtick. A span
-/// of only spaces is kept as it is.
-fn trim_code(content: String) -> String {
-  let padded =
-    string.starts_with(content, " ")
-    && string.ends_with(content, " ")
-    && string.trim_start(content) != ""
-  case padded {
-    True -> content |> string.drop_start(1) |> string.drop_end(1)
-    False -> content
+/// Openers that never closed are text: each one's unused characters, after
+/// what came before it and before the content after it.
+fn give_up(openers: List(Opener), inside: Rope, depth: Int) -> #(Rope, Int) {
+  list.fold(openers, #(inside, depth), fn(content, opener) {
+    let #(after, depth) = content
+    let unused = marks(opener.symbol, opener.left)
+    #(
+      Join(Join(opener.before, unused), after),
+      int.max(depth, opener.before_depth),
+    )
+  })
+}
+
+fn marks(symbol: Symbol, count: Int) -> Rope {
+  case symbol {
+    Star -> Leaf(Text(string.repeat("*", count)))
+    Underscore -> Leaf(Text(string.repeat("_", count)))
   }
 }
 
-fn normalize(parts: List(Inline)) -> List(Inline) {
-  parts |> list.fold([], push_inline) |> list.reverse
+fn emphasis(used: Int, children: List(Inline)) -> Inline {
+  case used {
+    2 -> Strong(children)
+    _ -> Emphasis(children)
+  }
 }
 
-fn push_inline(done: List(Inline), next: Inline) -> List(Inline) {
-  case next, done {
-    Text(""), _ -> done
-    Text(more), [Text(text), ..before] -> [Text(text <> more), ..before]
-    Text(_), _
-    | Strong(_), _
-    | Emphasis(_), _
-    | Code(_), _
-    | Link(..), _
-    | Strike(_), _
-    -> [next, ..done]
+/// Takes the newest inline first, so `done` comes out in source order, and
+/// joins neighbouring text.
+fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
+  case ropes, done {
+    [], _ -> done
+    [Empty, ..rest], _ | [Leaf(Text("")), ..rest], _ -> flatten(rest, done)
+    [Join(older, newer), ..rest], _ -> flatten([newer, older, ..rest], done)
+    [Leaf(Text(text)), ..rest], [Text(after), ..later] ->
+      flatten(rest, [Text(text <> after), ..later])
+    [Leaf(inline), ..rest], _ -> flatten(rest, [inline, ..done])
   }
 }
 
@@ -725,10 +873,9 @@ pub type Style {
   QuoteText
 }
 
-/// M6. One list of runs per source row, built from the same `classify` and
-/// `tokenize` as `parse`. Lossless, which is what keeps the mirror's glyphs
-/// under the text field's caret: for every row, the runs' `text`
-/// concatenated is exactly that line.
+/// M6. One list of runs per source row. Lossless, which is what keeps the
+/// mirror's glyphs under the text field's caret: for every row, the runs'
+/// `text` concatenated is exactly that line.
 pub fn highlight(source: String) -> List(List(Run)) {
   let _ = source
   todo as "not implemented"

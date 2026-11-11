@@ -1,5 +1,5 @@
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
 import scribbl/markdown.{
@@ -89,6 +89,20 @@ pub fn a_safe_link_is_an_anchor_that_opens_in_a_new_tab_test() {
   assert string.contains(html, ">docs</a>")
 }
 
+pub fn a_link_title_becomes_its_title_attribute_test() {
+  let html =
+    render(paragraph(Link([Text("docs")], "/x", Some("say \"hi\" & go"))))
+
+  assert string.contains(html, "href=\"/x\"")
+  assert string.contains(html, "title=\"say &quot;hi&quot; &amp; go\"")
+}
+
+pub fn a_link_without_a_title_has_no_title_attribute_test() {
+  let html = render(paragraph(link("/x", "docs")))
+
+  assert !string.contains(html, "title=")
+}
+
 pub fn http_and_mailto_links_are_safe_in_any_case_test() {
   list.each(
     ["http://a.test", "HTTPS://a.test", "mailto:me@a.test", "MailTo:me@a.test"],
@@ -111,7 +125,7 @@ pub fn relative_links_keep_their_href_test() {
 
 pub fn a_link_label_keeps_its_inline_markup_test() {
   let label = [Strong([Text("docs")])]
-  let html = render(paragraph(Link(label, "/x")))
+  let html = render(paragraph(Link(label, "/x", None)))
 
   assert string.contains(html, "<a ")
   assert string.contains(html, "><strong>docs</strong></a>")
@@ -141,7 +155,8 @@ pub fn script_links_render_their_label_without_an_anchor_test() {
 }
 
 pub fn an_unsafe_link_keeps_its_label_markup_test() {
-  let html = render(paragraph(Link([Strong([Text("x")])], "javascript:x")))
+  let html =
+    render(paragraph(Link([Strong([Text("x")])], "javascript:x", None)))
 
   assert string.contains(html, "<p><strong>x</strong></p>")
   assert !string.contains(html, "<a")
@@ -184,5 +199,5 @@ fn paragraph(inline: Inline) -> Content {
 }
 
 fn link(url: String, label: String) -> Inline {
-  Link([Text(label)], url)
+  Link([Text(label)], url, None)
 }
