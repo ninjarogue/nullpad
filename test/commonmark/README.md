@@ -17,7 +17,7 @@ by the extractor in that repository, `python3 test/spec_tests.py --dump-tests`.
 the HTML renderer in `render.gleam`. Reports:
 
     gleam run -m commonmark_test                 pass count, table per section, count per reason
-    gleam run -m commonmark_test -- Lists        the listed examples of one reason, with expected and actual html
+    gleam run -m commonmark_test -- HardBreaks   the listed examples of one reason, with expected and actual html
 
 ## GFM
 
