@@ -87,12 +87,12 @@ pub type Inline {
 /// unclosed syntax becomes plain `Text`, and raw HTML is just text), so there
 /// is no error type.
 pub fn parse(source: String) -> List(Block) {
-  source
-  |> source_lines
-  |> list.index_fold(Open([], NoLeaf), fn(open, chars, row) {
-    continue_leaf(open, new_line(row, chars))
+  let lines = source_lines(source)
+  lines
+  |> list.index_fold(Open([], [], 0, NoLeaf), fn(open, chars, row) {
+    step(open, new_line(row, chars))
   })
-  |> finish
+  |> finish(list.length(lines))
 }
 
 /// One string per code point (the spec's "character") per line.
@@ -122,28 +122,122 @@ fn split_lines(
   }
 }
 
-/// A line with the spaces and tabs before its text measured. `indent` is
-/// their width in columns, with a tab reaching the next multiple of 4.
+/// A cursor over one line. Each open container eats its prefix from the
+/// front, and the next container or the leaf sees the rest.
 type Line {
-  Line(row: Int, indent: Int, text: List(String))
+  Line(
+    row: Int,
+    /// Columns eaten so far. A tab reaches the next multiple of 4.
+    column: Int,
+    /// Columns of a tab that a container ate only part of (">\tfoo").
+    owed: Int,
+    /// The spaces and tabs not eaten yet.
+    margin: List(String),
+    /// The width of `owed` and `margin`, in columns.
+    indent: Int,
+    /// From the first character that is not a space or tab.
+    text: List(String),
+  )
 }
 
 fn new_line(row: Int, chars: List(String)) -> Line {
+  measure(Line(row, 0, 0, [], 0, []), chars)
+}
+
+fn measure(line: Line, chars: List(String)) -> Line {
   let #(margin, text) = list.split_while(chars, is_space_or_tab)
-  let indent =
-    list.fold(margin, 0, fn(column, char) {
+  let end =
+    list.fold(margin, line.column, fn(column, char) {
       case char {
         "\t" -> column + 4 - column % 4
         _ -> column + 1
       }
     })
-  Line(row:, indent:, text:)
+  Line(..line, owed: 0, margin:, indent: end - line.column, text:)
 }
 
-/// What is still open after a line: the closed blocks, newest first, and the
-/// open leaf.
+fn skip_margin(line: Line) -> Line {
+  Line(
+    ..line,
+    column: line.column + line.indent,
+    owed: 0,
+    margin: [],
+    indent: 0,
+  )
+}
+
+/// Eats `count` columns of white space, or fewer when there are not that
+/// many. May eat part of a tab.
+fn eat_columns(line: Line, count: Int) -> Line {
+  case line.margin {
+    _ if count <= 0 -> line
+    _ if line.owed > 0 -> {
+      let eaten = int.min(count, line.owed)
+      eat_columns(
+        Line(
+          ..line,
+          column: line.column + eaten,
+          owed: line.owed - eaten,
+          indent: line.indent - eaten,
+        ),
+        count - eaten,
+      )
+    }
+    [" ", ..margin] ->
+      eat_columns(
+        Line(..line, column: line.column + 1, margin:, indent: line.indent - 1),
+        count - 1,
+      )
+    ["\t", ..margin] -> {
+      let width = 4 - line.column % 4
+      let eaten = int.min(count, width)
+      eat_columns(
+        Line(
+          ..line,
+          column: line.column + eaten,
+          owed: width - eaten,
+          margin:,
+          indent: line.indent - eaten,
+        ),
+        count - eaten,
+      )
+    }
+    _ -> line
+  }
+}
+
+/// Eats the margin and then `count` characters of one column each.
+fn eat_text(line: Line, count: Int) -> Line {
+  let line = skip_margin(line)
+  measure(
+    Line(..line, column: line.column + count),
+    list.drop(line.text, count),
+  )
+}
+
+/// A `>` and the one space or tab column after it, if there is one.
+fn after_quote_mark(line: Line) -> Line {
+  eat_columns(eat_text(line, 1), 1)
+}
+
+/// A quote nested deeper than this is not opened: its `>` stays paragraph
+/// text, the way `max_depth` leaves inline marks.
+const max_block_depth = 32
+
+/// What is still open after a line. `blocks` are the closed top-level
+/// blocks and each frame's `blocks` its closed children, newest first.
+/// `frames` holds the open containers, innermost first, and `depth` counts
+/// them. The open leaf belongs to the innermost one.
 type Open {
-  Open(blocks: List(Block), leaf: Leaf)
+  Open(blocks: List(Block), frames: List(Frame), depth: Int, leaf: Leaf)
+}
+
+type Frame {
+  Frame(container: Container, blocks: List(Block))
+}
+
+type Container {
+  InQuote(first_row: Int)
 }
 
 /// A leaf keeps its lines as typed, newest first, until it closes. Inline
@@ -157,8 +251,43 @@ type Leaf {
 type Start {
   Blank
   TextLine
+  QuoteStart(rest: Line)
   HeadingStart(level: Level, text: List(String))
   RuleStart
+}
+
+/// Each open container eats its prefix, outermost first. Only when all of
+/// them keep the line does the open leaf see it.
+fn step(open: Open, line: Line) -> Open {
+  let #(matched, line) = continue_frames(list.reverse(open.frames), 0, line)
+  case matched == open.depth {
+    True -> continue_leaf(open, line)
+    False -> start_blocks(open, matched, line)
+  }
+}
+
+/// How many frames, outermost first, kept the line, and the line after their
+/// prefixes. Nothing closes here: a lazy line leaves every frame open.
+fn continue_frames(
+  frames: List(Frame),
+  matched: Int,
+  line: Line,
+) -> #(Int, Line) {
+  case frames {
+    [] -> #(matched, line)
+    [frame, ..inner] ->
+      case continue_frame(frame.container, line) {
+        Ok(line) -> continue_frames(inner, matched + 1, line)
+        Error(Nil) -> #(matched, line)
+      }
+  }
+}
+
+fn continue_frame(container: Container, line: Line) -> Result(Line, Nil) {
+  case container, line.text {
+    InQuote(_), [">", ..] if line.indent < 4 -> Ok(after_quote_mark(line))
+    InQuote(_), _ -> Error(Nil)
+  }
 }
 
 /// The open leaf has the first say on a line. A setext underline is read
@@ -166,6 +295,7 @@ type Start {
 /// call it a rule.
 fn continue_leaf(open: Open, line: Line) -> Open {
   case open.leaf, line.text {
+    NoLeaf, _ -> start_blocks(open, open.depth, line)
     ParagraphLeaf(..), [] -> close_leaf(open)
     ParagraphLeaf(first_row:, lines:, ..), text if line.indent < 4 ->
       case setext_level(text) {
@@ -174,30 +304,40 @@ fn continue_leaf(open: Open, line: Line) -> Open {
           Open(..open, leaf: NoLeaf)
           |> push_block(Block(first_row, line.row, heading))
         }
-        Error(Nil) -> start_blocks(open, line)
+        Error(Nil) -> start_blocks(open, open.depth, line)
       }
-    _, _ -> start_blocks(open, line)
+    ParagraphLeaf(..), _ -> start_blocks(open, open.depth, line)
   }
 }
 
-fn start_blocks(open: Open, line: Line) -> Open {
+/// The frames past `matched` and the leaf are still open. Every start closes
+/// them first, but for text that finds a paragraph open: that is the next
+/// line of the paragraph, and a lazy one when `matched` is short of the
+/// depth.
+fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
   let row = line.row
-  case start(line), open.leaf {
-    Blank, _ -> close_leaf(open)
+  case start(line, matched), open.leaf {
     TextLine, ParagraphLeaf(first_row:, lines:, ..) ->
       Open(..open, leaf: ParagraphLeaf(first_row, row, [line.text, ..lines]))
-    TextLine, NoLeaf -> Open(..open, leaf: ParagraphLeaf(row, row, [line.text]))
+    TextLine, _ -> open_paragraph(close_to(open, matched, row), line)
+    Blank, _ -> close_to(open, matched, row)
+    QuoteStart(rest), _ ->
+      close_to(open, matched, row)
+      |> push_frame(InQuote(row))
+      |> start_blocks(matched + 1, rest)
     HeadingStart(level, text), _ ->
-      close_leaf(open)
+      close_to(open, matched, row)
       |> push_block(Block(row, row, Heading(level, inlines(text))))
-    RuleStart, _ -> close_leaf(open) |> push_block(Block(row, row, Rule))
+    RuleStart, _ ->
+      close_to(open, matched, row) |> push_block(Block(row, row, Rule))
   }
 }
 
-fn start(line: Line) -> Start {
+fn start(line: Line, matched: Int) -> Start {
   case line.text {
     [] -> Blank
     _ if line.indent >= 4 -> TextLine
+    [">", ..] if matched < max_block_depth -> QuoteStart(after_quote_mark(line))
     ["#", ..] as text ->
       case heading(text) {
         Ok(#(level, text)) -> HeadingStart(level, text)
@@ -244,6 +384,38 @@ fn setext_level(text: List(String)) -> Result(Level, Nil) {
   }
 }
 
+fn open_paragraph(open: Open, line: Line) -> Open {
+  Open(..open, leaf: ParagraphLeaf(line.row, line.row, [line.text]))
+}
+
+fn push_frame(open: Open, container: Container) -> Open {
+  Open(
+    ..open,
+    frames: [Frame(container, []), ..open.frames],
+    depth: open.depth + 1,
+  )
+}
+
+/// Closes the leaf, then frames until `depth` are left. `row` is the line
+/// that closes them, so a frame ends on the row before it.
+fn close_to(open: Open, depth: Int, row: Int) -> Open {
+  let open = close_leaf(open)
+  case open.frames {
+    [frame, ..outer] if open.depth > depth ->
+      Open(..open, frames: outer, depth: open.depth - 1)
+      |> push_block(close_frame(frame, row - 1))
+      |> close_to(depth, row)
+    _ -> open
+  }
+}
+
+fn close_frame(frame: Frame, last_row: Int) -> Block {
+  case frame.container {
+    InQuote(first_row) ->
+      Block(first_row, last_row, Quote(list.reverse(frame.blocks)))
+  }
+}
+
 fn close_leaf(open: Open) -> Open {
   case open.leaf {
     NoLeaf -> open
@@ -258,11 +430,18 @@ fn close_leaf(open: Open) -> Open {
 }
 
 fn push_block(open: Open, block: Block) -> Open {
-  Open(..open, blocks: [block, ..open.blocks])
+  case open.frames {
+    [] -> Open(..open, blocks: [block, ..open.blocks])
+    [frame, ..outer] ->
+      Open(..open, frames: [
+        Frame(..frame, blocks: [block, ..frame.blocks]),
+        ..outer
+      ])
+  }
 }
 
-fn finish(open: Open) -> List(Block) {
-  list.reverse(close_leaf(open).blocks)
+fn finish(open: Open, rows: Int) -> List(Block) {
+  list.reverse(close_to(open, 0, rows).blocks)
 }
 
 /// The lines joined with "\n", with the spaces after the last one dropped.

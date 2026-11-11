@@ -192,18 +192,22 @@ pub fn a_rule_renders_as_hr_test() {
   )
 }
 
+pub fn a_quote_renders_as_blockquote_test() {
+  let quote = Quote([Block(0, 0, Paragraph([Text("a")])), Block(1, 1, Rule)])
+
+  assert string.contains(render(quote), "<blockquote><p>a</p><hr></blockquote>")
+}
+
 pub fn blocks_the_parser_cannot_produce_yet_render_nothing_test() {
   let html =
     render_blocks([
       Block(0, 0, BulletList([])),
       Block(1, 1, OrderedList(1, [])),
-      Block(2, 2, Quote([])),
       Block(3, 3, CodeBlock(None, "code")),
     ])
 
   assert !string.contains(html, "<ul")
   assert !string.contains(html, "<ol")
-  assert !string.contains(html, "<blockquote")
   assert !string.contains(html, "<pre")
 }
 

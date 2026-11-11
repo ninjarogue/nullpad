@@ -66,6 +66,11 @@ const inputs = {
   "rules": (n) => "---\n".repeat(n),
   "a long rule": (n) => "- ".repeat(n * 2),
   "a long line that almost makes a rule": (n) => "- ".repeat(n * 2) + "a",
+  "quote marks on one line": (n) => "> ".repeat(n) + "a",
+  "quote marks, no spaces": (n) => ">".repeat(n * 2) + "a",
+  "deep quotes on every line": (n) => ("> ".repeat(40) + "a\n").repeat(n / 40),
+  "lazy continuation lines": (n) => "> a\n" + "b\n".repeat(n),
+  "quotes opening and closing": (n) => "> a\n\n".repeat(n),
 };
 
 const titles = {

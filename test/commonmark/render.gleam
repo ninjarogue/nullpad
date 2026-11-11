@@ -21,7 +21,8 @@ fn block(block: Block) -> String {
     }
     Paragraph(text:) -> element("p", [], inlines(text)) <> "\n"
     Rule -> "<hr />\n"
-    BulletList(..) | OrderedList(..) | Quote(..) | CodeBlock(..) ->
+    Quote(blocks:) -> "<blockquote>\n" <> html(blocks) <> "</blockquote>\n"
+    BulletList(..) | OrderedList(..) | CodeBlock(..) ->
       panic as "the parser does not build this block yet"
   }
 }

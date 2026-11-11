@@ -32,12 +32,13 @@ pub fn view(
   )
 }
 
-fn block(block: Block) -> Element(msg) {
-  case block.content {
+fn block(shown: Block) -> Element(msg) {
+  case shown.content {
     Heading(level, text) -> heading(level, inlines(text))
     Paragraph(text) -> html.p([], inlines(text))
     Rule -> html.hr([])
-    BulletList(_) | OrderedList(..) | Quote(_) | CodeBlock(..) -> element.none()
+    Quote(blocks) -> html.blockquote([], list.map(blocks, block))
+    BulletList(_) | OrderedList(..) | CodeBlock(..) -> element.none()
   }
 }
 

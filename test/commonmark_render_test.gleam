@@ -1,8 +1,8 @@
 import commonmark/render
 import gleam/option.{None, Some}
 import nullpad/markdown.{
-  Block, Code, Emphasis, H3, Heading, Link, Paragraph, Rule, Strike, Strong,
-  Text,
+  Block, Code, Emphasis, H3, Heading, Link, Paragraph, Quote, Rule, Strike,
+  Strong, Text,
 }
 
 fn paragraph(text: List(markdown.Inline)) -> String {
@@ -37,6 +37,13 @@ pub fn inlines_nest_test() {
 pub fn a_rule_is_a_void_hr_test() {
   assert render.html([Block(0, 0, Rule), Block(1, 1, Paragraph([Text("a")]))])
     == "<hr />\n<p>a</p>\n"
+}
+
+pub fn a_quote_puts_its_blocks_on_lines_of_their_own_test() {
+  assert render.html([Block(0, 0, Quote([Block(0, 0, Paragraph([Text("a")]))]))])
+    == "<blockquote>\n<p>a</p>\n</blockquote>\n"
+  assert render.html([Block(0, 0, Quote([]))])
+    == "<blockquote>\n</blockquote>\n"
 }
 
 pub fn strike_is_del_test() {

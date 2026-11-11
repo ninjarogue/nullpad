@@ -7,10 +7,12 @@ import gleam/int
 import gleam/list
 import gleam/option.{None}
 import gleam/string
+import lustre/element
 import nullpad/markdown.{
   Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
-  Item, Link, Paragraph, Rule, Strike, Strong, Text, Unchecked,
+  Item, Link, Paragraph, Quote, Rule, Strike, Strong, Text, Unchecked,
 }
+import nullpad/preview
 
 pub fn empty_input_has_no_blocks_test() {
   assert markdown.parse("") == []
@@ -78,6 +80,79 @@ pub fn an_underline_with_a_gap_or_four_spaces_of_indent_is_no_underline_test() {
   assert markdown.parse("Foo\n--- -") == [para(0, "Foo"), Block(1, 1, Rule)]
   assert markdown.parse("Foo\n    ---")
     == [Block(0, 1, Paragraph([Text("Foo\n---")]))]
+}
+
+// Block quotes
+
+pub fn a_quote_holds_blocks_with_their_rows_test() {
+  assert markdown.parse("> # Title\n> one\n> two\n>\n> ---")
+    == [
+      Block(
+        0,
+        4,
+        Quote([
+          Block(0, 0, Heading(H1, [Text("Title")])),
+          Block(1, 2, Paragraph([Text("one\ntwo")])),
+          Block(4, 4, Rule),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_quote_mark_needs_no_space_after_it_test() {
+  assert markdown.parse(">a\n>  b")
+    == [Block(0, 1, Quote([Block(0, 1, Paragraph([Text("a\nb")]))]))]
+}
+
+pub fn a_line_without_its_quote_mark_still_continues_the_paragraph_test() {
+  assert markdown.parse("> a\nb\n> c")
+    == [Block(0, 2, Quote([Block(0, 2, Paragraph([Text("a\nb\nc")]))]))]
+}
+
+pub fn a_lazy_line_continues_a_paragraph_at_any_depth_test() {
+  let paragraph = Block(0, 1, Paragraph([Text("a\nb")]))
+  assert markdown.parse("> > a\n> b")
+    == [Block(0, 1, Quote([Block(0, 1, Quote([paragraph]))]))]
+}
+
+pub fn a_lazy_line_is_never_an_underline_test() {
+  assert markdown.parse("> a\n---")
+    == [Block(0, 0, Quote([para(0, "a")])), Block(1, 1, Rule)]
+  assert markdown.parse("> a\n===")
+    == [Block(0, 1, Quote([Block(0, 1, Paragraph([Text("a\n===")]))]))]
+}
+
+pub fn a_blank_line_ends_a_quote_test() {
+  assert markdown.parse("> a\n\n> b")
+    == [Block(0, 0, Quote([para(0, "a")])), Block(2, 2, Quote([para(2, "b")]))]
+}
+
+pub fn quotes_stop_at_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat("> ", 10_000) <> "a")
+  let #(depth, innermost) = innermost_quote(blocks, 0)
+
+  assert depth == 32
+  assert innermost == [para(0, string.repeat("> ", 9968) <> "a")]
+  let html = element.to_string(preview.view(blocks, fn(_) { Nil }))
+  assert list.length(string.split(html, "<blockquote>")) == 33
+}
+
+pub fn quote_marks_without_spaces_stop_at_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat(">", 10_000) <> "a")
+  let #(depth, innermost) = innermost_quote(blocks, 0)
+
+  assert depth == 32
+  assert innermost == [para(0, string.repeat(">", 9968) <> "a")]
+}
+
+fn innermost_quote(
+  blocks: List(markdown.Block),
+  depth: Int,
+) -> #(Int, List(markdown.Block)) {
+  case blocks {
+    [Block(content: Quote(inner), ..)] -> innermost_quote(inner, depth + 1)
+    _ -> #(depth, blocks)
+  }
 }
 
 /// M3 turns four spaces of indent into a code block.
