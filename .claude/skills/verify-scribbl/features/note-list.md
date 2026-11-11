@@ -6,7 +6,7 @@ The sidebar lists every note, newest save first. A person makes, opens, titles a
 
 - `list-new` New note opens an empty note at the top with focus in the text field.
 - `list-switch` picking a row saves the open note, then opens the picked one.
-- `list-title` a row shows the typed title, or the first line without its marks, or "Untitled".
+- `list-title` a row shows the typed title, or the first line as the rendered page words it (`**bold**` is "bold", an unclosed `**bold` keeps its stars), or "Untitled".
 - `list-delete` Delete asks first. Keep cancels. Confirm removes the note and opens the newest one left.
 
 ## How to get to it (user POV)

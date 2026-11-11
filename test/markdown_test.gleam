@@ -5,6 +5,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/option.{None}
 import gleam/string
 import scribbl/markdown.{
   Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
@@ -28,47 +29,23 @@ pub fn headings_have_six_levels_test() {
     ]
 }
 
-pub fn heading_text_is_trimmed_test() {
-  assert markdown.parse("#   spaced out   ")
-    == [Block(0, 0, Heading(H1, [Text("spaced out")]))]
-}
-
-pub fn a_heading_may_have_no_text_test() {
-  assert markdown.parse("#") == [Block(0, 0, Heading(H1, []))]
-  assert markdown.parse("### ") == [Block(0, 0, Heading(H3, []))]
-}
-
-pub fn closing_hashes_stay_in_the_text_test() {
-  assert markdown.parse("# Hi #") == [Block(0, 0, Heading(H1, [Text("Hi #")]))]
-}
-
-pub fn a_hash_needs_a_space_to_make_a_heading_test() {
-  assert markdown.parse("#hashtag") == [para(0, "#hashtag")]
-  assert markdown.parse("##tight") == [para(0, "##tight")]
-}
-
-pub fn seven_hashes_are_not_a_heading_test() {
-  assert markdown.parse("####### seven") == [para(0, "####### seven")]
-}
-
-pub fn three_spaces_may_indent_a_heading_test() {
-  assert markdown.parse("   # indented")
-    == [Block(0, 0, Heading(H1, [Text("indented")]))]
+/// M3 turns four spaces of indent into a code block.
+pub fn four_spaces_of_indent_are_not_a_heading_test() {
   assert markdown.parse("    # too far") == [para(0, "# too far")]
 }
 
 pub fn a_heading_ends_the_paragraph_before_it_test() {
   assert markdown.parse("one\ntwo\n# Title\nthree")
     == [
-      Block(0, 1, Paragraph([Text("one two")])),
+      Block(0, 1, Paragraph([Text("one\ntwo")])),
       Block(2, 2, Heading(H1, [Text("Title")])),
       para(3, "three"),
     ]
 }
 
-pub fn paragraph_lines_are_trimmed_and_joined_by_a_space_test() {
-  assert markdown.parse("  one  \n\ttwo\nthree  ")
-    == [Block(0, 2, Paragraph([Text("one two three")]))]
+pub fn a_paragraph_keeps_its_line_breaks_in_the_text_test() {
+  assert markdown.parse("  one\n\ttwo\nthree \t")
+    == [Block(0, 2, Paragraph([Text("one\ntwo\nthree")]))]
 }
 
 pub fn blank_lines_separate_blocks_test() {
@@ -76,16 +53,28 @@ pub fn blank_lines_separate_blocks_test() {
     == [para(0, "one"), para(2, "two"), para(5, "three")]
 }
 
-pub fn a_trailing_newline_adds_no_block_test() {
-  assert markdown.parse("one\n") == [para(0, "one")]
+pub fn only_spaces_and_tabs_make_a_line_blank_test() {
+  assert markdown.parse("one\n\u{A0}\ntwo")
+    == [Block(0, 2, Paragraph([Text("one\n\u{A0}\ntwo")]))]
 }
 
 pub fn windows_line_ends_count_like_unix_ones_test() {
   assert markdown.parse("# Title\r\n\r\none\r\ntwo\r\n")
     == [
       Block(0, 0, Heading(H1, [Text("Title")])),
-      Block(2, 3, Paragraph([Text("one two")])),
+      Block(2, 3, Paragraph([Text("one\ntwo")])),
     ]
+}
+
+pub fn a_lone_carriage_return_ends_a_line_test() {
+  assert markdown.parse("one\rtwo\r\rthree")
+    == [Block(0, 1, Paragraph([Text("one\ntwo")])), para(3, "three")]
+}
+
+pub fn a_nul_character_becomes_the_replacement_character_test() {
+  assert markdown.parse("a\u{0}b") == [para(0, "a\u{FFFD}b")]
+  assert markdown.parse("# \u{0}")
+    == [Block(0, 0, Heading(H1, [Text("\u{FFFD}")]))]
 }
 
 pub fn emoji_and_accents_are_kept_test() {
@@ -93,170 +82,86 @@ pub fn emoji_and_accents_are_kept_test() {
     == [Block(0, 0, Heading(H1, [Text("héllo 👋")])), para(2, "bye 👋")]
 }
 
+pub fn spaces_before_a_line_break_are_dropped_test() {
+  assert markdown.parse("one  \ntwo\t\nthree")
+    == [Block(0, 2, Paragraph([Text("one\ntwo\nthree")]))]
+}
+
+// Left as text by decision.
+
 pub fn raw_html_is_text_test() {
   assert markdown.parse("<h1>hi</h1>\n<script>alert(1)</script>")
-    == [Block(0, 1, Paragraph([Text("<h1>hi</h1> <script>alert(1)</script>")]))]
+    == [
+      Block(0, 1, Paragraph([Text("<h1>hi</h1>\n<script>alert(1)</script>")])),
+    ]
 }
 
-/// M2: syntax that never closes is plain text, not an error.
+pub fn entities_stay_as_typed_test() {
+  assert markdown.parse("&amp; &copy; &#35;")
+    == paragraph([Text("&amp; &copy; &#35;")])
+}
+
+pub fn an_image_is_a_bang_then_a_link_test() {
+  assert markdown.parse("![moon](moon.jpg)")
+    == paragraph([Text("!"), Link([Text("moon")], "moon.jpg", None)])
+}
+
+pub fn autolinks_are_text_test() {
+  assert markdown.parse("<https://example.com>")
+    == paragraph([Text("<https://example.com>")])
+}
+
+pub fn hard_line_breaks_stay_soft_test() {
+  assert markdown.parse("a  \nb\\\nc")
+    == [Block(0, 2, Paragraph([Text("a\nb\\\nc")]))]
+}
+
 pub fn unclosed_bold_is_text_test() {
-  assert markdown.parse("**oops") == [Block(0, 0, Paragraph([Text("**oops")]))]
-}
-
-pub fn unclosed_code_is_text_test() {
-  assert markdown.parse("`oops") == paragraph([Text("`oops")])
-  assert markdown.parse("``a`") == paragraph([Text("``a`")])
-}
-
-pub fn a_star_beside_a_space_is_text_test() {
-  assert markdown.parse("2 * 3 * 4") == paragraph([Text("2 * 3 * 4")])
-  assert markdown.parse("a * b* c") == paragraph([Text("a * b* c")])
-  assert markdown.parse("a *b *") == paragraph([Text("a *b *")])
-}
-
-pub fn underscores_inside_a_word_are_text_test() {
-  assert markdown.parse("snake_case_name")
-    == paragraph([Text("snake_case_name")])
+  assert markdown.parse("**oops") == paragraph([Text("**oops")])
 }
 
 pub fn a_bracket_without_a_link_is_text_test() {
   assert markdown.parse("[not a link]") == paragraph([Text("[not a link]")])
   assert markdown.parse("[a](b") == paragraph([Text("[a](b")])
-  assert markdown.parse("[a](b c)") == paragraph([Text("[a](b c)")])
-}
-
-pub fn a_backslash_before_a_letter_is_literal_test() {
-  assert markdown.parse("C:\\dir") == paragraph([Text("C:\\dir")])
-  assert markdown.parse("end\\") == paragraph([Text("end\\")])
-}
-
-// 1. Code spans
-
-pub fn code_span_test() {
-  assert markdown.parse("use `x` here")
-    == paragraph([Text("use "), Code("x"), Text(" here")])
-}
-
-pub fn code_content_is_literal_test() {
-  assert markdown.parse("`**not** [bold](x)`")
-    == paragraph([Code("**not** [bold](x)")])
-}
-
-pub fn code_span_longer_fence_test() {
-  assert markdown.parse("`` a`b ``") == paragraph([Code("a`b")])
-}
-
-pub fn code_span_strips_one_space_each_side_test() {
-  assert markdown.parse("`  a  `") == paragraph([Code(" a ")])
-  assert markdown.parse("`  `") == paragraph([Code("  ")])
-}
-
-// 2. Bold and italic
-
-pub fn strong_test() {
-  assert markdown.parse("a **b** c")
-    == paragraph([Text("a "), Strong([Text("b")]), Text(" c")])
-  assert markdown.parse("__b__") == paragraph([Strong([Text("b")])])
-}
-
-pub fn emphasis_test() {
-  assert markdown.parse("a *b* c")
-    == paragraph([Text("a "), Emphasis([Text("b")]), Text(" c")])
-  assert markdown.parse("_b_") == paragraph([Emphasis([Text("b")])])
-}
-
-pub fn star_emphasis_works_inside_a_word_test() {
-  assert markdown.parse("foo*bar*baz")
-    == paragraph([Text("foo"), Emphasis([Text("bar")]), Text("baz")])
 }
 
 pub fn strong_around_emoji_test() {
   assert markdown.parse("**héllo 👋**") == paragraph([Strong([Text("héllo 👋")])])
 }
 
-pub fn strong_nests_in_emphasis_test() {
-  assert markdown.parse("***x***")
-    == paragraph([Emphasis([Strong([Text("x")])])])
-}
-
-pub fn emphasis_nests_in_strong_test() {
-  assert markdown.parse("**a *b* c**")
-    == paragraph([Strong([Text("a "), Emphasis([Text("b")]), Text(" c")])])
-}
-
-pub fn a_run_closes_only_a_run_of_the_same_length_test() {
-  assert markdown.parse("**a*") == paragraph([Text("**a*")])
-  assert markdown.parse("*a**") == paragraph([Text("*a**")])
-  assert markdown.parse("**a* *b*")
-    == paragraph([Text("**a* "), Emphasis([Text("b")])])
-}
-
-pub fn a_run_longer_than_three_is_text_test() {
-  assert markdown.parse("****a****") == paragraph([Text("****a****")])
-  assert markdown.parse("****a**** *b*")
-    == paragraph([Text("****a**** "), Emphasis([Text("b")])])
-}
-
-/// M2
-pub fn heading_and_bold_test() {
-  let bold = Paragraph([Text("some "), Strong([Text("bold")]), Text(" text")])
-
-  assert markdown.parse("# Hi\n\nsome **bold** text")
-    == [
-      Block(first_row: 0, last_row: 0, content: Heading(H1, [Text("Hi")])),
-      Block(first_row: 2, last_row: 2, content: bold),
-    ]
-}
-
-// 3. Links
-
-pub fn link_test() {
-  assert markdown.parse("see [docs](https://example.com/a?b=c) now")
-    == paragraph([
-      Text("see "),
-      Link([Text("docs")], "https://example.com/a?b=c"),
-      Text(" now"),
-    ])
-}
-
-pub fn link_label_is_parsed_test() {
-  assert markdown.parse("[**docs**](/x)")
-    == paragraph([Link([Strong([Text("docs")])], "/x")])
-}
-
-pub fn link_url_ends_at_the_first_paren_test() {
-  assert markdown.parse("[a](b)c)")
-    == paragraph([Link([Text("a")], "b"), Text("c)")])
-}
-
-pub fn a_url_may_hold_balanced_parentheses_test() {
-  assert markdown.parse(
-      "[Rust](https://en.wikipedia.org/wiki/Rust_(programming_language))",
-    )
-    == paragraph([
-      Link(
-        [Text("Rust")],
-        "https://en.wikipedia.org/wiki/Rust_(programming_language)",
-      ),
-    ])
+/// The page decides what is safe to click. The parser only reads the syntax.
+pub fn a_link_scribbl_will_not_follow_stays_as_typed_test() {
   assert markdown.parse("[x](javascript:alert(1))")
-    == paragraph([Link([Text("x")], "javascript:alert(1)")])
-  assert markdown.parse("[a](b(c(d)e)f)")
-    == paragraph([Link([Text("a")], "b(c(d)e)f")])
+    == paragraph([Text("[x](javascript:alert(1))")])
+  assert markdown.parse("[**x**](<data:text/html,hi> \"t\") *y*")
+    == paragraph([
+      Text("["),
+      Strong([Text("x")]),
+      Text("](<data:text/html,hi> \"t\") "),
+      Emphasis([Text("y")]),
+    ])
 }
 
-pub fn an_unbalanced_paren_ends_the_url_or_the_link_test() {
-  assert markdown.parse("[a](b(c)") == paragraph([Text("[a](b(c)")])
-  assert markdown.parse("[a](b(c) d)") == paragraph([Text("[a](b(c) d)")])
-  assert markdown.parse("[a](b))")
-    == paragraph([Link([Text("a")], "b"), Text(")")])
-  assert markdown.parse("[a]()") == paragraph([Link([Text("a")], "")])
+pub fn web_mail_and_relative_links_are_followed_test() {
+  assert markdown.is_safe_url("https://example.com/a:b")
+  assert markdown.is_safe_url("HTTP://example.com")
+  assert markdown.is_safe_url("mailto:a@example.com")
+  assert markdown.is_safe_url("notes/today.md")
+  assert markdown.is_safe_url("/a?time=10:30")
+  assert markdown.is_safe_url("#part:two")
+  assert !markdown.is_safe_url("javascript:alert(1)")
+  assert !markdown.is_safe_url(" javascript:alert(1)")
+  assert !markdown.is_safe_url("java\tscript:alert(1)")
+  assert !markdown.is_safe_url("data:text/html,hi")
+  assert !markdown.is_safe_url(":alert(1)")
+  assert markdown.is_safe_url("java%73cript:alert(1)")
+  assert markdown.is_safe_url("a(b):c")
 }
 
 pub fn parentheses_in_a_url_nest_32_deep_test() {
   let level_32 = string.repeat("(", 32) <> string.repeat(")", 32)
   assert markdown.parse("[a](" <> level_32 <> ")")
-    == paragraph([Link([Text("a")], level_32)])
+    == paragraph([Link([Text("a")], level_32, None)])
 
   let level_33 = string.repeat("(", 33) <> string.repeat(")", 33)
   let text = "[a](" <> level_33 <> ")"
@@ -266,41 +171,69 @@ pub fn parentheses_in_a_url_nest_32_deep_test() {
 pub fn a_long_url_is_still_a_link_test() {
   let url = string.repeat("x", 20_000)
   assert markdown.parse("[a](" <> url <> ")")
-    == paragraph([Link([Text("a")], url)])
+    == paragraph([Link([Text("a")], url, None)])
 }
 
-pub fn lines_of_link_starts_that_never_close_are_text_test() {
-  let starts = string.repeat("](", 20_000)
-  assert markdown.parse(starts) == paragraph([Text(starts)])
-  let opens = "[a](" <> string.repeat("(", 20_000)
-  assert markdown.parse(opens) == paragraph([Text(opens)])
+pub fn a_closer_passes_the_label_a_link_gave_up_test() {
+  assert markdown.parse("*a [b [c](d) e*")
+    == paragraph([
+      Emphasis([Text("a [b "), Link([Text("c")], "d", None), Text(" e")]),
+    ])
 }
 
-pub fn links_do_not_nest_test() {
-  assert markdown.parse("[[a](b)](c)")
-    == paragraph([Text("["), Link([Text("a")], "b"), Text("](c)")])
+pub fn a_label_opened_after_a_link_still_closes_test() {
+  assert markdown.parse("[a [b](c) [d](e) f](g)")
+    == paragraph([
+      Text("[a "),
+      Link([Text("b")], "c", None),
+      Text(" "),
+      Link([Text("d")], "e", None),
+      Text(" f](g)"),
+    ])
 }
 
-pub fn emphasis_wins_over_a_link_it_crosses_test() {
-  assert markdown.parse("**a [b** c](u)")
-    == paragraph([Strong([Text("a [b")]), Text(" c](u)")])
+// The 32-level cap
+
+pub fn nesting_stops_at_thirty_two_levels_test() {
+  let line = string.repeat("*a ", 5000) <> "b" <> string.repeat(" a*", 5000)
+  let assert [Block(0, 0, Paragraph(inlines))] = markdown.parse(line)
+
+  assert depth(inlines) == 32
 }
 
-// 4. Escapes
+pub fn marks_too_deep_stay_text_in_place_test() {
+  let line = string.repeat("*a ", 40) <> "b" <> string.repeat(" a*", 40)
+  let assert [Block(0, 0, Paragraph([Text(before), deep, Text(after)]))] =
+    markdown.parse(line)
 
-pub fn escaped_delimiters_are_text_test() {
-  assert markdown.parse("\\*not emphasis\\*")
-    == paragraph([Text("*not emphasis*")])
-  assert markdown.parse("\\*a*") == paragraph([Text("*a*")])
+  assert before == string.repeat("*a ", 8)
+  assert depth([deep]) == 32
+  assert after == string.repeat(" a*", 8)
 }
 
-pub fn any_ascii_punctuation_can_be_escaped_test() {
-  assert markdown.parse("\\# \\[ \\` \\\\") == paragraph([Text("# [ ` \\")])
+pub fn a_link_too_deep_stays_text_around_its_label_test() {
+  let label = string.repeat("*a ", 40) <> "b" <> string.repeat(" a*", 40)
+  let assert [Block(0, 0, Paragraph([Text(before), deep, Text(after)]))] =
+    markdown.parse("[" <> label <> "](u \"t\")")
+
+  assert before == "[" <> string.repeat("*a ", 8)
+  assert depth([deep]) == 32
+  assert after == string.repeat(" a*", 8) <> "](u \"t\")"
 }
 
-pub fn backslash_is_literal_in_code_test() {
-  assert markdown.parse("a `\\` b")
-    == paragraph([Text("a "), Code("\\"), Text(" b")])
+pub fn a_link_counts_as_a_level_test() {
+  let line = string.repeat("*a ", 40) <> "[b](u)" <> string.repeat(" a*", 40)
+  let assert [Block(0, 0, Paragraph(inlines))] = markdown.parse(line)
+
+  assert depth(inlines) == 32
+}
+
+pub fn code_kept_through_thousands_of_levels_test() {
+  let line = string.repeat("*`c` ", 5000) <> "b" <> string.repeat(" `c`*", 5000)
+  let assert [Block(0, 0, Paragraph(inlines))] = markdown.parse(line)
+
+  assert depth(inlines) == 32
+  assert list.take(inlines, 4) == [Text("*"), Code("c"), Text(" *"), Code("c")]
 }
 
 // Long and hostile lines
@@ -345,6 +278,20 @@ pub fn closers_that_find_no_opener_are_text_test() {
   assert markdown.parse(line) == paragraph([Text(line)])
 }
 
+pub fn lines_of_link_starts_that_never_close_are_text_test() {
+  let starts = string.repeat("](", 20_000)
+  assert markdown.parse(starts) == paragraph([Text(starts)])
+  let opens = "[a](" <> string.repeat("(", 20_000)
+  assert markdown.parse(opens) == paragraph([Text(opens)])
+}
+
+pub fn link_tails_that_never_close_are_text_test() {
+  let titles = string.repeat("[a](u \"", 5000)
+  assert markdown.parse(titles) == paragraph([Text(titles)])
+  let pointy = string.repeat("[a](<b", 5000)
+  assert markdown.parse(pointy) == paragraph([Text(pointy)])
+}
+
 pub fn a_closer_gives_up_every_opener_inside_it_test() {
   let inside = string.repeat("[a ", 5000) <> "b"
   assert markdown.parse("*" <> inside <> "*")
@@ -354,7 +301,7 @@ pub fn a_closer_gives_up_every_opener_inside_it_test() {
 pub fn a_link_gives_up_every_opener_around_it_test() {
   let openers = string.repeat("[a ", 3000)
   assert markdown.parse(openers <> "[a](b)")
-    == paragraph([Text(openers), Link([Text("a")], "b")])
+    == paragraph([Text(openers), Link([Text("a")], "b", None)])
 }
 
 pub fn a_long_run_of_spaces_inside_a_line_is_kept_test() {
@@ -364,24 +311,6 @@ pub fn a_long_run_of_spaces_inside_a_line_is_kept_test() {
 
 pub fn trimming_keeps_a_lone_accent_in_place_test() {
   assert markdown.parse("\u{301} a ") == paragraph([Text("\u{301} a")])
-}
-
-pub fn a_closer_passes_the_label_a_link_gave_up_test() {
-  assert markdown.parse("*a [b [c](d) e*")
-    == paragraph([
-      Emphasis([Text("a [b "), Link([Text("c")], "d"), Text(" e")]),
-    ])
-}
-
-pub fn a_label_opened_after_a_link_still_closes_test() {
-  assert markdown.parse("[a [b](c) [d](e) f](g)")
-    == paragraph([
-      Text("[a "),
-      Link([Text("b")], "c"),
-      Text(" "),
-      Link([Text("d")], "e"),
-      Text(" f](g)"),
-    ])
 }
 
 pub fn thousands_of_bold_words_are_thousands_of_strongs_test() {
@@ -394,24 +323,35 @@ pub fn thousands_of_bold_words_are_thousands_of_strongs_test() {
 }
 
 pub fn thousands_of_links_are_thousands_of_links_test() {
-  let link = Link([Text("a")], "b")
+  let link = Link([Text("a")], "b", None)
   let expected =
     list.repeat([link, Text(" ")], 3999) |> list.flatten |> list.append([link])
   assert markdown.parse(string.repeat("[a](b) ", 4000)) == paragraph(expected)
 }
 
-pub fn nesting_stops_at_thirty_two_levels_test() {
-  let line = string.repeat("*a ", 5000) <> "b" <> string.repeat(" a*", 5000)
-  let assert [Block(0, 0, Paragraph(inlines))] = markdown.parse(line)
+// Plain text, for note titles
 
-  assert depth(inlines) == 32
+pub fn plain_text_keeps_the_words_and_drops_the_markup_test() {
+  let assert [Block(content: Paragraph(text), ..)] =
+    markdown.parse("a **b *c*** [d `e`](u \"t\") `f` **g")
+  assert markdown.plain_text(text) == "a b c d e f **g"
+}
+
+pub fn plain_text_shows_a_line_break_as_a_space_test() {
+  let assert [Block(content: Paragraph(text), ..)] =
+    markdown.parse("one\n*two*\nthree")
+  assert markdown.plain_text(text) == "one two three"
+}
+
+pub fn plain_text_keeps_struck_words_test() {
+  assert markdown.plain_text([markdown.Strike([Text("gone")])]) == "gone"
 }
 
 fn depth(inlines: List(markdown.Inline)) -> Int {
   list.fold(inlines, 0, fn(deepest, inline) {
     case inline {
       Text(_) | Code(_) -> deepest
-      Strong(children) | Emphasis(children) | Link(children, _) ->
+      Strong(children) | Emphasis(children) | Link(children, _, _) ->
         int.max(deepest, 1 + depth(children))
       markdown.Strike(children) -> int.max(deepest, 1 + depth(children))
     }

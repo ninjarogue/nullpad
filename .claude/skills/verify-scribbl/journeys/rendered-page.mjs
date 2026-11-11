@@ -38,8 +38,9 @@ export default async ({ page, type, look, shot, check }) => {
   await check('the button shows the edited page', async () => {
     if ((await preview.locator('p').count()) !== 2) throw new Error('expected two paragraphs');
   });
-  await check('a javascript: link is not a link', async () => {
+  await check('a javascript: link is not a link and shows as typed', async () => {
     if ((await preview.getByRole('link').count()) !== 1) throw new Error('extra link');
+    if (!(await preview.innerText()).includes('[x](javascript:alert(1))')) throw new Error('typed text missing');
   });
   await check('typed HTML shows as text', async () => {
     if ((await preview.locator('b').count()) !== 0) throw new Error('a <b> element was made');

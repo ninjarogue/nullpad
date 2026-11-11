@@ -93,6 +93,22 @@ test('italic shows as emphasis', async ({ page }) => {
   await expect(page.paragraphs).toHaveText(['a b c']);
 });
 
+test('emphasis may open on one line of a paragraph and close on the next', async ({ page }) => {
+  await page.text.fill('one *two\nthree* four');
+  await page.showPreview.tap();
+
+  await expect(page.emphasis).toHaveText(['two three']);
+  await expect(page.paragraphs).toHaveText(['one two three four']);
+});
+
+test('a note that opens with unclosed bold is listed as its page shows it', async ({ page }) => {
+  await page.text.fill('**bold and more');
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveText(['**bold and more']);
+  await expect(page.currentRow).toHaveText('**bold and more');
+});
+
 test('inline code shows as code', async ({ page }) => {
   await page.text.fill('run `go **build**` now');
   await page.showPreview.tap();
@@ -113,11 +129,21 @@ test('a link opens in a new tab', async ({ page }) => {
   await expect(page.paragraphs).toHaveText(['see docs here']);
 });
 
-test('a javascript: link shows as plain text', async ({ page }) => {
+test('a link title shows when the pointer rests on the link', async ({ page }) => {
+  await page.text.fill('see [docs](https://example.com/ "The manual") here');
+  await page.showPreview.tap();
+
+  const link = page.preview.getByRole('link', 'docs');
+  await expect(link).toHaveAttribute('href', 'https://example.com/');
+  await expect(link).toHaveAttribute('title', 'The manual');
+  await expect(page.paragraphs).toHaveText(['see docs here']);
+});
+
+test('a javascript: link shows as the text typed', async ({ page }) => {
   await page.text.fill('[x](javascript:alert(1))');
   await page.showPreview.tap();
 
-  await expect(page.paragraphs).toHaveText(['x']);
+  await expect(page.paragraphs).toHaveText(['[x](javascript:alert(1))']);
   await expect(page.preview.getByRole('link')).toHaveCount(0);
   await expect(page.everything).toHaveCount(1);
 });

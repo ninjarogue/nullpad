@@ -34,8 +34,30 @@ pub fn title_markers_are_stripped_test() {
   assert storage.display_title(None, "#\n\nreal text") == "real text"
 }
 
+pub fn a_title_reads_markup_the_way_the_page_does_test() {
+  assert storage.display_title(None, "**bold") == "**bold"
+  assert storage.display_title(None, "#hashtag") == "#hashtag"
+  assert storage.display_title(None, "# Title #") == "Title"
+  assert storage.display_title(None, "[docs](https://x.y)") == "docs"
+  assert storage.display_title(None, "\\*literal\\*") == "*literal*"
+  assert storage.display_title(None, "    # indented") == "# indented"
+}
+
+pub fn a_typed_title_loses_only_the_spaces_around_it_test() {
+  let gap = string.repeat(" ", 1000)
+
+  assert storage.display_title(Some(" \t Groceries \n"), "") == "Groceries"
+  assert storage.display_title(Some(gap <> "a" <> gap <> "b" <> gap), "")
+    == "a" <> gap <> "b"
+}
+
 pub fn typed_title_is_kept_whole_test() {
   let long = "A typed title that is well over sixty graphemes long, on purpose"
 
   assert storage.display_title(Some(long), "") == long
+}
+
+pub fn a_link_that_stays_text_on_the_page_stays_text_in_the_title_test() {
+  assert storage.display_title(None, "[x](javascript:alert(1))")
+    == "[x](javascript:alert(1))"
 }
