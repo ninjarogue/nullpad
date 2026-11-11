@@ -1,5 +1,4 @@
-//// Examples for the storage module. See `markdown_test` for how `pending_`
-//// functions work.
+//// Examples for the storage module.
 
 import gleam/option.{None, Some}
 import gleam/string
@@ -32,6 +31,14 @@ pub fn title_markers_are_stripped_test() {
   assert storage.display_title(None, "- [x] eggs") == "eggs"
   assert storage.display_title(None, "> 1. Pack") == "Pack"
   assert storage.display_title(None, "#\n\nreal text") == "real text"
+}
+
+pub fn a_title_is_the_first_line_of_text_the_page_shows_test() {
+  assert storage.display_title(None, "---\n\n> - [x] **done** thing")
+    == "done thing"
+  assert storage.display_title(None, "**bold\nmore**") == "bold"
+  assert storage.display_title(None, "Title\n===") == "Title"
+  assert storage.display_title(None, "-\n\n> \n- [ ]\n\n  late") == "late"
 }
 
 pub fn a_title_reads_markup_the_way_the_page_does_test() {

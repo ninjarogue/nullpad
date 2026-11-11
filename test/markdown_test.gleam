@@ -784,7 +784,7 @@ pub fn thousands_of_links_are_thousands_of_links_test() {
   assert markdown.parse(string.repeat("[a](b) ", 4000)) == paragraph(expected)
 }
 
-// Plain text, for note titles
+// Plain text, for checkbox labels and note titles
 
 pub fn plain_text_keeps_the_words_and_drops_the_markup_test() {
   let assert [Block(content: Paragraph(text), ..)] =
@@ -800,6 +800,25 @@ pub fn plain_text_shows_a_line_break_as_a_space_test() {
 
 pub fn plain_text_keeps_struck_words_test() {
   assert markdown.plain_text([Strike([Text("gone")])]) == "gone"
+}
+
+pub fn first_text_is_the_first_line_the_page_shows_test() {
+  assert markdown.first_text("") == ""
+  assert markdown.first_text("\n***\n#\n> *a*  b \n> c") == "a  b"
+  assert markdown.first_text("- [ ]\n\n  1. ~~[x](u)~~") == "x"
+  assert markdown.first_text("*a\nb*") == "a"
+  assert markdown.first_text("[](u)\n\u{3000}b\u{A0}") == "b"
+}
+
+pub fn first_text_reads_past_the_first_sixteen_lines_test() {
+  assert markdown.first_text(string.repeat("---\n", 16) <> "a") == "a"
+  assert markdown.first_text(string.repeat(">\n", 5000) <> "\n- b") == "b"
+  assert markdown.first_text(string.repeat(">\n", 5000)) == ""
+}
+
+pub fn first_text_keeps_marks_that_do_not_close_test() {
+  assert markdown.first_text("**bold") == "**bold"
+  assert markdown.first_text("\\*a\\*") == "*a*"
 }
 
 fn depth(inlines: List(markdown.Inline)) -> Int {

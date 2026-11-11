@@ -1470,21 +1470,89 @@ fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
 }
 
 /// The words a reader sees: markup dropped, text and code kept, a line break
-/// as one space. Used for note titles. It recurses once per level, and the
-/// parser builds at most `max_depth` of them.
+/// as one space. It recurses once per level, and the parser builds at most
+/// `max_depth` of them.
 pub fn plain_text(inlines: List(Inline)) -> String {
+  inlines |> words |> string.replace("\n", " ")
+}
+
+fn words(inlines: List(Inline)) -> String {
   inlines
   |> list.map(fn(inline) {
     case inline {
-      Text(text) -> string.replace(text, "\n", " ")
-      Code(code) -> code
+      Text(text) | Code(text) -> text
       Strong(children)
       | Emphasis(children)
       | Strike(children)
-      | Link(label: children, ..) -> plain_text(children)
+      | Link(label: children, ..) -> words(children)
     }
   })
   |> string.concat
+}
+
+/// The first line of text the rendered page shows, with the markup dropped
+/// and the white space around it trimmed, or "" when it shows none. Only the
+/// start of the note is parsed: 16 lines, then four times as many each time
+/// those show nothing.
+pub fn first_text(source: String) -> String {
+  first_text_within(source, 16)
+}
+
+fn first_text_within(source: String, lines: Int) -> String {
+  let #(start, more) = take_lines(source, lines, "")
+  case shown(parse(start)), more {
+    "", True -> first_text_within(source, lines * 4)
+    text, _ -> text
+  }
+}
+
+/// The first `count` lines and whether any are left.
+fn take_lines(source: String, count: Int, taken: String) -> #(String, Bool) {
+  case count, string.split_once(source, "\n") {
+    0, _ -> #(taken, source != "")
+    _, Error(Nil) -> #(taken <> source, False)
+    _, Ok(#(line, rest)) -> take_lines(rest, count - 1, taken <> line <> "\n")
+  }
+}
+
+/// It recurses once per container, and the parser nests at most
+/// `max_block_depth` of them.
+fn shown(blocks: List(Block)) -> String {
+  use block <- first_shown(blocks)
+  case block.content {
+    Heading(text:, ..) | Paragraph(text:) -> first_line(words(text))
+    CodeBlock(code:, ..) -> first_line(code)
+    Quote(blocks:) -> shown(blocks)
+    BulletList(items:, ..) | OrderedList(items:, ..) -> {
+      use item <- first_shown(items)
+      shown(item.blocks)
+    }
+    Rule -> ""
+  }
+}
+
+/// The first line of `text` that is not blank, trimmed.
+fn first_line(text: String) -> String {
+  use line <- first_shown(string.split(text, "\n"))
+  line
+  |> string.to_graphemes
+  |> list.drop_while(is_unicode_whitespace)
+  |> list.reverse
+  |> list.drop_while(is_unicode_whitespace)
+  |> list.reverse
+  |> string.concat
+}
+
+/// The first text that `show` gives for one of `things` that is not "".
+fn first_shown(things: List(a), show: fn(a) -> String) -> String {
+  case things {
+    [] -> ""
+    [thing, ..rest] ->
+      case show(thing) {
+        "" -> first_shown(rest, show)
+        text -> text
+      }
+  }
 }
 
 /// Line `task.row` of `source` with the task's box set to `checked`: the

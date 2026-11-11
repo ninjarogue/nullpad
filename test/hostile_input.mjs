@@ -99,6 +99,10 @@ const titles = {
   "title after many blank lines": (n) => " \n".repeat(n) + "a",
   "title of a line of nested markers": (n) => "> - [ ] 1. ".repeat(n) + "a",
   "title of a line of digits": (n) => "1".repeat(n * 4) + ". a",
+  "title after many rules": (n) => "---\n".repeat(n) + "a",
+  "title after many empty items": (n) => "-\n".repeat(n) + "a",
+  "title after many quote marks": (n) => ">\n".repeat(n) + "a",
+  "title of a long first paragraph": (n) => "a\n".repeat(n),
 };
 
 function time(work, source) {
