@@ -3,6 +3,7 @@
 //// (`pending_toggle_task` -> `toggle_task_test`), watch it fail, then make it
 //// pass.
 
+import gleam/int
 import gleam/list
 import gleam/string
 import scribbl/markdown.{
@@ -397,6 +398,24 @@ pub fn thousands_of_links_are_thousands_of_links_test() {
   let expected =
     list.repeat([link, Text(" ")], 3999) |> list.flatten |> list.append([link])
   assert markdown.parse(string.repeat("[a](b) ", 4000)) == paragraph(expected)
+}
+
+pub fn nesting_stops_at_thirty_two_levels_test() {
+  let line = string.repeat("*a ", 5000) <> "b" <> string.repeat(" a*", 5000)
+  let assert [Block(0, 0, Paragraph(inlines))] = markdown.parse(line)
+
+  assert depth(inlines) == 32
+}
+
+fn depth(inlines: List(markdown.Inline)) -> Int {
+  list.fold(inlines, 0, fn(deepest, inline) {
+    case inline {
+      Text(_) | Code(_) -> deepest
+      Strong(children) | Emphasis(children) | Link(children, _) ->
+        int.max(deepest, 1 + depth(children))
+      markdown.Strike(children) -> int.max(deepest, 1 + depth(children))
+    }
+  })
 }
 
 /// M3: each item knows its source row and whether it is a task.

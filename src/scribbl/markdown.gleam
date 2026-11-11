@@ -448,15 +448,16 @@ fn is_punctuation(grapheme: String) -> Bool {
 type Pairing {
   Pairing(
     inside: List(Inline),
+    depth: Int,
     enclosing: List(Frame),
     waiting: Dict(Opener, Int),
   )
 }
 
 /// An opener, and the inlines that came before it at its own level (newest
-/// first).
+/// first), with how deeply those nest.
 type Frame {
-  Frame(opener: Opener, before: List(Inline))
+  Frame(opener: Opener, before: List(Inline), depth: Int)
 }
 
 type Opener {
@@ -464,8 +465,17 @@ type Opener {
   OpenLabel
 }
 
+type Closed {
+  Closed(children: List(Inline), depth: Int, outer: Pairing)
+}
+
+/// A pair that would nest deeper than this stays text. Everything that walks
+/// the tree (the page, Lustre's diff, `==`) recurses once per level, so a
+/// tree as deep as the line is long overflows the stack.
+const max_depth = 32
+
 fn pair(tokens: List(Token)) -> List(Inline) {
-  tokens |> list.fold(Pairing([], [], dict.new()), step) |> finish
+  tokens |> list.fold(Pairing([], 0, [], dict.new()), step) |> finish
 }
 
 fn step(pairing: Pairing, token: Token) -> Pairing {
@@ -479,7 +489,8 @@ fn step(pairing: Pairing, token: Token) -> Pairing {
         False -> Error(Nil)
       }
       case closed {
-        Ok(#(children, outer)) -> add(outer, emphasis(weight, children))
+        Ok(closed) ->
+          wrap(closed, levels(weight), emphasis(weight, _), opener, token)
         Error(Nil) ->
           case opens {
             True -> open(pairing, opener)
@@ -490,23 +501,43 @@ fn step(pairing: Pairing, token: Token) -> Pairing {
     OpenBracket -> open(pairing, OpenLabel)
     CloseLink(url) ->
       case close(pairing, OpenLabel) {
-        Ok(#(children, outer)) -> add(forget_labels(outer), Link(children, url))
+        Ok(closed) ->
+          Closed(..closed, outer: forget_labels(closed.outer))
+          |> wrap(1, Link(_, url), OpenLabel, token)
         Error(Nil) -> add(pairing, Text(source(token)))
       }
     Escaped(char) -> add(pairing, Text(char))
   }
 }
 
-fn close(
-  pairing: Pairing,
+fn wrap(
+  closed: Closed,
+  levels: Int,
+  build: fn(List(Inline)) -> Inline,
   opener: Opener,
-) -> Result(#(List(Inline), Pairing), Nil) {
+  closer: Token,
+) -> Pairing {
+  let Closed(children, depth, outer) = closed
+  case depth + levels <= max_depth {
+    True -> add_nested(outer, build(children), depth + levels)
+    False ->
+      [Text(opener_source(opener)), ..children]
+      |> list.fold(outer, add)
+      |> add_nested(Text(source(closer)), depth)
+  }
+}
+
+fn close(pairing: Pairing, opener: Opener) -> Result(Closed, Nil) {
   case waiting_for(pairing.waiting, opener) {
     0 -> Error(Nil)
     _ ->
-      close_loop(pairing.enclosing, pairing.waiting, opener, [
-        list.reverse(pairing.inside),
-      ])
+      close_loop(
+        pairing.enclosing,
+        pairing.waiting,
+        opener,
+        [list.reverse(pairing.inside)],
+        pairing.depth,
+      )
   }
 }
 
@@ -515,20 +546,23 @@ fn close_loop(
   waiting: Dict(Opener, Int),
   opener: Opener,
   read: List(List(Inline)),
-) -> Result(#(List(Inline), Pairing), Nil) {
+  depth: Int,
+) -> Result(Closed, Nil) {
   case enclosing {
     [] -> Error(Nil)
-    [Frame(found, before), ..outer] if found == opener ->
-      Ok(#(
+    [Frame(found, before, before_depth), ..outer] if found == opener ->
+      Ok(Closed(
         read |> list.flatten |> normalize,
-        Pairing(before, outer, count_frame(waiting, found, -1)),
+        depth,
+        Pairing(before, before_depth, outer, count_frame(waiting, found, -1)),
       ))
-    [Frame(skipped, _) as frame, ..outer] ->
+    [Frame(skipped, ..) as frame, ..outer] ->
       close_loop(
         outer,
         count_frame(waiting, skipped, -1),
         opener,
         give_up(read, frame),
+        int.max(depth, frame.depth),
       )
   }
 }
@@ -541,10 +575,19 @@ fn add(pairing: Pairing, inline: Inline) -> Pairing {
   Pairing(..pairing, inside: [inline, ..pairing.inside])
 }
 
+fn add_nested(pairing: Pairing, inline: Inline, depth: Int) -> Pairing {
+  Pairing(
+    ..pairing,
+    inside: [inline, ..pairing.inside],
+    depth: int.max(pairing.depth, depth),
+  )
+}
+
 fn open(pairing: Pairing, opener: Opener) -> Pairing {
   Pairing(
     [],
-    [Frame(opener, pairing.inside), ..pairing.enclosing],
+    0,
+    [Frame(opener, pairing.inside, pairing.depth), ..pairing.enclosing],
     count_frame(pairing.waiting, opener, 1),
   )
 }
@@ -575,6 +618,13 @@ fn finish(pairing: Pairing) -> List(Inline) {
   |> list.fold([list.reverse(pairing.inside)], give_up)
   |> list.flatten
   |> normalize
+}
+
+fn levels(weight: Weight) -> Int {
+  case weight {
+    Single | Double -> 1
+    Triple -> 2
+  }
 }
 
 fn opener_source(opener: Opener) -> String {

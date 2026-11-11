@@ -121,3 +121,11 @@ test('a javascript: link shows as plain text', async ({ page }) => {
   await expect(page.preview.getByRole('link')).toHaveCount(0);
   await expect(page.everything).toHaveCount(1);
 });
+
+test('a line nested thousands of levels deep still shows', async ({ page }) => {
+  await page.text.fill('*a '.repeat(3000) + 'b' + ' a*'.repeat(3000));
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveCount(1);
+  await expect(page.emphasis).toHaveCount(32);
+});
