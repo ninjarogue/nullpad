@@ -1,11 +1,7 @@
-//// Examples of how the parser is used. Each `pending_` function is a test
-//// that is waiting for its milestone: rename it so it ends in `_test`
-//// (`pending_strong` -> `strong_test`) when you start on it, watch it fail,
-//// then make it pass.
-////
-//// The pending inline tests exercise `inlines` in `markdown.gleam` through
-//// `markdown.parse`. They are ordered: code spans, bold and italic, links,
-//// escapes. Work from the top down.
+//// Examples of how the parser is used. The two `pending_` functions are tests
+//// that wait for M3: rename one so it ends in `_test` when you start on it
+//// (`pending_toggle_task` -> `toggle_task_test`), watch it fail, then make it
+//// pass.
 
 import gleam/list
 import gleam/string

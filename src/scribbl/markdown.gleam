@@ -7,8 +7,8 @@
 ////   classify(line) -> LineKind   Blank | HeadingLine(level, text) |
 ////     TextLine(text), and in M3 FenceLine(language) | QuoteLine(rest) |
 ////     ItemLine(indent, marker, rest) | RuleLine. One line only, no context.
-////   tokenize(text) -> List(Token)   Word(text) | Delimiter(marks) |
-////     OpenBracket | CloseLink(url). Lossless: the tokens' source text
+////   tokenize(text) -> List(Token)   Word | Escaped | CodeSpan | Delimiter |
+////     OpenBracket | CloseLink. Lossless: the tokens' source text
 ////     concatenated gives the input back.
 //// Imported by: `preview`, `surface` (M6), the shell, tests. Imports: stdlib.
 
@@ -190,16 +190,9 @@ fn read_paragraph(
   }
 }
 
-// Inline parsing: one line of text in, inlines out.
-//
-//   "a **b** `c`"  --tokenize-->  Word Word Delimiter Word Delimiter Word CodeSpan
-//                  --pair------>  [Text("a "), Strong([Text("b")]), Text(" "), Code("c")]
-//
-// `tokenize` reads left to right and never looks back. `pair` matches each
-// closing token with its opener and turns whatever stays unmatched into text.
-// The `read_*` functions, `count_run`, `close` and the arms of `step` are
-// yours to fill in, in the order of the pending tests. Until then each one
-// treats its markup as plain text.
+// Inline parsing, one line at a time. `tokenize` cuts the text into tokens
+// without looking back. `pair` matches each closer with its opener and leaves
+// what finds no partner as text.
 
 type Token {
   Word(text: String)
@@ -504,9 +497,6 @@ fn step(pairing: Pairing, token: Token) -> Pairing {
   }
 }
 
-/// The openers between the innermost frame of `opener`'s kind and the end
-/// give up and become text inside it. A walk passes each frame once, and a
-/// closer with no frame of its kind is turned down before any walk starts.
 fn close(
   pairing: Pairing,
   opener: Opener,
