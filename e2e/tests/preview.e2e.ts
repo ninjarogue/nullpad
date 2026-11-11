@@ -131,11 +131,11 @@ test('a link title shows when the pointer rests on the link', async ({ page }) =
   await expect(page.paragraphs).toHaveText(['see docs here']);
 });
 
-test('a javascript: link shows as plain text', async ({ page }) => {
+test('a javascript: link shows as the text typed', async ({ page }) => {
   await page.text.fill('[x](javascript:alert(1))');
   await page.showPreview.tap();
 
-  await expect(page.paragraphs).toHaveText(['x']);
+  await expect(page.paragraphs).toHaveText(['[x](javascript:alert(1))']);
   await expect(page.preview.getByRole('link')).toHaveCount(0);
   await expect(page.everything).toHaveCount(1);
 });

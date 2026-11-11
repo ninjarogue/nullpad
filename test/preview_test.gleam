@@ -131,7 +131,27 @@ pub fn a_link_label_keeps_its_inline_markup_test() {
   assert string.contains(html, "><strong>docs</strong></a>")
 }
 
-pub fn script_links_render_their_label_without_an_anchor_test() {
+pub fn an_unsafe_link_shows_as_the_text_typed_test() {
+  let html = render(paragraph(link("javascript:alert(1)", "x")))
+
+  assert string.contains(html, "<p>[x](javascript:alert(1))</p>")
+}
+
+pub fn an_unsafe_link_shows_its_title_as_typed_test() {
+  let html =
+    render(paragraph(Link([Text("x")], "javascript:alert(1)", Some("t"))))
+
+  assert string.contains(html, "<p>[x](javascript:alert(1) &quot;t&quot;)</p>")
+}
+
+pub fn an_unsafe_link_keeps_its_label_markup_test() {
+  let html =
+    render(paragraph(Link([Strong([Text("x")])], "javascript:x", None)))
+
+  assert string.contains(html, "<p>[<strong>x</strong>](javascript:x)</p>")
+}
+
+pub fn script_links_make_no_anchor_test() {
   list.each(
     [
       "javascript:alert(1)",
@@ -147,19 +167,11 @@ pub fn script_links_render_their_label_without_an_anchor_test() {
     fn(url) {
       let html = render(paragraph(link(url, "label")))
 
-      assert string.contains(html, "<p>label</p>")
+      assert string.contains(html, "<p>[label](")
       assert !string.contains(html, "<a")
       assert !string.contains(html, "href")
     },
   )
-}
-
-pub fn an_unsafe_link_keeps_its_label_markup_test() {
-  let html =
-    render(paragraph(Link([Strong([Text("x")])], "javascript:x", None)))
-
-  assert string.contains(html, "<p><strong>x</strong></p>")
-  assert !string.contains(html, "<a")
 }
 
 pub fn strike_renders_its_children_plainly_test() {

@@ -16,7 +16,7 @@ import scribbl/markdown.{
 const safe_schemes = ["http", "https", "mailto"]
 
 /// Safe by construction: all text goes through `element.text` (escaped) and
-/// this module never uses `element.unsafe_raw_html`. Link URLs are kept only
+/// this module never uses `element.unsafe_raw_html`. A link is clickable only
 /// for http, https, mailto and relative paths.
 ///
 /// A task item renders a checkbox. Ticking it sends `on_task_toggled(row)`
@@ -70,29 +70,39 @@ fn inline(inline: Inline) -> List(Element(msg)) {
   }
 }
 
+/// A link that is not safe to follow shows as the text that was typed, so
+/// nothing the user wrote goes missing from the page.
 fn link(
   label: List(Inline),
   url: String,
   title: Option(String),
 ) -> List(Element(msg)) {
-  let title = case title {
-    Some(title) -> [attribute.title(title)]
-    None -> []
+  case is_safe(url), title {
+    True, Some(title) -> [anchor(label, url, [attribute.title(title)])]
+    True, None -> [anchor(label, url, [])]
+    False, Some(title) -> typed(label, "](" <> url <> " \"" <> title <> "\")")
+    False, None -> typed(label, "](" <> url <> ")")
   }
-  case is_safe(url) {
-    True -> [
-      html.a(
-        [
-          attribute.href(url),
-          attribute.target("_blank"),
-          attribute.rel("noopener noreferrer"),
-          ..title
-        ],
-        inlines(label),
-      ),
-    ]
-    False -> inlines(label)
-  }
+}
+
+fn anchor(
+  label: List(Inline),
+  url: String,
+  title: List(attribute.Attribute(msg)),
+) -> Element(msg) {
+  html.a(
+    [
+      attribute.href(url),
+      attribute.target("_blank"),
+      attribute.rel("noopener noreferrer"),
+      ..title
+    ],
+    inlines(label),
+  )
+}
+
+fn typed(label: List(Inline), tail: String) -> List(Element(msg)) {
+  [element.text("["), ..inlines(label)] |> list.append([element.text(tail)])
 }
 
 // Browsers drop tabs, newlines and leading control characters from a URL before
