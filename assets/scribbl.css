@@ -252,6 +252,15 @@ button:hover {
   font-size: 1.25rem;
 }
 
+.preview h4 {
+  font-size: 1.125rem;
+}
+
+.preview h6 {
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+}
+
 .preview code {
   background: var(--panel);
   border-radius: 4px;

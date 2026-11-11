@@ -77,67 +77,47 @@ test('Ctrl+E also shows the edit made after the last preview', async ({ page }) 
   await expect(page.preview.getByRole('heading')).toHaveText(['Second']);
 });
 
-test(
-  'bold shows as strong text',
-  { skip: 'M2: waiting for the inline parser' },
-  async ({ page }) => {
-    await page.text.fill('a **b** c');
-    await page.showPreview.tap();
+test('bold shows as strong text', async ({ page }) => {
+  await page.text.fill('a **b** c');
+  await page.showPreview.tap();
 
-    await expect(page.strong).toHaveText(['b']);
-    await expect(page.paragraphs).toHaveText(['a b c']);
-  },
-);
+  await expect(page.strong).toHaveText(['b']);
+  await expect(page.paragraphs).toHaveText(['a b c']);
+});
 
-test(
-  'italic shows as emphasis',
-  { skip: 'M2: waiting for the inline parser' },
-  async ({ page }) => {
-    await page.text.fill('a *b* c');
-    await page.showPreview.tap();
+test('italic shows as emphasis', async ({ page }) => {
+  await page.text.fill('a *b* c');
+  await page.showPreview.tap();
 
-    await expect(page.emphasis).toHaveText(['b']);
-    await expect(page.paragraphs).toHaveText(['a b c']);
-  },
-);
+  await expect(page.emphasis).toHaveText(['b']);
+  await expect(page.paragraphs).toHaveText(['a b c']);
+});
 
-test(
-  'inline code shows as code',
-  { skip: 'M2: waiting for the inline parser' },
-  async ({ page }) => {
-    await page.text.fill('run `go **build**` now');
-    await page.showPreview.tap();
+test('inline code shows as code', async ({ page }) => {
+  await page.text.fill('run `go **build**` now');
+  await page.showPreview.tap();
 
-    await expect(page.code).toHaveText(['go **build**']);
-    await expect(page.strong).toHaveCount(0);
-    await expect(page.paragraphs).toHaveText(['run go **build** now']);
-  },
-);
+  await expect(page.code).toHaveText(['go **build**']);
+  await expect(page.strong).toHaveCount(0);
+  await expect(page.paragraphs).toHaveText(['run go **build** now']);
+});
 
-test(
-  'a link opens in a new tab',
-  { skip: 'M2: waiting for the inline parser' },
-  async ({ page }) => {
-    await page.text.fill('see [docs](https://example.com/) here');
-    await page.showPreview.tap();
+test('a link opens in a new tab', async ({ page }) => {
+  await page.text.fill('see [docs](https://example.com/) here');
+  await page.showPreview.tap();
 
-    const link = page.preview.getByRole('link', 'docs');
-    await expect(link).toHaveAttribute('href', 'https://example.com/');
-    await expect(link).toHaveAttribute('target', '_blank');
-    await expect(link).toHaveAttribute('rel', /noopener/);
-    await expect(page.paragraphs).toHaveText(['see docs here']);
-  },
-);
+  const link = page.preview.getByRole('link', 'docs');
+  await expect(link).toHaveAttribute('href', 'https://example.com/');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', /noopener/);
+  await expect(page.paragraphs).toHaveText(['see docs here']);
+});
 
-test(
-  'a javascript: link shows as plain text',
-  { skip: 'M2: waiting for the inline parser' },
-  async ({ page }) => {
-    await page.text.fill('[x](javascript:alert(1))');
-    await page.showPreview.tap();
+test('a javascript: link shows as plain text', async ({ page }) => {
+  await page.text.fill('[x](javascript:alert(1))');
+  await page.showPreview.tap();
 
-    await expect(page.paragraphs).toHaveText(['x']);
-    await expect(page.preview.getByRole('link')).toHaveCount(0);
-    await expect(page.everything).toHaveCount(1);
-  },
-);
+  await expect(page.paragraphs).toHaveText(['x']);
+  await expect(page.preview.getByRole('link')).toHaveCount(0);
+  await expect(page.everything).toHaveCount(1);
+});
