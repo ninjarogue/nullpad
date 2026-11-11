@@ -6,8 +6,14 @@
 //// Imported by: the app shell, and `scribbl/storage/*` backends (for
 //// `Backend`, `Record`, `Reply`, `Failure`). Imports: lustre/effect.
 
+import gleam/int
+import gleam/list
 import gleam/option.{type Option}
+import gleam/result
+import gleam/string
 import lustre/effect.{type Effect}
+
+const title_limit = 60
 
 /// Names one note for its whole life. Opaque: only this module makes one,
 /// from a key a backend returned, so an id always points at a stored note.
@@ -45,8 +51,75 @@ pub type Failure {
 /// 3. else "Untitled".
 /// The folder backend (M6) names files with this too.
 pub fn display_title(title: Option(String), body: String) -> String {
-  let _ = #(title, body)
-  todo as "not implemented"
+  let typed = option.unwrap(title, "") |> string.trim
+  let first_line =
+    list.find_map(string.split(body, "\n"), fn(line) {
+      case strip_markers(line) {
+        "" -> Error(Nil)
+        text -> Ok(text)
+      }
+    })
+  case typed, first_line {
+    "", Ok(line) -> shorten(line)
+    "", Error(_) -> "Untitled"
+    _, _ -> typed
+  }
+}
+
+fn strip_markers(line: String) -> String {
+  let line = string.trim(line)
+  case line, after_list_number(line) {
+    "#" <> rest, _ | ">" <> rest, _ -> strip_markers(rest)
+    "- " <> rest, _ | "* " <> rest, _ | "+ " <> rest, _ -> strip_markers(rest)
+    "[ ] " <> rest, _ | "[x] " <> rest, _ -> strip_markers(rest)
+    _, Ok(rest) -> strip_markers(rest)
+    _, Error(Nil) -> strip_inline(line)
+  }
+}
+
+fn after_list_number(line: String) -> Result(String, Nil) {
+  use #(number, rest) <- result.try(string.split_once(line, ". "))
+  use _ <- result.map(int.parse(number))
+  rest
+}
+
+fn strip_inline(text: String) -> String {
+  text
+  |> string.replace("**", "")
+  |> string.replace("~~", "")
+  |> string.replace("`", "")
+  |> string.trim
+}
+
+fn shorten(line: String) -> String {
+  case string.length(line) <= title_limit {
+    True -> line
+    False ->
+      case words_that_fit(string.split(line, " "), "") {
+        "" -> string.slice(line, 0, title_limit) <> "…"
+        whole_words -> string.trim_end(whole_words) <> "…"
+      }
+  }
+}
+
+fn words_that_fit(words: List(String), fitted: String) -> String {
+  case words, fitted {
+    [], _ -> fitted
+    [word, ..rest], "" -> take_word_if_it_fits(word, rest, fitted)
+    [word, ..rest], _ ->
+      take_word_if_it_fits(fitted <> " " <> word, rest, fitted)
+  }
+}
+
+fn take_word_if_it_fits(
+  longer: String,
+  rest: List(String),
+  fitted: String,
+) -> String {
+  case string.length(longer) <= title_limit {
+    True -> words_that_fit(rest, longer)
+    False -> fitted
+  }
 }
 
 /// What a backend stores: plain data, no domain types.
@@ -88,8 +161,25 @@ pub fn list(
   storage: Storage,
   then: fn(Result(List(Summary), Failure)) -> msg,
 ) -> Effect(msg) {
-  let _ = #(storage, then)
-  todo as "not implemented"
+  use dispatch <- effect.from
+  use found <- storage.backend.all
+  found |> result.map(summaries) |> then |> dispatch
+}
+
+fn summaries(records: List(Record)) -> List(Summary) {
+  records
+  |> list.sort(fn(a, b) { int.compare(b.modified_ms, a.modified_ms) })
+  |> list.map(fn(record) {
+    Summary(
+      id: NoteId(record.key),
+      title: display_title(record.title, record.body),
+      modified_ms: record.modified_ms,
+    )
+  })
+}
+
+fn note(record: Record) -> Note {
+  Note(id: NoteId(record.key), title: record.title, body: record.body)
 }
 
 pub fn load(
@@ -97,8 +187,9 @@ pub fn load(
   id: NoteId,
   then: fn(Result(Note, Failure)) -> msg,
 ) -> Effect(msg) {
-  let _ = #(storage, id, then)
-  todo as "not implemented"
+  use dispatch <- effect.from
+  use found <- storage.backend.get(id_text(id))
+  found |> result.map(note) |> then |> dispatch
 }
 
 /// Store the note's current title and body.
@@ -107,14 +198,10 @@ pub fn save(
   note: Note,
   then: fn(Result(Nil, Failure)) -> msg,
 ) -> Effect(msg) {
-  // let Note(id: NoteId(key), title:, body:) = note
-  // effect.from(fn(dispatch) {
-  //   storage.backend.put(key, title, body, fn(result) {
-  //     dispatch(then(result))
-  //   })
-  // })
-  let _ = #(storage, note, then)
-  todo as "not implemented"
+  let Note(id: NoteId(key), title:, body:) = note
+  use dispatch <- effect.from
+  use saved <- storage.backend.put(key, title, body)
+  dispatch(then(saved))
 }
 
 /// Add an empty note and reply with it.
@@ -122,8 +209,9 @@ pub fn create(
   storage: Storage,
   then: fn(Result(Note, Failure)) -> msg,
 ) -> Effect(msg) {
-  let _ = #(storage, then)
-  todo as "not implemented"
+  use dispatch <- effect.from
+  use added <- storage.backend.add
+  added |> result.map(note) |> then |> dispatch
 }
 
 pub fn delete(
@@ -131,6 +219,7 @@ pub fn delete(
   id: NoteId,
   then: fn(Result(Nil, Failure)) -> msg,
 ) -> Effect(msg) {
-  let _ = #(storage, id, then)
-  todo as "not implemented"
+  use dispatch <- effect.from
+  use removed <- storage.backend.remove(id_text(id))
+  dispatch(then(removed))
 }

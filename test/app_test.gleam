@@ -1,56 +1,380 @@
-//// Examples that drive the real init / update / view without a browser,
-//// using `lustre/dev/simulate`. Effects do not run there, so storage replies
-//// are sent as messages, and DOM events are JSON payloads that go through
-//// the real decoders in `surface`. See `markdown_test` for how `pending_`
-//// functions work.
-
 import gleam/json
-import gleam/option.{None}
+import gleam/list
+import gleam/option.{None, Some}
+import harness
 import lustre/dev/query
 import lustre/dev/simulate
-import scribbl/app
-import scribbl/storage
+import scribbl/app.{type Model, type Msg}
+import scribbl/buffer
+import scribbl/editor
+import scribbl/storage.{type Backend, type Record, Backend, Record, Unavailable}
 
 /// M2: type a heading, flip to the rendered page, find the <h1>.
 pub fn pending_typing_shows_on_the_rendered_page() {
-  let control = query.element(matching: query.test_id("editor"))
-  let typed =
-    json.object([
-      #("value", json.string("# Hi")),
-      #("selectionStart", json.int(4)),
-      #("selectionEnd", json.int(4)),
-    ])
   let heading =
     query.element(matching: query.test_id("preview"))
     |> query.descendant(matching: query.tag("h1"))
 
   let page =
     simulate.application(app.init, app.update, app.view)
-    |> simulate.start(flags())
-    |> simulate.event(on: control, name: "input", data: [#("target", typed)])
+    |> simulate.start(flags(silent()))
+    |> type_in_control("# Hi")
     |> simulate.message(app.UserToggledRendered)
     |> simulate.view
 
   let assert Ok(_) = query.find(in: page, matching: heading)
 }
 
-/// M1: a slow autosave timer must not save after newer edits.
-pub fn pending_stale_autosave_is_ignored() {
+pub fn typing_reaches_the_model_test() {
   let simulation =
     simulate.application(app.init, app.update, app.view)
-    |> simulate.start(flags())
+    |> simulate.start(flags(silent()))
+    |> type_in_control("héllo 👋")
+    |> simulate.message(app.UserToggledRendered)
+
+  assert editor.text(simulate.model(simulation).editor) == "héllo 👋"
+  assert shows(simulate.model(simulation), "preview", "héllo 👋")
+}
+
+pub fn first_run_opens_a_new_note_test() {
+  let model = start(harness.backend_holding([]))
+
+  let assert Some(open) = model.open
+  assert storage.id_text(open.id) == "added"
+  assert shows(model, "save-state", "Saved")
+}
+
+pub fn newest_note_opens_test() {
+  let model = start(harness.backend_holding(two_notes()))
+
+  let assert Some(open) = model.open
+  assert storage.id_text(open.id) == "groceries"
+  assert editor.text(model.editor) == "milk"
+  assert list.map(model.notes, fn(row) { row.title }) == ["Groceries", "Trip"]
+}
+
+pub fn autosave_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  assert shows(typed, "save-state", "Unsaved")
+
+  let saved = send(typed, app.AutosaveDue(edits: 1))
+  assert shows(saved, "save-state", "Saved")
+}
+
+pub fn stale_autosave_is_ignored_test() {
+  let model =
+    start(harness.backend_holding(two_notes()))
+    |> send(typing("milk, eggs"))
+    |> send(typing("milk, eggs, jam"))
+    |> send(app.AutosaveDue(edits: 1))
+
+  assert shows(model, "save-state", "Unsaved")
+}
+
+pub fn autosave_without_a_note_is_ignored_test() {
+  let simulation =
+    simulate.application(app.init, app.update, app.view)
+    |> simulate.start(flags(silent()))
     |> simulate.message(app.AutosaveDue(edits: 99))
 
   let assert None = simulate.model(simulation).open
 }
 
-fn flags() -> app.Flags {
-  app.Flags(storage: storage.new(silent_backend()), vim: False, can_vim: True)
+pub fn saving_shows_until_storage_answers_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(waiting, _) = app.update(typed, app.AutosaveDue(edits: 1))
+
+  assert shows(waiting, "save-state", "Saving…")
+}
+
+pub fn failed_save_test() {
+  let model =
+    start(storage_is_full())
+    |> send(typing("milk, eggs"))
+    |> send(app.AutosaveDue(edits: 1))
+
+  assert shows(model, "problem", "Storage is not working: disk full")
+  assert shows(model, "save-state", "Unsaved")
+}
+
+pub fn picking_a_note_saves_the_open_one_before_leaving_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(waiting, effect) = app.update(typed, app.UserPickedNote(id_of("trip")))
+
+  let assert [app.StorageSaved(id:, edits: 1, result: Ok(Nil))] =
+    harness.messages(effect)
+  assert id == id_of("groceries")
+  assert editor.text(waiting.editor) == "milk, eggs"
+  assert shows(waiting, "save-state", "Saving…")
+
+  let switched = send(typed, app.UserPickedNote(id_of("trip")))
+  assert editor.text(switched.editor) == "# Trip"
+  assert shows(switched, "save-state", "Saved")
+}
+
+pub fn a_failed_save_keeps_you_on_the_note_test() {
+  let typed = start(storage_is_full()) |> send(typing("milk, eggs"))
+
+  let stayed = send(typed, app.UserPickedNote(id_of("trip")))
+  assert editor.text(stayed.editor) == "milk, eggs"
+  assert shows(stayed, "problem", "Storage is not working: disk full")
+  assert shows(stayed, "save-state", "Unsaved")
+
+  let still_there = send(typed, app.UserAskedForNewNote)
+  assert editor.text(still_there.editor) == "milk, eggs"
+}
+
+pub fn a_failed_save_can_be_tried_again_test() {
+  let failed =
+    start(storage_is_full())
+    |> send(typing("milk, eggs"))
+    |> send(app.AutosaveDue(edits: 1))
+  let storage_works_again = storage.new(harness.backend_holding(two_notes()))
+
+  let retried =
+    app.Model(..failed, storage: storage_works_again)
+    |> send(app.AutosaveDue(edits: 1))
+  assert shows(retried, "save-state", "Saved")
+}
+
+pub fn text_typed_while_the_next_note_loads_is_saved_before_it_opens_test() {
+  let model = start(harness.backend_holding(two_notes()))
+  let #(leaving, load) = app.update(model, app.UserPickedNote(id_of("trip")))
+  let assert [app.StorageLoaded(Ok(trip))] = harness.messages(load)
+  let #(typed, _) = app.update(leaving, typing("milk, eggs"))
+
+  let #(waiting, save) = app.update(typed, app.StorageLoaded(Ok(trip)))
+  assert editor.text(waiting.editor) == "milk, eggs"
+  let assert [app.StorageSaved(id:, edits: 1, result: Ok(Nil))] =
+    harness.messages(save)
+  assert id == id_of("groceries")
+
+  let arrived = send(typed, app.StorageLoaded(Ok(trip)))
+  assert editor.text(arrived.editor) == "# Trip"
+}
+
+pub fn text_typed_while_a_new_note_is_made_is_saved_before_it_opens_test() {
+  let model = start(harness.backend_holding(two_notes()))
+  let #(leaving, create) = app.update(model, app.UserAskedForNewNote)
+  let assert [app.StorageCreated(Ok(new_note))] = harness.messages(create)
+  let #(typed, _) = app.update(leaving, typing("milk, eggs"))
+
+  let #(waiting, effect) = app.update(typed, app.StorageCreated(Ok(new_note)))
+  assert editor.text(waiting.editor) == "milk, eggs"
+  let saves =
+    list.filter(harness.messages(effect), fn(msg) {
+      case msg {
+        app.StorageSaved(..) -> True
+        _ -> False
+      }
+    })
+  let assert [app.StorageSaved(id:, edits: 1, result: Ok(Nil))] = saves
+  assert id == id_of("groceries")
+  assert waiting.leaving_for == Some(app.ExistingNote(new_note.id))
+}
+
+pub fn picking_the_open_note_again_cancels_leaving_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(waiting, _) = app.update(typed, app.UserPickedNote(id_of("trip")))
+
+  let stayed =
+    waiting
+    |> send(app.UserPickedNote(id_of("groceries")))
+    |> send(app.StorageSaved(id_of("groceries"), 1, Ok(Nil)))
+  assert editor.text(stayed.editor) == "milk, eggs"
+  assert shows(stayed, "save-state", "Saved")
+}
+
+pub fn an_answer_about_older_text_leaves_the_save_state_alone_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(first_save_in_flight, _) = app.update(typed, app.AutosaveDue(edits: 1))
+  let #(typed_again, _) =
+    app.update(first_save_in_flight, typing("milk, eggs, jam"))
+  let #(both_saves_in_flight, _) = app.update(typed_again, app.PageHidden)
+  assert shows(both_saves_in_flight, "save-state", "Saving…")
+
+  let older_failed =
+    send(
+      both_saves_in_flight,
+      app.StorageSaved(id_of("groceries"), 1, Error(Unavailable("disk full"))),
+    )
+  assert shows(older_failed, "problem", "Storage is not working: disk full")
+  assert shows(older_failed, "save-state", "Saving…")
+
+  let newer_saved =
+    send(older_failed, app.StorageSaved(id_of("groceries"), 2, Ok(Nil)))
+  assert shows(newer_saved, "save-state", "Saved")
+}
+
+pub fn an_answer_from_before_the_note_was_reopened_is_ignored_test() {
+  let typed =
+    start(harness.backend_holding(two_notes())) |> send(typing("milk, eggs"))
+  let #(first_save_in_flight, _) = app.update(typed, app.AutosaveDue(edits: 1))
+  let reopened_and_typed =
+    first_save_in_flight
+    |> send(typing("milk, eggs, jam"))
+    |> send(app.UserPickedNote(id_of("trip")))
+    |> send(app.UserPickedNote(id_of("groceries")))
+    |> send(typing("milk and jam"))
+  let assert Some(open) = reopened_and_typed.open
+  assert open.id == id_of("groceries")
+
+  let late_answer =
+    send(reopened_and_typed, app.StorageSaved(id_of("groceries"), 1, Ok(Nil)))
+  assert shows(late_answer, "save-state", "Unsaved")
+}
+
+pub fn a_created_note_joins_the_list_test() {
+  let model = start(harness.backend_holding(two_notes()))
+  let #(_, asked) = app.update(model, app.UserAskedForNewNote)
+  let assert [app.StorageCreated(Ok(note))] = harness.messages(asked)
+
+  let #(opened, relist) = app.update(model, app.StorageCreated(Ok(note)))
+  let assert Some(open) = opened.open
+  assert open.id == note.id
+  let assert [app.StorageListed(Ok(_))] = harness.messages(relist)
+}
+
+pub fn deleting_the_open_note_opens_the_newest_one_left_test() {
+  let assert [trip, _groceries] = two_notes()
+  let model = start(harness.backend_holding(two_notes()))
+  let after_the_delete = storage.new(harness.backend_holding([trip]))
+
+  let deleted =
+    app.Model(..model, storage: after_the_delete)
+    |> send(app.UserDeletedNote(id_of("groceries")))
+
+  let assert Some(open) = deleted.open
+  assert storage.id_text(open.id) == "trip"
+  assert editor.text(deleted.editor) == "# Trip"
+}
+
+pub fn renaming_test() {
+  let model =
+    start(harness.backend_holding(two_notes()))
+    |> send(app.UserPickedNote(id_of("trip")))
+  assert shows(model, "note-trip", "Trip")
+
+  let renamed = send(model, app.UserRenamedNote("Japan"))
+  assert shows(renamed, "note-trip", "Japan")
+  assert shows(renamed, "save-state", "Unsaved")
+
+  let cleared = send(renamed, app.UserRenamedNote(""))
+  assert shows(cleared, "note-trip", "Trip")
+}
+
+pub fn delete_asks_first_test() {
+  let model = start(harness.backend_holding(two_notes()))
+  assert has(model, "delete-note")
+
+  let asked = send(model, app.UserAskedToDelete)
+  assert has(asked, "confirm-delete")
+  assert !has(asked, "delete-note")
+
+  let kept = send(asked, app.UserKeptNote)
+  assert has(kept, "delete-note")
+  assert kept.open == model.open
+}
+
+pub fn no_vim_switch_without_a_keyboard_test() {
+  let #(model, _) =
+    app.init(app.Flags(
+      storage: storage.new(silent()),
+      vim: True,
+      can_vim: False,
+    ))
+
+  assert !has(model, "toggle-vim")
+  assert !has(model, "mode")
+  assert editor.mode(model.editor) == editor.Plain
+}
+
+fn start(backend: Backend) -> Model {
+  let #(model, effect) = app.init(flags(backend))
+  list.fold(harness.messages(effect), model, send)
+}
+
+fn send(model: Model, msg: Msg) -> Model {
+  let #(model, effect) = app.update(model, msg)
+  list.fold(harness.messages(effect), model, send)
+}
+
+fn typing(text: String) -> Msg {
+  app.EditorSent(editor.ControlChanged(shown: buffer.from_text(text)))
+}
+
+fn type_in_control(
+  simulation: simulate.Simulation(Model, Msg),
+  text: String,
+) -> simulate.Simulation(Model, Msg) {
+  let control = query.element(matching: query.test_id("editor"))
+  let target =
+    json.object([
+      #("value", json.string(text)),
+      #("selectionStart", json.int(0)),
+      #("selectionEnd", json.int(0)),
+    ])
+  simulate.event(simulation, on: control, name: "input", data: [
+    #("target", target),
+  ])
+}
+
+fn shows(model: Model, test_id: String, text: String) -> Bool {
+  let wanted = query.and(query.test_id(test_id), query.text(text))
+  query.find(in: app.view(model), matching: query.element(matching: wanted))
+  != Error(Nil)
+}
+
+fn has(model: Model, test_id: String) -> Bool {
+  query.find(
+    in: app.view(model),
+    matching: query.element(matching: query.test_id(test_id)),
+  )
+  != Error(Nil)
+}
+
+fn flags(backend: Backend) -> app.Flags {
+  app.Flags(storage: storage.new(backend), vim: False, can_vim: True)
+}
+
+fn two_notes() -> List(Record) {
+  [
+    Record(key: "trip", title: None, body: "# Trip", modified_ms: 1),
+    Record(
+      key: "groceries",
+      title: Some("Groceries"),
+      body: "milk",
+      modified_ms: 2,
+    ),
+  ]
+}
+
+fn storage_is_full() -> Backend {
+  Backend(
+    ..harness.backend_holding(two_notes()),
+    put: fn(_key, _title, _body, reply) {
+      reply(Error(Unavailable("disk full")))
+    },
+  )
+}
+
+fn id_of(key: String) -> storage.NoteId {
+  let store = storage.new(harness.backend_holding(two_notes()))
+  let assert [Ok(rows)] =
+    harness.messages(storage.list(store, fn(rows) { rows }))
+  let assert [row] =
+    list.filter(rows, fn(row) { storage.id_text(row.id) == key })
+  row.id
 }
 
 /// A backend that never answers: enough for tests that send replies by hand.
-fn silent_backend() -> storage.Backend {
-  storage.Backend(
+fn silent() -> Backend {
+  Backend(
     all: fn(_reply) { Nil },
     get: fn(_key, _reply) { Nil },
     put: fn(_key, _title, _body, _reply) { Nil },

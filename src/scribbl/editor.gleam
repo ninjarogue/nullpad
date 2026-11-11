@@ -9,8 +9,10 @@
 ////
 //// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`.
 
-import scribbl/buffer.{type Buffer}
-import scribbl/vim
+import gleam/list
+import gleam/string
+import scribbl/buffer.{type Buffer, Position}
+import scribbl/vim.{Step}
 
 pub opaque type Editor {
   Editor(buffer: Buffer, keys: Keys)
@@ -52,21 +54,30 @@ pub type Outcome {
 }
 
 pub fn new(vim vim_enabled: Bool) -> Editor {
-  let _ = vim_enabled
-  todo as "not implemented"
+  Editor(buffer: buffer.from_text(""), keys: fresh_keys(vim_enabled))
+}
+
+fn fresh_keys(vim_enabled: Bool) -> Keys {
+  case vim_enabled {
+    True -> VimKeys(vim.new())
+    False -> PlainKeys
+  }
 }
 
 /// A note was loaded: replace the text, cursor at the start, fresh vim state.
 /// Always asks for a `Write`.
 pub fn open(editor: Editor, text: String) -> Outcome {
-  let _ = #(editor, text)
-  todo as "not implemented"
+  let buffer = buffer.from_text(text)
+  let keys = fresh_keys(editor.keys != PlainKeys)
+  Outcome(editor: Editor(buffer:, keys:), sync: Write(buffer), requests: [])
 }
 
 /// Turn vim on or off, keeping the text.
 pub fn set_vim(editor: Editor, enabled: Bool) -> Editor {
-  let _ = #(editor, enabled)
-  todo as "not implemented"
+  case editor.keys, enabled {
+    PlainKeys, False | VimKeys(_), True -> editor
+    _, _ -> Editor(..editor, keys: fresh_keys(enabled))
+  }
 }
 
 /// The whole editing rule:
@@ -82,8 +93,32 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Editor {
 /// keeps IME composition, autocorrect and the phone's native undo intact.
 /// Idempotent: the same event twice gives the same editor.
 pub fn update(editor: Editor, event: Event) -> Outcome {
-  let _ = #(editor, event)
-  todo as "not implemented"
+  let shown = case event {
+    ControlChanged(shown:) | KeyPressed(shown:, ..) -> shown
+  }
+  let base = case mode(editor) {
+    Plain | Insert -> shown
+    Normal -> {
+      let #(anchor, head) = buffer.selection(shown)
+      buffer.select(editor.buffer, anchor:, head:)
+    }
+  }
+  let #(keys, wanted, requests) = case event, editor.keys {
+    KeyPressed(key:, ..), VimKeys(state) -> {
+      let Step(state:, buffer:, requests:) = vim.press(state, base, key)
+      #(VimKeys(state), buffer, requests)
+    }
+    KeyPressed(..), PlainKeys | ControlChanged(..), _ -> #(
+      editor.keys,
+      base,
+      [],
+    )
+  }
+  let sync = case wanted == shown {
+    True -> InSync
+    False -> Write(wanted)
+  }
+  Outcome(editor: Editor(buffer: wanted, keys:), sync:, requests:)
 }
 
 /// Rewrite one line from outside the control, for example ticking a task in
@@ -94,8 +129,29 @@ pub fn change_line(
   row: Int,
   change: fn(String) -> String,
 ) -> Outcome {
-  let _ = #(editor, row, change)
-  todo as "not implemented"
+  case list.drop(buffer.lines(editor.buffer), row) {
+    [line, ..] if row >= 0 -> {
+      let buffer =
+        editor.buffer
+        |> buffer.replace(
+          from: Position(row:, col: 0),
+          to: Position(row:, col: string.length(line)),
+          with: change(line),
+        )
+        |> with_selection_of(editor.buffer)
+      Outcome(
+        editor: Editor(..editor, buffer:),
+        sync: Write(buffer),
+        requests: [],
+      )
+    }
+    _ -> Outcome(editor:, sync: InSync, requests: [])
+  }
+}
+
+fn with_selection_of(buffer: Buffer, other: Buffer) -> Buffer {
+  let #(anchor, head) = buffer.selection(other)
+  buffer.select(buffer, anchor:, head:)
 }
 
 pub fn buffer(editor: Editor) -> Buffer {
