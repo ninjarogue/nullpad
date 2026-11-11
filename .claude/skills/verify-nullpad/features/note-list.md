@@ -21,7 +21,7 @@ The sidebar lists every note, newest save first. A person makes, opens, titles a
 Preconditions: a fresh run with some text typed in the first note.
 
 - **New.** Click `getByRole('button', { name: 'New note' })`. The text field is empty and focused, and the list has two rows.
-- **Switch.** Click the other row inside `[data-test-id=note-list]`. Its text shows, and `[aria-current="true"]` is that row.
+- **Switch.** Click the other row inside `[data-test-id=note-list]`. Its text shows, and `[aria-current="true"]` is that row. The text field follows a moment after the click, so wait for the row to be current before reading the field.
 - **Title.** Type into `getByLabel('Title')`. The open row shows the title. Clear it and the row shows the first line again.
 - **Delete, keep.** Click `[data-test-id=delete-note]`, then `Keep`. The row count is unchanged.
 - **Delete, confirm.** Click `[data-test-id=delete-note]`, then `[data-test-id=confirm-delete]`. The row is gone. Reload and it is still gone.
@@ -30,4 +30,4 @@ Preconditions: a fresh run with some text typed in the first note.
 
 - Switching right after typing is the risky path: check the first note's last characters after switching back.
 - With one note left, deleting it leaves an empty state. Check what the page offers then.
-- Known bug, to be fixed in M2b: the title is worked out by its own rules in `storage.gleam`, not by the parser, so it can disagree with the page. `**unclosed bold` loses its stars in the title and `#hashtag notes` loses its `#`, while the page keeps both. Do not assert these as correct.
+- The title reads the first line only, and strips a leading list, quote or task marker before the parser sees it. So `- milk` is titled "milk" while the page shows the dash (lists come in M3), and bold that opens on line one and closes on line two keeps its stars in the title. Do not assert these as correct.

@@ -40,6 +40,10 @@ prints how many pass. An example may fail only when it is listed in
 a listed example that starts to pass fails the suite until it is taken off the
 list.
 
+The page differs from the spec's own HTML in one way: a line break inside a
+paragraph shows as a line break, not as a space. The parser keeps the break in
+the text, and the page's style sheet decides how it looks.
+
 ```sh
 gleam run -m commonmark_test            # Pass count for each section of the spec
 gleam run -m commonmark_test -- Lists   # The listed examples of one missing feature

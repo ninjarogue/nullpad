@@ -35,7 +35,7 @@ pub type Content {
   // M2
   Heading(level: Level, text: List(Inline))
   /// A line break between source lines stays in the text as "\n" (a soft
-  /// break). The page shows it as a space, because HTML collapses it.
+  /// break). The page shows it as a line break.
   Paragraph(text: List(Inline))
   // M3
   BulletList(items: List(Item))

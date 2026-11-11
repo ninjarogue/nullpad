@@ -76,7 +76,7 @@ node .claude/skills/verify-nullpad/drive.mjs journey.mjs trip
 
 `page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot. `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
 
-Keep journeys in a scratch folder, not in the repo. Two ready ones are in `journeys/`.
+Keep journeys in a scratch folder, not in the repo. A ready one is in `journeys/`.
 
 Handles that do not change:
 
