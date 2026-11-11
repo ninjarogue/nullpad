@@ -60,6 +60,8 @@ const titles = {
   "title of a line with a long gap": (n) => "a" + " ".repeat(n * 2) + "b",
   "title of a long first line": (n) => "*a* [b](c) ".repeat(n),
   "title after many blank lines": (n) => " \n".repeat(n) + "a",
+  "title of a line of nested markers": (n) => "> - [ ] 1. ".repeat(n) + "a",
+  "title of a line of digits": (n) => "1".repeat(n * 4) + ". a",
 };
 
 function time(work, source) {

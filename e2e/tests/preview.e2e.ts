@@ -101,6 +101,14 @@ test('emphasis may open on one line of a paragraph and close on the next', async
   await expect(page.paragraphs).toHaveText(['one two three four']);
 });
 
+test('a note that opens with unclosed bold is listed as its page shows it', async ({ page }) => {
+  await page.text.fill('**bold and more');
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveText(['**bold and more']);
+  await expect(page.currentRow).toHaveText('**bold and more');
+});
+
 test('inline code shows as code', async ({ page }) => {
   await page.text.fill('run `go **build**` now');
   await page.showPreview.tap();

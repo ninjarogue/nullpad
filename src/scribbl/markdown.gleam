@@ -848,6 +848,24 @@ fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
   }
 }
 
+/// The words a reader sees: markup dropped, text and code kept, a line break
+/// as one space. Used for note titles. It recurses once per level, and the
+/// parser builds at most `max_depth` of them.
+pub fn plain_text(inlines: List(Inline)) -> String {
+  inlines
+  |> list.map(fn(inline) {
+    case inline {
+      Text(text) -> string.replace(text, "\n", " ")
+      Code(code) -> code
+      Strong(children)
+      | Emphasis(children)
+      | Strike(children)
+      | Link(label: children, ..) -> plain_text(children)
+    }
+  })
+  |> string.concat
+}
+
 /// Flip the task marker on one source line: "- [ ] milk" <-> "- [x] milk".
 /// A line that is not a task item comes back unchanged. Lives here so the
 /// task syntax is known in one module only.

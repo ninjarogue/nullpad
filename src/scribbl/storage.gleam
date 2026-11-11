@@ -4,7 +4,8 @@
 //// Hidden here so a backend stays five small functions: `NoteId`s, titles,
 //// ordering, and wrapping callbacks as effects.
 //// Imported by: the app shell, and `scribbl/storage/*` backends (for
-//// `Backend`, `Record`, `Reply`, `Failure`). Imports: lustre/effect.
+//// `Backend`, `Record`, `Reply`, `Failure`). Imports: lustre/effect, and
+//// `markdown` for titles.
 
 import gleam/int
 import gleam/list
@@ -12,6 +13,7 @@ import gleam/option.{type Option}
 import gleam/result
 import gleam/string
 import lustre/effect.{type Effect}
+import scribbl/markdown.{Block, Heading, Paragraph}
 
 const title_limit = 60
 
@@ -45,16 +47,17 @@ pub type Failure {
 
 /// The title to show for a note, and the only place the rule lives:
 /// 1. the typed title, if there is one and it is not blank;
-/// 2. else the first non-blank line of the body with markdown markers
-///    stripped ("# Trip notes" -> "Trip notes"), cut at the last whole word
-///    before 60 graphemes with "…" added;
+/// 2. else the first line of the body that shows any text, read the way the
+///    rendered page reads it with the markup dropped ("## Trip **notes**" ->
+///    "Trip notes", "**bold" -> "**bold"), cut at the last whole word before
+///    60 graphemes with "…" added;
 /// 3. else "Untitled".
 /// The folder backend (M6) names files with this too.
 pub fn display_title(title: Option(String), body: String) -> String {
-  let typed = option.unwrap(title, "") |> string.trim
+  let typed = option.unwrap(title, "") |> trim
   let first_line =
     list.find_map(string.split(body, "\n"), fn(line) {
-      case strip_markers(line) {
+      case line_title(line) {
         "" -> Error(Nil)
         text -> Ok(text)
       }
@@ -66,29 +69,77 @@ pub fn display_title(title: Option(String), body: String) -> String {
   }
 }
 
-fn strip_markers(line: String) -> String {
-  let line = string.trim(line)
-  case line, after_list_number(line) {
-    "#" <> rest, _ | ">" <> rest, _ -> strip_markers(rest)
-    "- " <> rest, _ | "* " <> rest, _ | "+ " <> rest, _ -> strip_markers(rest)
-    "[ ] " <> rest, _ | "[x] " <> rest, _ -> strip_markers(rest)
-    _, Ok(rest) -> strip_markers(rest)
-    _, Error(Nil) -> strip_inline(line)
+fn line_title(line: String) -> String {
+  case markdown.parse(strip_markers(line)) {
+    [Block(content: Heading(text:, ..), ..), ..]
+    | [Block(content: Paragraph(text:), ..), ..] ->
+      trim(markdown.plain_text(text))
+    _ -> ""
   }
 }
 
-fn after_list_number(line: String) -> Result(String, Nil) {
-  use #(number, rest) <- result.try(string.split_once(line, ". "))
-  use _ <- result.map(int.parse(number))
-  rest
+/// The markers of blocks the parser does not read yet. M3 moves them into
+/// the parser and deletes this.
+fn strip_markers(line: String) -> String {
+  case trim_start(line) {
+    ">" <> rest
+    | "- " <> rest
+    | "* " <> rest
+    | "+ " <> rest
+    | "[ ] " <> rest
+    | "[x] " <> rest -> strip_markers(rest)
+    trimmed ->
+      case after_list_number(trimmed, 0) {
+        Ok(rest) -> strip_markers(rest)
+        Error(Nil) -> line
+      }
+  }
 }
 
-fn strip_inline(text: String) -> String {
+fn after_list_number(line: String, digits: Int) -> Result(String, Nil) {
+  case line {
+    "0" <> rest
+    | "1" <> rest
+    | "2" <> rest
+    | "3" <> rest
+    | "4" <> rest
+    | "5" <> rest
+    | "6" <> rest
+    | "7" <> rest
+    | "8" <> rest
+    | "9" <> rest -> after_list_number(rest, digits + 1)
+    ". " <> rest if digits > 0 -> Ok(rest)
+    _ -> Error(Nil)
+  }
+}
+
+/// What `string.trim` does, in linear time: its regex for the end of the
+/// text retries from every space of a long run of spaces inside it.
+fn trim(text: String) -> String {
+  text |> trim_start |> reverse |> trim_start |> reverse
+}
+
+fn trim_start(text: String) -> String {
+  case text {
+    " " <> rest
+    | "\t" <> rest
+    | "\n" <> rest
+    | "\u{0B}" <> rest
+    | "\u{0C}" <> rest
+    | "\r" <> rest
+    | "\u{85}" <> rest
+    | "\u{2028}" <> rest
+    | "\u{2029}" <> rest -> trim_start(rest)
+    _ -> text
+  }
+}
+
+/// By code point, so reversing twice gives the text back exactly.
+fn reverse(text: String) -> String {
   text
-  |> string.replace("**", "")
-  |> string.replace("~~", "")
-  |> string.replace("`", "")
-  |> string.trim
+  |> string.to_utf_codepoints
+  |> list.reverse
+  |> string.from_utf_codepoints
 }
 
 fn shorten(line: String) -> String {

@@ -306,6 +306,24 @@ pub fn thousands_of_links_are_thousands_of_links_test() {
   assert markdown.parse(string.repeat("[a](b) ", 4000)) == paragraph(expected)
 }
 
+// Plain text, for note titles
+
+pub fn plain_text_keeps_the_words_and_drops_the_markup_test() {
+  let assert [Block(content: Paragraph(text), ..)] =
+    markdown.parse("a **b *c*** [d `e`](u \"t\") `f` **g")
+  assert markdown.plain_text(text) == "a b c d e f **g"
+}
+
+pub fn plain_text_shows_a_line_break_as_a_space_test() {
+  let assert [Block(content: Paragraph(text), ..)] =
+    markdown.parse("one\n*two*\nthree")
+  assert markdown.plain_text(text) == "one two three"
+}
+
+pub fn plain_text_keeps_struck_words_test() {
+  assert markdown.plain_text([markdown.Strike([Text("gone")])]) == "gone"
+}
+
 fn depth(inlines: List(markdown.Inline)) -> Int {
   list.fold(inlines, 0, fn(deepest, inline) {
     case inline {
