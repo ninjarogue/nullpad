@@ -1186,7 +1186,7 @@ pub fn rows_stop_when_their_padding_passes_the_bound_test() {
   let columns = 1000
   let header = "|" <> string.repeat("a|", columns) <> "\n"
   let delimiter = "|" <> string.repeat("-|", columns) <> "\n"
-  let accepted = 524_288 / { columns - 1 } + 1
+  let accepted = 65_536 / { columns - 1 } + 1
   let blocks = markdown.parse(header <> delimiter <> string.repeat("x\n", 600))
 
   let assert [

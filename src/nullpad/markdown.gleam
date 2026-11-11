@@ -896,11 +896,12 @@ fn drop_spaces_end(chars: List(String)) -> List(String) {
   chars |> list.reverse |> drop_spaces |> list.reverse
 }
 
-/// cmark-gfm's bound (0x80000) on the empty cells a table's rows are padded
-/// with. Past it a row is not added: the table ends and the line starts a
-/// paragraph. A header of 5,000 columns over 5,000 rows of one cell would
-/// otherwise be 25 million cells from 40 KB of text.
-const max_padded_cells = 524_288
+/// A bound on the empty cells a table's rows are padded with. Past it a row is
+/// not added: the table ends and the line starts a paragraph. Padding is the
+/// one place a table's output outgrows its text: a header of 1,000 columns over
+/// short rows is 6 KB for half a million cells, and Chromium took four seconds
+/// to show them. cmark-gfm stops at 0x80000 (524,288), eight times as many.
+const max_padded_cells = 65_536
 
 /// A delimiter row under a paragraph's last line opens a table when the two
 /// have the same number of cells. The columns are the delimiter's alignments
