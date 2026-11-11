@@ -60,7 +60,6 @@ fn block(shown: Block, on_task: fn(Task, Bool) -> msg) -> Element(msg) {
   }
 }
 
-/// In a tight list an item's own paragraphs are bare text.
 fn item(
   shown: Item,
   spacing: Spacing,

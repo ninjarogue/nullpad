@@ -337,7 +337,6 @@ type Leaf {
   )
 }
 
-/// What a line begins.
 type Start {
   Blank
   TextLine
@@ -351,8 +350,6 @@ type Start {
   CodeStart(rest: Line)
 }
 
-/// Each open container eats its prefix, outermost first. Only when all of
-/// them keep the line does the open leaf see it.
 fn step(open: Open, line: Line) -> Open {
   let #(matched, line) = continue_frames(list.reverse(open.frames), 0, line)
   case matched == open.depth {
@@ -769,7 +766,6 @@ fn end_item(of: OpenList, item: OpenItem, blocks: List(Block)) -> OpenList {
   )
 }
 
-/// Ends the open item of the innermost frame and opens the next one.
 fn next_item(open: Open, row: Int, width: Int) -> Open {
   case open.frames {
     [Frame(InList(of, item), blocks), ..outer] -> {
@@ -1669,8 +1665,8 @@ fn take_lines(source: String, count: Int, taken: String) -> #(String, Bool) {
   }
 }
 
-/// It recurses once per container, and the parser nests at most
-/// `max_block_depth` of them.
+/// The first line of text in `blocks`. It recurses once per container, and
+/// the parser nests at most `max_block_depth` of them.
 fn shown(blocks: List(Block)) -> String {
   use block <- first_shown(blocks)
   case block.content {
@@ -1698,7 +1694,6 @@ fn first_line(text: String) -> String {
   |> string.concat
 }
 
-/// The first text that `show` gives for one of `things` that is not "".
 fn first_shown(things: List(a), show: fn(a) -> String) -> String {
   case things {
     [] -> ""
