@@ -1,8 +1,8 @@
 import commonmark/render
 import gleam/option.{None, Some}
 import nullpad/markdown.{
-  Block, Code, Emphasis, H3, Heading, Link, Paragraph, Quote, Rule, Strike,
-  Strong, Text,
+  Block, BulletList, Code, Emphasis, H3, Heading, Item, Link, Loose, NotATask,
+  OrderedList, Paragraph, Quote, Rule, Strike, Strong, Text, Tight,
 }
 
 fn paragraph(text: List(markdown.Inline)) -> String {
@@ -44,6 +44,36 @@ pub fn a_quote_puts_its_blocks_on_lines_of_their_own_test() {
     == "<blockquote>\n<p>a</p>\n</blockquote>\n"
   assert render.html([Block(0, 0, Quote([]))])
     == "<blockquote>\n</blockquote>\n"
+}
+
+pub fn a_tight_item_shows_its_paragraphs_as_bare_text_test() {
+  let nested = Block(1, 1, BulletList(Tight, [item(1, "b")]))
+  let first = Item(0, NotATask, [Block(0, 0, Paragraph([Text("a")])), nested])
+  assert render.html([Block(0, 1, BulletList(Tight, [first]))])
+    == "<ul>\n<li>a\n<ul>\n<li>b</li>\n</ul>\n</li>\n</ul>\n"
+}
+
+pub fn a_loose_item_keeps_its_paragraphs_test() {
+  assert render.html([
+      Block(0, 2, BulletList(Loose, [item(0, "a"), item(2, "b")])),
+    ])
+    == "<ul>\n<li>\n<p>a</p>\n</li>\n<li>\n<p>b</p>\n</li>\n</ul>\n"
+}
+
+pub fn an_ordered_list_names_its_start_unless_it_is_one_test() {
+  assert render.html([Block(0, 0, OrderedList(1, Tight, [item(0, "a")]))])
+    == "<ol>\n<li>a</li>\n</ol>\n"
+  assert render.html([Block(0, 0, OrderedList(7, Tight, [item(0, "a")]))])
+    == "<ol start=\"7\">\n<li>a</li>\n</ol>\n"
+}
+
+pub fn an_empty_item_is_an_empty_li_test() {
+  assert render.html([Block(0, 0, BulletList(Tight, [Item(0, NotATask, [])]))])
+    == "<ul>\n<li></li>\n</ul>\n"
+}
+
+fn item(row: Int, text: String) -> markdown.Item {
+  Item(row, NotATask, [Block(row, row, Paragraph([Text(text)]))])
 }
 
 pub fn strike_is_del_test() {

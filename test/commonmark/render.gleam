@@ -4,9 +4,9 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import nullpad/markdown.{
-  type Block, type Inline, type Level, BulletList, Code, CodeBlock, Emphasis, H1,
-  H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
-  Strong, Text,
+  type Block, type Inline, type Item, type Level, type Spacing, BulletList, Code,
+  CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Link, OrderedList,
+  Paragraph, Quote, Rule, Strike, Strong, Text, Tight,
 }
 
 pub fn html(blocks: List(Block)) -> String {
@@ -22,9 +22,35 @@ fn block(block: Block) -> String {
     Paragraph(text:) -> element("p", [], inlines(text)) <> "\n"
     Rule -> "<hr />\n"
     Quote(blocks:) -> "<blockquote>\n" <> html(blocks) <> "</blockquote>\n"
-    BulletList(..) | OrderedList(..) | CodeBlock(..) ->
-      panic as "the parser does not build this block yet"
+    BulletList(spacing:, items:) ->
+      "<ul>\n" <> list_items(spacing, items) <> "</ul>\n"
+    OrderedList(start: 1, spacing:, items:) ->
+      "<ol>\n" <> list_items(spacing, items) <> "</ol>\n"
+    OrderedList(start:, spacing:, items:) ->
+      "<ol start=\""
+      <> int.to_string(start)
+      <> "\">\n"
+      <> list_items(spacing, items)
+      <> "</ol>\n"
+    CodeBlock(..) -> panic as "the parser does not build this block yet"
   }
+}
+
+fn list_items(spacing: Spacing, items: List(Item)) -> String {
+  items |> list.map(list_item(spacing, _)) |> string.concat
+}
+
+/// In a tight list an item's own paragraphs are bare inline text. Any other
+/// block starts on a line of its own.
+fn list_item(spacing: Spacing, item: Item) -> String {
+  list.fold(item.blocks, "<li>", fn(done, child) {
+    case child.content, spacing, string.ends_with(done, "\n") {
+      Paragraph(text:), Tight, _ -> done <> inlines(text)
+      _, _, True -> done <> block(child)
+      _, _, False -> done <> "\n" <> block(child)
+    }
+  })
+  <> "</li>\n"
 }
 
 fn heading_tag(level: Level) -> String {

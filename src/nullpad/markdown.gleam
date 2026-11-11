@@ -39,13 +39,22 @@ pub type Content {
   /// break). The page shows it as a line break.
   Paragraph(text: List(Inline))
   // M3
-  BulletList(items: List(Item))
-  OrderedList(start: Int, items: List(Item))
+  BulletList(spacing: Spacing, items: List(Item))
+  /// `start` is the first item's number. Later numbers are not kept.
+  OrderedList(start: Int, spacing: Spacing, items: List(Item))
   Quote(blocks: List(Block))
   CodeBlock(language: Option(String), code: String)
   Rule
   // After M3, in its own milestone: Table. Adding the variant makes the
   // compiler list every `case` that must handle it.
+}
+
+/// A tight list shows each item's own paragraphs as bare text. A list is
+/// loose when two of its items, or two blocks directly inside one item, have
+/// a blank line between them.
+pub type Spacing {
+  Tight
+  Loose
 }
 
 /// An item is a list of blocks, so a nested list is just a list block inside
@@ -220,8 +229,9 @@ fn after_quote_mark(line: Line) -> Line {
   eat_columns(eat_text(line, 1), 1)
 }
 
-/// A quote nested deeper than this is not opened: its `>` stays paragraph
-/// text, the way `max_depth` leaves inline marks.
+/// A quote or list nested deeper than this is not opened: its marker stays
+/// paragraph text, the way `max_depth` leaves inline marks. A list is two
+/// levels of the tree, the list and its item.
 const max_block_depth = 32
 
 /// What is still open after a line. `blocks` are the closed top-level
@@ -238,6 +248,37 @@ type Frame {
 
 type Container {
   InQuote(first_row: Int)
+  /// A list and its open item are one frame, so an item cannot be open
+  /// outside a list. `item` is `None` once a blank line ended an empty item
+  /// (an item can begin with at most one blank line). Then only a blank
+  /// line or a sibling item keeps the frame.
+  InList(of: OpenList, item: Option(OpenItem))
+}
+
+/// `items` are the closed items, newest first. `last_row` is the newest
+/// one's.
+type OpenList {
+  OpenList(
+    first_row: Int,
+    last_row: Int,
+    marker: Marker,
+    start: Int,
+    items: List(Item),
+    spacing: Spacing,
+  )
+}
+
+/// `width` is how many columns a later line must be indented to belong to
+/// the item: the marker's own indent, the marker, and the spaces after it.
+type OpenItem {
+  OpenItem(row: Int, width: Int)
+}
+
+/// An item joins a list whose marker is equal: the same bullet, or the same
+/// delimiter after the number.
+type Marker {
+  Bullet(String)
+  Ordered(delimiter: String)
 }
 
 /// A leaf keeps its lines as typed, newest first, until it closes. Inline
@@ -252,6 +293,9 @@ type Start {
   Blank
   TextLine
   QuoteStart(rest: Line)
+  /// `sibling`: the item joins the outermost list the line did not
+  /// continue. Otherwise it starts a list.
+  ItemStart(marker: Marker, number: Int, width: Int, sibling: Bool, rest: Line)
   HeadingStart(level: Level, text: List(String))
   RuleStart
 }
@@ -287,6 +331,10 @@ fn continue_frame(container: Container, line: Line) -> Result(Line, Nil) {
   case container, line.text {
     InQuote(_), [">", ..] if line.indent < 4 -> Ok(after_quote_mark(line))
     InQuote(_), _ -> Error(Nil)
+    InList(..), [] -> Ok(skip_margin(line))
+    InList(item: Some(item), ..), _ if line.indent >= item.width ->
+      Ok(eat_columns(line, item.width))
+    InList(..), _ -> Error(Nil)
   }
 }
 
@@ -316,15 +364,25 @@ fn continue_leaf(open: Open, line: Line) -> Open {
 /// depth.
 fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
   let row = line.row
-  case start(line, matched), open.leaf {
+  case start(open, matched, line), open.leaf {
     TextLine, ParagraphLeaf(first_row:, lines:, ..) ->
       Open(..open, leaf: ParagraphLeaf(first_row, row, [line.text, ..lines]))
     TextLine, _ -> open_paragraph(close_to(open, matched, row), line)
-    Blank, _ -> close_to(open, matched, row)
+    Blank, _ -> close_to(open, matched, row) |> end_empty_item(row)
     QuoteStart(rest), _ ->
       close_to(open, matched, row)
       |> push_frame(InQuote(row))
       |> start_blocks(matched + 1, rest)
+    ItemStart(width:, sibling: True, rest:, ..), _ ->
+      close_to(open, matched + 1, row)
+      |> next_item(row, width)
+      |> start_blocks(matched + 1, rest)
+    ItemStart(marker:, number:, width:, sibling: False, rest:), _ -> {
+      let of = OpenList(row, row, marker, number, [], Tight)
+      close_to(open, matched, row)
+      |> push_frame(InList(of, Some(OpenItem(row, width))))
+      |> start_blocks(matched + 1, rest)
+    }
     HeadingStart(level, text), _ ->
       close_to(open, matched, row)
       |> push_block(Block(row, row, Heading(level, inlines(text))))
@@ -333,7 +391,7 @@ fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
   }
 }
 
-fn start(line: Line, matched: Int) -> Start {
+fn start(open: Open, matched: Int, line: Line) -> Start {
   case line.text {
     [] -> Blank
     _ if line.indent >= 4 -> TextLine
@@ -346,9 +404,85 @@ fn start(line: Line, matched: Int) -> Start {
     ["*", ..] as text | ["-", ..] as text | ["_", ..] as text ->
       case is_rule(text) {
         True -> RuleStart
-        False -> TextLine
+        False -> item_start(open, matched, line)
       }
-    _ -> TextLine
+    _ -> item_start(open, matched, line)
+  }
+}
+
+/// A list marker: `-`, `+` or `*`, or one to nine digits and `.` or `)`,
+/// then a space, a tab or the end of the line. An item that interrupts a
+/// paragraph must not be empty, and an ordered one must start at 1.
+fn item_start(open: Open, matched: Int, line: Line) -> Start {
+  case list_marker(line.text) {
+    Error(Nil) -> TextLine
+    Ok(#(marker, number, length)) -> {
+      let after = eat_text(line, length)
+      let blank = after.text == []
+      let interrupts = case open.leaf {
+        ParagraphLeaf(..) -> matched == open.depth
+        NoLeaf -> False
+      }
+      let sibling = is_sibling(open, matched, marker)
+      case after.indent {
+        0 if !blank -> TextLine
+        _ if interrupts && { blank || number != 1 } -> TextLine
+        _ if !sibling && matched >= max_block_depth -> TextLine
+        // Spec: an item that begins blank, or with indented code, is one
+        // column wider than its marker.
+        spaces if blank || spaces >= 5 ->
+          ItemStart(
+            marker,
+            number,
+            line.indent + length + 1,
+            sibling,
+            eat_columns(after, 1),
+          )
+        spaces ->
+          ItemStart(
+            marker,
+            number,
+            line.indent + length + spaces,
+            sibling,
+            skip_margin(after),
+          )
+      }
+    }
+  }
+}
+
+/// Whether the outermost frame the line did not continue is a list that an
+/// item with `marker` joins.
+fn is_sibling(open: Open, matched: Int, marker: Marker) -> Bool {
+  case list.drop(open.frames, open.depth - matched - 1) {
+    [Frame(InList(of:, ..), _), ..] if matched < open.depth ->
+      of.marker == marker
+    _ -> False
+  }
+}
+
+fn list_marker(text: List(String)) -> Result(#(Marker, Int, Int), Nil) {
+  case text {
+    ["-" as bullet, ..] | ["+" as bullet, ..] | ["*" as bullet, ..] ->
+      Ok(#(Bullet(bullet), 1, 1))
+    _ -> ordered_marker(text, 0, 0)
+  }
+}
+
+fn ordered_marker(
+  text: List(String),
+  number: Int,
+  digits: Int,
+) -> Result(#(Marker, Int, Int), Nil) {
+  case text {
+    ["." as delimiter, ..] | [")" as delimiter, ..] if digits > 0 ->
+      Ok(#(Ordered(delimiter), number, digits + 1))
+    [char, ..rest] if digits < 9 ->
+      case int.parse(char) {
+        Ok(digit) -> ordered_marker(rest, number * 10 + digit, digits + 1)
+        Error(Nil) -> Error(Nil)
+      }
+    _ -> Error(Nil)
   }
 }
 
@@ -409,10 +543,90 @@ fn close_to(open: Open, depth: Int, row: Int) -> Open {
   }
 }
 
+/// A list ends where its last item does, which may be before `last_row`.
 fn close_frame(frame: Frame, last_row: Int) -> Block {
   case frame.container {
     InQuote(first_row) ->
       Block(first_row, last_row, Quote(list.reverse(frame.blocks)))
+    InList(of, item) -> {
+      let of = end_open_item(of, item, frame.blocks)
+      let items = list.reverse(of.items)
+      let content = case of.marker {
+        Bullet(_) -> BulletList(of.spacing, items)
+        Ordered(_) -> OrderedList(of.start, of.spacing, items)
+      }
+      Block(of.first_row, of.last_row, content)
+    }
+  }
+}
+
+fn end_open_item(
+  of: OpenList,
+  item: Option(OpenItem),
+  blocks: List(Block),
+) -> OpenList {
+  case item {
+    Some(item) -> end_item(of, item, blocks)
+    None -> of
+  }
+}
+
+/// The list with `item` closed. The item ends where its last block does,
+/// or on its own row when it has none.
+fn end_item(of: OpenList, item: OpenItem, blocks: List(Block)) -> OpenList {
+  let last_row = case blocks {
+    [last, ..] -> last.last_row
+    [] -> item.row
+  }
+  OpenList(
+    ..of,
+    last_row:,
+    items: [Item(item.row, NotATask, list.reverse(blocks)), ..of.items],
+    spacing: loosen(of.spacing, has_gap(blocks)),
+  )
+}
+
+/// Ends the open item of the innermost frame and opens the next one.
+fn next_item(open: Open, row: Int, width: Int) -> Open {
+  case open.frames {
+    [Frame(InList(of, item), blocks), ..outer] -> {
+      let of = end_open_item(of, item, blocks)
+      let of =
+        OpenList(..of, spacing: loosen(of.spacing, row > of.last_row + 1))
+      let frame = Frame(InList(of, Some(OpenItem(row, width))), [])
+      Open(..open, frames: [frame, ..outer])
+    }
+    _ -> open
+  }
+}
+
+/// On a blank line, an item whose first line was only its marker ends.
+fn end_empty_item(open: Open, row: Int) -> Open {
+  case open.frames, open.leaf {
+    [Frame(InList(of, Some(item)), []), ..outer], NoLeaf if item.row < row -> {
+      let frame = Frame(InList(end_item(of, item, []), None), [])
+      Open(..open, frames: [frame, ..outer])
+    }
+    _, _ -> open
+  }
+}
+
+fn loosen(spacing: Spacing, gap: Bool) -> Spacing {
+  case gap {
+    True -> Loose
+    False -> spacing
+  }
+}
+
+/// Whether two neighbours have a row between them. Newest first.
+fn has_gap(blocks: List(Block)) -> Bool {
+  case blocks {
+    [later, earlier, ..rest] ->
+      case later.first_row > earlier.last_row + 1 {
+        True -> True
+        False -> has_gap([earlier, ..rest])
+      }
+    _ -> False
   }
 }
 

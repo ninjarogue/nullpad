@@ -71,6 +71,24 @@ const inputs = {
   "deep quotes on every line": (n) => ("> ".repeat(40) + "a\n").repeat(n / 40),
   "lazy continuation lines": (n) => "> a\n" + "b\n".repeat(n),
   "quotes opening and closing": (n) => "> a\n\n".repeat(n),
+  "bullets on one line": (n) => "- ".repeat(n) + "a",
+  "stars that almost make a rule": (n) => "* ".repeat(n) + "a",
+  "ordered markers on one line": (n) => "1. ".repeat(n) + "a",
+  "quote marks and list markers on one line": (n) => "> 1. ".repeat(n) + "a",
+  "many items": (n) => "- a\n".repeat(n),
+  "many loose items": (n) => "- a\n\n".repeat(n),
+  "many lists": (n) => "- a\n+ b\n".repeat(n),
+  "empty items": (n) => "-\n".repeat(n),
+  "empty items, blank lines": (n) => "-\n\n".repeat(n),
+  "deep spaces inside nested lists": (n) =>
+    Array.from({ length: 30 }, (_, i) => "  ".repeat(i) + "- a\n").join("") +
+    (" ".repeat(200) + "b\n").repeat(n / 100),
+  "nested lists, a staircase 200 deep": (n) =>
+    Array.from({ length: 200 }, (_, i) => "  ".repeat(i) + "- a\n")
+      .join("")
+      .repeat(n / 10_000),
+  "tabs": (n) => "\t".repeat(n) + "a",
+  "tabs after a bullet": (n) => "-" + "\t".repeat(n) + "a",
 };
 
 const titles = {

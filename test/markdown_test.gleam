@@ -10,7 +10,8 @@ import gleam/string
 import lustre/element
 import nullpad/markdown.{
   Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
-  Item, Link, Paragraph, Quote, Rule, Strike, Strong, Text, Unchecked,
+  Item, Link, Loose, OrderedList, Paragraph, Quote, Rule, Strike, Strong, Text,
+  Tight, Unchecked,
 }
 import nullpad/preview
 
@@ -153,6 +154,163 @@ fn innermost_quote(
     [Block(content: Quote(inner), ..)] -> innermost_quote(inner, depth + 1)
     _ -> #(depth, blocks)
   }
+}
+
+// Lists
+
+pub fn a_list_holds_items_with_their_rows_test() {
+  assert markdown.parse("- one\n- two\n  more\n- three")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Tight, [
+          item(0, [para(0, "one")]),
+          item(1, [Block(1, 2, Paragraph([Text("two\nmore")]))]),
+          item(3, [para(3, "three")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn an_ordered_list_keeps_only_its_first_number_test() {
+  assert markdown.parse("3. a\n9. b")
+    == [
+      Block(
+        0,
+        1,
+        OrderedList(3, Tight, [item(0, [para(0, "a")]), item(1, [para(1, "b")])]),
+      ),
+    ]
+}
+
+pub fn another_bullet_or_delimiter_starts_another_list_test() {
+  assert markdown.parse("- a\n+ b")
+    == [
+      Block(0, 0, BulletList(Tight, [item(0, [para(0, "a")])])),
+      Block(1, 1, BulletList(Tight, [item(1, [para(1, "b")])])),
+    ]
+  assert markdown.parse("1. a\n2) b")
+    == [
+      Block(0, 0, OrderedList(1, Tight, [item(0, [para(0, "a")])])),
+      Block(1, 1, OrderedList(2, Tight, [item(1, [para(1, "b")])])),
+    ]
+}
+
+pub fn a_blank_line_between_items_makes_the_list_loose_test() {
+  assert markdown.parse("- a\n\n- b")
+    == [
+      Block(
+        0,
+        2,
+        BulletList(Loose, [item(0, [para(0, "a")]), item(2, [para(2, "b")])]),
+      ),
+    ]
+}
+
+pub fn a_blank_line_inside_an_item_makes_the_list_loose_test() {
+  assert markdown.parse("- a\n\n  b\n- c")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Loose, [
+          item(0, [para(0, "a"), para(2, "b")]),
+          item(3, [para(3, "c")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_nested_list_is_loose_on_its_own_test() {
+  let inner =
+    Block(1, 3, BulletList(Loose, [item(1, [para(1, "b"), para(3, "c")])]))
+  assert markdown.parse("- a\n  - b\n\n    c\n- d")
+    == [
+      Block(
+        0,
+        4,
+        BulletList(Tight, [
+          item(0, [para(0, "a"), inner]),
+          item(4, [para(4, "d")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_lazy_line_continues_the_paragraph_of_an_item_test() {
+  assert markdown.parse("- a\nb")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [item(0, [Block(0, 1, Paragraph([Text("a\nb")]))])]),
+      ),
+    ]
+}
+
+pub fn a_tab_after_the_marker_sets_how_far_later_lines_indent_test() {
+  assert markdown.parse("-\tone\n\ttwo")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [
+          item(0, [Block(0, 1, Paragraph([Text("one\ntwo")]))]),
+        ]),
+      ),
+    ]
+}
+
+pub fn only_a_list_from_one_with_text_interrupts_a_paragraph_test() {
+  assert markdown.parse("a\n2. b")
+    == [Block(0, 1, Paragraph([Text("a\n2. b")]))]
+  assert markdown.parse("a\n*") == [Block(0, 1, Paragraph([Text("a\n*")]))]
+  assert markdown.parse("a\n1. b")
+    == [
+      para(0, "a"),
+      Block(1, 1, OrderedList(1, Tight, [item(1, [para(1, "b")])])),
+    ]
+}
+
+pub fn an_item_may_begin_with_one_blank_line_test() {
+  assert markdown.parse("-\n  a")
+    == [Block(0, 1, BulletList(Tight, [item(0, [para(1, "a")])]))]
+  assert markdown.parse("-\n\n  a")
+    == [Block(0, 0, BulletList(Tight, [item(0, [])])), para(2, "a")]
+}
+
+pub fn lists_stop_at_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat("- ", 10_000) <> "a")
+  let #(depth, innermost) = innermost_item(blocks, 0)
+
+  assert depth == 32
+  assert innermost == [para(0, string.repeat("- ", 9968) <> "a")]
+  let html = element.to_string(preview.view(blocks, fn(_) { Nil }))
+  assert list.length(string.split(html, "<ul>")) == 33
+}
+
+pub fn quotes_and_lists_share_the_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat("> 1. ", 5000) <> "a")
+  let html = element.to_string(preview.view(blocks, fn(_) { Nil }))
+
+  assert list.length(string.split(html, "<blockquote>")) == 17
+  assert list.length(string.split(html, "<ol>")) == 17
+}
+
+fn innermost_item(
+  blocks: List(markdown.Block),
+  depth: Int,
+) -> #(Int, List(markdown.Block)) {
+  case blocks {
+    [Block(content: BulletList(items: [Item(blocks: inner, ..)], ..), ..)] ->
+      innermost_item(inner, depth + 1)
+    _ -> #(depth, blocks)
+  }
+}
+
+fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
+  Item(row, markdown.NotATask, blocks)
 }
 
 /// M3 turns four spaces of indent into a code block.
@@ -545,7 +703,7 @@ pub fn pending_task_list() {
   let eggs = Item(row: 1, task: Checked, blocks: [para(1, "eggs")])
 
   assert markdown.parse("- [ ] milk\n- [x] eggs")
-    == [Block(0, 1, BulletList([milk, eggs]))]
+    == [Block(0, 1, BulletList(Tight, [milk, eggs]))]
 }
 
 /// M3

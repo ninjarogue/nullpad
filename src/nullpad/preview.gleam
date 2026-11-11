@@ -1,15 +1,16 @@
 //// Turns the markdown tree into Lustre elements: the rendered page.
 //// Imported by: the app shell. Imports: `markdown`.
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import nullpad/markdown.{
-  type Block, type Inline, type Level, BulletList, Code, CodeBlock, Emphasis, H1,
-  H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
-  Strong, Text,
+  type Block, type Inline, type Item, type Level, type Spacing, BulletList, Code,
+  CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Link, OrderedList,
+  Paragraph, Quote, Rule, Strike, Strong, Text, Tight,
 }
 
 /// Safe by construction: all text goes through `element.text` (escaped) and
@@ -38,8 +39,29 @@ fn block(shown: Block) -> Element(msg) {
     Paragraph(text) -> html.p([], inlines(text))
     Rule -> html.hr([])
     Quote(blocks) -> html.blockquote([], list.map(blocks, block))
-    BulletList(_) | OrderedList(..) | CodeBlock(..) -> element.none()
+    BulletList(spacing, items) -> html.ul([], list.map(items, item(_, spacing)))
+    OrderedList(1, spacing, items) ->
+      html.ol([], list.map(items, item(_, spacing)))
+    OrderedList(start, spacing, items) ->
+      html.ol(
+        [attribute.attribute("start", int.to_string(start))],
+        list.map(items, item(_, spacing)),
+      )
+    CodeBlock(..) -> element.none()
   }
+}
+
+/// In a tight list an item's own paragraphs are bare text.
+fn item(shown: Item, spacing: Spacing) -> Element(msg) {
+  html.li(
+    [],
+    list.flat_map(shown.blocks, fn(child) {
+      case child.content, spacing {
+        Paragraph(text), Tight -> inlines(text)
+        _, _ -> [block(child)]
+      }
+    }),
+  )
 }
 
 fn heading(level: Level, children: List(Element(msg))) -> Element(msg) {

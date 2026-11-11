@@ -4,8 +4,8 @@ import gleam/string
 import lustre/element
 import nullpad/markdown.{
   type Content, type Inline, Block, BulletList, Code, CodeBlock, Emphasis, H1,
-  H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
-  Strong, Text,
+  H2, H3, H4, H5, H6, Heading, Link, Loose, OrderedList, Paragraph, Quote, Rule,
+  Strike, Strong, Text, Tight,
 }
 import nullpad/preview
 
@@ -198,16 +198,62 @@ pub fn a_quote_renders_as_blockquote_test() {
   assert string.contains(render(quote), "<blockquote><p>a</p><hr></blockquote>")
 }
 
-pub fn blocks_the_parser_cannot_produce_yet_render_nothing_test() {
+pub fn a_tight_list_shows_its_paragraphs_as_bare_text_test() {
   let html =
-    render_blocks([
-      Block(0, 0, BulletList([])),
-      Block(1, 1, OrderedList(1, [])),
-      Block(3, 3, CodeBlock(None, "code")),
-    ])
+    render(
+      BulletList(Tight, [
+        item(0, [Block(0, 0, Paragraph([Strong([Text("milk")])]))]),
+        item(1, [Block(1, 1, Paragraph([Text("eggs")])), Block(2, 2, Rule)]),
+      ]),
+    )
 
-  assert !string.contains(html, "<ul")
-  assert !string.contains(html, "<ol")
+  assert string.contains(
+    html,
+    "<ul><li><strong>milk</strong></li><li>eggs<hr></li></ul>",
+  )
+}
+
+pub fn a_loose_list_shows_its_paragraphs_as_p_test() {
+  let html =
+    render(
+      BulletList(Loose, [
+        item(0, [Block(0, 0, Paragraph([Text("milk")]))]),
+        item(2, [Block(2, 2, Quote([Block(2, 2, Paragraph([Text("eggs")]))]))]),
+      ]),
+    )
+
+  assert string.contains(
+    html,
+    "<ul><li><p>milk</p></li><li><blockquote><p>eggs</p></blockquote></li></ul>",
+  )
+}
+
+pub fn only_a_tight_list_drops_the_paragraphs_directly_in_its_items_test() {
+  let inner = Block(0, 0, Quote([Block(0, 0, Paragraph([Text("a")]))]))
+
+  assert string.contains(
+    render(BulletList(Tight, [item(0, [inner])])),
+    "<li><blockquote><p>a</p></blockquote></li>",
+  )
+}
+
+pub fn an_ordered_list_names_its_start_unless_it_is_one_test() {
+  let items = [item(0, [Block(0, 0, Paragraph([Text("a")]))])]
+
+  assert string.contains(render(OrderedList(1, Tight, items)), "<ol><li>a</li>")
+  assert string.contains(
+    render(OrderedList(7, Tight, items)),
+    "<ol start=\"7\"><li>a</li>",
+  )
+  assert string.contains(
+    render(OrderedList(0, Tight, items)),
+    "<ol start=\"0\"><li>a</li>",
+  )
+}
+
+pub fn blocks_the_parser_cannot_produce_yet_render_nothing_test() {
+  let html = render_blocks([Block(3, 3, CodeBlock(None, "code"))])
+
   assert !string.contains(html, "<pre")
 }
 
@@ -217,6 +263,10 @@ fn render(content: Content) -> String {
 
 fn render_blocks(blocks: List(markdown.Block)) -> String {
   element.to_string(preview.view(blocks, fn(row) { row }))
+}
+
+fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
+  markdown.Item(row:, task: markdown.NotATask, blocks:)
 }
 
 fn paragraph(inline: Inline) -> Content {
