@@ -41,7 +41,6 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       "textarea",
       [
         attribute.id(control_id),
-        // `lustre/dev/query.test_id` matches `data-test-id`.
         attribute.data("test-id", "editor"),
         attribute.aria_label("Note text"),
         // Normal mode locks the control: no typing, paste, drop or IME.
@@ -83,8 +82,7 @@ pub fn focus() -> Effect(msg) {
 
 /// Boundary parse, browser -> domain: the control's `value` and its
 /// `selectionStart` / `selectionEnd` (UTF-16 offsets) become a `Buffer`.
-/// Public only so gleeunit can test it with emoji.
-pub fn from_control(text: String, start: Int, end: Int) -> Buffer {
+fn from_control(text: String, start: Int, end: Int) -> Buffer {
   buffer.from_text(text)
   |> buffer.select(anchor: position(text, start), head: position(text, end))
 }
@@ -96,7 +94,7 @@ fn position(text: String, offset: Int) -> Position {
 
 /// Domain -> browser: `#(value, selectionStart, selectionEnd)`.
 /// Law: `to_control(from_control(t, s, e)) == #(t, s, e)`.
-pub fn to_control(buffer: Buffer) -> #(String, Int, Int) {
+fn to_control(buffer: Buffer) -> #(String, Int, Int) {
   let #(anchor, head) = buffer.selection(buffer)
   let lines = buffer.lines(buffer)
   let anchor = offset(lines, anchor)

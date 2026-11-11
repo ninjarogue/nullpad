@@ -1,4 +1,4 @@
-//// Stable test ids (`data-test-id`), for `lustre/dev/query` and Playwright:
+//// Stable test ids (`data-test-id`), for the browser tests in `e2e/`:
 ////   editor            the text field               (set in `surface`)
 ////   preview           the rendered page
 ////   mode              "NORMAL" / "INSERT" (only while vim is on)
@@ -33,7 +33,7 @@ const autosave_ms = 800
 
 const retry_save_ms = 5000
 
-/// What `main` hands to `init`. Tests build this by hand.
+/// What `main` hands to `init`.
 pub type Flags {
   Flags(
     storage: Storage,

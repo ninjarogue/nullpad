@@ -32,7 +32,10 @@ pub fn opening_a_note_writes_test() {
     editor.new(vim: False) |> editor.open("one\ntwo")
 
   assert editor.text(ed) == "one\ntwo"
-  assert sync == editor.Write(editor.buffer(ed))
+  let assert editor.Write(written) = sync
+  let start = Position(row: 0, col: 0)
+  assert buffer.text(written) == "one\ntwo"
+  assert buffer.selection(written) == #(start, start)
 }
 
 /// M4

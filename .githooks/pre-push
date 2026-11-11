@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+gleam format --check src test
+gleam test
+
+cd e2e
+if [ ! -d node_modules ]; then
+  echo "pre-push: run 'cd e2e && npm install' once, then push again." >&2
+  exit 1
+fi
+npx tsc
+npm test
