@@ -19,4 +19,15 @@ Chromium through [e2e](https://www.npmjs.com/package/e2e), so they cover
 what a person does with it: writing, saving, switching and deleting notes,
 and what the page shows when storage is slow or fails.
 
+Both suites run before every `git push`, and a failure stops the push. Turn
+that on once per clone:
+
+```sh
+git config core.hooksPath .githooks
+cd e2e && npm install && npx @e2e-dev/web install chromium
+```
+
+The hook tests the files in your working folder, so commit or stash first.
+`git push --no-verify` skips it.
+
 Styles live in `assets/scribbl.css`.
