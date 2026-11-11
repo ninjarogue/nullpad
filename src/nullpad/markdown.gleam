@@ -6,13 +6,13 @@
 //// the specs' examples. One rule is nullpad's own: a link to an address it
 //// will not follow (`is_safe_url`) stays text.
 ////
-//// Blocks: `classify` looks at one line, no context: Blank | HeadingLine |
-//// TextLine, and in M3 FenceLine | QuoteLine | ItemLine | RuleLine. Runs of
-//// text lines are joined with "\n" into a paragraph.
-//// Inlines, per heading or paragraph: `scan` settles escapes, code spans and
-//// links in one pass, then `emphasize` pairs the `*`, `_` and `~` runs.
-//// M6's `highlight` can reuse `classify`. Whether it reuses `scan` is
-//// undecided, because `scan` keeps no source positions.
+//// Blocks, in one pass over the lines: the open leaf (a paragraph) has the
+//// first say on a line, then `start` reads which block the line begins. A
+//// leaf keeps its lines as typed until it closes.
+//// Inlines, once per heading or paragraph: `scan` settles escapes, code
+//// spans and links in one pass, then `emphasize` pairs the `*`, `_` and `~`
+//// runs. Whether M6's `highlight` reuses `scan` is undecided, because `scan`
+//// keeps no source positions.
 //// Imported by: `preview`, `storage`, `surface` (M6), the shell, tests.
 //// Imports: stdlib, and `markdown.ffi.mjs` for two Unicode classes.
 
@@ -88,19 +88,27 @@ pub type Inline {
 /// is no error type.
 pub fn parse(source: String) -> List(Block) {
   source
+  |> source_lines
+  |> list.index_fold(Open([], NoLeaf), fn(open, chars, row) {
+    continue_leaf(open, new_line(row, chars))
+  })
+  |> finish
+}
+
+/// One string per code point (the spec's "character") per line.
+fn source_lines(source: String) -> List(List(String)) {
+  source
   |> string.replace("\u{0}", "\u{FFFD}")
   |> string.to_utf_codepoints
   |> list.fold([], fn(backwards, codepoint) {
     [string.from_utf_codepoints([codepoint]), ..backwards]
   })
   |> split_lines([], [])
-  |> list.index_map(fn(line, row) { #(row, classify(line)) })
-  |> read_blocks([])
 }
 
-/// Takes the characters (one string per code point, the spec's
-/// "character") from the last one back, so each line and the list of lines
-/// come out in order with no reverse. A line ends at "\n", "\r\n" or "\r".
+/// Takes the characters from the last one back, so each line and the list of
+/// lines come out in order with no reverse. A line ends at "\n", "\r\n" or
+/// "\r".
 fn split_lines(
   backwards: List(String),
   line: List(String),
@@ -114,24 +122,107 @@ fn split_lines(
   }
 }
 
-type LineKind {
-  Blank
-  HeadingLine(level: Level, text: List(String))
-  /// Leading spaces and tabs already dropped.
-  TextLine(text: List(String))
+/// A line with the spaces and tabs before its text measured. `indent` is
+/// their width in columns, with a tab reaching the next multiple of 4.
+type Line {
+  Line(row: Int, indent: Int, text: List(String))
 }
 
-type Lines =
-  List(#(Int, LineKind))
-
-fn classify(line: List(String)) -> LineKind {
-  case drop_spaces(line) {
-    [] -> Blank
-    text ->
-      case heading(drop_indent(line, 3)) {
-        Ok(#(level, heading_text)) -> HeadingLine(level, heading_text)
-        Error(Nil) -> TextLine(text)
+fn new_line(row: Int, chars: List(String)) -> Line {
+  let #(margin, text) = list.split_while(chars, is_space_or_tab)
+  let indent =
+    list.fold(margin, 0, fn(column, char) {
+      case char {
+        "\t" -> column + 4 - column % 4
+        _ -> column + 1
       }
+    })
+  Line(row:, indent:, text:)
+}
+
+/// What is still open after a line: the closed blocks, newest first, and the
+/// open leaf.
+type Open {
+  Open(blocks: List(Block), leaf: Leaf)
+}
+
+/// A leaf keeps its lines as typed, newest first, until it closes. Inline
+/// parsing runs once, in `close_leaf`.
+type Leaf {
+  NoLeaf
+  ParagraphLeaf(first_row: Int, last_row: Int, lines: List(List(String)))
+}
+
+/// What a line begins.
+type Start {
+  Blank
+  TextLine
+  HeadingStart(level: Level, text: List(String))
+}
+
+/// The open leaf has the first say on a line.
+fn continue_leaf(open: Open, line: Line) -> Open {
+  case open.leaf, line.text {
+    ParagraphLeaf(..), [] -> close_leaf(open)
+    _, _ -> start_blocks(open, line)
+  }
+}
+
+fn start_blocks(open: Open, line: Line) -> Open {
+  let row = line.row
+  case start(line), open.leaf {
+    Blank, _ -> close_leaf(open)
+    TextLine, ParagraphLeaf(first_row:, lines:, ..) ->
+      Open(..open, leaf: ParagraphLeaf(first_row, row, [line.text, ..lines]))
+    TextLine, NoLeaf -> Open(..open, leaf: ParagraphLeaf(row, row, [line.text]))
+    HeadingStart(level, text), _ ->
+      close_leaf(open)
+      |> push_block(Block(row, row, Heading(level, inlines(text))))
+  }
+}
+
+fn start(line: Line) -> Start {
+  case line.text {
+    [] -> Blank
+    _ if line.indent >= 4 -> TextLine
+    ["#", ..] as text ->
+      case heading(text) {
+        Ok(#(level, text)) -> HeadingStart(level, text)
+        Error(Nil) -> TextLine
+      }
+    _ -> TextLine
+  }
+}
+
+fn close_leaf(open: Open) -> Open {
+  case open.leaf {
+    NoLeaf -> open
+    ParagraphLeaf(first_row, last_row, lines) ->
+      Open(..open, leaf: NoLeaf)
+      |> push_block(Block(
+        first_row,
+        last_row,
+        Paragraph(inlines(paragraph_text(lines))),
+      ))
+  }
+}
+
+fn push_block(open: Open, block: Block) -> Open {
+  Open(..open, blocks: [block, ..open.blocks])
+}
+
+fn finish(open: Open) -> List(Block) {
+  list.reverse(close_leaf(open).blocks)
+}
+
+/// The lines joined with "\n", with the spaces after the last one dropped.
+fn paragraph_text(backwards: List(List(String))) -> List(String) {
+  case backwards {
+    [last, ..before] ->
+      list.fold(before, drop_spaces_end(last), fn(text, line) {
+        list.append(line, ["\n", ..text])
+      })
+    [] -> []
   }
 }
 
@@ -171,51 +262,6 @@ fn drop_spaces(chars: List(String)) -> List(String) {
 
 fn drop_spaces_end(chars: List(String)) -> List(String) {
   chars |> list.reverse |> drop_spaces |> list.reverse
-}
-
-fn drop_indent(line: List(String), allowed: Int) -> List(String) {
-  case line {
-    [" ", ..rest] if allowed > 0 -> drop_indent(rest, allowed - 1)
-    _ -> line
-  }
-}
-
-fn read_blocks(lines: Lines, done: List(Block)) -> List(Block) {
-  case lines {
-    [] -> list.reverse(done)
-    [#(_, Blank), ..rest] -> read_blocks(rest, done)
-    [#(row, HeadingLine(level, text)), ..rest] -> {
-      let block = Block(row, row, Heading(level, inlines(text)))
-      read_blocks(rest, [block, ..done])
-    }
-    [#(row, TextLine(text)), ..rest] -> {
-      let #(block, rest) = read_paragraph(row, row, [text], rest)
-      read_blocks(rest, [block, ..done])
-    }
-  }
-}
-
-/// `read` holds the lines so far, last first.
-fn read_paragraph(
-  first_row: Int,
-  last_row: Int,
-  read: List(List(String)),
-  lines: Lines,
-) -> #(Block, Lines) {
-  case lines {
-    [#(row, TextLine(text)), ..rest] ->
-      read_paragraph(first_row, row, [text, ..read], rest)
-    [] | [#(_, Blank), ..] | [#(_, HeadingLine(..)), ..] -> {
-      let raw = case read {
-        [last, ..before] ->
-          list.fold(before, drop_spaces_end(last), fn(raw, line) {
-            list.append(line, ["\n", ..raw])
-          })
-        [] -> []
-      }
-      #(Block(first_row, last_row, Paragraph(inlines(raw))), lines)
-    }
-  }
 }
 
 // Inline parsing, in two stages. `scan` reads the text once, left to right.
