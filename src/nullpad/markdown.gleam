@@ -158,12 +158,24 @@ type Start {
   Blank
   TextLine
   HeadingStart(level: Level, text: List(String))
+  RuleStart
 }
 
-/// The open leaf has the first say on a line.
+/// The open leaf has the first say on a line. A setext underline is read
+/// only here, so "---" under a paragraph is a heading before `start` can
+/// call it a rule.
 fn continue_leaf(open: Open, line: Line) -> Open {
   case open.leaf, line.text {
     ParagraphLeaf(..), [] -> close_leaf(open)
+    ParagraphLeaf(first_row:, lines:, ..), text if line.indent < 4 ->
+      case setext_level(text) {
+        Ok(level) -> {
+          let heading = Heading(level, inlines(paragraph_text(lines)))
+          Open(..open, leaf: NoLeaf)
+          |> push_block(Block(first_row, line.row, heading))
+        }
+        Error(Nil) -> start_blocks(open, line)
+      }
     _, _ -> start_blocks(open, line)
   }
 }
@@ -178,6 +190,7 @@ fn start_blocks(open: Open, line: Line) -> Open {
     HeadingStart(level, text), _ ->
       close_leaf(open)
       |> push_block(Block(row, row, Heading(level, inlines(text))))
+    RuleStart, _ -> close_leaf(open) |> push_block(Block(row, row, Rule))
   }
 }
 
@@ -190,7 +203,44 @@ fn start(line: Line) -> Start {
         Ok(#(level, text)) -> HeadingStart(level, text)
         Error(Nil) -> TextLine
       }
+    ["*", ..] as text | ["-", ..] as text | ["_", ..] as text ->
+      case is_rule(text) {
+        True -> RuleStart
+        False -> TextLine
+      }
     _ -> TextLine
+  }
+}
+
+/// Three or more of one of `*`, `-` and `_`, with nothing else but spaces
+/// and tabs.
+fn is_rule(text: List(String)) -> Bool {
+  case text {
+    [mark, ..] ->
+      list.fold_until(text, 0, fn(marks, char) {
+        case char == mark, is_space_or_tab(char) {
+          True, _ -> list.Continue(marks + 1)
+          False, True -> list.Continue(marks)
+          False, False -> list.Stop(0)
+        }
+      })
+      >= 3
+    [] -> False
+  }
+}
+
+/// A run of `=` (level 1) or `-` (level 2), then only spaces and tabs.
+fn setext_level(text: List(String)) -> Result(Level, Nil) {
+  let underline = fn(mark, level) {
+    case drop_spaces(list.drop_while(text, fn(char) { char == mark })) {
+      [] -> Ok(level)
+      _ -> Error(Nil)
+    }
+  }
+  case text {
+    ["=", ..] -> underline("=", H1)
+    ["-", ..] -> underline("-", H2)
+    _ -> Error(Nil)
   }
 }
 

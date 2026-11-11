@@ -36,8 +36,8 @@ fn block(block: Block) -> Element(msg) {
   case block.content {
     Heading(level, text) -> heading(level, inlines(text))
     Paragraph(text) -> html.p([], inlines(text))
-    BulletList(_) | OrderedList(..) | Quote(_) | CodeBlock(..) | Rule ->
-      element.none()
+    Rule -> html.hr([])
+    BulletList(_) | OrderedList(..) | Quote(_) | CodeBlock(..) -> element.none()
   }
 }
 

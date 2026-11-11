@@ -9,7 +9,7 @@ import gleam/option.{None}
 import gleam/string
 import nullpad/markdown.{
   Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
-  Item, Link, Paragraph, Strike, Strong, Text, Unchecked,
+  Item, Link, Paragraph, Rule, Strike, Strong, Text, Unchecked,
 }
 
 pub fn empty_input_has_no_blocks_test() {
@@ -27,6 +27,57 @@ pub fn headings_have_six_levels_test() {
       Block(4, 4, Heading(H5, [Text("e")])),
       Block(5, 5, Heading(H6, [Text("f")])),
     ]
+}
+
+// Thematic breaks and setext headings
+
+pub fn three_marks_make_a_rule_test() {
+  assert markdown.parse("***\n- - -\n _  _  _ \n-----")
+    == [
+      Block(0, 0, Rule),
+      Block(1, 1, Rule),
+      Block(2, 2, Rule),
+      Block(3, 3, Rule),
+    ]
+}
+
+pub fn two_marks_or_mixed_marks_are_text_test() {
+  assert markdown.parse("--\n-*-")
+    == [Block(0, 1, Paragraph([Text("--\n-*-")]))]
+}
+
+pub fn a_rule_ends_the_paragraph_above_it_test() {
+  assert markdown.parse("Foo\n***\nbar")
+    == [para(0, "Foo"), Block(1, 1, Rule), para(2, "bar")]
+}
+
+pub fn a_dash_underline_makes_the_paragraph_above_a_heading_test() {
+  assert markdown.parse("Foo *bar*\nbaz\n---")
+    == [
+      Block(
+        0,
+        2,
+        Heading(H2, [Text("Foo "), Emphasis([Text("bar")]), Text("\nbaz")]),
+      ),
+    ]
+}
+
+pub fn an_equals_underline_makes_a_level_one_heading_test() {
+  assert markdown.parse("Title  \n=")
+    == [Block(0, 1, Heading(H1, [Text("Title")]))]
+}
+
+pub fn an_underline_after_a_blank_line_is_no_heading_test() {
+  assert markdown.parse("Foo\n\n---") == [para(0, "Foo"), Block(2, 2, Rule)]
+  assert markdown.parse("Foo\n\n===") == [para(0, "Foo"), para(2, "===")]
+}
+
+pub fn an_underline_with_a_gap_or_four_spaces_of_indent_is_no_underline_test() {
+  assert markdown.parse("Foo\n= =")
+    == [Block(0, 1, Paragraph([Text("Foo\n= =")]))]
+  assert markdown.parse("Foo\n--- -") == [para(0, "Foo"), Block(1, 1, Rule)]
+  assert markdown.parse("Foo\n    ---")
+    == [Block(0, 1, Paragraph([Text("Foo\n---")]))]
 }
 
 /// M3 turns four spaces of indent into a code block.
@@ -299,7 +350,7 @@ pub fn a_long_plain_line_is_one_text_test() {
 }
 
 pub fn a_long_run_of_one_mark_is_one_text_test() {
-  let stars = string.repeat("*", 20_000)
+  let stars = "a" <> string.repeat("*", 20_000)
   let ticks = string.repeat("`", 20_000)
   assert markdown.parse(stars) == paragraph([Text(stars)])
   assert markdown.parse(ticks) == paragraph([Text(ticks)])

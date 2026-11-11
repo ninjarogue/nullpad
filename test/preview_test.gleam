@@ -181,6 +181,17 @@ pub fn strike_renders_as_del_test() {
   )
 }
 
+pub fn a_rule_renders_as_hr_test() {
+  assert string.contains(
+    render_blocks([
+      Block(0, 0, Paragraph([Text("a")])),
+      Block(1, 1, Rule),
+      Block(2, 2, Paragraph([Text("b")])),
+    ]),
+    "<p>a</p><hr><p>b</p>",
+  )
+}
+
 pub fn blocks_the_parser_cannot_produce_yet_render_nothing_test() {
   let html =
     render_blocks([
@@ -188,14 +199,12 @@ pub fn blocks_the_parser_cannot_produce_yet_render_nothing_test() {
       Block(1, 1, OrderedList(1, [])),
       Block(2, 2, Quote([])),
       Block(3, 3, CodeBlock(None, "code")),
-      Block(4, 4, Rule),
     ])
 
   assert !string.contains(html, "<ul")
   assert !string.contains(html, "<ol")
   assert !string.contains(html, "<blockquote")
   assert !string.contains(html, "<pre")
-  assert !string.contains(html, "<hr")
 }
 
 fn render(content: Content) -> String {

@@ -7,8 +7,6 @@ import gleam/string
 
 type Reason {
   // Features nullpad does not have yet.
-  ThematicBreaks
-  SetextHeadings
   IndentedCode
   FencedCode
   HtmlBlocks
@@ -29,24 +27,6 @@ const name = "CommonMark 0.31.2"
 const example_count = 652
 
 const expected_failures: List(#(Reason, List(Int))) = [
-  #(ThematicBreaks, [
-    11,
-    43,
-    47,
-    50,
-    51,
-    52,
-    53,
-    54,
-    58,
-    77,
-    88,
-    96,
-    98,
-    104,
-    105,
-  ]),
-  #(SetextHeadings, [59, 80, 81, 82, 83, 84, 86, 89, 90, 91, 95, 102, 103, 215]),
   #(IndentedCode, [
     1,
     2,
@@ -166,6 +146,7 @@ const expected_failures: List(#(Reason, List(Int))) = [
     207,
     208,
     210,
+    215,
     216,
     217,
     527,

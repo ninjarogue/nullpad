@@ -20,7 +20,8 @@ fn block(block: Block) -> String {
       element(name, [], inlines(text)) <> "\n"
     }
     Paragraph(text:) -> element("p", [], inlines(text)) <> "\n"
-    BulletList(..) | OrderedList(..) | Quote(..) | CodeBlock(..) | Rule ->
+    Rule -> "<hr />\n"
+    BulletList(..) | OrderedList(..) | Quote(..) | CodeBlock(..) ->
       panic as "the parser does not build this block yet"
   }
 }

@@ -61,6 +61,11 @@ const inputs = {
     "~a ".repeat(n) + "b" + " a~~".repeat(n),
   "long tilde runs": (n) => "a~~~".repeat(n),
   "many strikes": (n) => "~~a~~ ".repeat(n),
+  "setext underlines": (n) => "a\n---\n".repeat(n),
+  "a long setext underline": (n) => "a\n" + "=".repeat(n * 2),
+  "rules": (n) => "---\n".repeat(n),
+  "a long rule": (n) => "- ".repeat(n * 2),
+  "a long line that almost makes a rule": (n) => "- ".repeat(n * 2) + "a",
 };
 
 const titles = {

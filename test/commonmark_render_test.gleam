@@ -1,7 +1,8 @@
 import commonmark/render
 import gleam/option.{None, Some}
 import nullpad/markdown.{
-  Block, Code, Emphasis, H3, Heading, Link, Paragraph, Strike, Strong, Text,
+  Block, Code, Emphasis, H3, Heading, Link, Paragraph, Rule, Strike, Strong,
+  Text,
 }
 
 fn paragraph(text: List(markdown.Inline)) -> String {
@@ -31,6 +32,11 @@ pub fn text_and_code_escape_four_characters_test() {
 pub fn inlines_nest_test() {
   assert paragraph([Strong([Emphasis([Text("a")]), Text("b")])])
     == "<p><strong><em>a</em>b</strong></p>\n"
+}
+
+pub fn a_rule_is_a_void_hr_test() {
+  assert render.html([Block(0, 0, Rule), Block(1, 1, Paragraph([Text("a")]))])
+    == "<hr />\n<p>a</p>\n"
 }
 
 pub fn strike_is_del_test() {
