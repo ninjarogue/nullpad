@@ -1,28 +1,17 @@
+import commonmark/expected.{
+  type Listing, Autolinks, Entities, HardBreaks, HtmlBlocks, Images,
+  LinkReferences, RawHtml,
+}
 import commonmark/report.{type Outcome}
 import commonmark/spec
-import gleam/int
 import gleam/io
 import gleam/list
-import gleam/string
-
-type Reason {
-  // Features nullpad does not have yet.
-  HtmlBlocks
-  // Reference definitions and reference-style links.
-  LinkReferences
-  Images
-  Autolinks
-  // By decision, raw HTML shows as text.
-  RawHtml
-  HardBreaks
-  Entities
-}
 
 const name = "CommonMark 0.31.2"
 
 const example_count = 652
 
-const expected_failures: List(#(Reason, List(Int))) = [
+const expected_failures: Listing = [
   #(HtmlBlocks, [
     21,
     31,
@@ -204,48 +193,20 @@ fn outcomes() -> List(Outcome) {
   report.run(spec.commonmark_file)
 }
 
-fn listed_numbers() -> List(Int) {
-  list.flat_map(expected_failures, fn(entry) { entry.1 })
-}
-
-fn is_listed(outcome: Outcome) -> Bool {
-  list.contains(listed_numbers(), outcome.example.number)
-}
-
 pub fn unlisted_examples_pass_test() {
-  let failures =
-    outcomes()
-    |> list.filter(fn(outcome) {
-      !report.passed(outcome) && !is_listed(outcome)
-    })
-  assert failures == []
+  assert expected.unlisted_failures(outcomes(), expected_failures) == []
 }
 
 pub fn listed_examples_still_fail_test() {
-  let stale =
-    outcomes()
-    |> list.filter(fn(outcome) { report.passed(outcome) && is_listed(outcome) })
-    |> list.map(fn(outcome) { outcome.example.number })
-  assert stale == []
+  assert expected.stale(outcomes(), expected_failures) == []
 }
 
 pub fn no_example_is_listed_twice_test() {
-  let numbers = listed_numbers()
-  let repeated =
-    numbers
-    |> list.filter(fn(number) {
-      list.count(numbers, fn(other) { other == number }) > 1
-    })
-    |> list.unique
-  assert repeated == []
+  assert expected.repeated(expected_failures) == []
 }
 
 pub fn listed_numbers_are_spec_examples_test() {
-  let outside_the_spec =
-    list.filter(listed_numbers(), fn(number) {
-      number < 1 || number > example_count
-    })
-  assert outside_the_spec == []
+  assert expected.unknown(outcomes(), expected_failures) == []
 }
 
 pub fn spec_has_every_example_test() {
@@ -260,48 +221,5 @@ pub fn pass_count_is_printed_test() {
 }
 
 pub fn main() -> Nil {
-  let outcomes = outcomes()
-  case spec.command_line_arguments() {
-    [] -> {
-      io.println(report.summary_line(name, outcomes))
-      io.println("")
-      report.print_sections(outcomes)
-      io.println("")
-      print_reason_counts()
-    }
-    [name] -> print_reason(outcomes, name)
-    _ -> io.println("usage: gleam run -m commonmark_test [-- <Reason>]")
-  }
-}
-
-fn print_reason_counts() -> Nil {
-  list.each(expected_failures, fn(entry) {
-    io.println(
-      string.pad_end(string.inspect(entry.0), 16, " ")
-      <> int.to_string(list.length(entry.1)),
-    )
-  })
-}
-
-fn print_reason(outcomes: List(Outcome), name: String) -> Nil {
-  case
-    list.find(expected_failures, fn(entry) { string.inspect(entry.0) == name })
-  {
-    Error(Nil) -> {
-      io.println("no such reason: " <> name)
-      io.println(
-        "reasons: "
-        <> string.join(
-          list.map(expected_failures, fn(entry) { string.inspect(entry.0) }),
-          ", ",
-        ),
-      )
-    }
-    Ok(#(_, numbers)) ->
-      outcomes
-      |> list.filter(fn(outcome) {
-        list.contains(numbers, outcome.example.number)
-      })
-      |> list.each(report.print_outcome)
-  }
+  expected.print_report(name, outcomes(), expected_failures, "commonmark_test")
 }
