@@ -26,6 +26,10 @@ export default async ({ page, type, look, shot, check }) => {
   await check('adjacent lines are one paragraph', async () => {
     if ((await preview.locator('p').count()) !== 1) throw new Error('expected one paragraph');
   });
+  await check('each typed line is on its own line', async () => {
+    const shown = await preview.locator('p').evaluate((p) => p.innerText);
+    if (!shown.endsWith('.\nUse cash.')) throw new Error(`lines joined: ${JSON.stringify(shown)}`);
+  });
 
   await page.getByRole('button', { name: 'Edit' }).click();
   await text.waitFor();

@@ -101,6 +101,15 @@ test('emphasis may open on one line of a paragraph and close on the next', async
   await expect(page.paragraphs).toHaveText(['one two three four']);
 });
 
+test('each line of a paragraph shows on its own line', async ({ browser, page }) => {
+  await page.text.fill('milk\neggs\n\nbread');
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveCount(2);
+  const shown = () => browser.evaluate(() => document.querySelector('p')?.innerText ?? null);
+  await expect.poll(shown).toBe('milk\neggs');
+});
+
 test('a note that opens with unclosed bold is listed as its page shows it', async ({ page }) => {
   await page.text.fill('**bold and more');
   await page.showPreview.tap();
