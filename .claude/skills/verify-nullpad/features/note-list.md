@@ -6,7 +6,7 @@ The sidebar lists every note, newest save first. A person makes, opens, titles a
 
 - `list-new` New note opens an empty note at the top with focus in the text field.
 - `list-switch` picking a row saves the open note, then opens the picked one.
-- `list-title` a row shows the typed title, or the first line as the rendered page words it (`**bold**` is "bold", an unclosed `**bold` keeps its stars), or "Untitled".
+- `list-title` a row shows the typed title, or the first text the rendered page shows, worded as the page words it (`**bold**` is "bold", an unclosed `**bold` keeps its stars, `- [ ] buy milk` is "buy milk", `> quoted` is "quoted"), or "Untitled".
 - `list-delete` Delete asks first. Keep cancels. Confirm removes the note and opens the newest one left.
 
 ## How to get to it (user POV)
@@ -30,4 +30,4 @@ Preconditions: a fresh run with some text typed in the first note.
 
 - Switching right after typing is the risky path: check the first note's last characters after switching back.
 - With one note left, deleting it leaves an empty state. Check what the page offers then.
-- The title reads the first line only, and strips a leading list, quote or task marker before the parser sees it. So `- milk` is titled "milk" while the page shows the dash (lists come in M3), and bold that opens on line one and closes on line two keeps its stars in the title. Do not assert these as correct.
+- The title is the first line of text the page shows, so a leading `---`, an empty fence or empty items are skipped (`---` then `after rule` is titled "after rule"). A bold that opens on line one and closes on line two is titled by its first line (`**bold` then `more** tail` is "bold"). A typed `[x](javascript:alert(1))` is titled as typed, because the page shows it as typed.

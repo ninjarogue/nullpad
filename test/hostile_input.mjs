@@ -54,6 +54,49 @@ const inputs = {
   "many headings": (n) => "# a *b* #\n".repeat(n),
   "many paragraphs": (n) => "a *b*\n\n".repeat(n),
   "long runs of spaces": (n) => ("a" + " ".repeat(50) + "b\n").repeat(n / 10),
+  "unclosed strikes": (n) => "~a ".repeat(n),
+  "nested strikes": (n) => "~~a ".repeat(n) + "b" + " a~~".repeat(n),
+  "strikes of mixed length": (n) => "~a ~~b ".repeat(n) + "c~",
+  "strike closers of the other length": (n) =>
+    "~a ".repeat(n) + "b" + " a~~".repeat(n),
+  "long tilde runs": (n) => "a~~~".repeat(n),
+  "many strikes": (n) => "~~a~~ ".repeat(n),
+  "setext underlines": (n) => "a\n---\n".repeat(n),
+  "a long setext underline": (n) => "a\n" + "=".repeat(n * 2),
+  "rules": (n) => "---\n".repeat(n),
+  "a long rule": (n) => "- ".repeat(n * 2),
+  "a long line that almost makes a rule": (n) => "- ".repeat(n * 2) + "a",
+  "quote marks on one line": (n) => "> ".repeat(n) + "a",
+  "quote marks, no spaces": (n) => ">".repeat(n * 2) + "a",
+  "deep quotes on every line": (n) => ("> ".repeat(40) + "a\n").repeat(n / 40),
+  "lazy continuation lines": (n) => "> a\n" + "b\n".repeat(n),
+  "quotes opening and closing": (n) => "> a\n\n".repeat(n),
+  "bullets on one line": (n) => "- ".repeat(n) + "a",
+  "stars that almost make a rule": (n) => "* ".repeat(n) + "a",
+  "ordered markers on one line": (n) => "1. ".repeat(n) + "a",
+  "quote marks and list markers on one line": (n) => "> 1. ".repeat(n) + "a",
+  "many items": (n) => "- a\n".repeat(n),
+  "many loose items": (n) => "- a\n\n".repeat(n),
+  "many lists": (n) => "- a\n+ b\n".repeat(n),
+  "empty items": (n) => "-\n".repeat(n),
+  "empty items, blank lines": (n) => "-\n\n".repeat(n),
+  "deep spaces inside nested lists": (n) =>
+    Array.from({ length: 30 }, (_, i) => "  ".repeat(i) + "- a\n").join("") +
+    (" ".repeat(200) + "b\n").repeat(n / 100),
+  "nested lists, a staircase 200 deep": (n) =>
+    Array.from({ length: 200 }, (_, i) => "  ".repeat(i) + "- a\n")
+      .join("")
+      .repeat(n / 10_000),
+  "many tasks": (n) => "- [ ] a\n".repeat(n),
+  "boxes alone": (n) => "- [x]\n".repeat(n),
+  "an unclosed fence": (n) => "```\n" + "a\n".repeat(n),
+  "fences that open and close": (n) => "```\na\n```\n".repeat(n),
+  "fence closers of the other mark": (n) => "````\n" + "```\n~~~~\n".repeat(n),
+  "a long fence": (n) => "`".repeat(n * 4),
+  "indented code, blank lines between": (n) => "    a\n\n".repeat(n),
+  "indented code, blank lines after": (n) => "    a\n" + "\n".repeat(n),
+  "tabs": (n) => "\t".repeat(n) + "a",
+  "tabs after a bullet": (n) => "-" + "\t".repeat(n) + "a",
 };
 
 const titles = {
@@ -62,6 +105,12 @@ const titles = {
   "title after many blank lines": (n) => " \n".repeat(n) + "a",
   "title of a line of nested markers": (n) => "> - [ ] 1. ".repeat(n) + "a",
   "title of a line of digits": (n) => "1".repeat(n * 4) + ". a",
+  "title after many rules": (n) => "---\n".repeat(n) + "a",
+  "title after many empty items": (n) => "-\n".repeat(n) + "a",
+  "title after many quote marks": (n) => ">\n".repeat(n) + "a",
+  "title of a long first paragraph": (n) => "a\n".repeat(n),
+  "title inside a fence after blank lines": (n) =>
+    "```\n" + "\n".repeat(n) + "a",
 };
 
 function time(work, source) {

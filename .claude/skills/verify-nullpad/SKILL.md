@@ -76,7 +76,7 @@ node .claude/skills/verify-nullpad/drive.mjs journey.mjs trip
 
 `page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot. `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
 
-Keep journeys in a scratch folder, not in the repo. A ready one is in `journeys/`.
+Keep journeys in a scratch folder, not in the repo. Ready ones are in `journeys/`: `rendered-page.mjs`, `blocks.mjs` and `tasks.mjs`.
 
 Handles that do not change:
 
@@ -91,6 +91,7 @@ Handles that do not change:
 | New note | `getByRole('button', { name: 'New note' })` |
 | To rendered page, and back | `getByRole('button', { name: 'Preview' })`, `{ name: 'Edit' }`, or Ctrl+E |
 | Rendered page | `[data-test-id=preview]` |
+| Task box | `[data-test-id=preview]` then `getByRole('checkbox', { name: 'buy milk' })`, named by the item's text |
 | Delete, confirm, keep | `[data-test-id=delete-note]`, `[data-test-id=confirm-delete]`, `getByRole('button', { name: 'Keep' })` |
 
 `e2e/tests/nullpad.ts` holds the same handles for the regression suite. Run that suite with `cd e2e && npm test`. It answers "did anything break". A journey answers "does this feature work for a person" and leaves proof.

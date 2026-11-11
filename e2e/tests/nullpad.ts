@@ -169,6 +169,14 @@ class Page {
   readonly strong: Locator;
   readonly emphasis: Locator;
   readonly code: Locator;
+  readonly deleted: Locator;
+  readonly bulletLists: Locator;
+  readonly numberedLists: Locator;
+  readonly items: Locator;
+  readonly boxes: Locator;
+  readonly quotes: Locator;
+  readonly codeBlocks: Locator;
+  readonly rules: Locator;
   readonly delete: Locator;
   readonly confirmDelete: Locator;
   readonly keep: Locator;
@@ -190,12 +198,19 @@ class Page {
     this.showPreview = screen.getByRole('button', 'Preview');
     this.showSource = screen.getByRole('button', 'Edit');
     this.preview = screen.getByTestId('preview');
-    const inPreview = (selector: string) => browser.locator(`[data-test-id="preview"] ${selector}`);
-    this.paragraphs = inPreview('p');
-    this.everything = inPreview('*');
-    this.strong = inPreview('strong');
-    this.emphasis = inPreview('em');
-    this.code = inPreview('code');
+    this.paragraphs = this.inPreview('p');
+    this.everything = this.inPreview('*');
+    this.strong = this.inPreview('strong');
+    this.emphasis = this.inPreview('em');
+    this.code = this.inPreview('code');
+    this.deleted = this.inPreview('del');
+    this.bulletLists = this.inPreview('ul');
+    this.numberedLists = this.inPreview('ol');
+    this.items = this.preview.getByRole('listitem');
+    this.boxes = this.preview.getByRole('checkbox');
+    this.quotes = this.inPreview('blockquote');
+    this.codeBlocks = this.inPreview('pre');
+    this.rules = this.preview.getByRole('separator');
     this.delete = screen.getByTestId('delete-note');
     this.confirmDelete = screen.getByTestId('confirm-delete');
     this.keep = screen.getByRole('button', 'Keep');
@@ -203,8 +218,53 @@ class Page {
     this.vimMode = screen.getByTestId('mode');
   }
 
+  inPreview(selector: string) {
+    return this.browser.locator(`[data-test-id="preview"] ${selector}`);
+  }
+
   row(title: string) {
     return this.list.getByRole('button', title);
+  }
+
+  box(name: string) {
+    return this.preview.getByRole('checkbox', name);
+  }
+
+  innerText(selector: string) {
+    return this.browser.evaluate(
+      (selector: string) =>
+        document.querySelector<HTMLElement>(`[data-test-id="preview"] ${selector}`)?.innerText ??
+        null,
+      selector,
+    );
+  }
+
+  textContent(selector: string) {
+    return this.browser.evaluate(
+      (selector: string) =>
+        document.querySelector(`[data-test-id="preview"] ${selector}`)?.textContent ?? null,
+      selector,
+    );
+  }
+
+  measureTask(nth: number) {
+    return this.browser.evaluate((nth: number) => {
+      const item = document.querySelectorAll('[data-test-id="preview"] li.task')[nth];
+      const box = item.querySelector('input')!.getBoundingClientRect();
+      const words = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      range.selectNodeContents(words.nextNode()!);
+      const line = range.getClientRects()[0];
+      return {
+        width: box.width,
+        height: box.height,
+        gap: line.left - box.right,
+        boxMiddle: (box.top + box.bottom) / 2,
+        lineTop: line.top,
+        lineBottom: line.bottom,
+        marker: getComputedStyle(item).listStyleType,
+      };
+    }, nth);
   }
 
   async hide() {

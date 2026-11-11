@@ -62,22 +62,24 @@ pub fn pending_one_insert_is_one_undo_step() {
   assert editor.text(escaped.editor) == "ab"
 }
 
-pub fn change_line_test() {
-  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb")
-  let Outcome(editor: ed, sync:, ..) =
-    editor.change_line(ed, 1, string.uppercase)
+pub fn replace_line_test() {
+  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb\nc")
+  let Outcome(editor: ed, sync:, ..) = editor.replace_line(ed, 1, with: "- [x]")
 
-  assert editor.text(ed) == "a\nB"
+  assert editor.text(ed) == "a\n- [x]\nc"
   assert sync == editor.Write(editor.buffer(ed))
 }
 
-pub fn change_line_ignores_a_missing_row_test() {
+pub fn replace_line_ignores_a_missing_row_test() {
   let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb")
   let Outcome(editor: unchanged, sync:, ..) =
-    editor.change_line(ed, 7, string.uppercase)
+    editor.replace_line(ed, 7, with: "x")
+  let Outcome(editor: also_unchanged, ..) =
+    editor.replace_line(ed, -1, with: "x")
 
   assert editor.text(unchanged) == "a\nb"
   assert sync == editor.InSync
+  assert editor.text(also_unchanged) == "a\nb"
 }
 
 /// Press each character as a key, the way `surface` would report it: with

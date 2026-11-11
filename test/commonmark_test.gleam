@@ -7,15 +7,9 @@ import gleam/string
 
 type Reason {
   // Features nullpad does not have yet.
-  ThematicBreaks
-  SetextHeadings
-  IndentedCode
-  FencedCode
   HtmlBlocks
   // Reference definitions and reference-style links.
   LinkReferences
-  BlockQuotes
-  Lists
   Images
   Autolinks
   // By decision, raw HTML shows as text.
@@ -24,84 +18,11 @@ type Reason {
   Entities
 }
 
+const name = "CommonMark 0.31.2"
+
 const example_count = 652
 
 const expected_failures: List(#(Reason, List(Int))) = [
-  #(ThematicBreaks, [
-    11,
-    43,
-    47,
-    50,
-    51,
-    52,
-    53,
-    54,
-    58,
-    77,
-    88,
-    96,
-    98,
-    104,
-    105,
-  ]),
-  #(SetextHeadings, [59, 80, 81, 82, 83, 84, 86, 89, 90, 91, 95, 102, 103, 215]),
-  #(IndentedCode, [
-    1,
-    2,
-    3,
-    8,
-    18,
-    36,
-    48,
-    69,
-    85,
-    100,
-    107,
-    110,
-    111,
-    112,
-    114,
-    115,
-    116,
-    117,
-    118,
-    134,
-    211,
-    225,
-    231,
-    272,
-    289,
-  ]),
-  #(FencedCode, [
-    19,
-    24,
-    34,
-    119,
-    120,
-    122,
-    123,
-    124,
-    125,
-    126,
-    127,
-    129,
-    130,
-    131,
-    132,
-    133,
-    135,
-    136,
-    137,
-    139,
-    140,
-    141,
-    142,
-    143,
-    144,
-    146,
-    147,
-    212,
-  ]),
   #(HtmlBlocks, [
     21,
     31,
@@ -130,6 +51,8 @@ const expected_failures: List(#(Reason, List(Int))) = [
     171,
     172,
     173,
+    174,
+    175,
     176,
     177,
     178,
@@ -145,6 +68,8 @@ const expected_failures: List(#(Reason, List(Int))) = [
     189,
     190,
     191,
+    308,
+    309,
   ]),
   #(LinkReferences, [
     23,
@@ -164,8 +89,12 @@ const expected_failures: List(#(Reason, List(Int))) = [
     207,
     208,
     210,
+    214,
+    215,
     216,
     217,
+    218,
+    317,
     527,
     528,
     529,
@@ -221,122 +150,6 @@ const expected_failures: List(#(Reason, List(Int))) = [
     592,
     593,
   ]),
-  #(BlockQuotes, [
-    6,
-    92,
-    93,
-    101,
-    128,
-    174,
-    214,
-    218,
-    228,
-    229,
-    230,
-    232,
-    233,
-    234,
-    235,
-    236,
-    237,
-    238,
-    239,
-    240,
-    241,
-    242,
-    243,
-    244,
-    245,
-    246,
-    247,
-    248,
-    249,
-    250,
-    251,
-    252,
-    253,
-    259,
-    260,
-    292,
-    293,
-    320,
-    321,
-  ]),
-  #(Lists, [
-    4,
-    5,
-    7,
-    9,
-    38,
-    42,
-    57,
-    60,
-    61,
-    94,
-    99,
-    108,
-    109,
-    175,
-    254,
-    255,
-    256,
-    257,
-    258,
-    262,
-    263,
-    264,
-    265,
-    267,
-    268,
-    270,
-    271,
-    273,
-    274,
-    276,
-    277,
-    278,
-    279,
-    280,
-    281,
-    282,
-    283,
-    284,
-    286,
-    287,
-    288,
-    290,
-    291,
-    294,
-    295,
-    296,
-    297,
-    298,
-    299,
-    300,
-    301,
-    302,
-    303,
-    305,
-    306,
-    307,
-    308,
-    309,
-    310,
-    311,
-    312,
-    313,
-    314,
-    315,
-    316,
-    317,
-    318,
-    319,
-    322,
-    323,
-    324,
-    325,
-    326,
-  ]),
   #(Images, [517, 520, 572, 574, 575, 578, 579, 580, 581]),
   #(Autolinks, [
     20,
@@ -384,8 +197,12 @@ const expected_failures: List(#(Reason, List(Int))) = [
     643,
   ]),
   #(HardBreaks, [16, 226, 633, 634, 635, 636, 637, 638, 639]),
-  #(Entities, [25, 26, 27, 32, 37, 39, 40, 41, 503, 506]),
+  #(Entities, [25, 26, 27, 32, 34, 37, 38, 39, 40, 41, 503, 506]),
 ]
+
+fn outcomes() -> List(Outcome) {
+  report.run(spec.commonmark_file)
+}
 
 fn listed_numbers() -> List(Int) {
   list.flat_map(expected_failures, fn(entry) { entry.1 })
@@ -397,7 +214,7 @@ fn is_listed(outcome: Outcome) -> Bool {
 
 pub fn unlisted_examples_pass_test() {
   let failures =
-    report.run()
+    outcomes()
     |> list.filter(fn(outcome) {
       !report.passed(outcome) && !is_listed(outcome)
     })
@@ -406,7 +223,7 @@ pub fn unlisted_examples_pass_test() {
 
 pub fn listed_examples_still_fail_test() {
   let stale =
-    report.run()
+    outcomes()
     |> list.filter(fn(outcome) { report.passed(outcome) && is_listed(outcome) })
     |> list.map(fn(outcome) { outcome.example.number })
   assert stale == []
@@ -432,20 +249,21 @@ pub fn listed_numbers_are_spec_examples_test() {
 }
 
 pub fn spec_has_every_example_test() {
-  let numbers = list.map(spec.examples(), fn(example) { example.number })
+  let numbers =
+    list.map(spec.examples(spec.commonmark_file), fn(example) { example.number })
   assert list.length(numbers) == example_count
   assert numbers == list.index_map(numbers, fn(_, index) { index + 1 })
 }
 
 pub fn pass_count_is_printed_test() {
-  io.println("\n" <> report.summary_line(report.run()))
+  io.println("\n" <> report.summary_line(name, outcomes()))
 }
 
 pub fn main() -> Nil {
-  let outcomes = report.run()
+  let outcomes = outcomes()
   case spec.command_line_arguments() {
     [] -> {
-      io.println(report.summary_line(outcomes))
+      io.println(report.summary_line(name, outcomes))
       io.println("")
       report.print_sections(outcomes)
       io.println("")

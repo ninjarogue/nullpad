@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs one journey against a private copy of the app and records it.
+// Runs one journey against this checkout, served on a free port, and records it.
 //   node .claude/skills/verify-nullpad/drive.mjs <journey.mjs> [name]
 // Evidence lands in .verify/<name>/: session.webm, shots/*.png, report.json.
 

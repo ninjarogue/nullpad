@@ -116,8 +116,7 @@ pub type Msg {
   UserRenamedNote(title: String)
   UserToggledRendered
   UserToggledVim(on: Bool)
-  /// A task checkbox on the rendered page, by source row.
-  UserTickedTask(row: Int)
+  UserTickedTask(task: markdown.Task, checked: Bool)
 }
 
 pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
@@ -150,9 +149,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg, model.open {
     // The editing loop: everything that can change the text ends in `apply`.
     EditorSent(event), _ -> apply(model, editor.update(model.editor, event))
-    UserTickedTask(row), _ ->
-      editor.change_line(model.editor, row, markdown.toggle_task)
-      |> apply(model, _)
+    UserTickedTask(task:, checked:), _ ->
+      case markdown.set_task(editor.text(model.editor), task, checked) {
+        Ok(line) ->
+          apply(model, editor.replace_line(model.editor, task.row, with: line))
+        Error(Nil) -> #(model, effect.none())
+      }
 
     UserRenamedNote(title), Some(open) -> {
       let title = case title {

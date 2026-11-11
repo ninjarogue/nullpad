@@ -4,13 +4,14 @@ import gleam/string
 import lustre/element
 import nullpad/markdown.{
   type Content, type Inline, Block, BulletList, Code, CodeBlock, Emphasis, H1,
-  H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
-  Strong, Text,
+  H2, H3, H4, H5, H6, Heading, Link, Loose, OrderedList, Paragraph, Quote, Rule,
+  Strike, Strong, Text, Tight,
 }
 import nullpad/preview
 
 pub fn the_page_is_a_marked_preview_root_test() {
-  let html = element.to_string(preview.view([], fn(row) { row }))
+  let html =
+    element.to_string(preview.view([], fn(task, checked) { #(task, checked) }))
 
   assert string.contains(html, "class=\"preview\"")
   assert string.contains(html, "data-test-id=\"preview\"")
@@ -174,28 +175,134 @@ pub fn script_links_make_no_anchor_test() {
   )
 }
 
-pub fn strike_renders_its_children_plainly_test() {
+pub fn strike_renders_as_del_test() {
   assert string.contains(
     render(paragraph(Strike([Text("gone"), Code("x")]))),
-    "<p>gone<code>x</code></p>",
+    "<p><del>gone<code>x</code></del></p>",
   )
 }
 
-pub fn blocks_the_parser_cannot_produce_yet_render_nothing_test() {
-  let html =
+pub fn a_rule_renders_as_hr_test() {
+  assert string.contains(
     render_blocks([
-      Block(0, 0, BulletList([])),
-      Block(1, 1, OrderedList(1, [])),
-      Block(2, 2, Quote([])),
-      Block(3, 3, CodeBlock(None, "code")),
-      Block(4, 4, Rule),
-    ])
+      Block(0, 0, Paragraph([Text("a")])),
+      Block(1, 1, Rule),
+      Block(2, 2, Paragraph([Text("b")])),
+    ]),
+    "<p>a</p><hr><p>b</p>",
+  )
+}
 
-  assert !string.contains(html, "<ul")
-  assert !string.contains(html, "<ol")
-  assert !string.contains(html, "<blockquote")
-  assert !string.contains(html, "<pre")
-  assert !string.contains(html, "<hr")
+pub fn a_quote_renders_as_blockquote_test() {
+  let quote = Quote([Block(0, 0, Paragraph([Text("a")])), Block(1, 1, Rule)])
+
+  assert string.contains(render(quote), "<blockquote><p>a</p><hr></blockquote>")
+}
+
+pub fn a_tight_list_shows_its_paragraphs_as_bare_text_test() {
+  let html =
+    render(
+      BulletList(Tight, [
+        item(0, [Block(0, 0, Paragraph([Strong([Text("milk")])]))]),
+        item(1, [Block(1, 1, Paragraph([Text("eggs")])), Block(2, 2, Rule)]),
+      ]),
+    )
+
+  assert string.contains(
+    html,
+    "<ul><li><strong>milk</strong></li><li>eggs<hr></li></ul>",
+  )
+}
+
+pub fn a_loose_list_shows_its_paragraphs_as_p_test() {
+  let html =
+    render(
+      BulletList(Loose, [
+        item(0, [Block(0, 0, Paragraph([Text("milk")]))]),
+        item(2, [Block(2, 2, Quote([Block(2, 2, Paragraph([Text("eggs")]))]))]),
+      ]),
+    )
+
+  assert string.contains(
+    html,
+    "<ul><li><p>milk</p></li><li><blockquote><p>eggs</p></blockquote></li></ul>",
+  )
+}
+
+pub fn only_a_tight_list_drops_the_paragraphs_directly_in_its_items_test() {
+  let inner = Block(0, 0, Quote([Block(0, 0, Paragraph([Text("a")]))]))
+
+  assert string.contains(
+    render(BulletList(Tight, [item(0, [inner])])),
+    "<li><blockquote><p>a</p></blockquote></li>",
+  )
+}
+
+pub fn an_ordered_list_names_its_start_unless_it_is_one_test() {
+  let items = [item(0, [Block(0, 0, Paragraph([Text("a")]))])]
+
+  assert string.contains(render(OrderedList(1, Tight, items)), "<ol><li>a</li>")
+  assert string.contains(
+    render(OrderedList(7, Tight, items)),
+    "<ol start=\"7\"><li>a</li>",
+  )
+  assert string.contains(
+    render(OrderedList(0, Tight, items)),
+    "<ol start=\"0\"><li>a</li>",
+  )
+}
+
+pub fn a_task_is_an_li_that_starts_with_its_checkbox_test() {
+  let html =
+    render(
+      BulletList(Tight, [
+        task(False, [Block(0, 0, Paragraph([Text("milk")]))]),
+        task(True, [Block(1, 1, Paragraph([Text("eggs")]))]),
+        item(2, [Block(2, 2, Paragraph([Text("bread")]))]),
+      ]),
+    )
+
+  assert string.contains(
+    html,
+    "<li class=\"task\"><input aria-label=\"milk\" type=\"checkbox\">milk</li>",
+  )
+  assert string.contains(
+    html,
+    "<li class=\"task\"><input aria-label=\"eggs\" checked type=\"checkbox\">eggs</li>",
+  )
+  assert string.contains(html, "<li>bread</li>")
+}
+
+pub fn a_checkbox_is_named_after_the_words_of_the_first_paragraph_test() {
+  let words = [Text("buy "), Emphasis([Text("fresh\nmilk")])]
+  let nested = Block(1, 1, BulletList(Tight, [item(1, [])]))
+
+  assert string.contains(
+    render(BulletList(Loose, [task(False, [Block(0, 0, Paragraph(words))])])),
+    "aria-label=\"buy fresh milk\"",
+  )
+  assert string.contains(
+    render(BulletList(Tight, [task(False, [nested])])),
+    "aria-label=\"Task\"",
+  )
+  assert string.contains(
+    render(BulletList(Tight, [task(False, [])])),
+    "aria-label=\"Task\"",
+  )
+}
+
+pub fn code_renders_as_pre_and_code_as_typed_test() {
+  assert string.contains(
+    render(CodeBlock(None, "  a <b> &c\n\nd\n")),
+    "<pre><code>  a &lt;b&gt; &amp;c\n\nd\n</code></pre>",
+  )
+}
+
+pub fn code_names_its_language_in_a_class_test() {
+  assert string.contains(
+    render(CodeBlock(Some("gleam"), "x\n")),
+    "<pre><code class=\"language-gleam\">x\n</code></pre>",
+  )
 }
 
 fn render(content: Content) -> String {
@@ -203,7 +310,17 @@ fn render(content: Content) -> String {
 }
 
 fn render_blocks(blocks: List(markdown.Block)) -> String {
-  element.to_string(preview.view(blocks, fn(row) { row }))
+  element.to_string(
+    preview.view(blocks, fn(task, checked) { #(task, checked) }),
+  )
+}
+
+fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
+  markdown.Item(row:, task: None, blocks:)
+}
+
+fn task(checked: Bool, blocks: List(markdown.Block)) -> markdown.Item {
+  markdown.Item(row: 0, task: Some(markdown.Task(checked, 0, 3)), blocks:)
 }
 
 fn paragraph(inline: Inline) -> Content {

@@ -4,9 +4,9 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import nullpad/markdown.{
-  type Block, type Inline, type Level, BulletList, Code, CodeBlock, Emphasis, H1,
-  H2, H3, H4, H5, H6, Heading, Link, OrderedList, Paragraph, Quote, Rule, Strike,
-  Strong, Text,
+  type Block, type Inline, type Item, type Level, type Spacing, BulletList, Code,
+  CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Link, OrderedList,
+  Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
 }
 
 pub fn html(blocks: List(Block)) -> String {
@@ -20,9 +20,50 @@ fn block(block: Block) -> String {
       element(name, [], inlines(text)) <> "\n"
     }
     Paragraph(text:) -> element("p", [], inlines(text)) <> "\n"
-    BulletList(..) | OrderedList(..) | Quote(..) | CodeBlock(..) | Rule ->
-      panic as "the parser does not build this block yet"
+    Rule -> "<hr />\n"
+    Quote(blocks:) -> "<blockquote>\n" <> html(blocks) <> "</blockquote>\n"
+    BulletList(spacing:, items:) ->
+      "<ul>\n" <> list_items(spacing, items) <> "</ul>\n"
+    OrderedList(start: 1, spacing:, items:) ->
+      "<ol>\n" <> list_items(spacing, items) <> "</ol>\n"
+    OrderedList(start:, spacing:, items:) ->
+      "<ol start=\""
+      <> int.to_string(start)
+      <> "\">\n"
+      <> list_items(spacing, items)
+      <> "</ol>\n"
+    CodeBlock(language: Some(word), code:) ->
+      "<pre><code class=\"language-"
+      <> escape(word)
+      <> "\">"
+      <> escape(code)
+      <> "</code></pre>\n"
+    CodeBlock(language: None, code:) ->
+      "<pre><code>" <> escape(code) <> "</code></pre>\n"
   }
+}
+
+fn list_items(spacing: Spacing, items: List(Item)) -> String {
+  items |> list.map(list_item(spacing, _)) |> string.concat
+}
+
+/// A task's box is cmark-gfm's.
+fn list_item(spacing: Spacing, item: Item) -> String {
+  let start = case item.task {
+    Some(Task(checked: True, ..)) ->
+      "<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> "
+    Some(Task(checked: False, ..)) ->
+      "<li><input type=\"checkbox\" disabled=\"\" /> "
+    None -> "<li>"
+  }
+  list.fold(item.blocks, start, fn(done, child) {
+    case child.content, spacing, string.ends_with(done, "\n") {
+      Paragraph(text:), Tight, _ -> done <> inlines(text)
+      _, _, True -> done <> block(child)
+      _, _, False -> done <> "\n" <> block(child)
+    }
+  })
+  <> "</li>\n"
 }
 
 fn heading_tag(level: Level) -> String {
@@ -53,7 +94,7 @@ fn inline(inline: Inline) -> String {
       }
       element("a", [#("href", percent_encode(url)), ..title], inlines(label))
     }
-    Strike(_) -> panic as "the parser does not build strikethrough yet"
+    Strike(inner) -> element("del", [], inlines(inner))
   }
 }
 

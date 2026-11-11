@@ -1,7 +1,8 @@
 import commonmark/render
 import gleam/option.{None, Some}
 import nullpad/markdown.{
-  Block, Code, Emphasis, H3, Heading, Link, Paragraph, Strong, Text,
+  Block, BulletList, Code, CodeBlock, Emphasis, H3, Heading, Item, Link, Loose,
+  OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
 }
 
 fn paragraph(text: List(markdown.Inline)) -> String {
@@ -31,6 +32,70 @@ pub fn text_and_code_escape_four_characters_test() {
 pub fn inlines_nest_test() {
   assert paragraph([Strong([Emphasis([Text("a")]), Text("b")])])
     == "<p><strong><em>a</em>b</strong></p>\n"
+}
+
+pub fn a_rule_is_a_void_hr_test() {
+  assert render.html([Block(0, 0, Rule), Block(1, 1, Paragraph([Text("a")]))])
+    == "<hr />\n<p>a</p>\n"
+}
+
+pub fn a_quote_puts_its_blocks_on_lines_of_their_own_test() {
+  assert render.html([Block(0, 0, Quote([Block(0, 0, Paragraph([Text("a")]))]))])
+    == "<blockquote>\n<p>a</p>\n</blockquote>\n"
+  assert render.html([Block(0, 0, Quote([]))])
+    == "<blockquote>\n</blockquote>\n"
+}
+
+pub fn a_tight_item_shows_its_paragraphs_as_bare_text_test() {
+  let nested = Block(1, 1, BulletList(Tight, [item(1, "b")]))
+  let first = Item(0, None, [Block(0, 0, Paragraph([Text("a")])), nested])
+  assert render.html([Block(0, 1, BulletList(Tight, [first]))])
+    == "<ul>\n<li>a\n<ul>\n<li>b</li>\n</ul>\n</li>\n</ul>\n"
+}
+
+pub fn a_loose_item_keeps_its_paragraphs_test() {
+  assert render.html([
+      Block(0, 2, BulletList(Loose, [item(0, "a"), item(2, "b")])),
+    ])
+    == "<ul>\n<li>\n<p>a</p>\n</li>\n<li>\n<p>b</p>\n</li>\n</ul>\n"
+}
+
+pub fn an_ordered_list_names_its_start_unless_it_is_one_test() {
+  assert render.html([Block(0, 0, OrderedList(1, Tight, [item(0, "a")]))])
+    == "<ol>\n<li>a</li>\n</ol>\n"
+  assert render.html([Block(0, 0, OrderedList(7, Tight, [item(0, "a")]))])
+    == "<ol start=\"7\">\n<li>a</li>\n</ol>\n"
+}
+
+pub fn an_empty_item_is_an_empty_li_test() {
+  assert render.html([Block(0, 0, BulletList(Tight, [Item(0, None, [])]))])
+    == "<ul>\n<li></li>\n</ul>\n"
+}
+
+pub fn a_task_starts_its_item_with_a_disabled_checkbox_test() {
+  let task = fn(checked) {
+    Item(0, Some(Task(checked, 0, 3)), [Block(0, 0, Paragraph([Text("a")]))])
+  }
+  assert render.html([Block(0, 0, BulletList(Tight, [task(False)]))])
+    == "<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> a</li>\n</ul>\n"
+  assert render.html([Block(0, 0, BulletList(Loose, [task(True)]))])
+    == "<ul>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> \n<p>a</p>\n</li>\n</ul>\n"
+}
+
+fn item(row: Int, text: String) -> markdown.Item {
+  Item(row, None, [Block(row, row, Paragraph([Text(text)]))])
+}
+
+pub fn code_is_escaped_inside_pre_and_code_test() {
+  assert render.html([Block(0, 0, CodeBlock(None, "<a> & \"b\"\n"))])
+    == "<pre><code>&lt;a&gt; &amp; &quot;b&quot;\n</code></pre>\n"
+  assert render.html([Block(0, 0, CodeBlock(Some("a&b"), ""))])
+    == "<pre><code class=\"language-a&amp;b\"></code></pre>\n"
+}
+
+pub fn strike_is_del_test() {
+  assert paragraph([Strike([Text("a"), Emphasis([Text("b")])])])
+    == "<p><del>a<em>b</em></del></p>\n"
 }
 
 pub fn href_keeps_the_characters_the_reference_renderers_keep_test() {

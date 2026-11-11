@@ -1,16 +1,14 @@
-//// Examples of how the parser is used. The two `pending_` functions are tests
-//// that wait for M3: rename one so it ends in `_test` when you start on it
-//// (`pending_toggle_task` -> `toggle_task_test`), watch it fail, then make it
-//// pass.
-
 import gleam/int
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/string
+import lustre/element
 import nullpad/markdown.{
-  Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
-  Item, Link, Paragraph, Strong, Text, Unchecked,
+  Block, BulletList, Code, CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
+  Item, Link, Loose, OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task,
+  Text, Tight,
 }
+import nullpad/preview
 
 pub fn empty_input_has_no_blocks_test() {
   assert markdown.parse("") == []
@@ -29,9 +27,473 @@ pub fn headings_have_six_levels_test() {
     ]
 }
 
-/// M3 turns four spaces of indent into a code block.
-pub fn four_spaces_of_indent_are_not_a_heading_test() {
-  assert markdown.parse("    # too far") == [para(0, "# too far")]
+pub fn three_marks_make_a_rule_test() {
+  assert markdown.parse("***\n- - -\n _  _  _ \n-----")
+    == [
+      Block(0, 0, Rule),
+      Block(1, 1, Rule),
+      Block(2, 2, Rule),
+      Block(3, 3, Rule),
+    ]
+}
+
+pub fn two_marks_or_mixed_marks_are_text_test() {
+  assert markdown.parse("--\n-*-")
+    == [Block(0, 1, Paragraph([Text("--\n-*-")]))]
+}
+
+pub fn a_rule_ends_the_paragraph_above_it_test() {
+  assert markdown.parse("Foo\n***\nbar")
+    == [para(0, "Foo"), Block(1, 1, Rule), para(2, "bar")]
+}
+
+pub fn a_dash_underline_makes_the_paragraph_above_a_heading_test() {
+  assert markdown.parse("Foo *bar*\nbaz\n---")
+    == [
+      Block(
+        0,
+        2,
+        Heading(H2, [Text("Foo "), Emphasis([Text("bar")]), Text("\nbaz")]),
+      ),
+    ]
+}
+
+pub fn an_equals_underline_makes_a_level_one_heading_test() {
+  assert markdown.parse("Title  \n=")
+    == [Block(0, 1, Heading(H1, [Text("Title")]))]
+}
+
+pub fn an_underline_after_a_blank_line_is_no_heading_test() {
+  assert markdown.parse("Foo\n\n---") == [para(0, "Foo"), Block(2, 2, Rule)]
+  assert markdown.parse("Foo\n\n===") == [para(0, "Foo"), para(2, "===")]
+}
+
+pub fn an_underline_with_a_gap_or_four_spaces_of_indent_is_no_underline_test() {
+  assert markdown.parse("Foo\n= =")
+    == [Block(0, 1, Paragraph([Text("Foo\n= =")]))]
+  assert markdown.parse("Foo\n--- -") == [para(0, "Foo"), Block(1, 1, Rule)]
+  assert markdown.parse("Foo\n    ---")
+    == [Block(0, 1, Paragraph([Text("Foo\n---")]))]
+}
+
+pub fn a_quote_holds_blocks_with_their_rows_test() {
+  assert markdown.parse("> # Title\n> one\n> two\n>\n> ---")
+    == [
+      Block(
+        0,
+        4,
+        Quote([
+          Block(0, 0, Heading(H1, [Text("Title")])),
+          Block(1, 2, Paragraph([Text("one\ntwo")])),
+          Block(4, 4, Rule),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_quote_mark_needs_no_space_after_it_test() {
+  assert markdown.parse(">a\n>  b")
+    == [Block(0, 1, Quote([Block(0, 1, Paragraph([Text("a\nb")]))]))]
+}
+
+pub fn a_line_without_its_quote_mark_still_continues_the_paragraph_test() {
+  assert markdown.parse("> a\nb\n> c")
+    == [Block(0, 2, Quote([Block(0, 2, Paragraph([Text("a\nb\nc")]))]))]
+}
+
+pub fn a_lazy_line_continues_a_paragraph_at_any_depth_test() {
+  let paragraph = Block(0, 1, Paragraph([Text("a\nb")]))
+  assert markdown.parse("> > a\n> b")
+    == [Block(0, 1, Quote([Block(0, 1, Quote([paragraph]))]))]
+}
+
+pub fn a_lazy_line_is_never_an_underline_test() {
+  assert markdown.parse("> a\n---")
+    == [Block(0, 0, Quote([para(0, "a")])), Block(1, 1, Rule)]
+  assert markdown.parse("> a\n===")
+    == [Block(0, 1, Quote([Block(0, 1, Paragraph([Text("a\n===")]))]))]
+}
+
+pub fn a_blank_line_ends_a_quote_test() {
+  assert markdown.parse("> a\n\n> b")
+    == [Block(0, 0, Quote([para(0, "a")])), Block(2, 2, Quote([para(2, "b")]))]
+}
+
+pub fn quotes_stop_at_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat("> ", 10_000) <> "a")
+  let #(depth, innermost) = innermost_quote(blocks, 0)
+
+  assert depth == 32
+  assert innermost == [para(0, string.repeat("> ", 9968) <> "a")]
+  let html = element.to_string(preview.view(blocks, fn(_, _) { Nil }))
+  assert list.length(string.split(html, "<blockquote>")) == 33
+}
+
+pub fn quote_marks_without_spaces_stop_at_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat(">", 10_000) <> "a")
+  let #(depth, innermost) = innermost_quote(blocks, 0)
+
+  assert depth == 32
+  assert innermost == [para(0, string.repeat(">", 9968) <> "a")]
+}
+
+fn innermost_quote(
+  blocks: List(markdown.Block),
+  depth: Int,
+) -> #(Int, List(markdown.Block)) {
+  case blocks {
+    [Block(content: Quote(inner), ..)] -> innermost_quote(inner, depth + 1)
+    _ -> #(depth, blocks)
+  }
+}
+
+pub fn a_list_holds_items_with_their_rows_test() {
+  assert markdown.parse("- one\n- two\n  more\n- three")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Tight, [
+          item(0, [para(0, "one")]),
+          item(1, [Block(1, 2, Paragraph([Text("two\nmore")]))]),
+          item(3, [para(3, "three")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn an_ordered_list_keeps_only_its_first_number_test() {
+  assert markdown.parse("3. a\n9. b")
+    == [
+      Block(
+        0,
+        1,
+        OrderedList(3, Tight, [item(0, [para(0, "a")]), item(1, [para(1, "b")])]),
+      ),
+    ]
+}
+
+pub fn another_bullet_or_delimiter_starts_another_list_test() {
+  assert markdown.parse("- a\n+ b")
+    == [
+      Block(0, 0, BulletList(Tight, [item(0, [para(0, "a")])])),
+      Block(1, 1, BulletList(Tight, [item(1, [para(1, "b")])])),
+    ]
+  assert markdown.parse("1. a\n2) b")
+    == [
+      Block(0, 0, OrderedList(1, Tight, [item(0, [para(0, "a")])])),
+      Block(1, 1, OrderedList(2, Tight, [item(1, [para(1, "b")])])),
+    ]
+}
+
+pub fn a_blank_line_between_items_makes_the_list_loose_test() {
+  assert markdown.parse("- a\n\n- b")
+    == [
+      Block(
+        0,
+        2,
+        BulletList(Loose, [item(0, [para(0, "a")]), item(2, [para(2, "b")])]),
+      ),
+    ]
+}
+
+pub fn a_blank_line_inside_an_item_makes_the_list_loose_test() {
+  assert markdown.parse("- a\n\n  b\n- c")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Loose, [
+          item(0, [para(0, "a"), para(2, "b")]),
+          item(3, [para(3, "c")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_nested_list_is_loose_on_its_own_test() {
+  let inner =
+    Block(1, 3, BulletList(Loose, [item(1, [para(1, "b"), para(3, "c")])]))
+  assert markdown.parse("- a\n  - b\n\n    c\n- d")
+    == [
+      Block(
+        0,
+        4,
+        BulletList(Tight, [
+          item(0, [para(0, "a"), inner]),
+          item(4, [para(4, "d")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_lazy_line_continues_the_paragraph_of_an_item_test() {
+  assert markdown.parse("- a\nb")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [item(0, [Block(0, 1, Paragraph([Text("a\nb")]))])]),
+      ),
+    ]
+}
+
+pub fn a_tab_after_the_marker_sets_how_far_later_lines_indent_test() {
+  assert markdown.parse("-\tone\n\ttwo")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [
+          item(0, [Block(0, 1, Paragraph([Text("one\ntwo")]))]),
+        ]),
+      ),
+    ]
+}
+
+pub fn only_a_list_from_one_with_text_interrupts_a_paragraph_test() {
+  assert markdown.parse("a\n2. b")
+    == [Block(0, 1, Paragraph([Text("a\n2. b")]))]
+  assert markdown.parse("a\n*") == [Block(0, 1, Paragraph([Text("a\n*")]))]
+  assert markdown.parse("a\n1. b")
+    == [
+      para(0, "a"),
+      Block(1, 1, OrderedList(1, Tight, [item(1, [para(1, "b")])])),
+    ]
+}
+
+pub fn an_item_may_begin_with_one_blank_line_test() {
+  assert markdown.parse("-\n  a")
+    == [Block(0, 1, BulletList(Tight, [item(0, [para(1, "a")])]))]
+  assert markdown.parse("-\n\n  a")
+    == [Block(0, 0, BulletList(Tight, [item(0, [])])), para(2, "a")]
+}
+
+pub fn lists_stop_at_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat("- ", 10_000) <> "a")
+  let #(depth, innermost) = innermost_item(blocks, 0)
+
+  assert depth == 32
+  assert innermost == [para(0, string.repeat("- ", 9968) <> "a")]
+  let html = element.to_string(preview.view(blocks, fn(_, _) { Nil }))
+  assert list.length(string.split(html, "<ul>")) == 33
+}
+
+pub fn quotes_and_lists_share_the_thirty_two_levels_test() {
+  let blocks = markdown.parse(string.repeat("> 1. ", 5000) <> "a")
+  let html = element.to_string(preview.view(blocks, fn(_, _) { Nil }))
+
+  assert list.length(string.split(html, "<blockquote>")) == 17
+  assert list.length(string.split(html, "<ol>")) == 17
+}
+
+fn innermost_item(
+  blocks: List(markdown.Block),
+  depth: Int,
+) -> #(Int, List(markdown.Block)) {
+  case blocks {
+    [Block(content: BulletList(items: [Item(blocks: inner, ..)], ..), ..)] ->
+      innermost_item(inner, depth + 1)
+    _ -> #(depth, blocks)
+  }
+}
+
+fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
+  Item(row, None, blocks)
+}
+
+pub fn a_box_after_the_marker_makes_a_task_test() {
+  let milk = Item(0, Some(Task(False, 0, 3)), [para(0, "milk")])
+  let eggs = Item(1, Some(Task(True, 1, 3)), [para(1, "eggs")])
+
+  assert markdown.parse("- [ ] milk\n- [x] eggs")
+    == [Block(0, 1, BulletList(Tight, [milk, eggs]))]
+}
+
+pub fn a_capital_x_is_checked_and_a_box_may_be_all_there_is_test() {
+  let one = Item(0, Some(Task(True, 0, 4)), [para(0, "a")])
+  let two = Item(1, Some(Task(False, 1, 4)), [])
+
+  assert markdown.parse("1. [X] a\n2. [ ]")
+    == [Block(0, 1, OrderedList(1, Tight, [one, two]))]
+}
+
+pub fn a_box_alone_keeps_its_item_open_across_a_blank_line_test() {
+  let task = Item(0, Some(Task(False, 0, 3)), [para(2, "a")])
+
+  assert markdown.parse("- [ ]\n\n  a")
+    == [Block(0, 2, BulletList(Tight, [task]))]
+}
+
+pub fn a_box_needs_a_space_after_it_and_one_mark_inside_test() {
+  assert markdown.parse("- [x]a\n- [ x]\n- [@] b\n- [] c")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Tight, [
+          item(0, [para(0, "[x]a")]),
+          item(1, [para(1, "[ x]")]),
+          item(2, [para(2, "[@] b")]),
+          item(3, [para(3, "[] c")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn a_box_outside_a_list_or_after_the_first_line_is_text_test() {
+  assert markdown.parse("[ ] a") == [para(0, "[ ] a")]
+  assert markdown.parse("- a\n  [ ] b")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [
+          item(0, [Block(0, 1, Paragraph([Text("a\n[ ] b")]))]),
+        ]),
+      ),
+    ]
+  assert markdown.parse("- a\n\n  [ ] b")
+    == [
+      Block(
+        0,
+        2,
+        BulletList(Loose, [item(0, [para(0, "a"), para(2, "[ ] b")])]),
+      ),
+    ]
+}
+
+pub fn a_task_knows_its_place_inside_a_quote_and_a_nested_list_test() {
+  let task = Item(1, Some(Task(True, 1, 7)), [para(1, "b")])
+  let inner = Block(1, 1, BulletList(Tight, [task]))
+
+  assert markdown.parse("> - a\n>   - [x] b")
+    == [
+      Block(
+        0,
+        1,
+        Quote([Block(0, 1, BulletList(Tight, [item(0, [para(0, "a"), inner])]))]),
+      ),
+    ]
+}
+
+pub fn a_tab_before_the_box_is_one_character_test() {
+  assert markdown.parse("-\t[ ] a")
+    == [
+      Block(
+        0,
+        0,
+        BulletList(Tight, [Item(0, Some(Task(False, 0, 3)), [para(0, "a")])]),
+      ),
+    ]
+}
+
+pub fn set_task_ticks_and_unticks_a_box_test() {
+  let source = "# List\n- [ ] milk\n  - [x] eggs"
+
+  assert markdown.set_task(source, Task(False, 1, 3), True) == Ok("- [x] milk")
+  assert markdown.set_task(source, Task(True, 2, 5), False)
+    == Ok("  - [ ] eggs")
+}
+
+pub fn set_task_leaves_a_box_already_in_that_state_test() {
+  assert markdown.set_task("- [x] a", Task(False, 0, 3), True) == Ok("- [x] a")
+  assert markdown.set_task("- [ ] a", Task(True, 0, 3), False) == Ok("- [ ] a")
+  assert markdown.set_task("- [X] a", Task(True, 0, 3), True) == Ok("- [X] a")
+}
+
+pub fn set_task_refuses_a_place_with_no_box_test() {
+  assert markdown.set_task("- [ ] a", Task(False, 0, 2), True) == Error(Nil)
+  assert markdown.set_task("- [ ] a", Task(False, 1, 3), True) == Error(Nil)
+  assert markdown.set_task("[ ] a", Task(False, 0, 1), True) == Error(Nil)
+  assert markdown.set_task("- a\n  [ ] b", Task(False, 1, 3), True)
+    == Error(Nil)
+}
+
+pub fn set_task_keeps_the_rest_of_the_line_as_typed_test() {
+  assert markdown.set_task("- [ ] a\u{0}\t*b*  ", Task(False, 0, 3), True)
+    == Ok("- [x] a\u{0}\t*b*  ")
+  assert markdown.set_task(
+      "x\r\n> 1. [x] \u{1F600}\r\n",
+      Task(True, 1, 6),
+      False,
+    )
+    == Ok("> 1. [ ] \u{1F600}")
+}
+
+pub fn a_fence_keeps_its_lines_as_typed_test() {
+  assert markdown.parse("```gleam\nlet x = *1*\n\n  <b>\n```\nafter")
+    == [
+      Block(0, 4, CodeBlock(Some("gleam"), "let x = *1*\n\n  <b>\n")),
+      para(5, "after"),
+    ]
+}
+
+pub fn a_fence_closes_only_with_as_long_a_run_of_its_mark_test() {
+  assert markdown.parse("````\n```\n~~~~\n`````  ")
+    == [Block(0, 3, CodeBlock(None, "```\n~~~~\n"))]
+  assert markdown.parse("~~~\n``` a\n~~~~")
+    == [Block(0, 2, CodeBlock(None, "``` a\n"))]
+}
+
+pub fn an_unclosed_fence_ends_with_its_container_test() {
+  assert markdown.parse("```\na\n") == [Block(0, 1, CodeBlock(None, "a\n"))]
+  assert markdown.parse("> ```\n> a\nb")
+    == [Block(0, 1, Quote([Block(0, 1, CodeBlock(None, "a\n"))])), para(2, "b")]
+}
+
+pub fn fenced_lines_lose_as_much_indent_as_the_fence_has_test() {
+  assert markdown.parse("  ```\n    a\n b\nc\n  ```")
+    == [Block(0, 4, CodeBlock(None, "  a\nb\nc\n"))]
+}
+
+pub fn the_first_word_after_the_fence_names_the_language_test() {
+  assert markdown.parse("``` ruby startline=3\n```")
+    == [Block(0, 1, CodeBlock(Some("ruby"), ""))]
+  assert markdown.parse("~~~ a\\_b`c\n~~~")
+    == [Block(0, 1, CodeBlock(Some("a_b`c"), ""))]
+  assert markdown.parse("``` a`b\nc")
+    == [Block(0, 1, Paragraph([Text("``` a`b\nc")]))]
+}
+
+pub fn four_spaces_of_indent_make_a_code_block_test() {
+  assert markdown.parse("    # too far")
+    == [Block(0, 0, CodeBlock(None, "# too far\n"))]
+}
+
+pub fn indented_code_keeps_blank_lines_only_between_its_lines_test() {
+  assert markdown.parse("    a\n\n      b\n      \n    c\n  \n\nd")
+    == [Block(0, 4, CodeBlock(None, "a\n\n  b\n  \nc\n")), para(7, "d")]
+}
+
+pub fn indented_code_cannot_interrupt_a_paragraph_test() {
+  assert markdown.parse("a\n    b") == [Block(0, 1, Paragraph([Text("a\nb")]))]
+}
+
+pub fn a_tab_reaches_the_next_multiple_of_four_columns_test() {
+  let code = Block(0, 0, CodeBlock(None, "  foo\n"))
+  assert markdown.parse("-\t\tfoo")
+    == [Block(0, 0, BulletList(Tight, [item(0, [code])]))]
+  assert markdown.parse(">\t\tfoo") == [Block(0, 0, Quote([code]))]
+}
+
+pub fn code_inside_an_item_is_indented_past_the_item_test() {
+  assert markdown.parse("1.  a\n\n        code")
+    == [
+      Block(
+        0,
+        2,
+        OrderedList(1, Loose, [
+          item(0, [para(0, "a"), Block(2, 2, CodeBlock(None, "code\n"))]),
+        ]),
+      ),
+    ]
+}
+
+pub fn set_task_refuses_a_box_inside_code_test() {
+  assert markdown.set_task("```\n- [ ] a\n```", Task(False, 1, 3), True)
+    == Error(Nil)
+  assert markdown.set_task("    - [ ] a", Task(False, 0, 7), True) == Error(Nil)
 }
 
 pub fn a_heading_ends_the_paragraph_before_it_test() {
@@ -192,6 +654,56 @@ pub fn a_label_opened_after_a_link_still_closes_test() {
     ])
 }
 
+pub fn one_or_two_tildes_strike_through_test() {
+  assert markdown.parse("~~gone~~ and ~this~")
+    == paragraph([
+      Strike([Text("gone")]),
+      Text(" and "),
+      Strike([Text("this")]),
+    ])
+}
+
+pub fn three_tildes_or_more_are_text_test() {
+  assert markdown.parse("x ~~~a~~~ ~~~~b~~~~")
+    == paragraph([Text("x ~~~a~~~ ~~~~b~~~~")])
+}
+
+pub fn tildes_strike_only_with_a_run_of_the_same_length_test() {
+  assert markdown.parse("~a~~") == paragraph([Text("~a~~")])
+  assert markdown.parse("~~a ~b~~") == paragraph([Text("~~a ~b~~")])
+  assert markdown.parse("~a ~~b~~")
+    == paragraph([Text("~a "), Strike([Text("b")])])
+}
+
+pub fn tildes_strike_inside_a_word_test() {
+  assert markdown.parse("a~~b~~c")
+    == paragraph([Text("a"), Strike([Text("b")]), Text("c")])
+}
+
+pub fn strike_and_emphasis_nest_test() {
+  assert markdown.parse("*a ~~b~~* ~~**c**~~")
+    == paragraph([
+      Emphasis([Text("a "), Strike([Text("b")])]),
+      Text(" "),
+      Strike([Strong([Text("c")])]),
+    ])
+}
+
+pub fn tildes_that_do_not_pair_leave_later_stars_free_test() {
+  assert markdown.parse("~a ~~b c* d~ *e*")
+    == paragraph([Text("~a ~~b c* d~ "), Emphasis([Text("e")])])
+}
+
+pub fn strikes_nest_thirty_two_levels_like_emphasis_test() {
+  let line = string.repeat("~~a ", 40) <> "b" <> string.repeat(" a~~", 40)
+  let assert [Block(0, 0, Paragraph([Text(before), deep, Text(after)]))] =
+    markdown.parse(line)
+
+  assert before == string.repeat("~~a ", 8)
+  assert depth([deep]) == 32
+  assert after == string.repeat(" a~~", 8)
+}
+
 // The 32-level cap
 
 pub fn nesting_stops_at_thirty_two_levels_test() {
@@ -244,10 +756,13 @@ pub fn a_long_plain_line_is_one_text_test() {
 }
 
 pub fn a_long_run_of_one_mark_is_one_text_test() {
-  let stars = string.repeat("*", 20_000)
-  let ticks = string.repeat("`", 20_000)
+  let stars = "a" <> string.repeat("*", 20_000)
+  let ticks = "a" <> string.repeat("`", 20_000)
   assert markdown.parse(stars) == paragraph([Text(stars)])
   assert markdown.parse(ticks) == paragraph([Text(ticks)])
+  assert markdown.parse(string.repeat("*", 20_000)) == [Block(0, 0, Rule)]
+  assert markdown.parse(string.repeat("`", 20_000))
+    == [Block(0, 0, CodeBlock(None, ""))]
 }
 
 pub fn a_backtick_that_never_closes_stays_text_test() {
@@ -329,8 +844,6 @@ pub fn thousands_of_links_are_thousands_of_links_test() {
   assert markdown.parse(string.repeat("[a](b) ", 4000)) == paragraph(expected)
 }
 
-// Plain text, for note titles
-
 pub fn plain_text_keeps_the_words_and_drops_the_markup_test() {
   let assert [Block(content: Paragraph(text), ..)] =
     markdown.parse("a **b *c*** [d `e`](u \"t\") `f` **g")
@@ -344,7 +857,31 @@ pub fn plain_text_shows_a_line_break_as_a_space_test() {
 }
 
 pub fn plain_text_keeps_struck_words_test() {
-  assert markdown.plain_text([markdown.Strike([Text("gone")])]) == "gone"
+  assert markdown.plain_text([Strike([Text("gone")])]) == "gone"
+}
+
+pub fn first_text_is_the_first_line_the_page_shows_test() {
+  assert markdown.first_text("") == ""
+  assert markdown.first_text("\n***\n#\n> *a*  b \n> c") == "a  b"
+  assert markdown.first_text("- [ ]\n\n  1. ~~[x](u)~~") == "x"
+  assert markdown.first_text("*a\nb*") == "a"
+  assert markdown.first_text("[](u)\n\u{3000}b\u{A0}") == "b"
+}
+
+pub fn first_text_reads_past_the_first_sixteen_lines_test() {
+  assert markdown.first_text(string.repeat("---\n", 16) <> "a") == "a"
+  assert markdown.first_text(string.repeat(">\n", 5000) <> "\n- b") == "b"
+  assert markdown.first_text(string.repeat(">\n", 5000)) == ""
+}
+
+pub fn first_text_reads_the_first_line_of_code_test() {
+  assert markdown.first_text("```js\n\n  let x = 1\n```") == "let x = 1"
+  assert markdown.first_text(string.repeat("    \n", 100) <> "    a") == "a"
+}
+
+pub fn first_text_keeps_marks_that_do_not_close_test() {
+  assert markdown.first_text("**bold") == "**bold"
+  assert markdown.first_text("\\*a\\*") == "*a*"
 }
 
 fn depth(inlines: List(markdown.Inline)) -> Int {
@@ -353,25 +890,9 @@ fn depth(inlines: List(markdown.Inline)) -> Int {
       Text(_) | Code(_) -> deepest
       Strong(children) | Emphasis(children) | Link(children, _, _) ->
         int.max(deepest, 1 + depth(children))
-      markdown.Strike(children) -> int.max(deepest, 1 + depth(children))
+      Strike(children) -> int.max(deepest, 1 + depth(children))
     }
   })
-}
-
-/// M3: each item knows its source row and whether it is a task.
-pub fn pending_task_list() {
-  let milk = Item(row: 0, task: Unchecked, blocks: [para(0, "milk")])
-  let eggs = Item(row: 1, task: Checked, blocks: [para(1, "eggs")])
-
-  assert markdown.parse("- [ ] milk\n- [x] eggs")
-    == [Block(0, 1, BulletList([milk, eggs]))]
-}
-
-/// M3
-pub fn pending_toggle_task() {
-  assert markdown.toggle_task("- [x] eggs") == "- [ ] eggs"
-  assert markdown.toggle_task("  - [ ] milk") == "  - [x] milk"
-  assert markdown.toggle_task("just text") == "just text"
 }
 
 fn para(row: Int, text: String) -> markdown.Block {

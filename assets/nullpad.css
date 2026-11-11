@@ -210,6 +210,7 @@ button:hover {
 
 .editor > * {
   font: 1rem/1.6 var(--text-font);
+  font-variant-ligatures: none;
   tab-size: 4;
   white-space: pre-wrap;
 }
@@ -230,8 +231,18 @@ button:hover {
   margin-top: 0;
 }
 
+.preview {
+  --box: 1.25rem;
+  --gutter: 2rem;
+  --box-gap: 0.5rem;
+  --task-pad: 0;
+}
+
 .preview p {
   margin: 0 0 1em;
+}
+
+.preview :is(p, li, h1, h2, h3, h4, h5, h6) {
   white-space: pre-line;
 }
 
@@ -266,11 +277,101 @@ button:hover {
   background: var(--panel);
   border-radius: 4px;
   font: 0.9em var(--text-font);
+  font-variant-ligatures: none;
   padding: 0.1em 0.35em;
 }
 
 .preview a {
   color: var(--accent);
+}
+
+.preview :is(li, blockquote) > :first-child {
+  margin-top: 0;
+}
+
+.preview :is(ul, ol) {
+  margin: 0 0 1em;
+  padding-left: var(--gutter);
+}
+
+.preview li {
+  margin: 0.25em 0;
+}
+
+.preview li > :is(ul, ol) {
+  margin: 0.25em 0 0;
+}
+
+.preview li.task {
+  padding-block: var(--task-pad);
+  position: relative;
+}
+
+.preview ul > li.task {
+  list-style: none;
+}
+
+.preview ol > li.task {
+  padding-left: calc(var(--box) + var(--box-gap));
+}
+
+.preview li.task > input[type="checkbox"] {
+  accent-color: var(--accent);
+  height: var(--box);
+  margin: 0;
+  position: absolute;
+  top: calc(var(--task-pad) + (1.7em - var(--box)) / 2);
+  width: var(--box);
+}
+
+.preview ul > li.task > input[type="checkbox"] {
+  left: calc(-1 * (var(--box) + var(--box-gap)));
+}
+
+.preview ol > li.task > input[type="checkbox"] {
+  left: 0;
+}
+
+.preview blockquote {
+  border-left: 0.25rem solid color-mix(in srgb, var(--faint) 45%, var(--paper));
+  color: color-mix(in srgb, var(--ink) 72%, var(--paper));
+  margin: 0 0 1em;
+  padding-left: 1rem;
+}
+
+.preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.preview pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 0 0 1em;
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  tab-size: 4;
+}
+
+.preview pre code {
+  background: none;
+  border-radius: 0;
+  font: 0.875em/1.5 var(--text-font);
+  font-variant-ligatures: none;
+  padding: 0;
+}
+
+.preview hr {
+  border: 0;
+  border-top: 2px solid var(--line);
+  margin: 1.75em 0;
+}
+
+@media (max-width: 40rem), (pointer: coarse) {
+  .preview {
+    --box: 1.5rem;
+    --task-pad: 0.45rem;
+  }
 }
 
 @media (max-width: 40rem) {

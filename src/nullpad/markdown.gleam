@@ -1,17 +1,11 @@
 //// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
-//// CommonMark 0.31.2 for what nullpad supports (ATX headings, paragraphs,
-//// code spans, emphasis, inline links, backslash escapes). Everything else
-//// stays text as typed. `test/commonmark_test.gleam` measures it against the
-//// spec's examples. One rule is nullpad's own: a link to an address it will
-//// not follow (`is_safe_url`) stays text.
+//// CommonMark 0.31.2 for what nullpad supports (headings, paragraphs, block
+//// quotes, lists, code blocks, thematic breaks, code spans, emphasis, inline
+//// links, backslash escapes), and GFM for strikethrough and task items.
+//// Everything else stays text as typed. Two rules are nullpad's own: a link to
+//// an address it will not follow (`is_safe_url`) stays text, and a box with
+//// nothing after it is a task.
 ////
-//// Blocks: `classify` looks at one line, no context: Blank | HeadingLine |
-//// TextLine, and in M3 FenceLine | QuoteLine | ItemLine | RuleLine. Runs of
-//// text lines are joined with "\n" into a paragraph.
-//// Inlines, per heading or paragraph: `scan` settles escapes, code spans and
-//// links in one pass, then `emphasize` pairs the `*` and `_` runs.
-//// M6's `highlight` can reuse `classify`. Whether it reuses `scan` is
-//// undecided, because `scan` keeps no source positions.
 //// Imported by: `preview`, `storage`, `surface` (M6), the shell, tests.
 //// Imports: stdlib, and `markdown.ffi.mjs` for two Unicode classes.
 
@@ -24,9 +18,7 @@ import gleam/result
 import gleam/string
 
 /// A block plus the source rows it came from (inclusive, numbered like
-/// `buffer.Position.row`). Rows cost one counter in the block parser. They
-/// let a ticked task find its line, and later let the rendered page scroll to
-/// the cursor.
+/// `buffer.Position.row`).
 pub type Block {
   Block(first_row: Int, last_row: Int, content: Content)
 }
@@ -38,8 +30,9 @@ pub type Content {
   /// break). The page shows it as a line break.
   Paragraph(text: List(Inline))
   // M3
-  BulletList(items: List(Item))
-  OrderedList(start: Int, items: List(Item))
+  BulletList(spacing: Spacing, items: List(Item))
+  /// `start` is the first item's number. Later numbers are not kept.
+  OrderedList(start: Int, spacing: Spacing, items: List(Item))
   Quote(blocks: List(Block))
   CodeBlock(language: Option(String), code: String)
   Rule
@@ -47,17 +40,26 @@ pub type Content {
   // compiler list every `case` that must handle it.
 }
 
-/// An item is a list of blocks, so a nested list is just a list block inside
-/// an item: nesting falls out of the recursion. `row` is the item's first
-/// line, the one that holds its `- [ ]` marker.
-pub type Item {
-  Item(row: Int, task: Task, blocks: List(Block))
+/// A tight list shows each item's own paragraphs as bare text. A list is
+/// loose when two of its items, or two blocks directly inside one item, have
+/// a blank line between them.
+pub type Spacing {
+  Tight
+  Loose
 }
 
+/// An item is a list of blocks, so a nested list is just a list block inside
+/// an item: nesting falls out of the recursion. `row` is the item's first
+/// line, the one that holds its marker.
+pub type Item {
+  Item(row: Int, task: Option(Task), blocks: List(Block))
+}
+
+/// The box of a task item: `[ ]`, or `[x]` when `checked`, at the start of
+/// the item's first paragraph. `row` and `col` place the character between
+/// the brackets, `col` counted in code points from the start of the line.
 pub type Task {
-  NotATask
-  Unchecked
-  Checked
+  Task(checked: Bool, row: Int, col: Int)
 }
 
 /// Six variants, not an Int: the renderer's `case` is exhaustive and a
@@ -86,20 +88,32 @@ pub type Inline {
 /// unclosed syntax becomes plain `Text`, and raw HTML is just text), so there
 /// is no error type.
 pub fn parse(source: String) -> List(Block) {
-  source
-  |> string.replace("\u{0}", "\u{FFFD}")
-  |> string.to_utf_codepoints
-  |> list.fold([], fn(backwards, codepoint) {
-    [string.from_utf_codepoints([codepoint]), ..backwards]
+  let lines = source_lines(source)
+  lines
+  |> list.index_fold(Open([], [], 0, NoLeaf), fn(open, chars, row) {
+    step(open, new_line(row, chars))
   })
-  |> split_lines([], [])
-  |> list.index_map(fn(line, row) { #(row, classify(line)) })
-  |> read_blocks([])
+  |> finish(list.length(lines))
 }
 
-/// Takes the characters (one string per code point, the spec's
-/// "character") from the last one back, so each line and the list of lines
-/// come out in order with no reverse. A line ends at "\n", "\r\n" or "\r".
+fn source_lines(source: String) -> List(List(String)) {
+  source |> string.replace("\u{0}", "\u{FFFD}") |> code_point_lines
+}
+
+fn code_point_lines(source: String) -> List(List(String)) {
+  let backwards =
+    source
+    |> string.to_utf_codepoints
+    |> list.fold([], fn(backwards, codepoint) {
+      [string.from_utf_codepoints([codepoint]), ..backwards]
+    })
+  case backwards {
+    ["\n", "\r", ..rest] | ["\n", ..rest] | ["\r", ..rest] ->
+      split_lines(rest, [], [])
+    _ -> split_lines(backwards, [], [])
+  }
+}
+
 fn split_lines(
   backwards: List(String),
   line: List(String),
@@ -113,24 +127,655 @@ fn split_lines(
   }
 }
 
-type LineKind {
-  Blank
-  HeadingLine(level: Level, text: List(String))
-  /// Leading spaces and tabs already dropped.
-  TextLine(text: List(String))
+type Line {
+  Line(
+    row: Int,
+    offset: Int,
+    /// Columns eaten so far. A tab reaches the next multiple of 4.
+    column: Int,
+    tab_remainder: Int,
+    margin: List(String),
+    indent: Int,
+    text: List(String),
+  )
 }
 
-type Lines =
-  List(#(Int, LineKind))
+fn new_line(row: Int, chars: List(String)) -> Line {
+  measure(Line(row, 0, 0, 0, [], 0, []), chars)
+}
 
-fn classify(line: List(String)) -> LineKind {
-  case drop_spaces(line) {
-    [] -> Blank
-    text ->
-      case heading(drop_indent(line, 3)) {
-        Ok(#(level, heading_text)) -> HeadingLine(level, heading_text)
-        Error(Nil) -> TextLine(text)
+fn measure(line: Line, chars: List(String)) -> Line {
+  let #(margin, text) = list.split_while(chars, is_space_or_tab)
+  let end =
+    list.fold(margin, line.column, fn(column, char) {
+      case char {
+        "\t" -> column + 4 - column % 4
+        _ -> column + 1
       }
+    })
+  Line(..line, tab_remainder: 0, margin:, indent: end - line.column, text:)
+}
+
+fn skip_margin(line: Line) -> Line {
+  Line(
+    ..line,
+    offset: line.offset + list.length(line.margin),
+    column: line.column + line.indent,
+    tab_remainder: 0,
+    margin: [],
+    indent: 0,
+  )
+}
+
+fn eat_columns(line: Line, count: Int) -> Line {
+  case line.margin {
+    _ if count <= 0 -> line
+    _ if line.tab_remainder > 0 -> {
+      let eaten = int.min(count, line.tab_remainder)
+      eat_columns(
+        Line(
+          ..line,
+          column: line.column + eaten,
+          tab_remainder: line.tab_remainder - eaten,
+          indent: line.indent - eaten,
+        ),
+        count - eaten,
+      )
+    }
+    [" ", ..margin] ->
+      eat_columns(
+        Line(
+          ..line,
+          offset: line.offset + 1,
+          column: line.column + 1,
+          margin:,
+          indent: line.indent - 1,
+        ),
+        count - 1,
+      )
+    ["\t", ..margin] -> {
+      let width = 4 - line.column % 4
+      let eaten = int.min(count, width)
+      eat_columns(
+        Line(
+          ..line,
+          offset: line.offset + 1,
+          column: line.column + eaten,
+          tab_remainder: width - eaten,
+          margin:,
+          indent: line.indent - eaten,
+        ),
+        count - eaten,
+      )
+    }
+    _ -> line
+  }
+}
+
+fn eat_text(line: Line, count: Int) -> Line {
+  let line = skip_margin(line)
+  measure(
+    Line(..line, offset: line.offset + count, column: line.column + count),
+    list.drop(line.text, count),
+  )
+}
+
+fn verbatim(line: Line) -> List(String) {
+  list.append(
+    list.repeat(" ", line.tab_remainder),
+    list.append(line.margin, line.text),
+  )
+}
+
+fn after_quote_mark(line: Line) -> Line {
+  eat_columns(eat_text(line, 1), 1)
+}
+
+/// Like `max_depth`: the JavaScript stack limits how deep a tree walk can
+/// recurse.
+const max_block_depth = 32
+
+type Open {
+  Open(blocks: List(Block), frames: List(Frame), depth: Int, leaf: Leaf)
+}
+
+type Frame {
+  Frame(container: Container, blocks: List(Block))
+}
+
+type Container {
+  InQuote(first_row: Int)
+  InList(of: OpenList, item: Option(OpenItem))
+}
+
+type OpenList {
+  OpenList(
+    first_row: Int,
+    last_row: Int,
+    marker: Marker,
+    start: Int,
+    items: List(Item),
+    spacing: Spacing,
+  )
+}
+
+type OpenItem {
+  OpenItem(row: Int, width: Int, task: Option(Task))
+}
+
+type Marker {
+  Bullet(String)
+  Ordered(delimiter: String)
+}
+
+type Leaf {
+  NoLeaf
+  ParagraphLeaf(first_row: Int, last_row: Int, lines: List(List(String)))
+  FencedLeaf(
+    first_row: Int,
+    fence: String,
+    length: Int,
+    fence_indent: Int,
+    language: Option(String),
+    lines: List(List(String)),
+  )
+  IndentedLeaf(
+    first_row: Int,
+    last_row: Int,
+    lines: List(List(String)),
+    blanks: List(List(String)),
+  )
+}
+
+type Start {
+  Blank
+  TextLine
+  QuoteStart(rest: Line)
+  NextItem(width: Int, rest: Line)
+  ListStart(marker: Marker, number: Int, width: Int, rest: Line)
+  HeadingStart(level: Level, text: List(String))
+  RuleStart
+  FenceStart(fence: String, length: Int, indent: Int, language: Option(String))
+  CodeStart(rest: Line)
+}
+
+fn step(open: Open, line: Line) -> Open {
+  let #(matched, line) = continue_frames(list.reverse(open.frames), 0, line)
+  case matched == open.depth {
+    True -> continue_leaf(open, line)
+    False -> start_blocks(open, matched, line)
+  }
+}
+
+fn continue_frames(
+  frames: List(Frame),
+  matched: Int,
+  line: Line,
+) -> #(Int, Line) {
+  case frames {
+    [] -> #(matched, line)
+    [frame, ..inner] ->
+      case continue_frame(frame.container, line) {
+        Ok(line) -> continue_frames(inner, matched + 1, line)
+        Error(Nil) -> #(matched, line)
+      }
+  }
+}
+
+fn continue_frame(container: Container, line: Line) -> Result(Line, Nil) {
+  case container, line.text {
+    InQuote(_), [">", ..] if line.indent < 4 -> Ok(after_quote_mark(line))
+    InQuote(_), _ -> Error(Nil)
+    InList(..), [] -> Ok(skip_margin(line))
+    InList(item: Some(item), ..), _ if line.indent >= item.width ->
+      Ok(eat_columns(line, item.width))
+    InList(..), _ -> Error(Nil)
+  }
+}
+
+fn continue_leaf(open: Open, line: Line) -> Open {
+  case open.leaf, line.text {
+    NoLeaf, _ -> start_blocks(open, open.depth, line)
+    ParagraphLeaf(..), [] -> close_leaf(open, line.row)
+    ParagraphLeaf(first_row:, lines:, ..), text if line.indent < 4 ->
+      case setext_level(text) {
+        Ok(level) -> {
+          let heading = Heading(level, inlines(paragraph_text(lines)))
+          Open(..open, leaf: NoLeaf)
+          |> push_block(Block(first_row, line.row, heading))
+        }
+        Error(Nil) -> start_blocks(open, open.depth, line)
+      }
+    ParagraphLeaf(..), _ -> start_blocks(open, open.depth, line)
+    FencedLeaf(fence:, length:, fence_indent:, lines:, ..) as leaf, text ->
+      case line.indent < 4 && closes_fence(text, fence, length) {
+        True -> close_leaf(open, line.row)
+        False -> {
+          let code =
+            verbatim(eat_columns(line, int.min(fence_indent, line.indent)))
+          Open(..open, leaf: FencedLeaf(..leaf, lines: [code, ..lines]))
+        }
+      }
+    IndentedLeaf(lines:, blanks:, ..) as leaf, text ->
+      case line.indent >= 4, text {
+        True, [] -> {
+          let blank = verbatim(eat_columns(line, 4))
+          Open(..open, leaf: IndentedLeaf(..leaf, blanks: [blank, ..blanks]))
+        }
+        False, [] ->
+          Open(..open, leaf: IndentedLeaf(..leaf, blanks: [[], ..blanks]))
+        True, _ -> {
+          let lines = [
+            verbatim(eat_columns(line, 4)),
+            ..list.append(blanks, lines)
+          ]
+          Open(
+            ..open,
+            leaf: IndentedLeaf(..leaf, last_row: line.row, lines:, blanks: []),
+          )
+        }
+        False, _ -> start_blocks(open, open.depth, line)
+      }
+  }
+}
+
+fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
+  let row = line.row
+  case start(open, matched, line), open.leaf {
+    TextLine, ParagraphLeaf(first_row:, lines:, ..) ->
+      Open(..open, leaf: ParagraphLeaf(first_row, row, [line.text, ..lines]))
+    TextLine, _ -> open_paragraph(close_to(open, matched, row), line)
+    Blank, _ -> close_to(open, matched, row) |> end_empty_item(row)
+    QuoteStart(rest), _ ->
+      close_to(open, matched, row)
+      |> push_frame(InQuote(row))
+      |> start_blocks(matched + 1, rest)
+    NextItem(width:, rest:), _ ->
+      close_to(open, matched + 1, row)
+      |> next_item(row, width)
+      |> start_blocks(matched + 1, rest)
+    ListStart(marker:, number:, width:, rest:), _ -> {
+      let of = OpenList(row, row, marker, number, [], Tight)
+      close_to(open, matched, row)
+      |> push_frame(InList(of, Some(OpenItem(row, width, None))))
+      |> start_blocks(matched + 1, rest)
+    }
+    HeadingStart(level, text), _ ->
+      close_to(open, matched, row)
+      |> push_block(Block(row, row, Heading(level, inlines(text))))
+    RuleStart, _ ->
+      close_to(open, matched, row) |> push_block(Block(row, row, Rule))
+    FenceStart(fence, length, indent, language), _ ->
+      Open(
+        ..close_to(open, matched, row),
+        leaf: FencedLeaf(row, fence, length, indent, language, []),
+      )
+    CodeStart(rest), _ ->
+      Open(
+        ..close_to(open, matched, row),
+        leaf: IndentedLeaf(row, row, [verbatim(rest)], []),
+      )
+  }
+}
+
+/// Indented code cannot interrupt a paragraph.
+fn start(open: Open, matched: Int, line: Line) -> Start {
+  case line.text, open.leaf {
+    [], _ -> Blank
+    _, ParagraphLeaf(..) if line.indent >= 4 -> TextLine
+    _, _ if line.indent >= 4 -> CodeStart(eat_columns(line, 4))
+    _, _ -> start_text(open, matched, line)
+  }
+}
+
+fn start_text(open: Open, matched: Int, line: Line) -> Start {
+  case line.text {
+    [">", ..] if matched < max_block_depth -> QuoteStart(after_quote_mark(line))
+    ["#", ..] as text ->
+      case heading(text) {
+        Ok(#(level, text)) -> HeadingStart(level, text)
+        Error(Nil) -> TextLine
+      }
+    ["`", ..] as text | ["~", ..] as text ->
+      case fence_start(text, line.indent) {
+        Ok(start) -> start
+        Error(Nil) -> TextLine
+      }
+    ["*", ..] as text | ["-", ..] as text | ["_", ..] as text ->
+      case is_rule(text) {
+        True -> RuleStart
+        False -> item_start(open, matched, line)
+      }
+    _ -> item_start(open, matched, line)
+  }
+}
+
+/// An item that interrupts a paragraph must not be empty, and an ordered one
+/// must start at 1.
+fn item_start(open: Open, matched: Int, line: Line) -> Start {
+  case list_marker(line.text) {
+    Error(Nil) -> TextLine
+    Ok(#(marker, number, length)) -> {
+      let after = eat_text(line, length)
+      let blank = after.text == []
+      let interrupts = case open.leaf {
+        ParagraphLeaf(..) -> matched == open.depth
+        _ -> False
+      }
+      let sibling = is_sibling(open, matched, marker)
+      let item = fn(width, rest) {
+        case sibling {
+          True -> NextItem(width, rest)
+          False -> ListStart(marker, number, width, rest)
+        }
+      }
+      case after.indent {
+        0 if !blank -> TextLine
+        _ if interrupts && { blank || number != 1 } -> TextLine
+        _ if !sibling && matched >= max_block_depth -> TextLine
+        // Spec: an item that begins blank, or with indented code, is one
+        // column wider than its marker.
+        spaces if blank || spaces >= 5 ->
+          item(line.indent + length + 1, eat_columns(after, 1))
+        spaces -> item(line.indent + length + spaces, skip_margin(after))
+      }
+    }
+  }
+}
+
+fn is_sibling(open: Open, matched: Int, marker: Marker) -> Bool {
+  case list.drop(open.frames, open.depth - matched - 1) {
+    [Frame(InList(of:, ..), _), ..] if matched < open.depth ->
+      of.marker == marker
+    _ -> False
+  }
+}
+
+fn list_marker(text: List(String)) -> Result(#(Marker, Int, Int), Nil) {
+  case text {
+    ["-" as bullet, ..] | ["+" as bullet, ..] | ["*" as bullet, ..] ->
+      Ok(#(Bullet(bullet), 1, 1))
+    _ -> ordered_marker(text, 0, 0)
+  }
+}
+
+fn ordered_marker(
+  text: List(String),
+  number: Int,
+  digits: Int,
+) -> Result(#(Marker, Int, Int), Nil) {
+  case text {
+    ["." as delimiter, ..] | [")" as delimiter, ..] if digits > 0 ->
+      Ok(#(Ordered(delimiter), number, digits + 1))
+    [char, ..rest] if digits < 9 ->
+      case int.parse(char) {
+        Ok(digit) -> ordered_marker(rest, number * 10 + digit, digits + 1)
+        Error(Nil) -> Error(Nil)
+      }
+    _ -> Error(Nil)
+  }
+}
+
+fn is_rule(text: List(String)) -> Bool {
+  case text {
+    [mark, ..] ->
+      list.fold_until(text, 0, fn(marks, char) {
+        case char == mark, is_space_or_tab(char) {
+          True, _ -> list.Continue(marks + 1)
+          False, True -> list.Continue(marks)
+          False, False -> list.Stop(0)
+        }
+      })
+      >= 3
+    [] -> False
+  }
+}
+
+/// The info string of a backtick fence may not hold a backtick, so "``` a ` b"
+/// stays a code span.
+fn fence_start(text: List(String), indent: Int) -> Result(Start, Nil) {
+  case text {
+    [fence, ..] -> {
+      let #(length, info) = count_run(text, fence, 0)
+      case length >= 3 && !{ fence == "`" && list.contains(info, "`") } {
+        True -> Ok(FenceStart(fence, length, indent, language(info)))
+        False -> Error(Nil)
+      }
+    }
+    [] -> Error(Nil)
+  }
+}
+
+fn language(info: List(String)) -> Option(String) {
+  let word =
+    info
+    |> drop_spaces
+    |> list.take_while(fn(char) { !is_space_or_tab(char) })
+    |> unescape("")
+  case word {
+    "" -> None
+    _ -> Some(word)
+  }
+}
+
+fn unescape(chars: List(String), done: String) -> String {
+  case chars {
+    [] -> done
+    ["\\", char, ..rest] ->
+      case is_ascii_punctuation(char) {
+        True -> unescape(rest, done <> char)
+        False -> unescape([char, ..rest], done <> "\\")
+      }
+    [char, ..rest] -> unescape(rest, done <> char)
+  }
+}
+
+fn closes_fence(text: List(String), fence: String, length: Int) -> Bool {
+  let #(run, after) = count_run(text, fence, 0)
+  run >= length && drop_spaces(after) == []
+}
+
+fn setext_level(text: List(String)) -> Result(Level, Nil) {
+  let underline = fn(mark, level) {
+    case drop_spaces(list.drop_while(text, fn(char) { char == mark })) {
+      [] -> Ok(level)
+      _ -> Error(Nil)
+    }
+  }
+  case text {
+    ["=", ..] -> underline("=", H1)
+    ["-", ..] -> underline("-", H2)
+    _ -> Error(Nil)
+  }
+}
+
+fn open_paragraph(open: Open, line: Line) -> Open {
+  let line = skip_margin(line)
+  let paragraph = fn(open: Open, text) {
+    Open(..open, leaf: ParagraphLeaf(line.row, line.row, [text]))
+  }
+  case open.frames, task_box(line) {
+    [Frame(InList(of, Some(OpenItem(task: None, ..) as item)), []), ..outer],
+      Ok(#(task, rest))
+    -> {
+      let item = OpenItem(..item, task: Some(task))
+      let open =
+        Open(..open, frames: [Frame(InList(of, Some(item)), []), ..outer])
+      case rest {
+        [] -> open
+        text -> paragraph(open, text)
+      }
+    }
+    _, _ -> paragraph(open, line.text)
+  }
+}
+
+fn task_box(line: Line) -> Result(#(Task, List(String)), Nil) {
+  case line.text {
+    ["[", mark, "]", ..after] if mark == " " || mark == "x" || mark == "X" ->
+      case after {
+        [] | [" ", ..] | ["\t", ..] ->
+          Ok(#(Task(mark != " ", line.row, line.offset + 1), drop_spaces(after)))
+        _ -> Error(Nil)
+      }
+    _ -> Error(Nil)
+  }
+}
+
+fn push_frame(open: Open, container: Container) -> Open {
+  Open(
+    ..open,
+    frames: [Frame(container, []), ..open.frames],
+    depth: open.depth + 1,
+  )
+}
+
+fn close_to(open: Open, depth: Int, row: Int) -> Open {
+  let open = close_leaf(open, row - 1)
+  case open.frames {
+    [frame, ..outer] if open.depth > depth ->
+      Open(..open, frames: outer, depth: open.depth - 1)
+      |> push_block(close_frame(frame, row - 1))
+      |> close_to(depth, row)
+    _ -> open
+  }
+}
+
+fn close_frame(frame: Frame, last_row: Int) -> Block {
+  case frame.container {
+    InQuote(first_row) ->
+      Block(first_row, last_row, Quote(list.reverse(frame.blocks)))
+    InList(of, item) -> {
+      let of = end_open_item(of, item, frame.blocks)
+      let items = list.reverse(of.items)
+      let content = case of.marker {
+        Bullet(_) -> BulletList(of.spacing, items)
+        Ordered(_) -> OrderedList(of.start, of.spacing, items)
+      }
+      Block(of.first_row, of.last_row, content)
+    }
+  }
+}
+
+fn end_open_item(
+  of: OpenList,
+  item: Option(OpenItem),
+  blocks: List(Block),
+) -> OpenList {
+  case item {
+    Some(item) -> end_item(of, item, blocks)
+    None -> of
+  }
+}
+
+fn end_item(of: OpenList, item: OpenItem, blocks: List(Block)) -> OpenList {
+  let last_row = case blocks {
+    [last, ..] -> last.last_row
+    [] -> item.row
+  }
+  OpenList(
+    ..of,
+    last_row:,
+    items: [Item(item.row, item.task, list.reverse(blocks)), ..of.items],
+    spacing: loosen(of.spacing, has_gap(blocks)),
+  )
+}
+
+fn next_item(open: Open, row: Int, width: Int) -> Open {
+  case open.frames {
+    [Frame(InList(of, item), blocks), ..outer] -> {
+      let of = end_open_item(of, item, blocks)
+      let of =
+        OpenList(..of, spacing: loosen(of.spacing, row > of.last_row + 1))
+      let frame = Frame(InList(of, Some(OpenItem(row, width, None))), [])
+      Open(..open, frames: [frame, ..outer])
+    }
+    _ -> open
+  }
+}
+
+fn end_empty_item(open: Open, row: Int) -> Open {
+  case open.frames, open.leaf {
+    [Frame(InList(of, Some(OpenItem(task: None, ..) as item)), []), ..outer],
+      NoLeaf
+      if item.row < row
+    -> {
+      let frame = Frame(InList(end_item(of, item, []), None), [])
+      Open(..open, frames: [frame, ..outer])
+    }
+    _, _ -> open
+  }
+}
+
+fn loosen(spacing: Spacing, gap: Bool) -> Spacing {
+  case gap {
+    True -> Loose
+    False -> spacing
+  }
+}
+
+fn has_gap(blocks: List(Block)) -> Bool {
+  case blocks {
+    [later, earlier, ..rest] ->
+      case later.first_row > earlier.last_row + 1 {
+        True -> True
+        False -> has_gap([earlier, ..rest])
+      }
+    _ -> False
+  }
+}
+
+fn close_leaf(open: Open, fence_end: Int) -> Open {
+  let closed = Open(..open, leaf: NoLeaf)
+  case open.leaf {
+    NoLeaf -> open
+    ParagraphLeaf(first_row, last_row, lines) ->
+      push_block(
+        closed,
+        Block(first_row, last_row, Paragraph(inlines(paragraph_text(lines)))),
+      )
+    FencedLeaf(first_row:, language:, lines:, ..) ->
+      push_block(
+        closed,
+        Block(first_row, fence_end, CodeBlock(language, code_text(lines))),
+      )
+    IndentedLeaf(first_row:, last_row:, lines:, ..) ->
+      push_block(
+        closed,
+        Block(first_row, last_row, CodeBlock(None, code_text(lines))),
+      )
+  }
+}
+
+fn push_block(open: Open, block: Block) -> Open {
+  case open.frames {
+    [] -> Open(..open, blocks: [block, ..open.blocks])
+    [frame, ..outer] ->
+      Open(..open, frames: [
+        Frame(..frame, blocks: [block, ..frame.blocks]),
+        ..outer
+      ])
+  }
+}
+
+fn finish(open: Open, rows: Int) -> List(Block) {
+  list.reverse(close_to(open, 0, rows).blocks)
+}
+
+fn code_text(backwards: List(List(String))) -> String {
+  list.fold(backwards, [], fn(code, line) {
+    [string.concat(line), "\n", ..code]
+  })
+  |> string.concat
+}
+
+fn paragraph_text(backwards: List(List(String))) -> List(String) {
+  case backwards {
+    [last, ..before] ->
+      list.fold(before, drop_spaces_end(last), fn(text, line) {
+        list.append(line, ["\n", ..text])
+      })
+    [] -> []
   }
 }
 
@@ -172,56 +817,8 @@ fn drop_spaces_end(chars: List(String)) -> List(String) {
   chars |> list.reverse |> drop_spaces |> list.reverse
 }
 
-fn drop_indent(line: List(String), allowed: Int) -> List(String) {
-  case line {
-    [" ", ..rest] if allowed > 0 -> drop_indent(rest, allowed - 1)
-    _ -> line
-  }
-}
-
-fn read_blocks(lines: Lines, done: List(Block)) -> List(Block) {
-  case lines {
-    [] -> list.reverse(done)
-    [#(_, Blank), ..rest] -> read_blocks(rest, done)
-    [#(row, HeadingLine(level, text)), ..rest] -> {
-      let block = Block(row, row, Heading(level, inlines(text)))
-      read_blocks(rest, [block, ..done])
-    }
-    [#(row, TextLine(text)), ..rest] -> {
-      let #(block, rest) = read_paragraph(row, row, [text], rest)
-      read_blocks(rest, [block, ..done])
-    }
-  }
-}
-
-/// `read` holds the lines so far, last first.
-fn read_paragraph(
-  first_row: Int,
-  last_row: Int,
-  read: List(List(String)),
-  lines: Lines,
-) -> #(Block, Lines) {
-  case lines {
-    [#(row, TextLine(text)), ..rest] ->
-      read_paragraph(first_row, row, [text, ..read], rest)
-    [] | [#(_, Blank), ..] | [#(_, HeadingLine(..)), ..] -> {
-      let raw = case read {
-        [last, ..before] ->
-          list.fold(before, drop_spaces_end(last), fn(raw, line) {
-            list.append(line, ["\n", ..raw])
-          })
-        [] -> []
-      }
-      #(Block(first_row, last_row, Paragraph(inlines(raw))), lines)
-    }
-  }
-}
-
-// Inline parsing, in two stages. `scan` reads the text once, left to right.
-// It settles escapes, code spans and links, and leaves each run of `*` or `_`
-// and each `[` that may still start a link in place. `emphasize` then pairs
-// the runs: the spec's "process emphasis". Links settle first because link
-// text binds tighter than emphasis: `*[a*](u)` is a link with a `*` inside.
+// Links settle before emphasis: link text binds tighter, so `*[a*](u)` is a
+// link with a `*` inside.
 
 type Piece {
   /// Finished: text, a code span, a link. `depth` is how deeply it nests.
@@ -234,6 +831,7 @@ type Piece {
 type Symbol {
   Star
   Underscore
+  Tilde
 }
 
 /// One flat list of pieces for the whole text, so a `]` that makes no link
@@ -248,10 +846,10 @@ type Scan {
   )
 }
 
-/// A pair of `*` or `_` marks, or a link, that would nest deeper than this is
-/// not built: its marks stay text around its content. Everything that walks
-/// the tree (the page, Lustre's diff, `==`) recurses once per level, so a
-/// tree as deep as the text is long overflows the stack.
+/// A pair of marks, or a link, that would nest deeper than this is not built:
+/// its marks stay text around its content. Everything that walks the tree
+/// (the page, Lustre's diff, `==`) recurses once per level, so a tree as deep
+/// as the text is long overflows the stack.
 const max_depth = 32
 
 const safe_schemes = ["http", "https", "mailto"]
@@ -325,6 +923,21 @@ fn scan(
       }
       let run = delimiter_run(mark, length, previous, next)
       scan(after, mark, "", add(add_text(state, text), run))
+    }
+    ["~", ..] -> {
+      let #(length, after) = count_run(chars, "~", 0)
+      let next = case after {
+        [next, ..] -> next
+        [] -> ""
+      }
+      // GFM: only a run of one or two tildes can strike through.
+      case length > 2 {
+        True -> scan(after, "~", text <> string.repeat("~", length), state)
+        False -> {
+          let run = delimiter_run("~", length, previous, next)
+          scan(after, "~", "", add(add_text(state, text), run))
+        }
+      }
     }
     ["[", ..rest] -> {
       let Scan(pieces, brackets, id) = add_text(state, text)
@@ -447,6 +1060,7 @@ fn delimiter_run(
         opens: left && { !right || punctuation_before },
         closes: right && { !left || punctuation_after },
       )
+    "~" -> DelimiterRun(Tilde, length, opens: left, closes: right)
     _ -> DelimiterRun(Star, length, opens: left, closes: right)
   }
 }
@@ -765,14 +1379,32 @@ fn close(
         False -> add_inline(pairing, marks(symbol, left), 0)
       }
     }
+    // GFM, as cmark-gfm does it: tildes strike only with a run of the same
+    // length. Both runs, and the runs between them, stay text.
+    Ok(#(passed, opener, below)) if symbol == Tilde && opener.left != left -> {
+      let #(content, depth) =
+        give_up(list.append(passed, [opener]), pairing.inside, pairing.depth)
+      Pairing(
+        ..pairing,
+        inside: Join(content, marks(symbol, left)),
+        depth:,
+        openers: below,
+        height: pairing.height - list.length(passed) - 1,
+      )
+      |> lower_floors
+    }
     Ok(#(passed, opener, below)) -> {
-      let used = case left >= 2 && opener.left >= 2 {
-        True -> 2
-        False -> 1
+      let used = case symbol, left >= 2 && opener.left >= 2 {
+        Tilde, _ -> left
+        _, True -> 2
+        _, False -> 1
       }
       let #(content, depth) = give_up(passed, pairing.inside, pairing.depth)
       let #(node, depth) = case depth < max_depth {
-        True -> #(Leaf(emphasis(used, flatten([content], []))), depth + 1)
+        True -> #(
+          Leaf(emphasis(symbol, used, flatten([content], []))),
+          depth + 1,
+        )
         False -> {
           let used_marks = marks(symbol, used)
           #(Join(Join(used_marks, content), used_marks), depth)
@@ -797,17 +1429,21 @@ fn close(
             height:,
           )
       }
-      let floors =
-        dict.map_values(pairing.floors, fn(_, floor) {
-          int.min(floor, pairing.height)
-        })
-      let pairing = Pairing(..pairing, floors:)
+      let pairing = lower_floors(pairing)
       case left - used {
         0 -> pairing
         unused -> close(pairing, symbol, length, unused, opens)
       }
     }
   }
+}
+
+fn lower_floors(pairing: Pairing) -> Pairing {
+  let floors =
+    dict.map_values(pairing.floors, fn(_, floor) {
+      int.min(floor, pairing.height)
+    })
+  Pairing(..pairing, floors:)
 }
 
 /// The nearest of the top `search` openers that the closer can pair with,
@@ -862,13 +1498,15 @@ fn marks(symbol: Symbol, count: Int) -> Rope {
   case symbol {
     Star -> Leaf(Text(string.repeat("*", count)))
     Underscore -> Leaf(Text(string.repeat("_", count)))
+    Tilde -> Leaf(Text(string.repeat("~", count)))
   }
 }
 
-fn emphasis(used: Int, children: List(Inline)) -> Inline {
-  case used {
-    2 -> Strong(children)
-    _ -> Emphasis(children)
+fn emphasis(symbol: Symbol, used: Int, children: List(Inline)) -> Inline {
+  case symbol, used {
+    Tilde, _ -> Strike(children)
+    _, 2 -> Strong(children)
+    _, _ -> Emphasis(children)
   }
 }
 
@@ -886,29 +1524,121 @@ fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
 }
 
 /// The words a reader sees: markup dropped, text and code kept, a line break
-/// as one space. Used for note titles. It recurses once per level, and the
-/// parser builds at most `max_depth` of them.
+/// as one space.
 pub fn plain_text(inlines: List(Inline)) -> String {
+  inlines |> words |> string.replace("\n", " ")
+}
+
+fn words(inlines: List(Inline)) -> String {
   inlines
   |> list.map(fn(inline) {
     case inline {
-      Text(text) -> string.replace(text, "\n", " ")
-      Code(code) -> code
+      Text(text) | Code(text) -> text
       Strong(children)
       | Emphasis(children)
       | Strike(children)
-      | Link(label: children, ..) -> plain_text(children)
+      | Link(label: children, ..) -> words(children)
     }
   })
   |> string.concat
 }
 
-/// Flip the task marker on one source line: "- [ ] milk" <-> "- [x] milk".
-/// A line that is not a task item comes back unchanged. Lives here so the
-/// task syntax is known in one module only.
-pub fn toggle_task(line: String) -> String {
-  let _ = line
-  todo as "not implemented"
+/// The first line of text the rendered page shows, with the markup dropped
+/// and the white space around it trimmed, or "" when it shows none.
+pub fn first_text(source: String) -> String {
+  first_text_within(source, 16)
+}
+
+fn first_text_within(source: String, lines: Int) -> String {
+  let #(start, more) = take_lines(source, lines, "")
+  case shown(parse(start)), more {
+    "", True -> first_text_within(source, lines * 4)
+    text, _ -> text
+  }
+}
+
+fn take_lines(source: String, count: Int, taken: String) -> #(String, Bool) {
+  case count, string.split_once(source, "\n") {
+    0, _ -> #(taken, source != "")
+    _, Error(Nil) -> #(taken <> source, False)
+    _, Ok(#(line, rest)) -> take_lines(rest, count - 1, taken <> line <> "\n")
+  }
+}
+
+fn shown(blocks: List(Block)) -> String {
+  use block <- first_shown(blocks)
+  case block.content {
+    Heading(text:, ..) | Paragraph(text:) -> first_line(words(text))
+    CodeBlock(code:, ..) -> first_line(code)
+    Quote(blocks:) -> shown(blocks)
+    BulletList(items:, ..) | OrderedList(items:, ..) -> {
+      use item <- first_shown(items)
+      shown(item.blocks)
+    }
+    Rule -> ""
+  }
+}
+
+fn first_line(text: String) -> String {
+  text
+  |> string.to_graphemes
+  |> list.drop_while(is_unicode_whitespace)
+  |> list.take_while(fn(char) { char != "\n" })
+  |> list.reverse
+  |> list.drop_while(is_unicode_whitespace)
+  |> list.reverse
+  |> string.concat
+}
+
+fn first_shown(things: List(a), show: fn(a) -> String) -> String {
+  case things {
+    [] -> ""
+    [thing, ..rest] ->
+      case show(thing) {
+        "" -> first_shown(rest, show)
+        text -> text
+      }
+  }
+}
+
+/// Line `task.row` of `source` with the task's box set to `checked`: the
+/// whole line, to put in place of the old one. `Error` when no task has its box
+/// at that place any more, for example after the line became code.
+pub fn set_task(
+  source: String,
+  task: Task,
+  checked: Bool,
+) -> Result(String, Nil) {
+  use found <- result.try(find_task(parse(source), task.row, task.col))
+  case list.drop(code_point_lines(source), task.row) {
+    [line, ..] if found.checked == checked -> Ok(string.concat(line))
+    [line, ..] -> {
+      let mark = case checked {
+        True -> "x"
+        False -> " "
+      }
+      [list.take(line, task.col), [mark], list.drop(line, task.col + 1)]
+      |> list.flatten
+      |> string.concat
+      |> Ok
+    }
+    [] -> Error(Nil)
+  }
+}
+
+fn find_task(blocks: List(Block), row: Int, col: Int) -> Result(Task, Nil) {
+  use block <- list.find_map(blocks)
+  case block.content {
+    Quote(blocks) -> find_task(blocks, row, col)
+    BulletList(items:, ..) | OrderedList(items:, ..) -> {
+      use item <- list.find_map(items)
+      case item.task {
+        Some(found) if found.row == row && found.col == col -> Ok(found)
+        _ -> find_task(item.blocks, row, col)
+      }
+    }
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule -> Error(Nil)
+  }
 }
 
 /// One styled piece of *source* text, for the editor's mirror (M6).

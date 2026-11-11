@@ -1,0 +1,69 @@
+[
+  {
+    "markdown": "~~Hi~~ Hello, world!\n",
+    "html": "<p><del>Hi</del> Hello, world!</p>\n",
+    "example": 491,
+    "start_line": 7714,
+    "end_line": 7718,
+    "section": "Strikethrough (extension)",
+    "extensions": [
+      "strikethrough"
+    ]
+  },
+  {
+    "markdown": "This ~~has a\n\nnew paragraph~~.\n",
+    "html": "<p>This ~~has a</p>\n<p>new paragraph~~.</p>\n",
+    "example": 492,
+    "start_line": 7723,
+    "end_line": 7730,
+    "section": "Strikethrough (extension)",
+    "extensions": [
+      "strikethrough"
+    ]
+  },
+  {
+    "markdown": "A proper ~strikethrough~.\n",
+    "html": "<p>A proper <del>strikethrough</del>.</p>\n",
+    "example": 17,
+    "start_line": 506,
+    "end_line": 510,
+    "section": "Strikethroughs",
+    "extensions": []
+  },
+  {
+    "markdown": "These are ~not strikethroughs.\n\nNo, they are not~\n\nThis ~is ~ legit~ isn't ~ legit.\n\nThis is not ~~~~~one~~~~~ huge strikethrough.\n\n~one~ ~~two~~ ~~~three~~~\n\nNo ~mismatch~~\n",
+    "html": "<p>These are ~not strikethroughs.</p>\n<p>No, they are not~</p>\n<p>This <del>is ~ legit</del> isn't ~ legit.</p>\n<p>This is not ~~~~~one~~~~~ huge strikethrough.</p>\n<p><del>one</del> <del>two</del> ~~~three~~~</p>\n<p>No ~mismatch~~</p>\n",
+    "example": 18,
+    "start_line": 514,
+    "end_line": 533,
+    "section": "Strikethroughs",
+    "extensions": []
+  },
+  {
+    "markdown": "- [ ] foo\n- [x] bar\n",
+    "html": "<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> foo</li>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> bar</li>\n</ul>\n",
+    "example": 28,
+    "start_line": 837,
+    "end_line": 845,
+    "section": "Task lists",
+    "extensions": []
+  },
+  {
+    "markdown": "- [x] foo\n  - [ ] bar\n  - [x] baz\n- [ ] bim\n\nShow a regular (non task) list to show that it has the same structure\n- [@] foo\n  - [@] bar\n  - [@] baz\n- [@] bim\n",
+    "html": "<ul>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> foo\n<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> bar</li>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> baz</li>\n</ul>\n</li>\n<li><input type=\"checkbox\" disabled=\"\" /> bim</li>\n</ul>\n<p>Show a regular (non task) list to show that it has the same structure</p>\n<ul>\n<li>[@] foo\n<ul>\n<li>[@] bar</li>\n<li>[@] baz</li>\n</ul>\n</li>\n<li>[@] bim</li>\n</ul>\n",
+    "example": 29,
+    "start_line": 854,
+    "end_line": 885,
+    "section": "Task lists",
+    "extensions": []
+  },
+  {
+    "markdown": "- [x] foo\n    - [ ] bar\n    - [x] baz\n- [ ] bim\n\nShow a regular (non task) list to show that it has the same structure\n- [@] foo\n    - [@] bar\n    - [@] baz\n- [@] bim\n",
+    "html": "<ul>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> foo\n<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> bar</li>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> baz</li>\n</ul>\n</li>\n<li><input type=\"checkbox\" disabled=\"\" /> bim</li>\n</ul>\n<p>Show a regular (non task) list to show that it has the same structure</p>\n<ul>\n<li>[@] foo\n<ul>\n<li>[@] bar</li>\n<li>[@] baz</li>\n</ul>\n</li>\n<li>[@] bim</li>\n</ul>\n",
+    "example": 30,
+    "start_line": 889,
+    "end_line": 920,
+    "section": "Task lists",
+    "extensions": []
+  }
+]
