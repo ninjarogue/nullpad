@@ -12,6 +12,8 @@
 ////     concatenated gives the input back.
 //// Imported by: `preview`, `surface` (M6), the shell, tests. Imports: stdlib.
 
+import gleam/dict.{type Dict}
+import gleam/int
 import gleam/list
 import gleam/option.{type Option}
 import gleam/result
@@ -96,7 +98,7 @@ type Lines =
   List(#(Int, LineKind))
 
 fn classify(line: String) -> LineKind {
-  case string.trim(line) {
+  case trim(line) {
     "" -> Blank
     text ->
       case heading(line) {
@@ -123,9 +125,26 @@ fn heading_text(
   after_marks: String,
 ) -> Result(#(Level, String), Nil) {
   case after_marks {
-    "" | " " <> _ -> Ok(#(level, string.trim(after_marks)))
+    "" | " " <> _ -> Ok(#(level, trim(after_marks)))
     _ -> Error(Nil)
   }
+}
+
+/// What `string.trim` does, without its quadratic end: its regex retries from
+/// every space of a long run of spaces inside the text.
+fn trim(text: String) -> String {
+  text
+  |> string.trim_start
+  |> string.to_utf_codepoints
+  |> list.reverse
+  |> list.drop_while(fn(codepoint) {
+    case string.utf_codepoint_to_int(codepoint) {
+      9 | 10 | 11 | 12 | 13 | 32 | 0x85 | 0x2028 | 0x2029 -> True
+      _ -> False
+    }
+  })
+  |> list.reverse
+  |> string.from_utf_codepoints
 }
 
 fn drop_indent(line: String, allowed: Int) -> String {
@@ -213,20 +232,41 @@ fn tokenize(
   previous: String,
   done: List(Token),
 ) -> List(Token) {
-  let read = fn(read: #(Token, List(String))) {
-    let #(token, rest) = read
-    let previous = token |> source |> string.last |> result.unwrap("")
-    tokenize(rest, previous, [token, ..done])
-  }
   case graphemes {
     [] -> list.reverse(done)
-    ["\\", ..] -> read(read_escape(graphemes))
-    ["`", ..] -> read(read_code(graphemes))
-    ["*", ..] -> read(read_delimiter(Star, graphemes, previous))
-    ["_", ..] -> read(read_delimiter(Underscore, graphemes, previous))
-    ["[", ..rest] -> read(#(OpenBracket, rest))
-    ["]", ..] -> read(read_link_end(graphemes))
-    [grapheme, ..rest] -> read(#(Word(grapheme), rest))
+    [_, ..] -> {
+      let #(token, rest) = read_token(graphemes, previous)
+      tokenize(rest, last_grapheme(token), [token, ..done])
+    }
+  }
+}
+
+fn read_token(
+  graphemes: List(String),
+  previous: String,
+) -> #(Token, List(String)) {
+  case graphemes {
+    ["\\", ..] -> read_escape(graphemes)
+    ["`", ..] -> read_code(graphemes)
+    ["*", ..] -> read_delimiter(Star, graphemes, previous)
+    ["_", ..] -> read_delimiter(Underscore, graphemes, previous)
+    ["[", ..rest] -> #(OpenBracket, rest)
+    ["]", ..] -> read_link_end(graphemes)
+    _ -> read_word(graphemes)
+  }
+}
+
+/// The last grapheme of a token's source. A `Word` is one grapheme or a run of
+/// one mark, and `previous` is only ever asked whether it is a space or a
+/// letter, which a run answers like its mark.
+fn last_grapheme(token: Token) -> String {
+  case token {
+    Word(text) -> text
+    Escaped(char) -> char
+    CodeSpan(..) -> "`"
+    Delimiter(symbol, ..) -> delimiter_source(symbol, Single)
+    OpenBracket -> "["
+    CloseLink(_) -> ")"
   }
 }
 
@@ -262,19 +302,17 @@ fn count_run(
   graphemes: List(String),
   grapheme: String,
 ) -> #(Int, List(String)) {
-  case graphemes {
-    [first, ..rest] if first == grapheme -> {
-      let #(count, after) = count_run(rest, grapheme)
-      #(count + 1, after)
-    }
-    _ -> #(0, graphemes)
-  }
+  let #(run, after) = list.split_while(graphemes, fn(next) { next == grapheme })
+  #(list.length(run), after)
 }
 
 fn read_code(graphemes: List(String)) -> #(Token, List(String)) {
   let #(ticks, after) = count_run(graphemes, "`")
-  case find_fence(after, ticks, "") {
-    Ok(#(content, rest)) -> #(CodeSpan(ticks, content), rest)
+  case find_fence(after, ticks, 0) {
+    Ok(#(length, rest)) -> {
+      let content = after |> list.take(length) |> string.concat
+      #(CodeSpan(ticks, content), rest)
+    }
     Error(Nil) -> #(Word(string.repeat("`", ticks)), after)
   }
 }
@@ -282,18 +320,18 @@ fn read_code(graphemes: List(String)) -> #(Token, List(String)) {
 fn find_fence(
   graphemes: List(String),
   ticks: Int,
-  collected: String,
-) -> Result(#(String, List(String)), Nil) {
+  length: Int,
+) -> Result(#(Int, List(String)), Nil) {
   case graphemes {
     [] -> Error(Nil)
     ["`", ..] -> {
       let #(run, rest) = count_run(graphemes, "`")
       case run == ticks {
-        True -> Ok(#(collected, rest))
-        False -> find_fence(rest, ticks, collected <> string.repeat("`", run))
+        True -> Ok(#(length, rest))
+        False -> find_fence(rest, ticks, length + run)
       }
     }
-    [grapheme, ..rest] -> find_fence(rest, ticks, collected <> grapheme)
+    [_, ..rest] -> find_fence(rest, ticks, length + 1)
   }
 }
 
@@ -330,17 +368,34 @@ fn read_delimiter(
 
 fn read_link_end(graphemes: List(String)) -> #(Token, List(String)) {
   case graphemes {
-    ["]", "(", ..after] -> {
-      let #(url, rest) =
-        list.split_while(after, fn(grapheme) {
-          grapheme != ")" && !is_space(grapheme)
-        })
-      case rest {
-        [")", ..rest] -> #(CloseLink(string.concat(url)), rest)
-        _ -> read_word(graphemes)
+    ["]", "(", ..after] ->
+      case find_url_end(after, 0) {
+        Ok(#(length, rest)) -> {
+          let url = after |> list.take(length) |> string.concat
+          #(CloseLink(url), rest)
+        }
+        Error(Nil) -> read_word(graphemes)
       }
-    }
     _ -> read_word(graphemes)
+  }
+}
+
+/// Every `](` starts a scan, so a line of nothing but `](` would scan to its
+/// end from each one. A url longer than this is not a link.
+const max_url_length = 1000
+
+fn find_url_end(
+  graphemes: List(String),
+  length: Int,
+) -> Result(#(Int, List(String)), Nil) {
+  case graphemes {
+    [")", ..rest] -> Ok(#(length, rest))
+    [grapheme, ..rest] ->
+      case is_space(grapheme) || length >= max_url_length {
+        True -> Error(Nil)
+        False -> find_url_end(rest, length + 1)
+      }
+    [] -> Error(Nil)
   }
 }
 
@@ -366,9 +421,11 @@ fn is_space(grapheme: String) -> Bool {
   grapheme == "" || grapheme == " " || grapheme == "\t"
 }
 
+const digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
 fn is_word_character(grapheme: String) -> Bool {
   string.lowercase(grapheme) != string.uppercase(grapheme)
-  || list.contains(string.to_graphemes("0123456789"), grapheme)
+  || list.contains(digits, grapheme)
 }
 
 fn is_punctuation(grapheme: String) -> Bool {
@@ -377,14 +434,19 @@ fn is_punctuation(grapheme: String) -> Bool {
 }
 
 /// What `pair` holds while it walks the tokens: the inlines read so far at the
-/// innermost level (newest first), and one frame per opener still waiting for
-/// its closer (innermost first).
+/// innermost level (newest first), one frame per opener still waiting for its
+/// closer (innermost first), and how many frames of each kind can still be
+/// closed. A closer whose kind has none fails without looking at the frames.
 ///
 ///   after "a **b [c"   inside: [Text("c")]
 ///                      enclosing: [Frame(OpenLabel, [Text("b")]),
 ///                                  Frame(OpenDelimiter(Star, Double), [Text("a ")])]
 type Pairing {
-  Pairing(inside: List(Inline), enclosing: List(Frame))
+  Pairing(
+    inside: List(Inline),
+    enclosing: List(Frame),
+    waiting: Dict(Opener, Int),
+  )
 }
 
 /// An opener, and the inlines that came before it at its own level (newest
@@ -399,7 +461,7 @@ type Opener {
 }
 
 fn pair(tokens: List(Token)) -> List(Inline) {
-  tokens |> list.fold(Pairing([], []), step) |> finish
+  tokens |> list.fold(Pairing([], [], dict.new()), step) |> finish
 }
 
 fn step(pairing: Pairing, token: Token) -> Pairing {
@@ -424,26 +486,54 @@ fn step(pairing: Pairing, token: Token) -> Pairing {
     OpenBracket -> open(pairing, OpenLabel)
     CloseLink(url) ->
       case close(pairing, OpenLabel) {
-        Ok(#(children, outer)) ->
-          add(abandon_labels(outer), Link(children, url))
+        Ok(#(children, outer)) -> add(forget_labels(outer), Link(children, url))
         Error(Nil) -> add(pairing, Text(source(token)))
       }
     Escaped(char) -> add(pairing, Text(char))
   }
 }
 
+/// The openers between the innermost frame of `opener`'s kind and the end
+/// give up and become text inside it. A walk passes each frame once, and a
+/// closer with no frame of its kind is turned down before any walk starts.
 fn close(
   pairing: Pairing,
   opener: Opener,
 ) -> Result(#(List(Inline), Pairing), Nil) {
-  case pairing.enclosing {
-    [] -> Error(Nil)
-    [Frame(found, before), ..enclosing] if found == opener -> {
-      let children = pairing.inside |> list.reverse |> normalize
-      Ok(#(children, Pairing(before, enclosing)))
-    }
-    [_, ..] -> close(abandon(pairing), opener)
+  case waiting_for(pairing.waiting, opener) {
+    0 -> Error(Nil)
+    _ ->
+      close_loop(pairing.enclosing, pairing.waiting, opener, [
+        list.reverse(pairing.inside),
+      ])
   }
+}
+
+fn close_loop(
+  enclosing: List(Frame),
+  waiting: Dict(Opener, Int),
+  opener: Opener,
+  read: List(List(Inline)),
+) -> Result(#(List(Inline), Pairing), Nil) {
+  case enclosing {
+    [] -> Error(Nil)
+    [Frame(found, before), ..outer] if found == opener ->
+      Ok(#(
+        read |> list.flatten |> normalize,
+        Pairing(before, outer, count_frame(waiting, found, -1)),
+      ))
+    [Frame(skipped, _) as frame, ..outer] ->
+      close_loop(
+        outer,
+        count_frame(waiting, skipped, -1),
+        opener,
+        give_up(read, frame),
+      )
+  }
+}
+
+fn give_up(read: List(List(Inline)), frame: Frame) -> List(List(Inline)) {
+  [list.reverse(frame.before), [Text(opener_source(frame.opener))], ..read]
 }
 
 fn add(pairing: Pairing, inline: Inline) -> Pairing {
@@ -451,49 +541,39 @@ fn add(pairing: Pairing, inline: Inline) -> Pairing {
 }
 
 fn open(pairing: Pairing, opener: Opener) -> Pairing {
-  Pairing([], [Frame(opener, pairing.inside), ..pairing.enclosing])
-}
-
-/// Gives up on the innermost opener: it becomes text in front of what it
-/// held.
-fn abandon(pairing: Pairing) -> Pairing {
-  case pairing.enclosing {
-    [] -> pairing
-    [Frame(opener, before), ..enclosing] ->
-      Pairing(
-        list.append(pairing.inside, [Text(opener_source(opener)), ..before]),
-        enclosing,
-      )
-  }
+  Pairing(
+    [],
+    [Frame(opener, pairing.inside), ..pairing.enclosing],
+    count_frame(pairing.waiting, opener, 1),
+  )
 }
 
 /// Links do not nest: once a link closes, every `[` still waiting around it
-/// becomes text.
-fn abandon_labels(pairing: Pairing) -> Pairing {
-  let #(inside, enclosing) = drop_labels(pairing.inside, pairing.enclosing)
-  Pairing(inside, enclosing)
+/// can no longer close. They stay in `enclosing` and become text when a later
+/// walk passes them. New labels open on top of them, so the live ones are the
+/// innermost `waiting` says there are.
+fn forget_labels(pairing: Pairing) -> Pairing {
+  Pairing(..pairing, waiting: dict.insert(pairing.waiting, OpenLabel, 0))
 }
 
-fn drop_labels(
-  inside: List(Inline),
-  enclosing: List(Frame),
-) -> #(List(Inline), List(Frame)) {
-  case enclosing {
-    [] -> #(inside, [])
-    [Frame(OpenLabel, before), ..rest] ->
-      drop_labels(list.append(inside, [Text("["), ..before]), rest)
-    [Frame(OpenDelimiter(..) as opener, before), ..rest] -> {
-      let #(before, rest) = drop_labels(before, rest)
-      #(inside, [Frame(opener, before), ..rest])
-    }
-  }
+fn waiting_for(waiting: Dict(Opener, Int), opener: Opener) -> Int {
+  dict.get(waiting, opener) |> result.unwrap(0)
+}
+
+fn count_frame(
+  waiting: Dict(Opener, Int),
+  opener: Opener,
+  change: Int,
+) -> Dict(Opener, Int) {
+  let count = int.max(0, waiting_for(waiting, opener) + change)
+  dict.insert(waiting, opener, count)
 }
 
 fn finish(pairing: Pairing) -> List(Inline) {
-  case pairing.enclosing {
-    [] -> pairing.inside |> list.reverse |> normalize
-    [_, ..] -> finish(abandon(pairing))
-  }
+  pairing.enclosing
+  |> list.fold([list.reverse(pairing.inside)], give_up)
+  |> list.flatten
+  |> normalize
 }
 
 fn opener_source(opener: Opener) -> String {
@@ -517,7 +597,7 @@ fn trim_code(content: String) -> String {
   let padded =
     string.starts_with(content, " ")
     && string.ends_with(content, " ")
-    && string.trim(content) != ""
+    && string.trim_start(content) != ""
   case padded {
     True -> content |> string.drop_start(1) |> string.drop_end(1)
     False -> content

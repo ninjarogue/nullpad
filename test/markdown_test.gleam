@@ -7,6 +7,8 @@
 //// `markdown.parse`. They are ordered: code spans, bold and italic, links,
 //// escapes. Work from the top down.
 
+import gleam/list
+import gleam/string
 import scribbl/markdown.{
   Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
   Item, Link, Paragraph, Strong, Text, Unchecked,
@@ -255,6 +257,103 @@ pub fn any_ascii_punctuation_can_be_escaped_test() {
 pub fn backslash_is_literal_in_code_test() {
   assert markdown.parse("a `\\` b")
     == paragraph([Text("a "), Code("\\"), Text(" b")])
+}
+
+// Long and hostile lines
+
+pub fn a_long_plain_line_is_one_text_test() {
+  let line = string.repeat("word ", 4000) |> string.trim
+  assert markdown.parse(line) == paragraph([Text(line)])
+}
+
+pub fn a_long_run_of_one_mark_is_one_text_test() {
+  let stars = string.repeat("*", 20_000)
+  let ticks = string.repeat("`", 20_000)
+  assert markdown.parse(stars) == paragraph([Text(stars)])
+  assert markdown.parse(ticks) == paragraph([Text(ticks)])
+}
+
+pub fn a_backtick_that_never_closes_stays_text_test() {
+  let line = "`" <> string.repeat("code ", 4000) |> string.trim
+  assert markdown.parse(line) == paragraph([Text(line)])
+}
+
+pub fn many_unclosed_stars_are_text_test() {
+  let line = string.repeat("*a ", 7000) |> string.trim
+  assert markdown.parse(line) == paragraph([Text(line)])
+}
+
+pub fn many_unclosed_bold_marks_are_text_test() {
+  let line = string.repeat("**a ", 5000) |> string.trim
+  assert markdown.parse(line) == paragraph([Text(line)])
+}
+
+pub fn many_unclosed_brackets_are_text_test() {
+  let line = string.repeat("[", 20_000)
+  assert markdown.parse(line) == paragraph([Text(line)])
+  let mixed = string.repeat("**[a ", 4000) |> string.trim
+  assert markdown.parse(mixed) == paragraph([Text(mixed)])
+}
+
+pub fn closers_that_find_no_opener_are_text_test() {
+  let line = string.repeat("*a ", 3000) <> string.repeat("a_ ", 3000)
+  let line = string.trim(line)
+  assert markdown.parse(line) == paragraph([Text(line)])
+}
+
+pub fn a_closer_gives_up_every_opener_inside_it_test() {
+  let inside = string.repeat("[a ", 5000) <> "b"
+  assert markdown.parse("*" <> inside <> "*")
+    == paragraph([Emphasis([Text(inside)])])
+}
+
+pub fn a_link_gives_up_every_opener_around_it_test() {
+  let openers = string.repeat("[a ", 3000)
+  assert markdown.parse(openers <> "[a](b)")
+    == paragraph([Text(openers), Link([Text("a")], "b")])
+}
+
+pub fn a_long_run_of_spaces_inside_a_line_is_kept_test() {
+  let line = "a" <> string.repeat(" ", 20_000) <> "b"
+  assert markdown.parse(line) == paragraph([Text(line)])
+}
+
+pub fn trimming_keeps_a_lone_accent_in_place_test() {
+  assert markdown.parse("\u{301} a ") == paragraph([Text("\u{301} a")])
+}
+
+pub fn a_closer_passes_the_label_a_link_gave_up_test() {
+  assert markdown.parse("*a [b [c](d) e*")
+    == paragraph([
+      Emphasis([Text("a [b "), Link([Text("c")], "d"), Text(" e")]),
+    ])
+}
+
+pub fn a_label_opened_after_a_link_still_closes_test() {
+  assert markdown.parse("[a [b](c) [d](e) f](g)")
+    == paragraph([
+      Text("[a "),
+      Link([Text("b")], "c"),
+      Text(" "),
+      Link([Text("d")], "e"),
+      Text(" f](g)"),
+    ])
+}
+
+pub fn thousands_of_bold_words_are_thousands_of_strongs_test() {
+  let strong = Strong([Text("a")])
+  let expected =
+    list.repeat([strong, Text(" ")], 4999)
+    |> list.flatten
+    |> list.append([strong])
+  assert markdown.parse(string.repeat("**a** ", 5000)) == paragraph(expected)
+}
+
+pub fn thousands_of_links_are_thousands_of_links_test() {
+  let link = Link([Text("a")], "b")
+  let expected =
+    list.repeat([link, Text(" ")], 3999) |> list.flatten |> list.append([link])
+  assert markdown.parse(string.repeat("[a](b) ", 4000)) == paragraph(expected)
 }
 
 /// M3: each item knows its source row and whether it is a task.
