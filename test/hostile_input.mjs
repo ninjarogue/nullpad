@@ -89,6 +89,12 @@ const inputs = {
       .repeat(n / 10_000),
   "many tasks": (n) => "- [ ] a\n".repeat(n),
   "boxes alone": (n) => "- [x]\n".repeat(n),
+  "an unclosed fence": (n) => "```\n" + "a\n".repeat(n),
+  "fences that open and close": (n) => "```\na\n```\n".repeat(n),
+  "fence closers of the other mark": (n) => "````\n" + "```\n~~~~\n".repeat(n),
+  "a long fence": (n) => "`".repeat(n * 4),
+  "indented code, blank lines between": (n) => "    a\n\n".repeat(n),
+  "indented code, blank lines after": (n) => "    a\n" + "\n".repeat(n),
   "tabs": (n) => "\t".repeat(n) + "a",
   "tabs after a bullet": (n) => "-" + "\t".repeat(n) + "a",
 };
@@ -103,6 +109,8 @@ const titles = {
   "title after many empty items": (n) => "-\n".repeat(n) + "a",
   "title after many quote marks": (n) => ">\n".repeat(n) + "a",
   "title of a long first paragraph": (n) => "a\n".repeat(n),
+  "title inside a fence after blank lines": (n) =>
+    "```\n" + "\n".repeat(n) + "a",
 };
 
 function time(work, source) {

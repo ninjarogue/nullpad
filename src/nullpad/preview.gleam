@@ -50,7 +50,13 @@ fn block(shown: Block, on_task: fn(Task, Bool) -> msg) -> Element(msg) {
         [attribute.attribute("start", int.to_string(start))],
         list_items(items, spacing),
       )
-    CodeBlock(..) -> element.none()
+    CodeBlock(language, code) -> {
+      let class = case language {
+        Some(word) -> [attribute.class("language-" <> word)]
+        None -> []
+      }
+      html.pre([], [html.code(class, [element.text(code)])])
+    }
   }
 }
 

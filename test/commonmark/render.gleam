@@ -32,7 +32,14 @@ fn block(block: Block) -> String {
       <> "\">\n"
       <> list_items(spacing, items)
       <> "</ol>\n"
-    CodeBlock(..) -> panic as "the parser does not build this block yet"
+    CodeBlock(language: Some(word), code:) ->
+      "<pre><code class=\"language-"
+      <> escape(word)
+      <> "\">"
+      <> escape(code)
+      <> "</code></pre>\n"
+    CodeBlock(language: None, code:) ->
+      "<pre><code>" <> escape(code) <> "</code></pre>\n"
   }
 }
 

@@ -1,8 +1,8 @@
 import commonmark/render
 import gleam/option.{None, Some}
 import nullpad/markdown.{
-  Block, BulletList, Code, Emphasis, H3, Heading, Item, Link, Loose, OrderedList,
-  Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
+  Block, BulletList, Code, CodeBlock, Emphasis, H3, Heading, Item, Link, Loose,
+  OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
 }
 
 fn paragraph(text: List(markdown.Inline)) -> String {
@@ -84,6 +84,13 @@ pub fn a_task_starts_its_item_with_a_disabled_checkbox_test() {
 
 fn item(row: Int, text: String) -> markdown.Item {
   Item(row, None, [Block(row, row, Paragraph([Text(text)]))])
+}
+
+pub fn code_is_escaped_inside_pre_and_code_test() {
+  assert render.html([Block(0, 0, CodeBlock(None, "<a> & \"b\"\n"))])
+    == "<pre><code>&lt;a&gt; &amp; &quot;b&quot;\n</code></pre>\n"
+  assert render.html([Block(0, 0, CodeBlock(Some("a&b"), ""))])
+    == "<pre><code class=\"language-a&amp;b\"></code></pre>\n"
 }
 
 pub fn strike_is_del_test() {

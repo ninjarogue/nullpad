@@ -38,6 +38,7 @@ pub fn a_title_is_the_first_line_of_text_the_page_shows_test() {
     == "done thing"
   assert storage.display_title(None, "**bold\nmore**") == "bold"
   assert storage.display_title(None, "Title\n===") == "Title"
+  assert storage.display_title(None, "```js\nlet x = 1\n```") == "let x = 1"
   assert storage.display_title(None, "-\n\n> \n- [ ]\n\n  late") == "late"
 }
 

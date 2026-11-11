@@ -1,14 +1,21 @@
 //// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
-//// CommonMark 0.31.2 for what nullpad supports (ATX headings, paragraphs,
-//// code spans, emphasis, inline links, backslash escapes), and GFM for
-//// strikethrough. Everything else stays text as typed.
-//// `test/commonmark_test.gleam` and `test/gfm_test.gleam` measure it against
-//// the specs' examples. One rule is nullpad's own: a link to an address it
-//// will not follow (`is_safe_url`) stays text.
+//// CommonMark 0.31.2 for what nullpad supports (headings, paragraphs, block
+//// quotes, lists, code blocks, thematic breaks, code spans, emphasis, inline
+//// links, backslash escapes), and GFM for strikethrough and task items.
+//// Everything else stays text as typed. `test/commonmark_test.gleam` and
+//// `test/gfm_test.gleam` measure it against the specs' examples. Two rules
+//// are nullpad's own: a link to an address it will not follow
+//// (`is_safe_url`) stays text, and a box with nothing after it is a task.
 ////
-//// Blocks, in one pass over the lines: the open leaf (a paragraph) has the
-//// first say on a line, then `start` reads which block the line begins. A
-//// leaf keeps its lines as typed until it closes.
+//// Blocks, in one pass over the lines, as in the spec's appendix: each open
+//// container (a quote, or a list and its open item) eats its prefix from the
+//// line, outermost first. When all of them keep the line, the open leaf (a
+//// paragraph or code) has the first say on the rest. Then `start` reads
+//// which blocks the rest begins, closing the containers that did not keep
+//// the line, unless it continues a paragraph lazily. A leaf keeps its lines
+//// as typed until it closes.
+//// `set_task` and `first_text` parse the note again rather than read its
+//// markup a second way.
 //// Inlines, once per heading or paragraph: `scan` settles escapes, code
 //// spans and links in one pass, then `emphasize` pairs the `*`, `_` and `~`
 //// runs. Whether M6's `highlight` reuses `scan` is undecided, because `scan`
@@ -26,8 +33,7 @@ import gleam/string
 
 /// A block plus the source rows it came from (inclusive, numbered like
 /// `buffer.Position.row`). Rows cost one counter in the block parser. They
-/// let a ticked task find its line, and later let the rendered page scroll to
-/// the cursor.
+/// will let the rendered page scroll to the cursor.
 pub type Block {
   Block(first_row: Int, last_row: Int, content: Content)
 }
@@ -109,14 +115,20 @@ fn source_lines(source: String) -> List(List(String)) {
   source |> string.replace("\u{0}", "\u{FFFD}") |> code_point_lines
 }
 
-/// One string per code point (the spec's "character") per line.
+/// One string per code point (the spec's "character") per line. A line
+/// ending at the very end starts no line after it.
 fn code_point_lines(source: String) -> List(List(String)) {
-  source
-  |> string.to_utf_codepoints
-  |> list.fold([], fn(backwards, codepoint) {
-    [string.from_utf_codepoints([codepoint]), ..backwards]
-  })
-  |> split_lines([], [])
+  let backwards =
+    source
+    |> string.to_utf_codepoints
+    |> list.fold([], fn(backwards, codepoint) {
+      [string.from_utf_codepoints([codepoint]), ..backwards]
+    })
+  case backwards {
+    ["\n", "\r", ..rest] | ["\n", ..rest] | ["\r", ..rest] ->
+      split_lines(rest, [], [])
+    _ -> split_lines(backwards, [], [])
+  }
 }
 
 /// Takes the characters from the last one back, so each line and the list of
@@ -238,6 +250,12 @@ fn eat_text(line: Line, count: Int) -> Line {
   )
 }
 
+/// The line as typed from the cursor on, with the columns still owed for a
+/// tab as spaces.
+fn verbatim(line: Line) -> List(String) {
+  list.append(list.repeat(" ", line.owed), list.append(line.margin, line.text))
+}
+
 /// A `>` and the one space or tab column after it, if there is one.
 fn after_quote_mark(line: Line) -> Line {
   eat_columns(eat_text(line, 1), 1)
@@ -300,6 +318,23 @@ type Marker {
 type Leaf {
   NoLeaf
   ParagraphLeaf(first_row: Int, last_row: Int, lines: List(List(String)))
+  /// `indent` is the opening fence's, which each line loses up to.
+  FencedLeaf(
+    first_row: Int,
+    fence: String,
+    length: Int,
+    indent: Int,
+    language: Option(String),
+    lines: List(List(String)),
+  )
+  /// `blanks` are the blank lines since the last line of code. They belong
+  /// to the code only if more code follows.
+  IndentedLeaf(
+    first_row: Int,
+    last_row: Int,
+    lines: List(List(String)),
+    blanks: List(List(String)),
+  )
 }
 
 /// What a line begins.
@@ -312,6 +347,8 @@ type Start {
   ItemStart(marker: Marker, number: Int, width: Int, sibling: Bool, rest: Line)
   HeadingStart(level: Level, text: List(String))
   RuleStart
+  FenceStart(fence: String, length: Int, indent: Int, language: Option(String))
+  CodeStart(rest: Line)
 }
 
 /// Each open container eats its prefix, outermost first. Only when all of
@@ -358,7 +395,7 @@ fn continue_frame(container: Container, line: Line) -> Result(Line, Nil) {
 fn continue_leaf(open: Open, line: Line) -> Open {
   case open.leaf, line.text {
     NoLeaf, _ -> start_blocks(open, open.depth, line)
-    ParagraphLeaf(..), [] -> close_leaf(open)
+    ParagraphLeaf(..), [] -> close_leaf(open, line.row)
     ParagraphLeaf(first_row:, lines:, ..), text if line.indent < 4 ->
       case setext_level(text) {
         Ok(level) -> {
@@ -369,6 +406,34 @@ fn continue_leaf(open: Open, line: Line) -> Open {
         Error(Nil) -> start_blocks(open, open.depth, line)
       }
     ParagraphLeaf(..), _ -> start_blocks(open, open.depth, line)
+    FencedLeaf(fence:, length:, indent:, lines:, ..) as leaf, text ->
+      case line.indent < 4 && closes_fence(text, fence, length) {
+        True -> close_leaf(open, line.row)
+        False -> {
+          let code = verbatim(eat_columns(line, int.min(indent, line.indent)))
+          Open(..open, leaf: FencedLeaf(..leaf, lines: [code, ..lines]))
+        }
+      }
+    IndentedLeaf(lines:, blanks:, ..) as leaf, text ->
+      case line.indent >= 4, text {
+        True, [] -> {
+          let blank = verbatim(eat_columns(line, 4))
+          Open(..open, leaf: IndentedLeaf(..leaf, blanks: [blank, ..blanks]))
+        }
+        False, [] ->
+          Open(..open, leaf: IndentedLeaf(..leaf, blanks: [[], ..blanks]))
+        True, _ -> {
+          let lines = [
+            verbatim(eat_columns(line, 4)),
+            ..list.append(blanks, lines)
+          ]
+          Open(
+            ..open,
+            leaf: IndentedLeaf(..leaf, last_row: line.row, lines:, blanks: []),
+          )
+        }
+        False, _ -> start_blocks(open, open.depth, line)
+      }
   }
 }
 
@@ -402,17 +467,41 @@ fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
       |> push_block(Block(row, row, Heading(level, inlines(text))))
     RuleStart, _ ->
       close_to(open, matched, row) |> push_block(Block(row, row, Rule))
+    FenceStart(fence, length, indent, language), _ ->
+      Open(
+        ..close_to(open, matched, row),
+        leaf: FencedLeaf(row, fence, length, indent, language, []),
+      )
+    CodeStart(rest), _ ->
+      Open(
+        ..close_to(open, matched, row),
+        leaf: IndentedLeaf(row, row, [verbatim(rest)], []),
+      )
   }
 }
 
+/// Indented code cannot interrupt a paragraph, so an indented line there is
+/// the paragraph's next line.
 fn start(open: Open, matched: Int, line: Line) -> Start {
+  case line.text, open.leaf {
+    [], _ -> Blank
+    _, ParagraphLeaf(..) if line.indent >= 4 -> TextLine
+    _, _ if line.indent >= 4 -> CodeStart(eat_columns(line, 4))
+    _, _ -> start_text(open, matched, line)
+  }
+}
+
+fn start_text(open: Open, matched: Int, line: Line) -> Start {
   case line.text {
-    [] -> Blank
-    _ if line.indent >= 4 -> TextLine
     [">", ..] if matched < max_block_depth -> QuoteStart(after_quote_mark(line))
     ["#", ..] as text ->
       case heading(text) {
         Ok(#(level, text)) -> HeadingStart(level, text)
+        Error(Nil) -> TextLine
+      }
+    ["`", ..] as text | ["~", ..] as text ->
+      case fence_start(text, line.indent) {
+        Ok(start) -> start
         Error(Nil) -> TextLine
       }
     ["*", ..] as text | ["-", ..] as text | ["_", ..] as text ->
@@ -435,7 +524,7 @@ fn item_start(open: Open, matched: Int, line: Line) -> Start {
       let blank = after.text == []
       let interrupts = case open.leaf {
         ParagraphLeaf(..) -> matched == open.depth
-        NoLeaf -> False
+        _ -> False
       }
       let sibling = is_sibling(open, matched, marker)
       case after.indent {
@@ -517,6 +606,53 @@ fn is_rule(text: List(String)) -> Bool {
   }
 }
 
+/// Three or more backticks or tildes. The info string after backticks may
+/// not hold one, so that "``` a ` b" stays a code span.
+fn fence_start(text: List(String), indent: Int) -> Result(Start, Nil) {
+  case text {
+    [fence, ..] -> {
+      let #(length, info) = count_run(text, fence, 0)
+      case length >= 3 && !{ fence == "`" && list.contains(info, "`") } {
+        True -> Ok(FenceStart(fence, length, indent, language(info)))
+        False -> Error(Nil)
+      }
+    }
+    [] -> Error(Nil)
+  }
+}
+
+/// The first word of the info string, backslash escapes settled.
+fn language(info: List(String)) -> Option(String) {
+  let word =
+    info
+    |> drop_spaces
+    |> list.take_while(fn(char) { !is_space_or_tab(char) })
+    |> unescape("")
+  case word {
+    "" -> None
+    _ -> Some(word)
+  }
+}
+
+fn unescape(chars: List(String), done: String) -> String {
+  case chars {
+    [] -> done
+    ["\\", char, ..rest] ->
+      case is_ascii_punctuation(char) {
+        True -> unescape(rest, done <> char)
+        False -> unescape([char, ..rest], done <> "\\")
+      }
+    [char, ..rest] -> unescape(rest, done <> char)
+  }
+}
+
+/// At least as many of the fence's character as opened it, then only spaces
+/// and tabs.
+fn closes_fence(text: List(String), fence: String, length: Int) -> Bool {
+  let #(run, after) = count_run(text, fence, 0)
+  run >= length && drop_spaces(after) == []
+}
+
 /// A run of `=` (level 1) or `-` (level 2), then only spaces and tabs.
 fn setext_level(text: List(String)) -> Result(Level, Nil) {
   let underline = fn(mark, level) {
@@ -580,7 +716,7 @@ fn push_frame(open: Open, container: Container) -> Open {
 /// Closes the leaf, then frames until `depth` are left. `row` is the line
 /// that closes them, so a frame ends on the row before it.
 fn close_to(open: Open, depth: Int, row: Int) -> Open {
-  let open = close_leaf(open)
+  let open = close_leaf(open, row - 1)
   case open.frames {
     [frame, ..outer] if open.depth > depth ->
       Open(..open, frames: outer, depth: open.depth - 1)
@@ -681,16 +817,26 @@ fn has_gap(blocks: List(Block)) -> Bool {
   }
 }
 
-fn close_leaf(open: Open) -> Open {
+/// `last_row` is where an open fence ends. Every other leaf knows its own.
+fn close_leaf(open: Open, last_row: Int) -> Open {
+  let closed = Open(..open, leaf: NoLeaf)
   case open.leaf {
     NoLeaf -> open
     ParagraphLeaf(first_row, last_row, lines) ->
-      Open(..open, leaf: NoLeaf)
-      |> push_block(Block(
-        first_row,
-        last_row,
-        Paragraph(inlines(paragraph_text(lines))),
-      ))
+      push_block(
+        closed,
+        Block(first_row, last_row, Paragraph(inlines(paragraph_text(lines)))),
+      )
+    FencedLeaf(first_row:, language:, lines:, ..) ->
+      push_block(
+        closed,
+        Block(first_row, last_row, CodeBlock(language, code_text(lines))),
+      )
+    IndentedLeaf(first_row:, last_row:, lines:, ..) ->
+      push_block(
+        closed,
+        Block(first_row, last_row, CodeBlock(None, code_text(lines))),
+      )
   }
 }
 
@@ -707,6 +853,14 @@ fn push_block(open: Open, block: Block) -> Open {
 
 fn finish(open: Open, rows: Int) -> List(Block) {
   list.reverse(close_to(open, 0, rows).blocks)
+}
+
+/// Each line, newest first, as typed and ended with "\n".
+fn code_text(backwards: List(List(String))) -> String {
+  list.fold(backwards, [], fn(code, line) {
+    [string.concat(line), "\n", ..code]
+  })
+  |> string.concat
 }
 
 /// The lines joined with "\n", with the spaces after the last one dropped.
@@ -1531,12 +1685,13 @@ fn shown(blocks: List(Block)) -> String {
   }
 }
 
-/// The first line of `text` that is not blank, trimmed.
+/// The first line of `text` that is not blank, trimmed. Splits the whole
+/// text into graphemes at once: one call per line costs far more.
 fn first_line(text: String) -> String {
-  use line <- first_shown(string.split(text, "\n"))
-  line
+  text
   |> string.to_graphemes
   |> list.drop_while(is_unicode_whitespace)
+  |> list.take_while(fn(char) { char != "\n" })
   |> list.reverse
   |> list.drop_while(is_unicode_whitespace)
   |> list.reverse

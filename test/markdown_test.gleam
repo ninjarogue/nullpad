@@ -6,8 +6,9 @@ import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
 import nullpad/markdown.{
-  Block, BulletList, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Item, Link,
-  Loose, OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
+  Block, BulletList, Code, CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
+  Item, Link, Loose, OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task,
+  Text, Tight,
 }
 import nullpad/preview
 
@@ -429,9 +430,81 @@ pub fn set_task_keeps_the_rest_of_the_line_as_typed_test() {
     == Ok("> 1. [ ] \u{1F600}")
 }
 
-/// M3 turns four spaces of indent into a code block.
-pub fn four_spaces_of_indent_are_not_a_heading_test() {
-  assert markdown.parse("    # too far") == [para(0, "# too far")]
+// Code blocks
+
+pub fn a_fence_keeps_its_lines_as_typed_test() {
+  assert markdown.parse("```gleam\nlet x = *1*\n\n  <b>\n```\nafter")
+    == [
+      Block(0, 4, CodeBlock(Some("gleam"), "let x = *1*\n\n  <b>\n")),
+      para(5, "after"),
+    ]
+}
+
+pub fn a_fence_closes_only_with_as_long_a_run_of_its_mark_test() {
+  assert markdown.parse("````\n```\n~~~~\n`````  ")
+    == [Block(0, 3, CodeBlock(None, "```\n~~~~\n"))]
+  assert markdown.parse("~~~\n``` a\n~~~~")
+    == [Block(0, 2, CodeBlock(None, "``` a\n"))]
+}
+
+pub fn an_unclosed_fence_ends_with_its_container_test() {
+  assert markdown.parse("```\na\n") == [Block(0, 1, CodeBlock(None, "a\n"))]
+  assert markdown.parse("> ```\n> a\nb")
+    == [Block(0, 1, Quote([Block(0, 1, CodeBlock(None, "a\n"))])), para(2, "b")]
+}
+
+pub fn fenced_lines_lose_as_much_indent_as_the_fence_has_test() {
+  assert markdown.parse("  ```\n    a\n b\nc\n  ```")
+    == [Block(0, 4, CodeBlock(None, "  a\nb\nc\n"))]
+}
+
+pub fn the_first_word_after_the_fence_names_the_language_test() {
+  assert markdown.parse("``` ruby startline=3\n```")
+    == [Block(0, 1, CodeBlock(Some("ruby"), ""))]
+  assert markdown.parse("~~~ a\\_b`c\n~~~")
+    == [Block(0, 1, CodeBlock(Some("a_b`c"), ""))]
+  assert markdown.parse("``` a`b\nc")
+    == [Block(0, 1, Paragraph([Text("``` a`b\nc")]))]
+}
+
+pub fn four_spaces_of_indent_make_a_code_block_test() {
+  assert markdown.parse("    # too far")
+    == [Block(0, 0, CodeBlock(None, "# too far\n"))]
+}
+
+pub fn indented_code_keeps_blank_lines_only_between_its_lines_test() {
+  assert markdown.parse("    a\n\n      b\n      \n    c\n  \n\nd")
+    == [Block(0, 4, CodeBlock(None, "a\n\n  b\n  \nc\n")), para(7, "d")]
+}
+
+pub fn indented_code_cannot_interrupt_a_paragraph_test() {
+  assert markdown.parse("a\n    b") == [Block(0, 1, Paragraph([Text("a\nb")]))]
+}
+
+pub fn a_tab_reaches_the_next_multiple_of_four_columns_test() {
+  let code = Block(0, 0, CodeBlock(None, "  foo\n"))
+  assert markdown.parse("-\t\tfoo")
+    == [Block(0, 0, BulletList(Tight, [item(0, [code])]))]
+  assert markdown.parse(">\t\tfoo") == [Block(0, 0, Quote([code]))]
+}
+
+pub fn code_inside_an_item_is_indented_past_the_item_test() {
+  assert markdown.parse("1.  a\n\n        code")
+    == [
+      Block(
+        0,
+        2,
+        OrderedList(1, Loose, [
+          item(0, [para(0, "a"), Block(2, 2, CodeBlock(None, "code\n"))]),
+        ]),
+      ),
+    ]
+}
+
+pub fn set_task_refuses_a_box_inside_code_test() {
+  assert markdown.set_task("```\n- [ ] a\n```", Task(False, 1, 3), True)
+    == Error(Nil)
+  assert markdown.set_task("    - [ ] a", Task(False, 0, 7), True) == Error(Nil)
 }
 
 pub fn a_heading_ends_the_paragraph_before_it_test() {
@@ -604,8 +677,8 @@ pub fn one_or_two_tildes_strike_through_test() {
 }
 
 pub fn three_tildes_or_more_are_text_test() {
-  assert markdown.parse("~~~a~~~ ~~~~b~~~~")
-    == paragraph([Text("~~~a~~~ ~~~~b~~~~")])
+  assert markdown.parse("x ~~~a~~~ ~~~~b~~~~")
+    == paragraph([Text("x ~~~a~~~ ~~~~b~~~~")])
 }
 
 pub fn tildes_strike_only_with_a_run_of_the_same_length_test() {
@@ -700,9 +773,12 @@ pub fn a_long_plain_line_is_one_text_test() {
 
 pub fn a_long_run_of_one_mark_is_one_text_test() {
   let stars = "a" <> string.repeat("*", 20_000)
-  let ticks = string.repeat("`", 20_000)
+  let ticks = "a" <> string.repeat("`", 20_000)
   assert markdown.parse(stars) == paragraph([Text(stars)])
   assert markdown.parse(ticks) == paragraph([Text(ticks)])
+  assert markdown.parse(string.repeat("*", 20_000)) == [Block(0, 0, Rule)]
+  assert markdown.parse(string.repeat("`", 20_000))
+    == [Block(0, 0, CodeBlock(None, ""))]
 }
 
 pub fn a_backtick_that_never_closes_stays_text_test() {
@@ -814,6 +890,11 @@ pub fn first_text_reads_past_the_first_sixteen_lines_test() {
   assert markdown.first_text(string.repeat("---\n", 16) <> "a") == "a"
   assert markdown.first_text(string.repeat(">\n", 5000) <> "\n- b") == "b"
   assert markdown.first_text(string.repeat(">\n", 5000)) == ""
+}
+
+pub fn first_text_reads_the_first_line_of_code_test() {
+  assert markdown.first_text("```js\n\n  let x = 1\n```") == "let x = 1"
+  assert markdown.first_text(string.repeat("    \n", 100) <> "    a") == "a"
 }
 
 pub fn first_text_keeps_marks_that_do_not_close_test() {
