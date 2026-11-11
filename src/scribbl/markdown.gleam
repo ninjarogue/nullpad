@@ -5,14 +5,16 @@
 //// Two private layers, shared by `parse` and `highlight` so there is one
 //// grammar and the editor and the rendered page cannot disagree:
 ////   classify(line) -> LineKind   Blank | HeadingLine(level, text) |
-////     FenceLine(language) | QuoteLine(rest) | ItemLine(indent, marker, rest)
-////     | RuleLine | TextLine(text). One line only, no context.
+////     TextLine(text), and in M3 FenceLine(language) | QuoteLine(rest) |
+////     ItemLine(indent, marker, rest) | RuleLine. One line only, no context.
 ////   tokenize(text) -> List(Token)   Word(text) | Delimiter(marks) |
 ////     OpenBracket | CloseLink(url). Lossless: the tokens' source text
 ////     concatenated gives the input back.
 //// Imported by: `preview`, `surface` (M6), the shell, tests. Imports: stdlib.
 
+import gleam/list
 import gleam/option.{type Option}
+import gleam/string
 
 /// A block plus the source rows it came from (inclusive, numbered like
 /// `buffer.Position.row`). Rows cost one counter in the block parser. They
@@ -76,13 +78,123 @@ pub type Inline {
 /// unclosed syntax becomes plain `Text`, and raw HTML is just text), so there
 /// is no error type.
 pub fn parse(source: String) -> List(Block) {
-  // Number the lines from 0. Loop: classify(first line) picks a block reader.
-  // The reader eats the lines that belong to it and returns #(Block, rest).
-  // Quote / list item: strip the marker or indent, recurse on the inside.
-  // Leaf text: tokenize each line, then pair up marks with a stack of open
-  // ones. A mark that never closes becomes `Text`.
-  let _ = source
-  todo as "not implemented"
+  source
+  |> string.replace("\r\n", "\n")
+  |> string.split("\n")
+  |> list.index_map(fn(line, row) { #(row, classify(line)) })
+  |> read_blocks([])
+}
+
+type LineKind {
+  Blank
+  HeadingLine(level: Level, text: String)
+  TextLine(text: String)
+}
+
+type Lines =
+  List(#(Int, LineKind))
+
+fn classify(line: String) -> LineKind {
+  case string.trim(line) {
+    "" -> Blank
+    text ->
+      case heading(line) {
+        Ok(#(level, heading_text)) -> HeadingLine(level, heading_text)
+        Error(Nil) -> TextLine(text)
+      }
+  }
+}
+
+fn heading(line: String) -> Result(#(Level, String), Nil) {
+  case drop_indent(line, 3) {
+    "######" <> rest -> heading_text(H6, rest)
+    "#####" <> rest -> heading_text(H5, rest)
+    "####" <> rest -> heading_text(H4, rest)
+    "###" <> rest -> heading_text(H3, rest)
+    "##" <> rest -> heading_text(H2, rest)
+    "#" <> rest -> heading_text(H1, rest)
+    _ -> Error(Nil)
+  }
+}
+
+fn heading_text(
+  level: Level,
+  after_marks: String,
+) -> Result(#(Level, String), Nil) {
+  case after_marks {
+    "" | " " <> _ -> Ok(#(level, string.trim(after_marks)))
+    _ -> Error(Nil)
+  }
+}
+
+fn drop_indent(line: String, allowed: Int) -> String {
+  case line {
+    " " <> rest if allowed > 0 -> drop_indent(rest, allowed - 1)
+    _ -> line
+  }
+}
+
+fn read_blocks(lines: Lines, done: List(Block)) -> List(Block) {
+  case lines {
+    [] -> list.reverse(done)
+    [#(_, Blank), ..rest] -> read_blocks(rest, done)
+    [#(row, HeadingLine(level, text)), ..rest] -> {
+      let block = Block(row, row, Heading(level, inlines(text)))
+      read_blocks(rest, [block, ..done])
+    }
+    [#(row, TextLine(text)), ..rest] -> {
+      let #(block, rest) = read_paragraph(row, row, [inlines(text)], rest)
+      read_blocks(rest, [block, ..done])
+    }
+  }
+}
+
+fn read_paragraph(
+  first_row: Int,
+  last_row: Int,
+  read: List(List(Inline)),
+  lines: Lines,
+) -> #(Block, Lines) {
+  case lines {
+    [#(row, TextLine(text)), ..rest] ->
+      read_paragraph(first_row, row, [inlines(text), ..read], rest)
+    [] | [#(_, Blank), ..] | [#(_, HeadingLine(..)), ..] -> {
+      let text =
+        read
+        |> list.reverse
+        |> list.intersperse([Text(" ")])
+        |> list.flatten
+        |> normalize
+      #(Block(first_row, last_row, Paragraph(text)), lines)
+    }
+  }
+}
+
+// Inline parsing. `inlines` is the only function that reads inside a line.
+// It is a stub: no markup is recognised yet.
+fn inlines(text: String) -> List(Inline) {
+  case text {
+    "" -> []
+    _ -> [Text(text)]
+  }
+}
+
+fn normalize(parts: List(Inline)) -> List(Inline) {
+  parts |> list.fold([], push_inline) |> list.reverse
+}
+
+fn push_inline(done: List(Inline), next: Inline) -> List(Inline) {
+  case next, done {
+    Text(""), _ -> done
+    Text(more), [Text(text), ..before] -> [Text(text <> more), ..before]
+    Text(_), _
+    | Strong(_), _
+    | Emphasis(_), _
+    | Code(_), _
+    | Link(..), _
+    | Strike(_), _
+    -> [next, ..done]
+  }
 }
 
 /// Flip the task marker on one source line: "- [ ] milk" <-> "- [x] milk".
