@@ -1,0 +1,143 @@
+import { expect } from 'e2e';
+import { test } from './scribbl.ts';
+
+test.beforeEach(async ({ app, page }) => {
+  await app.open('/');
+  await expect(page.text).toBeFocused();
+});
+
+test('headings show at their level', async ({ page }) => {
+  await page.text.fill('# a\n## b\n### c\n#### d\n##### e\n###### f');
+  await page.showPreview.tap();
+
+  await expect(page.preview.getByRole('heading')).toHaveText(['a', 'b', 'c', 'd', 'e', 'f']);
+  for (const [level, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
+    await expect(page.preview.getByRole('heading', name, { level: level + 1 })).toBeVisible();
+  }
+  await expect(page.paragraphs).toHaveCount(0);
+});
+
+test('lines with no blank line between are one paragraph, a blank line starts the next', async ({
+  page,
+}) => {
+  await page.text.fill('one\ntwo\n\nthree');
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveText(['one two', 'three']);
+});
+
+test('more blank lines than one still only separate paragraphs', async ({ page }) => {
+  await page.text.fill('one\n\n\n\ntwo\n\n');
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveText(['one', 'two']);
+  await expect(page.everything).toHaveCount(2);
+});
+
+test('text that only looks like a heading stays a paragraph', async ({ page }) => {
+  await page.text.fill('#hashtag\n\n####### seven');
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveText(['#hashtag', '####### seven']);
+  await expect(page.preview.getByRole('heading')).toHaveCount(0);
+});
+
+test('a heading ends the paragraph above it', async ({ page }) => {
+  await page.text.fill('before\n## Middle\nafter');
+  await page.showPreview.tap();
+
+  await expect(page.paragraphs).toHaveText(['before', 'after']);
+  await expect(page.preview.getByRole('heading', 'Middle', { level: 2 })).toBeVisible();
+});
+
+test('the page shows the edit made after the last preview', async ({ page }) => {
+  await page.text.fill('# First\n\nold words');
+  await page.showPreview.tap();
+  await expect(page.preview.getByRole('heading', 'First', { level: 1 })).toBeVisible();
+  await expect(page.paragraphs).toHaveText(['old words']);
+
+  await page.showSource.tap();
+  await page.text.fill('## Second\n\nnew words\n\nmore words');
+  await page.showPreview.tap();
+
+  await expect(page.preview.getByRole('heading')).toHaveText(['Second']);
+  await expect(page.preview.getByRole('heading', 'Second', { level: 2 })).toBeVisible();
+  await expect(page.paragraphs).toHaveText(['new words', 'more words']);
+});
+
+test('Ctrl+E also shows the edit made after the last preview', async ({ page }) => {
+  await page.text.fill('# First');
+  await page.pressPreviewShortcut();
+  await expect(page.preview.getByRole('heading', 'First', { level: 1 })).toBeVisible();
+
+  await page.pressPreviewShortcut();
+  await page.text.fill('# Second');
+  await page.pressPreviewShortcut();
+
+  await expect(page.preview.getByRole('heading')).toHaveText(['Second']);
+});
+
+test(
+  'bold shows as strong text',
+  { skip: 'M2: waiting for the inline parser' },
+  async ({ page }) => {
+    await page.text.fill('a **b** c');
+    await page.showPreview.tap();
+
+    await expect(page.strong).toHaveText(['b']);
+    await expect(page.paragraphs).toHaveText(['a b c']);
+  },
+);
+
+test(
+  'italic shows as emphasis',
+  { skip: 'M2: waiting for the inline parser' },
+  async ({ page }) => {
+    await page.text.fill('a *b* c');
+    await page.showPreview.tap();
+
+    await expect(page.emphasis).toHaveText(['b']);
+    await expect(page.paragraphs).toHaveText(['a b c']);
+  },
+);
+
+test(
+  'inline code shows as code',
+  { skip: 'M2: waiting for the inline parser' },
+  async ({ page }) => {
+    await page.text.fill('run `go **build**` now');
+    await page.showPreview.tap();
+
+    await expect(page.code).toHaveText(['go **build**']);
+    await expect(page.strong).toHaveCount(0);
+    await expect(page.paragraphs).toHaveText(['run go **build** now']);
+  },
+);
+
+test(
+  'a link opens in a new tab',
+  { skip: 'M2: waiting for the inline parser' },
+  async ({ page }) => {
+    await page.text.fill('see [docs](https://example.com/) here');
+    await page.showPreview.tap();
+
+    const link = page.preview.getByRole('link', 'docs');
+    await expect(link).toHaveAttribute('href', 'https://example.com/');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', /noopener/);
+    await expect(page.paragraphs).toHaveText(['see docs here']);
+  },
+);
+
+test(
+  'a javascript: link shows as plain text',
+  { skip: 'M2: waiting for the inline parser' },
+  async ({ page }) => {
+    await page.text.fill('[x](javascript:alert(1))');
+    await page.showPreview.tap();
+
+    await expect(page.paragraphs).toHaveText(['x']);
+    await expect(page.preview.getByRole('link')).toHaveCount(0);
+    await expect(page.everything).toHaveCount(1);
+  },
+);

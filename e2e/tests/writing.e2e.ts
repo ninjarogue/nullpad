@@ -94,22 +94,44 @@ test('Saving… shows while the disk is slow', async ({ app, disk, page }) => {
   expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
 });
 
-test('the preview shows the typed text as it is', async ({ app, page }) => {
+test('looking at the preview never changes the stored note', async ({ app, disk, page }) => {
+  const body = '#   Spaced  \n\n\n\nline one\nline two   \n\n\n';
+  const note = { key: 'spaced', title: null, body };
+  await disk.seed([note]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(body);
+
+  await page.showPreview.tap();
+  await expect(page.preview.getByRole('heading', 'Spaced', { level: 1 })).toBeVisible();
+  await page.showSource.tap();
+  await page.pressPreviewShortcut();
+  await page.pressPreviewShortcut();
+  await expect(page.text).toHaveValue(body);
+
+  await expect(page.saveState).toHaveText('Saved');
+  await pause(autosaveMs + 200);
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([note]);
+});
+
+test('HTML typed in a note shows as text and makes nothing', async ({ app, browser, page }) => {
+  const typed = 'héllo 👋 <b>bold</b> <img src=x onerror="globalThis.ran = 1">';
   await app.open('/');
   await expect(page.text).toBeFocused();
 
-  await page.text.fill('héllo 👋 <b>');
+  await page.text.fill(`${typed}\n\n<script>globalThis.ran = 1</script>`);
   await page.showPreview.tap();
-  await expect(page.preview).toHaveText('héllo 👋 <b>');
+
+  await expect(page.paragraphs).toHaveText([typed, '<script>globalThis.ran = 1</script>']);
+  await expect(page.everything).toHaveCount(2);
+  // An image that fails to load runs its handler a moment later.
+  await pause(250);
+  expect(await browser.evaluate(() => Reflect.get(globalThis, 'ran') ?? null)).toBeNull();
 });
 
-test(
-  'the preview renders markdown',
-  { skip: 'M2: the preview still shows the source text' },
-  async ({ app, page }) => {
-    await app.open('/');
-    await page.text.fill('# Hi');
-    await page.showPreview.tap();
-    await expect(page.preview.getByRole('heading', 'Hi', { level: 1 })).toBeVisible();
-  },
-);
+test('the preview renders markdown', async ({ app, page }) => {
+  await app.open('/');
+  await page.text.fill('# Hi');
+  await page.showPreview.tap();
+  await expect(page.preview.getByRole('heading', 'Hi', { level: 1 })).toBeVisible();
+});
