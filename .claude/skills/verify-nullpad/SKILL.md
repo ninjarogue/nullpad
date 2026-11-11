@@ -74,7 +74,7 @@ export default async ({ page, type, look, shot, check }) => {
 node .claude/skills/verify-nullpad/drive.mjs journey.mjs trip
 ```
 
-`page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot. `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
+`page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot of the window only, so scroll the subject into view first (`locator.scrollIntoViewIfNeeded()`). `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
 
 Keep journeys in a scratch folder, not in the repo. Ready ones are in `journeys/`: `rendered-page.mjs`, `blocks.mjs`, `tasks.mjs` and `tables.mjs`.
 
@@ -99,7 +99,9 @@ Handles that do not change:
 
 ## Evidence
 
-Everything lands in `.verify/<name>/` (ignored by git): `session.webm` is the whole session, `shots/` the screenshots, `report.json` the checks and page errors. For a file phones can play: `ffmpeg -i session.webm -c:v libx264 -pix_fmt yuv420p session.mp4`.
+Everything lands in `.verify/<name>/` (ignored by git): `session.webm` is the whole session, `shots/` the screenshots, `report.json` the checks and page errors. For a file phones can play: `ffmpeg -i session.webm -c:v libx264 -pix_fmt yuv420p session.mp4`. The video frame is always 1280 by 800. After `setViewportSize` to a phone width the page sits scaled at the left of the frame, so crop it for a phone-shaped file: add `-vf crop=370:800:0:0`.
+
+To change text already typed without `fill`, click the text field, move with `Control+End`, `Home` and the arrow keys, select with `Shift+ArrowRight`, and type over the selection.
 
 A proof is good when:
 

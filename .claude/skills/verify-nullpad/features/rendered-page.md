@@ -45,7 +45,7 @@ Preconditions: a fresh run. Ready journeys are `journeys/rendered-page.mjs` for 
 - A code block's text ends with a newline, so read it with `textContent`, not a whitespace-collapsing matcher.
 - Images, autolinks, reference links, hard line breaks, `&amp;`-style entities and raw HTML are not built. They show as typed, as paragraph text. `![alt](https://x.test/a.png)` shows as a `!` followed by a link named alt.
 - A heading row with no delimiter row under it is paragraph text, and so is a delimiter row whose cell count differs from the heading's. `a | b` then `-|-` is a table, and `a | b | c` then `-|-` is not.
-- A table's rows are read as cells, not as lines: a line without a pipe right under a table is a row of one cell, and only a blank line (or another block, such as `>` or `#`) ends it. A table can follow a paragraph line directly, and then that line is the heading row.
+- A table's rows are read as cells, not as lines: a line without a pipe right under a table is a row of one cell, and only a blank line (or another block, such as `>` or `#`) ends it. The line right above the delimiter row is the heading row. Lines above it with no blank line between stay a paragraph of their own.
 - Every table box is a tab stop, also when its table fits. Chromium focuses a box that scrolls without being told to, so a check that Tab reaches it passes without the `tabindex` that Safari needs: read the attribute too.
 - A flip rebuilds the page, so a table scrolled to the right is back at the left after Edit and Preview.
 - The first cell of a table with words names a note that starts with one, in the list and as the title offered.
