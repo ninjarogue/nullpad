@@ -230,8 +230,7 @@ class Page {
     return this.preview.getByRole('checkbox', name);
   }
 
-  /** The text of the first match as a person reads it, line breaks included. */
-  shown(selector: string) {
+  innerText(selector: string) {
     return this.browser.evaluate(
       (selector: string) =>
         document.querySelector<HTMLElement>(`[data-test-id="preview"] ${selector}`)?.innerText ??
@@ -240,8 +239,7 @@ class Page {
     );
   }
 
-  /** The first match's text as the page holds it, newlines and trailing newline included. */
-  raw(selector: string) {
+  textContent(selector: string) {
     return this.browser.evaluate(
       (selector: string) =>
         document.querySelector(`[data-test-id="preview"] ${selector}`)?.textContent ?? null,
@@ -249,7 +247,6 @@ class Page {
     );
   }
 
-  /** Where the box of the nth task item sits against the first line of that item's text. */
   measureTask(nth: number) {
     return this.browser.evaluate((nth: number) => {
       const item = document.querySelectorAll('[data-test-id="preview"] li.task')[nth];

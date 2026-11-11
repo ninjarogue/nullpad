@@ -121,8 +121,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
   Outcome(editor: Editor(buffer: wanted, keys:), sync:, requests:)
 }
 
-/// Replace one line from outside the control, for example to tick a task on
-/// the rendered page. A row that does not exist changes nothing.
+/// Replace one line from outside the control. A row that does not exist
+/// changes nothing.
 pub fn replace_line(editor: Editor, row: Int, with line: String) -> Outcome {
   case list.drop(buffer.lines(editor.buffer), row) {
     [old, ..] if row >= 0 -> {

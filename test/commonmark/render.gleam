@@ -47,8 +47,7 @@ fn list_items(spacing: Spacing, items: List(Item)) -> String {
   items |> list.map(list_item(spacing, _)) |> string.concat
 }
 
-/// In a tight list an item's own paragraphs are bare inline text. Any other
-/// block starts on a line of its own. A task's box is cmark-gfm's.
+/// A task's box is cmark-gfm's.
 fn list_item(spacing: Spacing, item: Item) -> String {
   let start = case item.task {
     Some(Task(checked: True, ..)) ->

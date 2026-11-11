@@ -87,7 +87,6 @@ fn item(
   }
 }
 
-/// The words of the item's first paragraph, which follow the box.
 fn task_label(blocks: List(Block)) -> String {
   let first_paragraph =
     list.find_map(blocks, fn(child) {

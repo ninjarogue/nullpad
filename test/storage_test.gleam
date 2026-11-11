@@ -1,5 +1,3 @@
-//// Examples for the storage module.
-
 import gleam/option.{None, Some}
 import gleam/string
 import nullpad/storage

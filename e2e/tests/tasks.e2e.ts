@@ -229,14 +229,14 @@ test('a [ ] inside a fenced code block is not a box', async ({ app, disk, page }
   await showTasks({ app, disk, page }, '```\n- [ ] not a task\n- [x] not either\n```');
 
   await expect(page.boxes).toHaveCount(0);
-  await expect.poll(() => page.raw('pre > code')).toBe('- [ ] not a task\n- [x] not either\n');
+  await expect.poll(() => page.textContent('pre > code')).toBe('- [ ] not a task\n- [x] not either\n');
 });
 
 test('a [ ] inside an indented code block is not a box', async ({ app, disk, page }) => {
   await showTasks({ app, disk, page }, '    - [ ] not a task');
 
   await expect(page.boxes).toHaveCount(0);
-  await expect.poll(() => page.raw('pre > code')).toBe('- [ ] not a task\n');
+  await expect.poll(() => page.textContent('pre > code')).toBe('- [ ] not a task\n');
 });
 
 test('a [ ] inside a code block in a list is not a box', async ({ app, disk, page }) => {

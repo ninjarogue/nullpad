@@ -127,7 +127,7 @@ test('each line of a tight list item shows on its own line', async ({ page }) =>
   await page.showPreview.tap();
 
   await expect(page.items).toHaveCount(2);
-  await expect.poll(() => page.shown('li')).toBe('milk\neggs');
+  await expect.poll(() => page.innerText('li')).toBe('milk\neggs');
 });
 
 test('each line of a setext heading shows on its own line', async ({ page }) => {
@@ -135,7 +135,7 @@ test('each line of a setext heading shows on its own line', async ({ page }) => 
   await page.showPreview.tap();
 
   await expect(page.preview.getByRole('heading', { level: 1 })).toHaveText(['Foo bar']);
-  await expect.poll(() => page.shown('h1')).toBe('Foo\nbar');
+  await expect.poll(() => page.innerText('h1')).toBe('Foo\nbar');
 });
 
 test('a quote shows its text inside a quote', async ({ page }) => {
@@ -192,7 +192,7 @@ test('a fenced code block shows its text as typed, with its language as a class'
 
   await expect(page.codeBlocks).toHaveCount(1);
   await expect(page.inPreview('pre > code')).toHaveAttribute('class', 'language-ruby');
-  await expect.poll(() => page.raw('pre > code')).toBe('def foo(x)\n  return 3\nend\n');
+  await expect.poll(() => page.textContent('pre > code')).toBe('def foo(x)\n  return 3\nend\n');
 });
 
 test('only the first word after the fence names the language', async ({ page }) => {
@@ -214,7 +214,7 @@ test('markdown inside a fence stays text', async ({ page }) => {
   await page.text.fill('```\n# not a heading\n**not bold**\n- not a list\n~~not struck~~\n```');
   await page.showPreview.tap();
 
-  await expect.poll(() => page.raw('pre > code')).toBe(
+  await expect.poll(() => page.textContent('pre > code')).toBe(
     '# not a heading\n**not bold**\n- not a list\n~~not struck~~\n',
   );
   await expect(page.preview.getByRole('heading')).toHaveCount(0);
@@ -227,7 +227,7 @@ test('HTML inside a fence shows as text and makes nothing', async ({ page }) => 
   await page.text.fill('```\n<b>bold</b> <img src=x>\n```');
   await page.showPreview.tap();
 
-  await expect.poll(() => page.raw('pre > code')).toBe('<b>bold</b> <img src=x>\n');
+  await expect.poll(() => page.textContent('pre > code')).toBe('<b>bold</b> <img src=x>\n');
   await expect(page.inPreview('b')).toHaveCount(0);
   await expect(page.inPreview('img')).toHaveCount(0);
 });
@@ -236,7 +236,7 @@ test('a fence made of tildes is a code block', async ({ page }) => {
   await page.text.fill('~~~\naaa\n~~~');
   await page.showPreview.tap();
 
-  await expect.poll(() => page.raw('pre > code')).toBe('aaa\n');
+  await expect.poll(() => page.textContent('pre > code')).toBe('aaa\n');
   await expect(page.deleted).toHaveCount(0);
 });
 
@@ -244,7 +244,7 @@ test('a fence that is never closed runs to the end of the note', async ({ page }
   await page.text.fill('```\naaa\n\nbbb');
   await page.showPreview.tap();
 
-  await expect.poll(() => page.raw('pre > code')).toBe('aaa\n\nbbb\n');
+  await expect.poll(() => page.textContent('pre > code')).toBe('aaa\n\nbbb\n');
   await expect(page.paragraphs).toHaveCount(0);
 });
 
@@ -253,7 +253,7 @@ test('lines indented four spaces are a code block', async ({ page }) => {
   await page.showPreview.tap();
 
   await expect(page.codeBlocks).toHaveCount(1);
-  await expect.poll(() => page.raw('pre > code')).toBe('a simple\n  indented code block\n');
+  await expect.poll(() => page.textContent('pre > code')).toBe('a simple\n  indented code block\n');
   await expect(page.inPreview('pre > code')).not.toHaveAttribute('class');
 });
 

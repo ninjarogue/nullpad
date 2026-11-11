@@ -116,7 +116,6 @@ pub type Msg {
   UserRenamedNote(title: String)
   UserToggledRendered
   UserToggledVim(on: Bool)
-  /// A task's checkbox on the rendered page, ticked (`checked`) or not.
   UserTickedTask(task: markdown.Task, checked: Bool)
 }
 

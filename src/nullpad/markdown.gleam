@@ -2,24 +2,10 @@
 //// CommonMark 0.31.2 for what nullpad supports (headings, paragraphs, block
 //// quotes, lists, code blocks, thematic breaks, code spans, emphasis, inline
 //// links, backslash escapes), and GFM for strikethrough and task items.
-//// Everything else stays text as typed. `test/commonmark_test.gleam` and
-//// `test/gfm_test.gleam` measure it against the specs' examples. Two rules
-//// are nullpad's own: a link to an address it will not follow
-//// (`is_safe_url`) stays text, and a box with nothing after it is a task.
+//// Everything else stays text as typed. Two rules are nullpad's own: a link to
+//// an address it will not follow (`is_safe_url`) stays text, and a box with
+//// nothing after it is a task.
 ////
-//// Blocks, in one pass over the lines, as in the spec's appendix: each open
-//// container (a quote, or a list and its open item) eats its prefix from the
-//// line, outermost first. When all of them keep the line, the open leaf (a
-//// paragraph or code) has the first say on the rest. Then `start` reads
-//// which blocks the rest begins, closing the containers that did not keep
-//// the line, unless it continues a paragraph lazily. A leaf keeps its lines
-//// as typed until it closes.
-//// `set_task` and `first_text` parse the note again rather than read its
-//// markup a second way.
-//// Inlines, once per heading or paragraph: `scan` settles escapes, code
-//// spans and links in one pass, then `emphasize` pairs the `*`, `_` and `~`
-//// runs. Whether M6's `highlight` reuses `scan` is undecided, because `scan`
-//// keeps no source positions.
 //// Imported by: `preview`, `storage`, `surface` (M6), the shell, tests.
 //// Imports: stdlib, and `markdown.ffi.mjs` for two Unicode classes.
 
@@ -32,8 +18,7 @@ import gleam/result
 import gleam/string
 
 /// A block plus the source rows it came from (inclusive, numbered like
-/// `buffer.Position.row`). Rows cost one counter in the block parser. They
-/// will let the rendered page scroll to the cursor.
+/// `buffer.Position.row`).
 pub type Block {
   Block(first_row: Int, last_row: Int, content: Content)
 }
@@ -115,8 +100,6 @@ fn source_lines(source: String) -> List(List(String)) {
   source |> string.replace("\u{0}", "\u{FFFD}") |> code_point_lines
 }
 
-/// One string per code point (the spec's "character") per line. A line
-/// ending at the very end starts no line after it.
 fn code_point_lines(source: String) -> List(List(String)) {
   let backwards =
     source
@@ -131,9 +114,6 @@ fn code_point_lines(source: String) -> List(List(String)) {
   }
 }
 
-/// Takes the characters from the last one back, so each line and the list of
-/// lines come out in order with no reverse. A line ends at "\n", "\r\n" or
-/// "\r".
 fn split_lines(
   backwards: List(String),
   line: List(String),
@@ -147,22 +127,15 @@ fn split_lines(
   }
 }
 
-/// A cursor over one line. Each open container eats its prefix from the
-/// front, and the next container or the leaf sees the rest.
 type Line {
   Line(
     row: Int,
-    /// Characters eaten so far.
     offset: Int,
     /// Columns eaten so far. A tab reaches the next multiple of 4.
     column: Int,
-    /// Columns of a tab that a container ate only part of (">\tfoo").
-    owed: Int,
-    /// The spaces and tabs not eaten yet.
+    tab_remainder: Int,
     margin: List(String),
-    /// The width of `owed` and `margin`, in columns.
     indent: Int,
-    /// From the first character that is not a space or tab.
     text: List(String),
   )
 }
@@ -180,7 +153,7 @@ fn measure(line: Line, chars: List(String)) -> Line {
         _ -> column + 1
       }
     })
-  Line(..line, owed: 0, margin:, indent: end - line.column, text:)
+  Line(..line, tab_remainder: 0, margin:, indent: end - line.column, text:)
 }
 
 fn skip_margin(line: Line) -> Line {
@@ -188,24 +161,22 @@ fn skip_margin(line: Line) -> Line {
     ..line,
     offset: line.offset + list.length(line.margin),
     column: line.column + line.indent,
-    owed: 0,
+    tab_remainder: 0,
     margin: [],
     indent: 0,
   )
 }
 
-/// Eats `count` columns of white space, or fewer when there are not that
-/// many. May eat part of a tab.
 fn eat_columns(line: Line, count: Int) -> Line {
   case line.margin {
     _ if count <= 0 -> line
-    _ if line.owed > 0 -> {
-      let eaten = int.min(count, line.owed)
+    _ if line.tab_remainder > 0 -> {
+      let eaten = int.min(count, line.tab_remainder)
       eat_columns(
         Line(
           ..line,
           column: line.column + eaten,
-          owed: line.owed - eaten,
+          tab_remainder: line.tab_remainder - eaten,
           indent: line.indent - eaten,
         ),
         count - eaten,
@@ -230,7 +201,7 @@ fn eat_columns(line: Line, count: Int) -> Line {
           ..line,
           offset: line.offset + 1,
           column: line.column + eaten,
-          owed: width - eaten,
+          tab_remainder: width - eaten,
           margin:,
           indent: line.indent - eaten,
         ),
@@ -241,7 +212,6 @@ fn eat_columns(line: Line, count: Int) -> Line {
   }
 }
 
-/// Eats the margin and then `count` characters of one column each.
 fn eat_text(line: Line, count: Int) -> Line {
   let line = skip_margin(line)
   measure(
@@ -250,26 +220,21 @@ fn eat_text(line: Line, count: Int) -> Line {
   )
 }
 
-/// The line as typed from the cursor on, with the columns still owed for a
-/// tab as spaces.
 fn verbatim(line: Line) -> List(String) {
-  list.append(list.repeat(" ", line.owed), list.append(line.margin, line.text))
+  list.append(
+    list.repeat(" ", line.tab_remainder),
+    list.append(line.margin, line.text),
+  )
 }
 
-/// A `>` and the one space or tab column after it, if there is one.
 fn after_quote_mark(line: Line) -> Line {
   eat_columns(eat_text(line, 1), 1)
 }
 
-/// A quote or list nested deeper than this is not opened: its marker stays
-/// paragraph text, the way `max_depth` leaves inline marks. A list is two
-/// levels of the tree, the list and its item.
+/// Like `max_depth`: the JavaScript stack limits how deep a tree walk can
+/// recurse.
 const max_block_depth = 32
 
-/// What is still open after a line. `blocks` are the closed top-level
-/// blocks and each frame's `blocks` its closed children, newest first.
-/// `frames` holds the open containers, innermost first, and `depth` counts
-/// them. The open leaf belongs to the innermost one.
 type Open {
   Open(blocks: List(Block), frames: List(Frame), depth: Int, leaf: Leaf)
 }
@@ -280,15 +245,9 @@ type Frame {
 
 type Container {
   InQuote(first_row: Int)
-  /// A list and its open item are one frame, so an item cannot be open
-  /// outside a list. `item` is `None` once a blank line ended an empty item
-  /// (an item can begin with at most one blank line). Then only a blank
-  /// line or a sibling item keeps the frame.
   InList(of: OpenList, item: Option(OpenItem))
 }
 
-/// `items` are the closed items, newest first. `last_row` is the newest
-/// one's.
 type OpenList {
   OpenList(
     first_row: Int,
@@ -300,35 +259,26 @@ type OpenList {
   )
 }
 
-/// `width` is how many columns a later line must be indented to belong to
-/// the item: the marker's own indent, the marker, and the spaces after it.
 type OpenItem {
   OpenItem(row: Int, width: Int, task: Option(Task))
 }
 
-/// An item joins a list whose marker is equal: the same bullet, or the same
-/// delimiter after the number.
 type Marker {
   Bullet(String)
   Ordered(delimiter: String)
 }
 
-/// A leaf keeps its lines as typed, newest first, until it closes. Inline
-/// parsing runs once, in `close_leaf`.
 type Leaf {
   NoLeaf
   ParagraphLeaf(first_row: Int, last_row: Int, lines: List(List(String)))
-  /// `indent` is the opening fence's, which each line loses up to.
   FencedLeaf(
     first_row: Int,
     fence: String,
     length: Int,
-    indent: Int,
+    fence_indent: Int,
     language: Option(String),
     lines: List(List(String)),
   )
-  /// `blanks` are the blank lines since the last line of code. They belong
-  /// to the code only if more code follows.
   IndentedLeaf(
     first_row: Int,
     last_row: Int,
@@ -341,9 +291,8 @@ type Start {
   Blank
   TextLine
   QuoteStart(rest: Line)
-  /// `sibling`: the item joins the outermost list the line did not
-  /// continue. Otherwise it starts a list.
-  ItemStart(marker: Marker, number: Int, width: Int, sibling: Bool, rest: Line)
+  NextItem(width: Int, rest: Line)
+  ListStart(marker: Marker, number: Int, width: Int, rest: Line)
   HeadingStart(level: Level, text: List(String))
   RuleStart
   FenceStart(fence: String, length: Int, indent: Int, language: Option(String))
@@ -358,8 +307,6 @@ fn step(open: Open, line: Line) -> Open {
   }
 }
 
-/// How many frames, outermost first, kept the line, and the line after their
-/// prefixes. Nothing closes here: a lazy line leaves every frame open.
 fn continue_frames(
   frames: List(Frame),
   matched: Int,
@@ -386,9 +333,6 @@ fn continue_frame(container: Container, line: Line) -> Result(Line, Nil) {
   }
 }
 
-/// The open leaf has the first say on a line. A setext underline is read
-/// only here, so "---" under a paragraph is a heading before `start` can
-/// call it a rule.
 fn continue_leaf(open: Open, line: Line) -> Open {
   case open.leaf, line.text {
     NoLeaf, _ -> start_blocks(open, open.depth, line)
@@ -403,11 +347,12 @@ fn continue_leaf(open: Open, line: Line) -> Open {
         Error(Nil) -> start_blocks(open, open.depth, line)
       }
     ParagraphLeaf(..), _ -> start_blocks(open, open.depth, line)
-    FencedLeaf(fence:, length:, indent:, lines:, ..) as leaf, text ->
+    FencedLeaf(fence:, length:, fence_indent:, lines:, ..) as leaf, text ->
       case line.indent < 4 && closes_fence(text, fence, length) {
         True -> close_leaf(open, line.row)
         False -> {
-          let code = verbatim(eat_columns(line, int.min(indent, line.indent)))
+          let code =
+            verbatim(eat_columns(line, int.min(fence_indent, line.indent)))
           Open(..open, leaf: FencedLeaf(..leaf, lines: [code, ..lines]))
         }
       }
@@ -434,10 +379,6 @@ fn continue_leaf(open: Open, line: Line) -> Open {
   }
 }
 
-/// The frames past `matched` and the leaf are still open. Every start closes
-/// them first, but for text that finds a paragraph open: that is the next
-/// line of the paragraph, and a lazy one when `matched` is short of the
-/// depth.
 fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
   let row = line.row
   case start(open, matched, line), open.leaf {
@@ -449,11 +390,11 @@ fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
       close_to(open, matched, row)
       |> push_frame(InQuote(row))
       |> start_blocks(matched + 1, rest)
-    ItemStart(width:, sibling: True, rest:, ..), _ ->
+    NextItem(width:, rest:), _ ->
       close_to(open, matched + 1, row)
       |> next_item(row, width)
       |> start_blocks(matched + 1, rest)
-    ItemStart(marker:, number:, width:, sibling: False, rest:), _ -> {
+    ListStart(marker:, number:, width:, rest:), _ -> {
       let of = OpenList(row, row, marker, number, [], Tight)
       close_to(open, matched, row)
       |> push_frame(InList(of, Some(OpenItem(row, width, None))))
@@ -477,8 +418,7 @@ fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
   }
 }
 
-/// Indented code cannot interrupt a paragraph, so an indented line there is
-/// the paragraph's next line.
+/// Indented code cannot interrupt a paragraph.
 fn start(open: Open, matched: Int, line: Line) -> Start {
   case line.text, open.leaf {
     [], _ -> Blank
@@ -510,9 +450,8 @@ fn start_text(open: Open, matched: Int, line: Line) -> Start {
   }
 }
 
-/// A list marker: `-`, `+` or `*`, or one to nine digits and `.` or `)`,
-/// then a space, a tab or the end of the line. An item that interrupts a
-/// paragraph must not be empty, and an ordered one must start at 1.
+/// An item that interrupts a paragraph must not be empty, and an ordered one
+/// must start at 1.
 fn item_start(open: Open, matched: Int, line: Line) -> Start {
   case list_marker(line.text) {
     Error(Nil) -> TextLine
@@ -524,6 +463,12 @@ fn item_start(open: Open, matched: Int, line: Line) -> Start {
         _ -> False
       }
       let sibling = is_sibling(open, matched, marker)
+      let item = fn(width, rest) {
+        case sibling {
+          True -> NextItem(width, rest)
+          False -> ListStart(marker, number, width, rest)
+        }
+      }
       case after.indent {
         0 if !blank -> TextLine
         _ if interrupts && { blank || number != 1 } -> TextLine
@@ -531,28 +476,13 @@ fn item_start(open: Open, matched: Int, line: Line) -> Start {
         // Spec: an item that begins blank, or with indented code, is one
         // column wider than its marker.
         spaces if blank || spaces >= 5 ->
-          ItemStart(
-            marker,
-            number,
-            line.indent + length + 1,
-            sibling,
-            eat_columns(after, 1),
-          )
-        spaces ->
-          ItemStart(
-            marker,
-            number,
-            line.indent + length + spaces,
-            sibling,
-            skip_margin(after),
-          )
+          item(line.indent + length + 1, eat_columns(after, 1))
+        spaces -> item(line.indent + length + spaces, skip_margin(after))
       }
     }
   }
 }
 
-/// Whether the outermost frame the line did not continue is a list that an
-/// item with `marker` joins.
 fn is_sibling(open: Open, matched: Int, marker: Marker) -> Bool {
   case list.drop(open.frames, open.depth - matched - 1) {
     [Frame(InList(of:, ..), _), ..] if matched < open.depth ->
@@ -586,8 +516,6 @@ fn ordered_marker(
   }
 }
 
-/// Three or more of one of `*`, `-` and `_`, with nothing else but spaces
-/// and tabs.
 fn is_rule(text: List(String)) -> Bool {
   case text {
     [mark, ..] ->
@@ -603,8 +531,8 @@ fn is_rule(text: List(String)) -> Bool {
   }
 }
 
-/// Three or more backticks or tildes. The info string after backticks may
-/// not hold one, so that "``` a ` b" stays a code span.
+/// The info string of a backtick fence may not hold a backtick, so "``` a ` b"
+/// stays a code span.
 fn fence_start(text: List(String), indent: Int) -> Result(Start, Nil) {
   case text {
     [fence, ..] -> {
@@ -618,7 +546,6 @@ fn fence_start(text: List(String), indent: Int) -> Result(Start, Nil) {
   }
 }
 
-/// The first word of the info string, backslash escapes settled.
 fn language(info: List(String)) -> Option(String) {
   let word =
     info
@@ -643,14 +570,11 @@ fn unescape(chars: List(String), done: String) -> String {
   }
 }
 
-/// At least as many of the fence's character as opened it, then only spaces
-/// and tabs.
 fn closes_fence(text: List(String), fence: String, length: Int) -> Bool {
   let #(run, after) = count_run(text, fence, 0)
   run >= length && drop_spaces(after) == []
 }
 
-/// A run of `=` (level 1) or `-` (level 2), then only spaces and tabs.
 fn setext_level(text: List(String)) -> Result(Level, Nil) {
   let underline = fn(mark, level) {
     case drop_spaces(list.drop_while(text, fn(char) { char == mark })) {
@@ -665,8 +589,6 @@ fn setext_level(text: List(String)) -> Result(Level, Nil) {
   }
 }
 
-/// A box at the start of an item's first paragraph makes the item a task
-/// and is not part of the text. The box may be all the item has.
 fn open_paragraph(open: Open, line: Line) -> Open {
   let line = skip_margin(line)
   let paragraph = fn(open: Open, text) {
@@ -688,8 +610,6 @@ fn open_paragraph(open: Open, line: Line) -> Open {
   }
 }
 
-/// `[ ]`, `[x]` or `[X]`, then a space, a tab or the end of the line. Gives
-/// the text after it.
 fn task_box(line: Line) -> Result(#(Task, List(String)), Nil) {
   case line.text {
     ["[", mark, "]", ..after] if mark == " " || mark == "x" || mark == "X" ->
@@ -710,8 +630,6 @@ fn push_frame(open: Open, container: Container) -> Open {
   )
 }
 
-/// Closes the leaf, then frames until `depth` are left. `row` is the line
-/// that closes them, so a frame ends on the row before it.
 fn close_to(open: Open, depth: Int, row: Int) -> Open {
   let open = close_leaf(open, row - 1)
   case open.frames {
@@ -723,7 +641,6 @@ fn close_to(open: Open, depth: Int, row: Int) -> Open {
   }
 }
 
-/// A list ends where its last item does, which may be before `last_row`.
 fn close_frame(frame: Frame, last_row: Int) -> Block {
   case frame.container {
     InQuote(first_row) ->
@@ -751,8 +668,6 @@ fn end_open_item(
   }
 }
 
-/// The list with `item` closed. The item ends where its last block does,
-/// or on its own row when it has none.
 fn end_item(of: OpenList, item: OpenItem, blocks: List(Block)) -> OpenList {
   let last_row = case blocks {
     [last, ..] -> last.last_row
@@ -779,8 +694,6 @@ fn next_item(open: Open, row: Int, width: Int) -> Open {
   }
 }
 
-/// On a blank line, an item whose first line was only its marker ends. A
-/// box counts as content.
 fn end_empty_item(open: Open, row: Int) -> Open {
   case open.frames, open.leaf {
     [Frame(InList(of, Some(OpenItem(task: None, ..) as item)), []), ..outer],
@@ -801,7 +714,6 @@ fn loosen(spacing: Spacing, gap: Bool) -> Spacing {
   }
 }
 
-/// Whether two neighbours have a row between them. Newest first.
 fn has_gap(blocks: List(Block)) -> Bool {
   case blocks {
     [later, earlier, ..rest] ->
@@ -813,8 +725,7 @@ fn has_gap(blocks: List(Block)) -> Bool {
   }
 }
 
-/// `last_row` is where an open fence ends. Every other leaf knows its own.
-fn close_leaf(open: Open, last_row: Int) -> Open {
+fn close_leaf(open: Open, fence_end: Int) -> Open {
   let closed = Open(..open, leaf: NoLeaf)
   case open.leaf {
     NoLeaf -> open
@@ -826,7 +737,7 @@ fn close_leaf(open: Open, last_row: Int) -> Open {
     FencedLeaf(first_row:, language:, lines:, ..) ->
       push_block(
         closed,
-        Block(first_row, last_row, CodeBlock(language, code_text(lines))),
+        Block(first_row, fence_end, CodeBlock(language, code_text(lines))),
       )
     IndentedLeaf(first_row:, last_row:, lines:, ..) ->
       push_block(
@@ -851,7 +762,6 @@ fn finish(open: Open, rows: Int) -> List(Block) {
   list.reverse(close_to(open, 0, rows).blocks)
 }
 
-/// Each line, newest first, as typed and ended with "\n".
 fn code_text(backwards: List(List(String))) -> String {
   list.fold(backwards, [], fn(code, line) {
     [string.concat(line), "\n", ..code]
@@ -859,7 +769,6 @@ fn code_text(backwards: List(List(String))) -> String {
   |> string.concat
 }
 
-/// The lines joined with "\n", with the spaces after the last one dropped.
 fn paragraph_text(backwards: List(List(String))) -> List(String) {
   case backwards {
     [last, ..before] ->
@@ -908,12 +817,8 @@ fn drop_spaces_end(chars: List(String)) -> List(String) {
   chars |> list.reverse |> drop_spaces |> list.reverse
 }
 
-// Inline parsing, in two stages. `scan` reads the text once, left to right.
-// It settles escapes, code spans and links, and leaves each run of `*`, `_`
-// or `~` and each `[` that may still start a link in place. `emphasize` then
-// pairs the runs: the spec's "process emphasis". Links settle first because
-// link text binds tighter than emphasis: `*[a*](u)` is a link with a `*`
-// inside.
+// Links settle before emphasis: link text binds tighter, so `*[a*](u)` is a
+// link with a `*` inside.
 
 type Piece {
   /// Finished: text, a code span, a link. `depth` is how deeply it nests.
@@ -1533,7 +1438,6 @@ fn close(
   }
 }
 
-/// A floor above the top of the stack would hide the openers pushed later.
 fn lower_floors(pairing: Pairing) -> Pairing {
   let floors =
     dict.map_values(pairing.floors, fn(_, floor) {
@@ -1620,8 +1524,7 @@ fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
 }
 
 /// The words a reader sees: markup dropped, text and code kept, a line break
-/// as one space. It recurses once per level, and the parser builds at most
-/// `max_depth` of them.
+/// as one space.
 pub fn plain_text(inlines: List(Inline)) -> String {
   inlines |> words |> string.replace("\n", " ")
 }
@@ -1641,9 +1544,7 @@ fn words(inlines: List(Inline)) -> String {
 }
 
 /// The first line of text the rendered page shows, with the markup dropped
-/// and the white space around it trimmed, or "" when it shows none. Only the
-/// start of the note is parsed: 16 lines, then four times as many each time
-/// those show nothing.
+/// and the white space around it trimmed, or "" when it shows none.
 pub fn first_text(source: String) -> String {
   first_text_within(source, 16)
 }
@@ -1656,7 +1557,6 @@ fn first_text_within(source: String, lines: Int) -> String {
   }
 }
 
-/// The first `count` lines and whether any are left.
 fn take_lines(source: String, count: Int, taken: String) -> #(String, Bool) {
   case count, string.split_once(source, "\n") {
     0, _ -> #(taken, source != "")
@@ -1665,8 +1565,6 @@ fn take_lines(source: String, count: Int, taken: String) -> #(String, Bool) {
   }
 }
 
-/// The first line of text in `blocks`. It recurses once per container, and
-/// the parser nests at most `max_block_depth` of them.
 fn shown(blocks: List(Block)) -> String {
   use block <- first_shown(blocks)
   case block.content {
@@ -1681,8 +1579,6 @@ fn shown(blocks: List(Block)) -> String {
   }
 }
 
-/// The first line of `text` that is not blank, trimmed. Splits the whole
-/// text into graphemes at once: one call per line costs far more.
 fn first_line(text: String) -> String {
   text
   |> string.to_graphemes
@@ -1706,10 +1602,8 @@ fn first_shown(things: List(a), show: fn(a) -> String) -> String {
 }
 
 /// Line `task.row` of `source` with the task's box set to `checked`: the
-/// whole line, to put in place of the old one. A box already in that state
-/// keeps its line as typed. The note is parsed again, so a stale tick
-/// changes nothing (`Error`) when no task has its box at that place any
-/// more, for example after the line became code.
+/// whole line, to put in place of the old one. `Error` when no task has its box
+/// at that place any more, for example after the line became code.
 pub fn set_task(
   source: String,
   task: Task,
@@ -1732,8 +1626,6 @@ pub fn set_task(
   }
 }
 
-/// The task in `blocks` whose box is at `row` and `col`. It recurses once
-/// per container, and the parser nests at most `max_block_depth` of them.
 fn find_task(blocks: List(Block), row: Int, col: Int) -> Result(Task, Nil) {
   use block <- list.find_map(blocks)
   case block.content {

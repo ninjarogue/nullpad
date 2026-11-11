@@ -1,5 +1,3 @@
-//// Examples of how the parser is used.
-
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -28,8 +26,6 @@ pub fn headings_have_six_levels_test() {
       Block(5, 5, Heading(H6, [Text("f")])),
     ]
 }
-
-// Thematic breaks and setext headings
 
 pub fn three_marks_make_a_rule_test() {
   assert markdown.parse("***\n- - -\n _  _  _ \n-----")
@@ -79,8 +75,6 @@ pub fn an_underline_with_a_gap_or_four_spaces_of_indent_is_no_underline_test() {
   assert markdown.parse("Foo\n    ---")
     == [Block(0, 1, Paragraph([Text("Foo\n---")]))]
 }
-
-// Block quotes
 
 pub fn a_quote_holds_blocks_with_their_rows_test() {
   assert markdown.parse("> # Title\n> one\n> two\n>\n> ---")
@@ -152,8 +146,6 @@ fn innermost_quote(
     _ -> #(depth, blocks)
   }
 }
-
-// Lists
 
 pub fn a_list_holds_items_with_their_rows_test() {
   assert markdown.parse("- one\n- two\n  more\n- three")
@@ -310,8 +302,6 @@ fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
   Item(row, None, blocks)
 }
 
-// Tasks, from GFM
-
 pub fn a_box_after_the_marker_makes_a_task_test() {
   let milk = Item(0, Some(Task(False, 0, 3)), [para(0, "milk")])
   let eggs = Item(1, Some(Task(True, 1, 3)), [para(1, "eggs")])
@@ -430,8 +420,6 @@ pub fn set_task_keeps_the_rest_of_the_line_as_typed_test() {
     )
     == Ok("> 1. [ ] \u{1F600}")
 }
-
-// Code blocks
 
 pub fn a_fence_keeps_its_lines_as_typed_test() {
   assert markdown.parse("```gleam\nlet x = *1*\n\n  <b>\n```\nafter")
@@ -666,8 +654,6 @@ pub fn a_label_opened_after_a_link_still_closes_test() {
     ])
 }
 
-// Strikethrough, from GFM
-
 pub fn one_or_two_tildes_strike_through_test() {
   assert markdown.parse("~~gone~~ and ~this~")
     == paragraph([
@@ -703,9 +689,6 @@ pub fn strike_and_emphasis_nest_test() {
     ])
 }
 
-/// A star that found no opener sets a floor for later stars. Tildes that do
-/// not pair take openers off the stack, and a star opened after that must
-/// still be found.
 pub fn tildes_that_do_not_pair_leave_later_stars_free_test() {
   assert markdown.parse("~a ~~b c* d~ *e*")
     == paragraph([Text("~a ~~b c* d~ "), Emphasis([Text("e")])])
@@ -860,8 +843,6 @@ pub fn thousands_of_links_are_thousands_of_links_test() {
     list.repeat([link, Text(" ")], 3999) |> list.flatten |> list.append([link])
   assert markdown.parse(string.repeat("[a](b) ", 4000)) == paragraph(expected)
 }
-
-// Plain text, for checkbox labels and note titles
 
 pub fn plain_text_keeps_the_words_and_drops_the_markup_test() {
   let assert [Block(content: Paragraph(text), ..)] =
