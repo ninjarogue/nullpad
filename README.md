@@ -38,9 +38,19 @@ for what nullpad supports: headings (`#` and underlined with `===` or `---`),
 paragraphs, thematic breaks, block quotes with lazy lines, bullet and ordered
 lists (nested, tight or loose), fenced and indented code blocks, emphasis,
 code spans, inline links and backslash escapes. From GitHub Flavored Markdown
-it adds strikethrough (`~one~` and `~~two~~`) and task lists (`- [ ]` and
-`- [x]`). Tables, images, autolinks, link reference definitions, hard line
+it adds strikethrough (`~one~` and `~~two~~`), task lists (`- [ ]` and `- [x]`)
+and pipe tables. Images, autolinks, link reference definitions, hard line
 breaks and character entities are not read, and raw HTML shows as text.
+
+A table is a heading row, a delimiter row of dashes (a colon at either end of
+a column's dashes aligns it left, right or in the centre) and then rows, with
+or without the pipes at the ends. The rules are cmark-gfm's: a row with too
+few cells gets empty ones, a row with too many loses the extra, `\|` is a pipe
+inside a cell, a pipe inside a code span still ends the cell, and a blank line
+or the start of another block ends the table. A table is not continued by a
+lazy line. Padding is bounded: rows stop at 65,536 padded cells, a line past
+that starts a paragraph, where cmark-gfm stops at 524,288. A wide table scrolls
+inside its own box on the rendered page, and the box takes the keyboard.
 
 On the rendered page a task's box is live. Ticking it changes `[ ]` to `[x]`
 (or back) on that line of the note and nowhere else, and the note saves as it
@@ -50,23 +60,27 @@ does after any edit.
 this commit. An example may fail only when it is listed in
 `test/commonmark_test.gleam` under the feature it needs and nullpad lacks, and
 a listed example that starts to pass fails the suite until it is taken off the
-list. The GFM strikethrough and task list examples in `test/commonmark/gfm.json`
-run the same way, and all 7 must pass.
+list. The 32 GFM examples in `test/commonmark/gfm.json` (the table,
+strikethrough and task list sections of cmark-gfm's own tests) run the same
+way, from `test/gfm_test.gleam`: 29 pass, and the 3 that do not are listed
+under link reference definitions, autolinks and raw HTML.
 
-The page differs from the spec's own HTML in two ways. A line break inside a
+The page differs from the spec's own HTML in three ways. A line break inside a
 paragraph, a list item or a heading shows as a line break, not as a space: the
 parser keeps the break in the text, and the page's style sheet decides how it
-looks. A task's checkbox is not disabled, so it can be ticked.
+looks. A task's checkbox is not disabled, so it can be ticked. A table sits
+inside a box that scrolls sideways, so a wide one never widens the page.
 
 ```sh
 gleam run -m commonmark_test                 # Pass count for each section of the spec
 gleam run -m commonmark_test -- HardBreaks   # The listed examples of one missing feature
+gleam run -m gfm_test                        # The same for the GFM examples
 gleam build && node test/hostile_input.mjs   # Time the parser on inputs built to be slow
 ```
 
 `gleam run -m commonmark_test` names the features that can be listed. The
-browser tests in `e2e/tests/blocks.e2e.ts`, `tasks.e2e.ts` and `layout.e2e.ts`
-check what the page shows for these blocks and where the task boxes sit at 390
-and 1280 px, in light and dark.
+browser tests in `e2e/tests/blocks.e2e.ts`, `tables.e2e.ts`, `tasks.e2e.ts` and
+`layout.e2e.ts` check what the page shows for these blocks, where the task
+boxes sit and how a wide table scrolls at 390 and 1280 px, in light and dark.
 
 Styles live in `assets/nullpad.css`.
