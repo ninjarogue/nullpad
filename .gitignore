@@ -6,3 +6,4 @@ erl_crash.dump
 /dist
 /e2e/node_modules
 /e2e/.e2e
+/.verify
