@@ -9,7 +9,7 @@ import gleam/option.{None}
 import gleam/string
 import nullpad/markdown.{
   Block, BulletList, Checked, Code, Emphasis, H1, H2, H3, H4, H5, H6, Heading,
-  Item, Link, Paragraph, Strong, Text, Unchecked,
+  Item, Link, Paragraph, Strike, Strong, Text, Unchecked,
 }
 
 pub fn empty_input_has_no_blocks_test() {
@@ -192,6 +192,61 @@ pub fn a_label_opened_after_a_link_still_closes_test() {
     ])
 }
 
+// Strikethrough, from GFM
+
+pub fn one_or_two_tildes_strike_through_test() {
+  assert markdown.parse("~~gone~~ and ~this~")
+    == paragraph([
+      Strike([Text("gone")]),
+      Text(" and "),
+      Strike([Text("this")]),
+    ])
+}
+
+pub fn three_tildes_or_more_are_text_test() {
+  assert markdown.parse("~~~a~~~ ~~~~b~~~~")
+    == paragraph([Text("~~~a~~~ ~~~~b~~~~")])
+}
+
+pub fn tildes_strike_only_with_a_run_of_the_same_length_test() {
+  assert markdown.parse("~a~~") == paragraph([Text("~a~~")])
+  assert markdown.parse("~~a ~b~~") == paragraph([Text("~~a ~b~~")])
+  assert markdown.parse("~a ~~b~~")
+    == paragraph([Text("~a "), Strike([Text("b")])])
+}
+
+pub fn tildes_strike_inside_a_word_test() {
+  assert markdown.parse("a~~b~~c")
+    == paragraph([Text("a"), Strike([Text("b")]), Text("c")])
+}
+
+pub fn strike_and_emphasis_nest_test() {
+  assert markdown.parse("*a ~~b~~* ~~**c**~~")
+    == paragraph([
+      Emphasis([Text("a "), Strike([Text("b")])]),
+      Text(" "),
+      Strike([Strong([Text("c")])]),
+    ])
+}
+
+/// A star that found no opener sets a floor for later stars. Tildes that do
+/// not pair take openers off the stack, and a star opened after that must
+/// still be found.
+pub fn tildes_that_do_not_pair_leave_later_stars_free_test() {
+  assert markdown.parse("~a ~~b c* d~ *e*")
+    == paragraph([Text("~a ~~b c* d~ "), Emphasis([Text("e")])])
+}
+
+pub fn strikes_nest_thirty_two_levels_like_emphasis_test() {
+  let line = string.repeat("~~a ", 40) <> "b" <> string.repeat(" a~~", 40)
+  let assert [Block(0, 0, Paragraph([Text(before), deep, Text(after)]))] =
+    markdown.parse(line)
+
+  assert before == string.repeat("~~a ", 8)
+  assert depth([deep]) == 32
+  assert after == string.repeat(" a~~", 8)
+}
+
 // The 32-level cap
 
 pub fn nesting_stops_at_thirty_two_levels_test() {
@@ -344,7 +399,7 @@ pub fn plain_text_shows_a_line_break_as_a_space_test() {
 }
 
 pub fn plain_text_keeps_struck_words_test() {
-  assert markdown.plain_text([markdown.Strike([Text("gone")])]) == "gone"
+  assert markdown.plain_text([Strike([Text("gone")])]) == "gone"
 }
 
 fn depth(inlines: List(markdown.Inline)) -> Int {
@@ -353,7 +408,7 @@ fn depth(inlines: List(markdown.Inline)) -> Int {
       Text(_) | Code(_) -> deepest
       Strong(children) | Emphasis(children) | Link(children, _, _) ->
         int.max(deepest, 1 + depth(children))
-      markdown.Strike(children) -> int.max(deepest, 1 + depth(children))
+      Strike(children) -> int.max(deepest, 1 + depth(children))
     }
   })
 }

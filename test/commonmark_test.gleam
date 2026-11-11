@@ -24,6 +24,8 @@ type Reason {
   Entities
 }
 
+const name = "CommonMark 0.31.2"
+
 const example_count = 652
 
 const expected_failures: List(#(Reason, List(Int))) = [
@@ -387,6 +389,10 @@ const expected_failures: List(#(Reason, List(Int))) = [
   #(Entities, [25, 26, 27, 32, 37, 39, 40, 41, 503, 506]),
 ]
 
+fn outcomes() -> List(Outcome) {
+  report.run(spec.commonmark_file)
+}
+
 fn listed_numbers() -> List(Int) {
   list.flat_map(expected_failures, fn(entry) { entry.1 })
 }
@@ -397,7 +403,7 @@ fn is_listed(outcome: Outcome) -> Bool {
 
 pub fn unlisted_examples_pass_test() {
   let failures =
-    report.run()
+    outcomes()
     |> list.filter(fn(outcome) {
       !report.passed(outcome) && !is_listed(outcome)
     })
@@ -406,7 +412,7 @@ pub fn unlisted_examples_pass_test() {
 
 pub fn listed_examples_still_fail_test() {
   let stale =
-    report.run()
+    outcomes()
     |> list.filter(fn(outcome) { report.passed(outcome) && is_listed(outcome) })
     |> list.map(fn(outcome) { outcome.example.number })
   assert stale == []
@@ -432,20 +438,21 @@ pub fn listed_numbers_are_spec_examples_test() {
 }
 
 pub fn spec_has_every_example_test() {
-  let numbers = list.map(spec.examples(), fn(example) { example.number })
+  let numbers =
+    list.map(spec.examples(spec.commonmark_file), fn(example) { example.number })
   assert list.length(numbers) == example_count
   assert numbers == list.index_map(numbers, fn(_, index) { index + 1 })
 }
 
 pub fn pass_count_is_printed_test() {
-  io.println("\n" <> report.summary_line(report.run()))
+  io.println("\n" <> report.summary_line(name, outcomes()))
 }
 
 pub fn main() -> Nil {
-  let outcomes = report.run()
+  let outcomes = outcomes()
   case spec.command_line_arguments() {
     [] -> {
-      io.println(report.summary_line(outcomes))
+      io.println(report.summary_line(name, outcomes))
       io.println("")
       report.print_sections(outcomes)
       io.println("")

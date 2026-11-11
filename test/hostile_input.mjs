@@ -54,6 +54,13 @@ const inputs = {
   "many headings": (n) => "# a *b* #\n".repeat(n),
   "many paragraphs": (n) => "a *b*\n\n".repeat(n),
   "long runs of spaces": (n) => ("a" + " ".repeat(50) + "b\n").repeat(n / 10),
+  "unclosed strikes": (n) => "~a ".repeat(n),
+  "nested strikes": (n) => "~~a ".repeat(n) + "b" + " a~~".repeat(n),
+  "strikes of mixed length": (n) => "~a ~~b ".repeat(n) + "c~",
+  "strike closers of the other length": (n) =>
+    "~a ".repeat(n) + "b" + " a~~".repeat(n),
+  "long tilde runs": (n) => "a~~~".repeat(n),
+  "many strikes": (n) => "~~a~~ ".repeat(n),
 };
 
 const titles = {

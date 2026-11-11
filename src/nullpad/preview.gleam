@@ -63,7 +63,7 @@ fn inline(inline: Inline) -> List(Element(msg)) {
     Emphasis(text) -> [html.em([], inlines(text))]
     Code(code) -> [html.code([], [element.text(code)])]
     Link(label, url, title) -> link(label, url, title)
-    Strike(text) -> inlines(text)
+    Strike(text) -> [html.del([], inlines(text))]
   }
 }
 

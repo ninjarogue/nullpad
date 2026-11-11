@@ -11,8 +11,8 @@ pub type Outcome {
   Outcome(example: Example, actual: String)
 }
 
-pub fn run() -> List(Outcome) {
-  list.map(spec.examples(), fn(example) {
+pub fn run(file: String) -> List(Outcome) {
+  list.map(spec.examples(file), fn(example) {
     let actual = render.html(markdown.parse(example.markdown))
     Outcome(example:, actual:)
   })
@@ -22,9 +22,10 @@ pub fn passed(outcome: Outcome) -> Bool {
   outcome.actual == outcome.example.html
 }
 
-pub fn summary_line(outcomes: List(Outcome)) -> String {
+pub fn summary_line(name: String, outcomes: List(Outcome)) -> String {
   let passing = list.count(outcomes, passed)
-  "CommonMark 0.31.2: "
+  name
+  <> ": "
   <> int.to_string(passing)
   <> " of "
   <> int.to_string(list.length(outcomes))

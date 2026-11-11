@@ -1,0 +1,42 @@
+[
+  {
+    "markdown": "~~Hi~~ Hello, world!\n",
+    "html": "<p><del>Hi</del> Hello, world!</p>\n",
+    "example": 491,
+    "start_line": 7714,
+    "end_line": 7718,
+    "section": "Strikethrough (extension)",
+    "extensions": [
+      "strikethrough"
+    ]
+  },
+  {
+    "markdown": "This ~~has a\n\nnew paragraph~~.\n",
+    "html": "<p>This ~~has a</p>\n<p>new paragraph~~.</p>\n",
+    "example": 492,
+    "start_line": 7723,
+    "end_line": 7730,
+    "section": "Strikethrough (extension)",
+    "extensions": [
+      "strikethrough"
+    ]
+  },
+  {
+    "markdown": "A proper ~strikethrough~.\n",
+    "html": "<p>A proper <del>strikethrough</del>.</p>\n",
+    "example": 17,
+    "start_line": 506,
+    "end_line": 510,
+    "section": "Strikethroughs",
+    "extensions": []
+  },
+  {
+    "markdown": "These are ~not strikethroughs.\n\nNo, they are not~\n\nThis ~is ~ legit~ isn't ~ legit.\n\nThis is not ~~~~~one~~~~~ huge strikethrough.\n\n~one~ ~~two~~ ~~~three~~~\n\nNo ~mismatch~~\n",
+    "html": "<p>These are ~not strikethroughs.</p>\n<p>No, they are not~</p>\n<p>This <del>is ~ legit</del> isn't ~ legit.</p>\n<p>This is not ~~~~~one~~~~~ huge strikethrough.</p>\n<p><del>one</del> <del>two</del> ~~~three~~~</p>\n<p>No ~mismatch~~</p>\n",
+    "example": 18,
+    "start_line": 514,
+    "end_line": 533,
+    "section": "Strikethroughs",
+    "extensions": []
+  }
+]

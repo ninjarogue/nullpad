@@ -1,15 +1,16 @@
 //// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
 //// CommonMark 0.31.2 for what nullpad supports (ATX headings, paragraphs,
-//// code spans, emphasis, inline links, backslash escapes). Everything else
-//// stays text as typed. `test/commonmark_test.gleam` measures it against the
-//// spec's examples. One rule is nullpad's own: a link to an address it will
-//// not follow (`is_safe_url`) stays text.
+//// code spans, emphasis, inline links, backslash escapes), and GFM for
+//// strikethrough. Everything else stays text as typed.
+//// `test/commonmark_test.gleam` and `test/gfm_test.gleam` measure it against
+//// the specs' examples. One rule is nullpad's own: a link to an address it
+//// will not follow (`is_safe_url`) stays text.
 ////
 //// Blocks: `classify` looks at one line, no context: Blank | HeadingLine |
 //// TextLine, and in M3 FenceLine | QuoteLine | ItemLine | RuleLine. Runs of
 //// text lines are joined with "\n" into a paragraph.
 //// Inlines, per heading or paragraph: `scan` settles escapes, code spans and
-//// links in one pass, then `emphasize` pairs the `*` and `_` runs.
+//// links in one pass, then `emphasize` pairs the `*`, `_` and `~` runs.
 //// M6's `highlight` can reuse `classify`. Whether it reuses `scan` is
 //// undecided, because `scan` keeps no source positions.
 //// Imported by: `preview`, `storage`, `surface` (M6), the shell, tests.
@@ -218,10 +219,11 @@ fn read_paragraph(
 }
 
 // Inline parsing, in two stages. `scan` reads the text once, left to right.
-// It settles escapes, code spans and links, and leaves each run of `*` or `_`
-// and each `[` that may still start a link in place. `emphasize` then pairs
-// the runs: the spec's "process emphasis". Links settle first because link
-// text binds tighter than emphasis: `*[a*](u)` is a link with a `*` inside.
+// It settles escapes, code spans and links, and leaves each run of `*`, `_`
+// or `~` and each `[` that may still start a link in place. `emphasize` then
+// pairs the runs: the spec's "process emphasis". Links settle first because
+// link text binds tighter than emphasis: `*[a*](u)` is a link with a `*`
+// inside.
 
 type Piece {
   /// Finished: text, a code span, a link. `depth` is how deeply it nests.
@@ -234,6 +236,7 @@ type Piece {
 type Symbol {
   Star
   Underscore
+  Tilde
 }
 
 /// One flat list of pieces for the whole text, so a `]` that makes no link
@@ -248,10 +251,10 @@ type Scan {
   )
 }
 
-/// A pair of `*` or `_` marks, or a link, that would nest deeper than this is
-/// not built: its marks stay text around its content. Everything that walks
-/// the tree (the page, Lustre's diff, `==`) recurses once per level, so a
-/// tree as deep as the text is long overflows the stack.
+/// A pair of marks, or a link, that would nest deeper than this is not built:
+/// its marks stay text around its content. Everything that walks the tree
+/// (the page, Lustre's diff, `==`) recurses once per level, so a tree as deep
+/// as the text is long overflows the stack.
 const max_depth = 32
 
 const safe_schemes = ["http", "https", "mailto"]
@@ -325,6 +328,21 @@ fn scan(
       }
       let run = delimiter_run(mark, length, previous, next)
       scan(after, mark, "", add(add_text(state, text), run))
+    }
+    ["~", ..] -> {
+      let #(length, after) = count_run(chars, "~", 0)
+      let next = case after {
+        [next, ..] -> next
+        [] -> ""
+      }
+      // GFM: only a run of one or two tildes can strike through.
+      case length > 2 {
+        True -> scan(after, "~", text <> string.repeat("~", length), state)
+        False -> {
+          let run = delimiter_run("~", length, previous, next)
+          scan(after, "~", "", add(add_text(state, text), run))
+        }
+      }
     }
     ["[", ..rest] -> {
       let Scan(pieces, brackets, id) = add_text(state, text)
@@ -447,6 +465,7 @@ fn delimiter_run(
         opens: left && { !right || punctuation_before },
         closes: right && { !left || punctuation_after },
       )
+    "~" -> DelimiterRun(Tilde, length, opens: left, closes: right)
     _ -> DelimiterRun(Star, length, opens: left, closes: right)
   }
 }
@@ -765,14 +784,32 @@ fn close(
         False -> add_inline(pairing, marks(symbol, left), 0)
       }
     }
+    // GFM, as cmark-gfm does it: tildes strike only with a run of the same
+    // length. Both runs, and the runs between them, stay text.
+    Ok(#(passed, opener, below)) if symbol == Tilde && opener.left != left -> {
+      let #(content, depth) =
+        give_up(list.append(passed, [opener]), pairing.inside, pairing.depth)
+      Pairing(
+        ..pairing,
+        inside: Join(content, marks(symbol, left)),
+        depth:,
+        openers: below,
+        height: pairing.height - list.length(passed) - 1,
+      )
+      |> lower_floors
+    }
     Ok(#(passed, opener, below)) -> {
-      let used = case left >= 2 && opener.left >= 2 {
-        True -> 2
-        False -> 1
+      let used = case symbol, left >= 2 && opener.left >= 2 {
+        Tilde, _ -> left
+        _, True -> 2
+        _, False -> 1
       }
       let #(content, depth) = give_up(passed, pairing.inside, pairing.depth)
       let #(node, depth) = case depth < max_depth {
-        True -> #(Leaf(emphasis(used, flatten([content], []))), depth + 1)
+        True -> #(
+          Leaf(emphasis(symbol, used, flatten([content], []))),
+          depth + 1,
+        )
         False -> {
           let used_marks = marks(symbol, used)
           #(Join(Join(used_marks, content), used_marks), depth)
@@ -797,17 +834,22 @@ fn close(
             height:,
           )
       }
-      let floors =
-        dict.map_values(pairing.floors, fn(_, floor) {
-          int.min(floor, pairing.height)
-        })
-      let pairing = Pairing(..pairing, floors:)
+      let pairing = lower_floors(pairing)
       case left - used {
         0 -> pairing
         unused -> close(pairing, symbol, length, unused, opens)
       }
     }
   }
+}
+
+/// A floor above the top of the stack would hide the openers pushed later.
+fn lower_floors(pairing: Pairing) -> Pairing {
+  let floors =
+    dict.map_values(pairing.floors, fn(_, floor) {
+      int.min(floor, pairing.height)
+    })
+  Pairing(..pairing, floors:)
 }
 
 /// The nearest of the top `search` openers that the closer can pair with,
@@ -862,13 +904,15 @@ fn marks(symbol: Symbol, count: Int) -> Rope {
   case symbol {
     Star -> Leaf(Text(string.repeat("*", count)))
     Underscore -> Leaf(Text(string.repeat("_", count)))
+    Tilde -> Leaf(Text(string.repeat("~", count)))
   }
 }
 
-fn emphasis(used: Int, children: List(Inline)) -> Inline {
-  case used {
-    2 -> Strong(children)
-    _ -> Emphasis(children)
+fn emphasis(symbol: Symbol, used: Int, children: List(Inline)) -> Inline {
+  case symbol, used {
+    Tilde, _ -> Strike(children)
+    _, 2 -> Strong(children)
+    _, _ -> Emphasis(children)
   }
 }
 

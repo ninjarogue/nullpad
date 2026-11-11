@@ -53,7 +53,7 @@ fn inline(inline: Inline) -> String {
       }
       element("a", [#("href", percent_encode(url)), ..title], inlines(label))
     }
-    Strike(_) -> panic as "the parser does not build strikethrough yet"
+    Strike(inner) -> element("del", [], inlines(inner))
   }
 }
 

@@ -174,10 +174,10 @@ pub fn script_links_make_no_anchor_test() {
   )
 }
 
-pub fn strike_renders_its_children_plainly_test() {
+pub fn strike_renders_as_del_test() {
   assert string.contains(
     render(paragraph(Strike([Text("gone"), Code("x")]))),
-    "<p>gone<code>x</code></p>",
+    "<p><del>gone<code>x</code></del></p>",
   )
 }
 
