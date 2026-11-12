@@ -448,3 +448,35 @@ pub fn the_rendered_page_carries_no_row_marks_test() {
 
   assert !string.contains(html, "data-row")
 }
+
+pub fn a_part_draws_the_blank_rows_inside_a_list_test() {
+  let html =
+    markdown.parse("- one\n\n- two\n\n  more\n\n\n- three")
+    |> preview.part(
+      rows: 8,
+      first_row: 0,
+      test_id: "live-below",
+      on_task: fn(task, _) { task },
+    )
+    |> element.to_string
+
+  let blank_item = fn(row) {
+    "<li aria-hidden=\"true\" class=\"blank\" data-row=\"" <> row <> "\">"
+  }
+  assert string.contains(html, "</li>" <> blank_item("1") <> "</li><li")
+  assert string.contains(
+    html,
+    "</p><div class=\"blank\" data-row=\"3\"></div><p",
+  )
+  assert string.contains(html, blank_item("5") <> "</li>" <> blank_item("6"))
+  assert list.length(string.split(html, "class=\"blank\"")) == 5
+}
+
+pub fn the_whole_page_draws_no_blank_rows_test() {
+  let html =
+    markdown.parse("- one\n\n- two")
+    |> preview.view(fn(task, _) { task })
+    |> element.to_string
+
+  assert !string.contains(html, "blank")
+}
