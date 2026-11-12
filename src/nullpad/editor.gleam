@@ -121,6 +121,15 @@ pub fn open(editor: Editor, text: String) -> Outcome {
   let buffer = buffer.from_text(text)
   let keys = fresh_keys(editor.keys != PlainKeys)
   let editor = Editor(..editor, buffer:, keys:) |> realign
+  write_and_focus(editor)
+}
+
+/// A `Write` gives the control the keyboard, so the editor counts as in
+/// focus from now, before the browser says so. The field is then drawn in
+/// its block before it takes the keyboard, and the browser has no reason to
+/// scroll to where an idle field sits, under the whole note.
+fn write_and_focus(editor: Editor) -> Outcome {
+  let editor = Editor(..editor, focused: True)
   Outcome(editor:, sync: Write(field_buffer(editor)), requests: [])
 }
 
@@ -130,7 +139,7 @@ pub fn set_live(editor: Editor, on: Bool) -> Outcome {
     True -> Editor(..editor, field: Part(Region(0, 0))) |> realign
     False -> Editor(..editor, field: Whole)
   }
-  Outcome(editor:, sync: Write(field_buffer(editor)), requests: [])
+  write_and_focus(editor)
 }
 
 /// Turn vim on or off, keeping the text.
@@ -169,8 +178,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       let lines = buffer.lines(editor.buffer)
       let position = live.position(lines, row:, visible:, at_end:)
       let buffer = buffer.move_to(editor.buffer, position)
-      let editor = Editor(..editor, buffer:) |> realign
-      Outcome(editor:, sync: Write(field_buffer(editor)), requests: [])
+      Editor(..editor, buffer:) |> realign |> write_and_focus
     }
     FocusChanged(focused:) ->
       Outcome(editor: Editor(..editor, focused:), sync: InSync, requests: [])

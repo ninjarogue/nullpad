@@ -252,6 +252,7 @@ test('Enter on an empty line makes another, and the arrows cross each one', asyn
   const below = await top();
 
   await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue('');
   await expect(page.drawnIn('live-below', '.blank')).toHaveCount(0);
   expect(await top()).toBeLessThan(below - 10);
   await browser.keyboard.press('ArrowUp');
@@ -277,5 +278,22 @@ test('the words below do not move when the cursor reaches a heading or a blank l
     expect(Math.abs((await end()) - still)).toBeLessThan(1);
   }
   await expect(page.text).toHaveValue('');
+});
+
+test('coming back from the title to the note does not scroll the page', async ({
+  app,
+  disk,
+  page,
+}) => {
+  const long = Array.from({ length: 60 }, (_, line) => `paragraph ${line}`).join('\n\n');
+  await openLive({ app, disk, page }, long);
+  expect(await page.scrolled()).toBe(0);
+
+  await page.title.tap();
+  await expect(page.title).toBeFocused();
+  await page.drawn('p').first().tap();
+  await expect(page.text).toBeFocused();
+  await expect(page.text).toHaveValue('paragraph 0');
+  expect(await page.scrolled()).toBe(0);
 });
 
