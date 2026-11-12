@@ -33,7 +33,7 @@ pub fn source_follows_the_rules_test() {
 pub fn every_break_is_judged_as_listed_test() {
   let files = source()
   let wrong =
-    list.filter_map(list.append(breaks(), outside_breaks()), fn(break) {
+    list.filter_map(all_breaks(), fn(break) {
       let before = read_text(break.path)
       let after = break.change(before)
       let changed = rules.read(Source(break.path, after))
@@ -76,7 +76,7 @@ pub fn every_break_is_judged_as_listed_test() {
       }
       |> swap
     })
-  let all = list.append(breaks(), outside_breaks())
+  let all = all_breaks()
   let count = fn(wanted: fn(Kind) -> Bool) {
     int.to_string(list.count(all, fn(break) { wanted(break.kind) }))
   }
@@ -93,6 +93,25 @@ pub fn every_break_is_judged_as_listed_test() {
     [] -> Nil
     _ -> panic as string.join(wrong, "\n")
   }
+}
+
+pub fn every_rule_has_a_break_that_proves_it_test() {
+  let unproven =
+    list.filter(rules.rules, fn(rule) {
+      !list.any(all_breaks(), fn(break) { break.kind == Caught(rule) })
+    })
+  case unproven {
+    [] -> Nil
+    _ ->
+      panic as {
+        "no break proves these rules catch anything: "
+        <> string.join(list.map(unproven, rules.says), "; ")
+      }
+  }
+}
+
+fn all_breaks() -> List(Break) {
+  list.flatten([breaks(), outside_breaks(), second_round()])
 }
 
 fn swap(result: Result(a, b)) -> Result(b, a) {
@@ -184,9 +203,6 @@ const view =
 
 fn breaks() -> List(Break) {
   let surface = "nullpad/surface.gleam"
-  let surface_js = "nullpad/surface.ffi.mjs"
-  let platform_js = "nullpad/platform.ffi.mjs"
-  let markdown_js = "nullpad/markdown.ffi.mjs"
   [
     Break(
       Caught(rules.CoreImports),
@@ -217,18 +233,6 @@ fn breaks() -> List(Break) {
       "core imports a package",
       "nullpad/markdown.gleam",
       first("import plinth/browser/window\n"),
-    ),
-    Break(
-      Caught(rules.CoreJavaScript),
-      "core JavaScript reads the document",
-      markdown_js,
-      last("export const w = () => document.title;"),
-    ),
-    Break(
-      Caught(rules.CoreJavaScript),
-      "core JavaScript goes through globalThis",
-      markdown_js,
-      last("export const w = () => globalThis.document;"),
     ),
     Break(
       Caught(rules.JavaScriptFile),
@@ -263,94 +267,6 @@ fn breaks() -> List(Break) {
       "library imports a storage backend",
       "nullpad/library.gleam",
       first("import nullpad/storage/indexeddb as db\n"),
-    ),
-    Break(
-      Caught(rules.FieldWrite),
-      "platform JavaScript assigns the field",
-      platform_js,
-      last("export function w(el) { el.value = 'x'; }"),
-    ),
-    Break(
-      Caught(rules.FieldWrite),
-      "platform JavaScript appends to the field",
-      platform_js,
-      last("export function w(el) { el.value += 'x'; }"),
-    ),
-    Break(
-      Caught(rules.FieldWrite),
-      "platform JavaScript uses setRangeText",
-      platform_js,
-      last("export function w(el) { el.setRangeText('x'); }"),
-    ),
-    Break(
-      Caught(rules.FieldWrite),
-      "platform JavaScript moves the caret",
-      platform_js,
-      last("export function w(el) { el.selectionStart = 0; }"),
-    ),
-    Break(
-      Caught(rules.JavaScriptRegex),
-      "the old list-marker regex",
-      surface_js,
-      last("export const m = (s) => /^\\s*(?:[-*+]|\\d+[.)])\\s/.exec(s);"),
-    ),
-    Break(
-      Caught(rules.JavaScriptRegex),
-      "a heading regex with no character class",
-      surface_js,
-      last("export const h = (s) => /^#{1,6} /.test(s);"),
-    ),
-    Break(
-      Caught(rules.JavaScriptRegex),
-      "a regex built with new RegExp",
-      surface_js,
-      last("export const m = (s) => new RegExp('^x').exec(s);"),
-    ),
-    Break(
-      Caught(rules.MarkdownMarker),
-      "JavaScript finds list items with startsWith",
-      surface_js,
-      last("export const m = (s) => s.startsWith('- ') || s.startsWith('* ');"),
-    ),
-    Break(
-      Caught(rules.MarkdownMarker),
-      "a shell module finds list items by hand",
-      surface,
-      last(
-        "fn is_item(line: String) -> Bool {\n  string.starts_with(line, \"- \")\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.MarkdownMarker),
-      "a shell module matches a marker in a pattern",
-      surface,
-      last(
-        "fn is_item(line: String) -> Bool {\n  case line {\n    \"* \" <> _ -> True\n    _ -> False\n  }\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.MarkdownMarker),
-      "a marker built from two strings",
-      surface,
-      last(
-        "fn is_item(line: String) -> Bool {\n  string.starts_with(line, \"-\" <> \" \")\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.MarkdownMarker),
-      "app finds headings by hand",
-      "nullpad/app.gleam",
-      last(
-        "fn is_heading(line: String) -> Bool {\n  string.starts_with(line, \"# \")\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.MarkdownMarker),
-      "storage finds task boxes by hand",
-      "nullpad/storage.gleam",
-      last(
-        "fn is_task(line: String) -> Bool {\n  string.contains(line, \"[x]\")\n}",
-      ),
     ),
     Break(
       Caught(rules.ChangesPage),
@@ -435,15 +351,6 @@ fn breaks() -> List(Break) {
       ),
     ),
     Break(
-      Caught(rules.MeasureChanges),
-      "a measure starts changing the page",
-      surface_js,
-      after(
-        "export function caretLine(id) {\n",
-        "  document.activeElement?.blur();\n",
-      ),
-    ),
-    Break(
       Caught(rules.ChangesPage),
       "a function that returns a list of attributes blurs",
       surface,
@@ -459,27 +366,9 @@ fn breaks() -> List(Break) {
     ),
     Break(
       Clean,
-      "division in JavaScript",
-      surface_js,
-      last("export const half = (a, b) => a[0] / 2 + b[1] / 2;"),
-    ),
-    Break(
-      Clean,
       "a core module imports another core module",
       "nullpad/vim.gleam",
       first("import nullpad/markdown\n"),
-    ),
-    Break(
-      Clean,
-      "a dash in ordinary interface text",
-      "nullpad/app.gleam",
-      last("const label = \"Saved - just now\""),
-    ),
-    Break(
-      Clean,
-      "a marker inside a comment",
-      surface,
-      last("// a list item starts with \"- \""),
     ),
     Break(
       Clean,
@@ -491,46 +380,9 @@ fn breaks() -> List(Break) {
     ),
     Break(
       Escapes,
-      "a browser global spelled in pieces",
-      markdown_js,
-      last("export const w = () => Function('return this')()['doc' + 'ument'];"),
-    ),
-    Break(
-      Escapes,
-      "markdown knowledge with no marker literal",
-      surface_js,
-      last(
-        "export const m = (s) => s.charCodeAt(0) === 45 && s.charCodeAt(1) === 32;",
-      ),
-    ),
-    Break(
-      Escapes,
-      "a marker spelled as a code point",
-      surface,
-      last(
-        "fn is_item(line: String) -> Bool {\n  string.to_utf_codepoints(line) |> list.first == string.utf_codepoint(45)\n}",
-      ),
-    ),
-    Break(
-      Escapes,
       "logic added to app instead of a pure module",
       "nullpad/app.gleam",
       last("fn decide(count: Int) -> Bool {\n  count > 3 && count % 2 == 0\n}"),
-    ),
-    Break(
-      Escapes,
-      "a field write through a computed property",
-      platform_js,
-      last("export function w(el) { el['val' + 'ue'] = 'x'; }"),
-    ),
-    Break(
-      Escapes,
-      "a measure changes the page through a helper",
-      surface_js,
-      both(
-        after("export function caretLine(id) {\n", "  sneak();\n"),
-        last("function sneak() { document.activeElement?.blur(); }"),
-      ),
     ),
   ]
 }
@@ -541,11 +393,6 @@ fn outside_breaks() -> List(Break) {
   let app = "nullpad/app.gleam"
   let surface = "nullpad/surface.gleam"
   let preview = "nullpad/preview.gleam"
-  let platform_js = "nullpad/platform.ffi.mjs"
-  let surface_js = "nullpad/surface.ffi.mjs"
-  let probe = fn(name: String, body: String) {
-    Break(Caught(rules.MarkdownMarker), name, preview, last(body))
-  }
   [
     Break(
       Caught(rules.Annotated),
@@ -620,30 +467,6 @@ fn outside_breaks() -> List(Break) {
       ),
     ),
     Break(
-      Caught(rules.FieldWrite),
-      "platform JavaScript sets textContent",
-      platform_js,
-      last(
-        "export function setField(text) {\n  document.getElementById(\"nullpad-control\").textContent = text;\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.FieldWrite),
-      "platform JavaScript uses Object.assign",
-      platform_js,
-      last(
-        "export function setField(text) {\n  Object.assign(document.getElementById(\"nullpad-control\"), { value: text });\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.FieldWrite),
-      "platform JavaScript uses ||=",
-      platform_js,
-      last(
-        "export function setField(text) {\n  document.getElementById(\"nullpad-control\").value ||= text;\n}",
-      ),
-    ),
-    Break(
       Caught(rules.JavaScriptFile),
       "JavaScript in a plain .js file",
       "nullpad/extra.js",
@@ -657,84 +480,6 @@ fn outside_breaks() -> List(Break) {
       "nullpad/platform.gleam",
       last(
         "@external(javascript, \"./extra.js\", \"wipe\")\npub fn wipe() -> Nil",
-      ),
-    ),
-    Break(
-      Caught(rules.JavaScriptRegex),
-      "a heading regex in the parser's own JavaScript",
-      "nullpad/markdown.ffi.mjs",
-      last(
-        "export function stripHeading(line) {\n  return line.replace(/^#{1,6}\\s+/, \"\");\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.CoreJavaScript),
-      "core JavaScript uses fetch and location",
-      "nullpad/markdown.ffi.mjs",
-      last(
-        "export function ping() {\n  fetch(\"/x\");\n  location.href = \"/y\";\n}",
-      ),
-    ),
-    Break(
-      Caught(rules.MeasureChanges),
-      "a measure appends to the page",
-      surface_js,
-      after(
-        "export function drawnInPage(id, liveClass) {\n",
-        "  document.body.appendChild(document.createElement(\"div\"));\n",
-      ),
-    ),
-    Break(
-      Caught(rules.MeasureChanges),
-      "a measure sets a style property",
-      surface_js,
-      after(
-        "export function drawnInPage(id, liveClass) {\n",
-        "  document.documentElement.style.setProperty(\"--x\", \"1\");\n",
-      ),
-    ),
-    probe(
-      "preview strips bold marks",
-      "fn plain(text: String) -> String {\n  string.replace(text, \"**\", \"\")\n}",
-    ),
-    probe(
-      "preview tests for a lone dash",
-      "fn is_list_line(line: String) -> Bool {\n  string.starts_with(line, \"-\")\n}",
-    ),
-    probe(
-      "preview compares with a rule",
-      "fn is_rule(line: String) -> Bool {\n  line == \"---\"\n}",
-    ),
-    probe(
-      "preview tests for an ordered marker",
-      "fn is_ordered(line: String) -> Bool {\n  string.starts_with(line, \"1.\")\n}",
-    ),
-    probe(
-      "preview splits table cells",
-      "fn cells(line: String) -> List(String) {\n  string.split(line, \"|\")\n}",
-    ),
-    probe(
-      "preview keeps a list of bullets",
-      "const bullets = [\"-\", \"*\", \"+\"]",
-    ),
-    probe(
-      "preview tests for a heading with no space",
-      "fn is_heading(line: String) -> Bool {\n  string.starts_with(line, \"##\")\n}",
-    ),
-    probe(
-      "preview looks for a link",
-      "fn has_link(line: String) -> Bool {\n  string.contains(line, \"](\")\n}",
-    ),
-    probe(
-      "preview tests for a code tick",
-      "fn is_code(line: String) -> Bool {\n  string.starts_with(line, \"`\")\n}",
-    ),
-    Break(
-      Caught(rules.MarkdownMarker),
-      "JavaScript tests for a lone dash",
-      platform_js,
-      last(
-        "export function isBullet(line) {\n  return line.trim().startsWith(\"-\");\n}",
       ),
     ),
     Break(
@@ -753,28 +498,6 @@ fn outside_breaks() -> List(Break) {
     ),
     Break(
       Clean,
-      "a label that starts with a hash",
-      app,
-      last(
-        "fn count_label() -> Element(Msg) {\n  html.span([], [element.text(\"# of notes\")])\n}",
-      ),
-    ),
-    Break(
-      Clean,
-      "labels that start with a dash, a plus, a star and a number",
-      app,
-      last(
-        "fn labels() -> List(Element(Msg)) {\n  [\n    element.text(\"- deleted\"),\n    element.text(\"+ New note\"),\n    element.text(\"* required\"),\n    element.text(\"1. Open a note\"),\n    element.text(\">\"),\n  ]\n}",
-      ),
-    ),
-    Break(
-      Clean,
-      "a JavaScript string that starts with a quote mark",
-      platform_js,
-      last("export function prompt2() {\n  return \"> \";\n}"),
-    ),
-    Break(
-      Clean,
       "a second storage backend",
       "nullpad/storage/localstorage.gleam",
       first(
@@ -786,20 +509,6 @@ fn outside_breaks() -> List(Break) {
       "a second storage backend's JavaScript",
       "nullpad/storage/localstorage.ffi.mjs",
       first("export function count() {\n  return localStorage.length;\n}\n"),
-    ),
-    Break(
-      Clean,
-      "a block comment that mentions a field write",
-      platform_js,
-      last("/* Never do input.value = \"\" here, surface owns the field. */"),
-    ),
-    Break(
-      Clean,
-      "a doc comment that says document",
-      "nullpad/markdown.ffi.mjs",
-      last(
-        "/**\n * Splits a document into rows.\n */\nexport function rows(text) {\n  return text.length;\n}",
-      ),
     ),
     Break(
       Clean,
@@ -835,17 +544,205 @@ fn outside_breaks() -> List(Break) {
     ),
     Break(
       Escapes,
-      "markdown knowledge as a number of characters to drop",
-      preview,
-      last("fn body(line: String) -> String {\n  string.drop_start(line, 2)\n}"),
-    ),
-    Break(
-      Escapes,
       "a wildcard in a case",
       app,
       last(
         "fn flip(showing: Bool) -> Bool {\n  case showing {\n    True -> False\n    _ -> True\n  }\n}",
       ),
+    ),
+  ]
+}
+
+/// From a second attacker. `Escapes` here is also the record of what moved
+/// from a rule to review: the JavaScript text rules and the marker rule let
+/// most of that attacker's breaks through and flagged ordinary code.
+fn second_round() -> List(Break) {
+  let app = "nullpad/app.gleam"
+  let surface = "nullpad/surface.gleam"
+  let editor = "nullpad/editor.gleam"
+  let platform_js = "nullpad/platform.ffi.mjs"
+  let surface_js = "nullpad/surface.ffi.mjs"
+  [
+    Break(
+      Caught(rules.ChangesPage),
+      "a constant holds a function that changes the page",
+      app,
+      last(
+        "const poke = platform.focus\n\nfn badge(count: Int) -> String {\n  let _ = poke(\"nullpad-control\")\n  \"x\"\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.RawHtml),
+      "a constant holds unsafe_raw_html",
+      app,
+      last(
+        "const raw = element.unsafe_raw_html\n\nfn banner() -> Element(Msg) {\n  raw(\"\", \"div\", [], \"<b>hi</b>\")\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.FieldWrite),
+      "a constant holds html.textarea",
+      app,
+      last(
+        "const field = html.textarea\n\nfn second() -> Element(Msg) {\n  field([], \"\")\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.FieldWrite),
+      "a second text field through element.element",
+      "nullpad/preview.gleam",
+      last(
+        "fn second_field(text: String) -> Element(msg) {\n  element.element(\"textarea\", [], [element.text(text)])\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.FieldWrite),
+      "a contenteditable element",
+      app,
+      last(
+        "fn editable() -> attribute.Attribute(Msg) {\n  attribute.attribute(\"contenteditable\", \"true\")\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.Annotated),
+      "annotated with the hole type",
+      app,
+      last("fn twice(x: _) -> _ {\n  x\n}"),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a decoder hidden behind a type alias",
+      surface,
+      last(
+        "type Handling(msg) =\n  Decoder(event.Handler(msg))\n\nfn shortcut(editor: Editor, on_event: fn(editor.Event) -> msg) -> Handling(msg) {\n  key_decoder(editor, on_event)\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a decoder reads the editor through a callback",
+      surface,
+      last(
+        "fn tab_decoder(read: fn() -> Editor, done: msg) -> Decoder(msg) {\n  case editor.is_idle(read()) {\n    True -> decode.success(done)\n    False -> decode.failure(done, \"idle\")\n  }\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "the allowed decoder takes more state",
+      surface,
+      after("fn key_decoder(\n", "  last: Buffer,\n"),
+    ),
+    Break(
+      Caught(rules.SkipsOutcome),
+      "a public editor function returns an alias of Editor",
+      editor,
+      last(
+        "pub type Edited =\n  Editor\n\npub fn blank(editor: Editor) -> Edited {\n  editor\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.Listed),
+      "a backend placed outside src/nullpad",
+      "storage/memory.gleam",
+      first("pub fn size() -> Int {\n  1\n}\n"),
+    ),
+    Break(
+      Clean,
+      "a decoder that takes a message",
+      app,
+      last(
+        "fn tap_decoder(done: msg) -> decode.Decoder(msg) {\n  decode.success(done)\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "a decoder that takes a list of key names",
+      app,
+      last(
+        "fn keys_decoder(keys: List(String)) -> decode.Decoder(Bool) {\n  decode.success(keys == [])\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "an effect behind a type alias",
+      app,
+      last(
+        "type Fx =\n  Effect(Msg)\n\nfn nudge() -> Fx {\n  platform.after(10, UserClosedMenu)\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "key names that look like markdown markers",
+      app,
+      last(
+        "fn zoom_step(key: String) -> Int {\n  case key {\n    \"+\" -> 1\n    \"-\" -> -1\n    _ -> 0\n  }\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a closure stored in the model is called from the view",
+      app,
+      both(
+        after(
+          "    menu: Option(Menu),\n",
+          "    poke: fn(String) -> Effect(Msg),\n",
+        ),
+        both(
+          after("      menu: None,\n", "      poke: platform.focus,\n"),
+          after(
+            "fn toggles(model: Model) -> Element(Msg) {\n",
+            "  let _ = model.poke(\"nullpad-control\")\n",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Escapes,
+      "a public editor function over a type that wraps Editor",
+      editor,
+      last(
+        "pub type Session {\n  Session(editor: Editor, edits: Int)\n}\n\npub fn bump(session: Session) -> Session {\n  Session(..session, edits: session.edits + 1)\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a storage backend's JavaScript changes the page",
+      "nullpad/storage/indexeddb.ffi.mjs",
+      last("export function announce(text) {\n  document.title = text;\n}"),
+    ),
+    Break(
+      Escapes,
+      "a shell module finds list items by hand",
+      surface,
+      last(
+        "fn is_item(line: String) -> Bool {\n  string.starts_with(line, \"- \")\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "JavaScript finds list items with a regex",
+      surface_js,
+      last("export const m = (s) => /^\\s*(?:[-*+]|\\d+[.)])\\s/.exec(s);"),
+    ),
+    Break(
+      Escapes,
+      "platform JavaScript writes the field",
+      platform_js,
+      last("export function w(el) { el.value = 'x'; }"),
+    ),
+    Break(
+      Escapes,
+      "a measure starts changing the page",
+      surface_js,
+      after(
+        "export function caretLine(id) {\n",
+        "  document.activeElement?.blur();\n",
+      ),
+    ),
+    Break(
+      Escapes,
+      "core JavaScript reads the document",
+      "nullpad/markdown.ffi.mjs",
+      last("export const w = () => document.title;"),
     ),
   ]
 }

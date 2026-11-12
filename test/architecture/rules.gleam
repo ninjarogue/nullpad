@@ -1,6 +1,8 @@
-//// The architecture rules in AGENTS.md, as a check over the source text.
-//// Gleam files are parsed with glance, so imports, calls and string literals
-//// are the real ones. JavaScript files are read line by line.
+//// The architecture rules in AGENTS.md, as a check over the syntax tree.
+//// Gleam files are parsed with glance, so imports, calls and types are the
+//// real ones. JavaScript is only checked for where it lives: what it does
+//// inside a file is left to review, because matching its text line by line
+//// let most breaks through.
 ////
 //// The defaults fail: a module nobody listed, a function with no return
 //// type and JavaScript nobody called a measure are all reported, so new
@@ -11,7 +13,7 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/regexp.{type Regexp}
+import gleam/order
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
@@ -33,11 +35,8 @@ const measures = [
   "below", "hasHardwareKeyboard", "readVimSetting", "readMarkdownSetting",
 ]
 
-const regexes_in_javascript = [
-  "Mac|iPhone|iPad", "\\n$", "^[\\p{Zs}\\t\\n\\f\\r]$", "^[\\p{P}\\p{S}]$",
-]
-
-const decoders_that_still_read_state = ["surface.key_decoder"]
+/// How many state parameters each of these decoders still takes.
+const decoders_that_still_read_state = [#("surface.key_decoder", 1)]
 
 const plain_types = ["String", "Int", "Bool", "Float"]
 
@@ -50,15 +49,11 @@ pub type Rule {
   Listed
   Annotated
   CoreImports
-  CoreJavaScript
   JavaScriptFile
   CallsJavaScript
   BackendImport
   FieldWrite
-  JavaScriptRegex
-  MarkdownMarker
   ChangesPage
-  MeasureChanges
   DecoderState
   SkipsOutcome
   RawHtml
@@ -68,15 +63,11 @@ pub const rules = [
   Listed,
   Annotated,
   CoreImports,
-  CoreJavaScript,
   JavaScriptFile,
   CallsJavaScript,
   BackendImport,
   FieldWrite,
-  JavaScriptRegex,
-  MarkdownMarker,
   ChangesPage,
-  MeasureChanges,
   DecoderState,
   SkipsOutcome,
   RawHtml,
@@ -87,18 +78,14 @@ pub fn says(rule: Rule) -> String {
     Listed -> "every module is listed as core, shell or a storage backend"
     Annotated -> "every function says what it takes and returns"
     CoreImports -> "a core module imports only gleam and other core modules"
-    CoreJavaScript -> "a core module's JavaScript touches no browser"
     JavaScriptFile ->
       "JavaScript lives in the .ffi.mjs of surface, platform, markdown or a storage backend"
     CallsJavaScript ->
       "only surface, platform, markdown and a storage backend call JavaScript, each its own file"
     BackendImport -> "only src/nullpad.gleam imports a storage backend"
-    FieldWrite -> "only surface draws and writes the text field"
-    JavaScriptRegex -> "JavaScript has no regex, the Gleam parser reads text"
-    MarkdownMarker -> "only the core looks for markdown markers"
+    FieldWrite -> "only surface draws the text field"
     ChangesPage ->
       "only a function that returns an Effect or Nil may change the page"
-    MeasureChanges -> "JavaScript listed as measuring changes nothing"
     DecoderState ->
       "a decoder takes callbacks and plain values, never app state from the last drawn frame"
     SkipsOutcome ->
@@ -124,7 +111,7 @@ pub type Report {
 
 pub opaque type File {
   Gleam(path: String, name: String, module: glance.Module)
-  JavaScript(path: String, name: String, lines: List(String))
+  JavaScript(path: String, name: String)
   Other(path: String)
   Unreadable(path: String)
 }
@@ -132,23 +119,22 @@ pub opaque type File {
 pub fn read(source: Source) -> File {
   let gleam = string.ends_with(source.path, ".gleam")
   let javascript = string.ends_with(source.path, ".ffi.mjs")
-  let name =
+  let stem =
     source.path
     |> string.replace(".ffi.mjs", "")
     |> string.replace(".gleam", "")
-    |> strip_prefix("nullpad/")
+  let name = case stem, string.starts_with(stem, "nullpad/") {
+    "nullpad", _ -> stem
+    _, True -> strip_prefix(stem, "nullpad/")
+    _, False -> "src/" <> stem
+  }
   case gleam, javascript {
     True, _ ->
       case glance.module(source.text) {
         Ok(module) -> Gleam(source.path, name, module)
         Error(_) -> Unreadable(source.path)
       }
-    False, True ->
-      JavaScript(
-        source.path,
-        name,
-        string.split(without_block_comments(source.text), "\n"),
-      )
+    False, True -> JavaScript(source.path, name)
     False, False -> Other(source.path)
   }
 }
@@ -169,13 +155,12 @@ pub fn judge(files: List(File)) -> Report {
             core_imports(path, name, module),
             calls_javascript(path, name, module),
             backend_import(path, name, module),
-            markers_in_gleam(path, name, module),
             changes_page(path, name, module, changers),
             decoder_state(path, name, module),
             skips_outcome(path, name, module),
             forbidden_calls(path, name, module),
           ])
-        JavaScript(path:, name:, lines:) -> javascript(path, name, lines)
+        JavaScript(path:, name:) -> javascript(path, name)
         Other(path) -> [
           Found(Broken(JavaScriptFile, path, "not a .gleam or .ffi.mjs file")),
         ]
@@ -256,9 +241,13 @@ fn annotated(path: String, module: glance.Module) -> List(Finding) {
     list.flat_map(module.functions, fn(definition) {
       let function = definition.definition
       let untyped =
-        list.any(function.parameters, fn(parameter) { parameter.type_ == None })
+        list.any(function.parameters, fn(parameter) {
+          option.map(parameter.type_, has_hole) |> option.unwrap(True)
+        })
+      let no_return =
+        option.map(function.return, has_hole) |> option.unwrap(True)
       list.flatten([
-        when(function.return == None, fn() {
+        when(no_return, fn() {
           [
             Found(Broken(
               Annotated,
@@ -279,6 +268,17 @@ fn annotated(path: String, module: glance.Module) -> List(Finding) {
       ])
     })
   [Looked(Annotated, path), ..broken]
+}
+
+fn has_hole(type_: glance.Type) -> Bool {
+  case type_ {
+    glance.HoleType(..) -> True
+    glance.VariableType(..) -> False
+    glance.NamedType(parameters:, ..) -> list.any(parameters, has_hole)
+    glance.TupleType(elements:, ..) -> list.any(elements, has_hole)
+    glance.FunctionType(parameters:, return:, ..) ->
+      has_hole(return) || list.any(parameters, has_hole)
+  }
 }
 
 fn core_imports(
@@ -349,46 +349,6 @@ fn backend_import(
   [Looked(BackendImport, path), ..broken]
 }
 
-/// A string that is nothing but markdown punctuation, where the code tests
-/// or cuts text with it: `string.starts_with(line, "-")`, a `case` pattern,
-/// `line == "---"`, a list of bullets. A label such as "+ New note" is not
-/// one, and neither is a marker handed to `element.text`.
-fn markers_in_gleam(
-  path: String,
-  name: String,
-  module: glance.Module,
-) -> List(Finding) {
-  use <- when(!is_core(name))
-  let in_functions =
-    list.flat_map(module.functions, fn(definition) {
-      statements(definition.definition.body)
-    })
-  let in_constants =
-    list.flat_map(module.constants, fn(definition) {
-      expression(definition.definition.value)
-    })
-  let broken =
-    list.append(in_functions, in_constants)
-    |> list.filter_map(fn(seen) {
-      case seen {
-        Probe(text) ->
-          case is_marker(text) {
-            True ->
-              Ok(Found(Broken(MarkdownMarker, path, "\"" <> text <> "\"")))
-            False -> Error(Nil)
-          }
-        Name(_) | Remote(..) | Text(_) | Bound(_) -> Error(Nil)
-      }
-    })
-  [Looked(MarkdownMarker, path), ..broken]
-}
-
-fn is_marker(text: String) -> Bool {
-  let only = pattern_from("^[-*+#>|`~_=\\[\\]()!.:0-9xX \\\\]+$")
-  let some = pattern_from("[-*+#>|`~\\[\\]]|^[0-9]+[.)] ?$")
-  regexp.check(only, text) && regexp.check(some, text)
-}
-
 fn changes_page(
   path: String,
   name: String,
@@ -398,10 +358,11 @@ fn changes_page(
   use <- when(!is_core(name))
   let key = module_key(path)
   let resolve = resolver(key, module)
+  let aliases = aliases_of(module)
   let broken =
     list.flat_map(module.functions, fn(definition) {
       let function = definition.definition
-      use <- when(!may_change(function))
+      use <- when(!may_change(function, aliases))
       uses(function, resolve)
       |> list.filter(set.contains(changers, _))
       |> list.map(fn(called) {
@@ -410,7 +371,7 @@ fn changes_page(
     })
   let examined =
     list.count(module.functions, fn(definition) {
-      !may_change(definition.definition)
+      !may_change(definition.definition, aliases)
     })
   [
     Looked(
@@ -421,11 +382,53 @@ fn changes_page(
   ]
 }
 
-fn may_change(function: glance.Function) -> Bool {
-  case function.return {
+fn may_change(
+  function: glance.Function,
+  aliases: Dict(String, glance.Type),
+) -> Bool {
+  case option.map(function.return, expand(_, aliases)) {
     Some(glance.NamedType(name: "Nil", ..)) -> True
     Some(returned) -> mentions(returned, ["Effect"])
     None -> False
+  }
+}
+
+fn aliases_of(module: glance.Module) -> Dict(String, glance.Type) {
+  list.map(module.type_aliases, fn(definition) {
+    #(definition.definition.name, definition.definition.aliased)
+  })
+  |> dict.from_list
+}
+
+/// The type with this module's own aliases replaced by what they stand for.
+fn expand(
+  type_: glance.Type,
+  aliases: Dict(String, glance.Type),
+) -> glance.Type {
+  let each = list.map(_, expand(_, aliases))
+  case type_ {
+    glance.NamedType(location:, name:, module: None, parameters:) ->
+      case dict.get(aliases, name) {
+        Ok(aliased) -> expand(aliased, dict.delete(aliases, name))
+        Error(Nil) ->
+          glance.NamedType(
+            location:,
+            name:,
+            module: None,
+            parameters: each(parameters),
+          )
+      }
+    glance.NamedType(location:, name:, module:, parameters:) ->
+      glance.NamedType(location:, name:, module:, parameters: each(parameters))
+    glance.TupleType(location:, elements:) ->
+      glance.TupleType(location:, elements: each(elements))
+    glance.FunctionType(location:, parameters:, return:) ->
+      glance.FunctionType(
+        location:,
+        parameters: each(parameters),
+        return: expand(return, aliases),
+      )
+    glance.VariableType(..) | glance.HoleType(..) -> type_
   }
 }
 
@@ -446,33 +449,54 @@ fn decoder_state(
   module: glance.Module,
 ) -> List(Finding) {
   use <- when(!is_core(name) && !is_backend(name))
+  let aliases = aliases_of(module)
   list.flat_map(module.functions, fn(definition) {
     let function = definition.definition
     let decoder =
       string.ends_with(function.name, "_decoder")
       || case function.return {
-        Some(returned) -> mentions(returned, ["Decoder"])
+        Some(returned) -> mentions(expand(returned, aliases), ["Decoder"])
         None -> False
       }
     use <- when(decoder)
     let full = name <> "." <> function.name
-    let takes_state =
-      list.any(function.parameters, fn(parameter) {
+    let state =
+      list.count(function.parameters, fn(parameter) {
         case parameter.type_ {
-          Some(glance.FunctionType(..)) -> False
-          Some(glance.NamedType(name:, parameters: [], ..)) ->
-            !list.contains(plain_types, name)
-          Some(_) | None -> True
+          Some(type_) -> !is_plain(expand(type_, aliases))
+          None -> True
         }
       })
-    case takes_state && !list.contains(decoders_that_still_read_state, full) {
-      True -> [
-        Looked(DecoderState, full),
-        Found(Broken(DecoderState, path, function.name)),
+    let allowed =
+      list.key_find(decoders_that_still_read_state, full) |> result.unwrap(0)
+    let found = case int.compare(state, allowed) {
+      order.Gt -> [Found(Broken(DecoderState, path, function.name))]
+      order.Lt -> [
+        Found(Broken(
+          DecoderState,
+          path,
+          function.name <> " takes less state than its allowance",
+        )),
       ]
-      False -> [Looked(DecoderState, full)]
+      order.Eq -> []
     }
+    [Looked(DecoderState, full), ..found]
   })
+}
+
+/// A value a decoder may take: text and numbers, lists of them, a type
+/// variable such as `msg`, and a callback that returns one of those.
+fn is_plain(type_: glance.Type) -> Bool {
+  case type_ {
+    glance.VariableType(..) -> True
+    glance.NamedType(name:, parameters: [], ..) ->
+      list.contains(plain_types, name)
+    glance.NamedType(name:, parameters:, ..) ->
+      list.contains(["List", "Option"], name) && list.all(parameters, is_plain)
+    glance.TupleType(elements:, ..) -> list.all(elements, is_plain)
+    glance.FunctionType(return:, ..) -> is_plain(return)
+    glance.HoleType(..) -> False
+  }
 }
 
 fn skips_outcome(
@@ -481,17 +505,18 @@ fn skips_outcome(
   module: glance.Module,
 ) -> List(Finding) {
   use <- when(name == "editor")
+  let aliases = aliases_of(module)
   let broken =
     list.filter_map(module.functions, fn(definition) {
       let function = definition.definition
       let takes =
         list.any(function.parameters, fn(parameter) {
           case parameter.type_ {
-            Some(type_) -> mentions(type_, ["Editor"])
+            Some(type_) -> mentions(expand(type_, aliases), ["Editor"])
             None -> False
           }
         })
-      let hands_back = case function.return {
+      let hands_back = case option.map(function.return, expand(_, aliases)) {
         Some(returned) ->
           mentions(returned, ["Editor"]) && !mentions(returned, ["Outcome"])
         None -> False
@@ -511,20 +536,40 @@ fn forbidden_calls(
   module: glance.Module,
 ) -> List(Finding) {
   let resolve = resolver(module_key(path), module)
-  let used =
-    list.flat_map(module.functions, fn(definition) {
+  let in_functions =
+    list.map(module.functions, fn(definition) {
       let function = definition.definition
-      list.map(uses(function, resolve), fn(used) { #(function.name, used) })
+      #(function.name, statements(function.body), uses(function, resolve))
+    })
+  let in_constants =
+    list.map(module.constants, fn(definition) {
+      let seen = expression(definition.definition.value)
+      #(definition.definition.name, seen, list.filter_map(seen, resolve))
     })
   let broken =
-    list.filter_map(used, fn(use_) {
-      case use_.1 {
-        "lustre/element.unsafe_raw_html" ->
-          Ok(Found(Broken(RawHtml, path, use_.0)))
-        "lustre/element/html.textarea" if name != "surface" ->
-          Ok(Found(Broken(FieldWrite, path, use_.0 <> " draws a textarea")))
-        _ -> Error(Nil)
-      }
+    list.flat_map(list.append(in_functions, in_constants), fn(one) {
+      let #(holder, seen, used) = one
+      let calls =
+        list.filter_map(used, fn(called) {
+          case called {
+            "lustre/element.unsafe_raw_html" ->
+              Ok(Found(Broken(RawHtml, path, holder)))
+            "lustre/element/html.textarea" if name != "surface" ->
+              Ok(Found(Broken(FieldWrite, path, holder <> " draws a textarea")))
+            _ -> Error(Nil)
+          }
+        })
+      let texts =
+        list.filter_map(seen, fn(one) {
+          case one {
+            Text("textarea") | Text("contenteditable") if name != "surface" ->
+              Ok(
+                Found(Broken(FieldWrite, path, holder <> " names a text field")),
+              )
+            Text(_) | Name(_) | Remote(..) | Bound(_) -> Error(Nil)
+          }
+        })
+      list.append(calls, texts)
     })
   [Looked(RawHtml, path), Looked(FieldWrite, path), ..broken]
 }
@@ -552,8 +597,8 @@ fn module_key(path: String) -> String {
   string.replace(path, ".gleam", "")
 }
 
-/// Every function that reaches page-changing JavaScript, directly or through
-/// other functions, in any module.
+/// Every function and constant that reaches page-changing JavaScript,
+/// directly or through others, in any module.
 fn changers(files: List(File)) -> Set(String) {
   let functions =
     list.flat_map(files, fn(file) {
@@ -561,15 +606,23 @@ fn changers(files: List(File)) -> Set(String) {
         Gleam(path:, name:, module:) -> {
           let key = module_key(path)
           let resolve = resolver(key, module)
-          list.map(module.functions, fn(definition) {
-            let function = definition.definition
-            let starts = case external(definition) {
-              Some(External(function: javascript, ..)) ->
-                touches_page(name) && !list.contains(measures, javascript)
-              None -> False
-            }
-            #(key <> "." <> function.name, uses(function, resolve), starts)
-          })
+          let functions =
+            list.map(module.functions, fn(definition) {
+              let function = definition.definition
+              let starts = case external(definition) {
+                Some(External(function: javascript, ..)) ->
+                  touches_page(name) && !list.contains(measures, javascript)
+                None -> False
+              }
+              #(key <> "." <> function.name, uses(function, resolve), starts)
+            })
+          let constants =
+            list.map(module.constants, fn(definition) {
+              let constant = definition.definition
+              let used = list.filter_map(expression(constant.value), resolve)
+              #(key <> "." <> constant.name, used, False)
+            })
+          list.append(functions, constants)
         }
         JavaScript(..) | Other(_) | Unreadable(_) -> []
       }
@@ -620,14 +673,14 @@ fn uses(
       list.filter_map(seen, fn(one) {
         case one {
           Bound(name) -> Ok(name)
-          Name(_) | Remote(..) | Text(_) | Probe(_) -> Error(Nil)
+          Name(_) | Remote(..) | Text(_) -> Error(Nil)
         }
       }),
     )
   list.filter(seen, fn(one) {
     case one {
       Name(name) -> !list.contains(bound, name)
-      Remote(..) | Text(_) | Probe(_) | Bound(_) -> True
+      Remote(..) | Text(_) | Bound(_) -> True
     }
   })
   |> list.filter_map(resolve)
@@ -640,6 +693,9 @@ fn resolver(
 ) -> fn(Seen) -> Result(String, Nil) {
   let locals =
     list.map(module.functions, fn(definition) { definition.definition.name })
+    |> list.append(
+      list.map(module.constants, fn(definition) { definition.definition.name }),
+    )
     |> set.from_list
   let aliases: Dict(String, String) =
     list.filter_map(module.imports, fn(definition) {
@@ -675,7 +731,7 @@ fn resolver(
       Remote(alias, label) ->
         dict.get(aliases, alias)
         |> result.map(fn(module) { module <> "." <> label })
-      Text(_) | Probe(_) | Bound(_) -> Error(Nil)
+      Text(_) | Bound(_) -> Error(Nil)
     }
   }
 }
@@ -685,8 +741,6 @@ type Seen {
   Remote(alias: String, label: String)
   /// A string literal.
   Text(String)
-  /// A string literal the code tests or cuts text with.
-  Probe(String)
   /// A name the code binds: a `let`, a pattern variable, a closure parameter.
   Bound(String)
 }
@@ -750,21 +804,6 @@ fn literal(subject: glance.Expression) -> Option(String) {
   }
 }
 
-fn probing(subject: glance.Expression) -> List(Seen) {
-  case literal(subject) {
-    Some(text) -> [Probe(text)]
-    None -> expression(subject)
-  }
-}
-
-fn is_string_function(function: glance.Expression) -> Bool {
-  case function {
-    glance.FieldAccess(container: glance.Variable(name: "string", ..), ..) ->
-      True
-    _ -> False
-  }
-}
-
 fn expression(subject: glance.Expression) -> List(Seen) {
   case subject {
     glance.Int(..) | glance.Float(..) -> []
@@ -775,16 +814,8 @@ fn expression(subject: glance.Expression) -> List(Seen) {
     glance.Block(statements: inner, ..) -> statements(inner)
     glance.Panic(message:, ..) | glance.Todo(message:, ..) -> maybe(message)
     glance.Tuple(elements:, ..) -> list.flat_map(elements, expression)
-    glance.List(elements:, rest:, ..) -> {
-      let all_literal =
-        list.length(elements) > 1
-        && list.all(elements, fn(element) { literal(element) != None })
-      let each = case all_literal {
-        True -> probing
-        False -> expression
-      }
-      list.append(list.flat_map(elements, each), maybe(rest))
-    }
+    glance.List(elements:, rest:, ..) ->
+      list.append(list.flat_map(elements, expression), maybe(rest))
     glance.Fn(arguments:, body:, ..) ->
       list.append(
         list.filter_map(arguments, fn(argument) {
@@ -806,25 +837,14 @@ fn expression(subject: glance.Expression) -> List(Seen) {
     ]
     glance.FieldAccess(container:, ..) -> expression(container)
     glance.Call(function:, arguments:, ..) ->
-      list.append(
-        expression(function),
-        fields(arguments, case is_string_function(function) {
-          True -> probing
-          False -> expression
-        }),
-      )
+      list.append(expression(function), fields(arguments, expression))
     glance.TupleIndex(tuple:, ..) -> expression(tuple)
-    glance.FnCapture(function:, arguments_before:, arguments_after:, ..) -> {
-      let each = case is_string_function(function) {
-        True -> probing
-        False -> expression
-      }
+    glance.FnCapture(function:, arguments_before:, arguments_after:, ..) ->
       list.flatten([
         expression(function),
-        fields(arguments_before, each),
-        fields(arguments_after, each),
+        fields(arguments_before, expression),
+        fields(arguments_after, expression),
       ])
-    }
     glance.BitString(segments:, ..) ->
       list.flat_map(segments, fn(segment) { expression(segment.0) })
     glance.Case(subjects:, clauses:, ..) ->
@@ -843,9 +863,6 @@ fn expression(subject: glance.Expression) -> List(Seen) {
         Some(text) -> [Text(text)]
         None -> list.append(expression(left), expression(right))
       }
-    glance.BinaryOperator(name: glance.Eq, left:, right:, ..)
-    | glance.BinaryOperator(name: glance.NotEq, left:, right:, ..) ->
-      list.append(probing(left), probing(right))
     glance.BinaryOperator(left:, right:, ..) ->
       list.append(expression(left), expression(right))
     glance.Echo(expression: echoed, message:, ..) ->
@@ -861,13 +878,11 @@ fn pattern(subject: glance.Pattern) -> List(Seen) {
     }
   }
   case subject {
-    glance.PatternString(value:, ..) -> [Probe(value)]
-    glance.PatternConcatenate(prefix:, prefix_name:, rest_name:, ..) ->
-      list.flatten([
-        [Probe(prefix)],
+    glance.PatternConcatenate(prefix_name:, rest_name:, ..) ->
+      list.append(
         named(rest_name),
         option.map(prefix_name, named) |> option.unwrap([]),
-      ])
+      )
     glance.PatternVariable(name:, ..) -> [Bound(name)]
     glance.PatternTuple(elements:, ..) -> list.flat_map(elements, pattern)
     glance.PatternList(elements:, tail:, ..) ->
@@ -887,147 +902,21 @@ fn pattern(subject: glance.Pattern) -> List(Seen) {
           glance.ShorthandField(label:, ..) -> [Bound(label)]
         }
       })
-    glance.PatternInt(..)
+    glance.PatternString(..)
+    | glance.PatternInt(..)
     | glance.PatternFloat(..)
     | glance.PatternDiscard(..)
     | glance.PatternBitString(..) -> []
   }
 }
 
-fn pattern_from(source: String) -> Regexp {
-  let assert Ok(compiled) = regexp.from_string(source)
-  compiled
-}
-
-fn without_block_comments(text: String) -> String {
-  regexp.match_map(pattern_from("/\\*[\\s\\S]*?\\*/"), text, fn(match) {
-    string.split(match.content, "\n")
-    |> list.map(fn(_) { "" })
-    |> string.join("\n")
-  })
-}
-
-fn regex_literal() -> Regexp {
-  pattern_from(
-    "(?<=(?:^|[=(,:!&|?{};]|=>|\\breturn)\\s*)/((?:\\\\.|[^/\\\\\\n])+)/[dgimsuy]*(?=\\s*(?:[.,);]|$))",
-  )
-}
-
-fn regex_bodies(line: String) -> List(String) {
-  regexp.scan(regex_literal(), line)
-  |> list.filter_map(fn(match) {
-    case match.submatches {
-      [Some(body), ..] -> Ok(body)
-      _ -> Error(Nil)
-    }
-  })
-}
-
-fn javascript(
-  path: String,
-  name: String,
-  lines: List(String),
-) -> List(Finding) {
-  let code =
-    list.index_map(lines, fn(line, index) { #(index + 1, string.trim(line)) })
-    |> list.filter(fn(line) { !string.starts_with(line.1, "//") })
-  let each = fn(rule: Rule, breaks: fn(String) -> Bool) {
-    let broken =
-      list.filter_map(code, fn(line) {
-        case breaks(line.1) {
-          True ->
-            Ok(
-              Found(Broken(rule, path <> ":" <> int.to_string(line.0), line.1)),
-            )
-          False -> Error(Nil)
-        }
-      })
-    [Looked(rule, path), ..broken]
-  }
-  let browser =
-    pattern_from(
-      "\\b(document|window|navigator|localStorage|sessionStorage|indexedDB|globalThis|self|fetch|location|history|matchMedia|console|alert|XMLHttpRequest|WebSocket|setTimeout|setInterval|requestAnimationFrame|getComputedStyle|crypto|performance)\\b",
-    )
-  let field_write =
-    pattern_from(
-      "\\.(value|selectionStart|selectionEnd|textContent|innerText|innerHTML)\\s*(\\|\\||&&|\\?\\?|[-+])?=(?!=)|\\b(setRangeText|setSelectionRange|execCommand)\\b|\\bObject\\.assign\\(",
-    )
-  let builds_regex = pattern_from("\\bRegExp\\b")
-  let probe =
-    pattern_from(
-      "(?:(?:startsWith|endsWith|includes|indexOf|split|replace|replaceAll)\\(|[!=]==?)\\s*[\"'`]([^\"'`]*)[\"'`]",
-    )
-  list.flatten([
-    [Looked(JavaScriptFile, path)],
-    when(!has_javascript(name), fn() {
+fn javascript(path: String, name: String) -> List(Finding) {
+  [
+    Looked(JavaScriptFile, path),
+    ..when(!has_javascript(name), fn() {
       [Found(Broken(JavaScriptFile, path, "this module may not have one"))]
-    }),
-    when(is_core(name), fn() { each(CoreJavaScript, regexp.check(browser, _)) }),
-    when(name != "surface", fn() {
-      each(FieldWrite, regexp.check(field_write, _))
-    }),
-    each(JavaScriptRegex, fn(line) {
-      regexp.check(builds_regex, line)
-      || list.any(regex_bodies(line), fn(body) {
-        !list.contains(regexes_in_javascript, body)
-      })
-    }),
-    when(!is_core(name), fn() {
-      each(MarkdownMarker, fn(line) {
-        regexp.scan(probe, line)
-        |> list.any(fn(match) {
-          case match.submatches {
-            [Some(text), ..] -> is_marker(text)
-            _ -> False
-          }
-        })
-      })
-    }),
-    when(touches_page(name), fn() { measure_changes(path, lines) }),
-  ])
-}
-
-fn measure_changes(path: String, lines: List(String)) -> List(Finding) {
-  let changes =
-    pattern_from(
-      "\\.(focus|blur|click|scrollIntoView|scrollTo|scrollBy|setSelectionRange|setRangeText|setItem|removeItem|clear|addEventListener|writeText|appendChild|append|prepend|remove|removeChild|replaceChildren|replaceWith|insertBefore|insertAdjacent\\w+|setAttribute|removeAttribute|toggleAttribute|setProperty|dispatchEvent|pushState|replaceState|requestFullscreen|showModal|close)\\(|\\.(value|selectionStart|selectionEnd|scrollTop|scrollLeft|innerHTML|innerText|textContent|className|hidden|disabled|href|title)\\s*(\\|\\||&&|\\?\\?|[-+])?=(?!=)|\\.(style|classList)\\b",
-    )
-  let opening = pattern_from("^export function (\\w+)\\(")
-  let #(found, _, _) =
-    list.fold(lines, #([], None, 1), fn(state, line) {
-      let #(found, inside, number) = state
-      let comment = string.starts_with(string.trim(line), "//")
-      case regexp.scan(opening, line), inside {
-        [regexp.Match(submatches: [Some(function)], ..), ..], _ ->
-          case list.contains(measures, function) {
-            True -> #(
-              [Looked(MeasureChanges, function), ..found],
-              Some(function),
-              number + 1,
-            )
-            False -> #(found, None, number + 1)
-          }
-        _, Some(_) if line == "}" -> #(found, None, number + 1)
-        _, Some(function) if !comment ->
-          case regexp.check(changes, line) {
-            True -> #(
-              [
-                Found(Broken(
-                  MeasureChanges,
-                  path <> ":" <> int.to_string(number),
-                  function <> ": " <> string.trim(line),
-                )),
-                ..found
-              ],
-              inside,
-              number + 1,
-            )
-            False -> #(found, inside, number + 1)
-          }
-        _, _ -> #(found, inside, number + 1)
-      }
     })
-  list.reverse(found)
+  ]
 }
 
 fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
@@ -1065,14 +954,6 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
         JavaScript(..) | Other(_) | Unreadable(_) -> []
       }
     })
-  let regexes =
-    list.flat_map(files, fn(file) {
-      case file {
-        JavaScript(lines:, ..) ->
-          list.flat_map(lines, fn(line) { regex_bodies(string.trim(line)) })
-        Gleam(..) | Other(_) | Unreadable(_) -> []
-      }
-    })
   let decoders = list.map(looked, fn(one) { one.1 })
   let unused = fn(allowed: List(String), used: List(String), what: String) {
     list.filter(allowed, fn(one) { !list.contains(used, one) })
@@ -1085,7 +966,10 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
     missing,
     idle,
     unused(measures, externals, "measure"),
-    unused(regexes_in_javascript, regexes, "regex allowance"),
-    unused(decoders_that_still_read_state, decoders, "decoder allowance"),
+    unused(
+      list.map(decoders_that_still_read_state, fn(one) { one.0 }),
+      decoders,
+      "decoder allowance",
+    ),
   ])
 }
