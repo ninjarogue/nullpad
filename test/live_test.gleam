@@ -1,6 +1,8 @@
 //// Examples for live view's pure rules: which rows the text field holds, and
 //// where a click on the drawn page lands in the source.
 
+import gleam/list
+import gleam/string
 import nullpad/buffer.{Position}
 import nullpad/live.{Region}
 import nullpad/markdown
@@ -64,6 +66,39 @@ pub fn the_field_is_set_like_the_block_it_holds_test() {
   assert live.kind("plain words") == live.Body
   assert live.kind("") == live.Body
   assert live.kind("one\n\ntwo") == live.Body
+}
+
+/// How the field is set while it holds rows `first_row` to `last_row` of
+/// `note`.
+fn field_kind(first_row: Int, last_row: Int) -> live.Kind {
+  string.split(note, "\n")
+  |> list.drop(first_row)
+  |> list.take(last_row - first_row + 1)
+  |> string.join("\n")
+  |> live.kind
+}
+
+pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
+  assert field_kind(0, 0) == live.Title(markdown.H1)
+  assert field_kind(1, 1) == live.Body
+  assert field_kind(2, 3) == live.Body
+  assert field_kind(5, 5) == live.ListItem(task: True, marker: "- [ ] ")
+  assert field_kind(6, 7) == live.ListItem(task: False, marker: "- ")
+  assert field_kind(10, 10) == live.ListItem(task: False, marker: "2. ")
+  assert field_kind(12, 14) == live.Mono
+}
+
+pub fn a_field_with_a_blank_row_beside_its_block_is_set_like_the_block_test() {
+  assert field_kind(0, 1) == live.Title(markdown.H1)
+  assert field_kind(4, 7) == live.ListItem(task: True, marker: "- [ ] ")
+  assert field_kind(8, 10) == live.ListItem(task: False, marker: "1. ")
+  assert field_kind(11, 14) == live.Mono
+}
+
+pub fn a_field_that_holds_two_blocks_is_set_as_body_text_test() {
+  assert field_kind(0, 3) == live.Body
+  assert field_kind(6, 10) == live.Body
+  assert field_kind(10, 14) == live.Body
 }
 
 fn marker(field_text: String) -> String {
