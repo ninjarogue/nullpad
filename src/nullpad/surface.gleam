@@ -24,7 +24,7 @@ import lustre/element/html
 import lustre/event
 import nullpad/buffer.{type Buffer, type Position}
 import nullpad/editor.{type Editor}
-import nullpad/live.{Region}
+import nullpad/live
 import nullpad/markdown
 import nullpad/vim
 
@@ -72,7 +72,8 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.advanced(
           "keydown",
           decode.one_of(key_decoder(editor, on_event), [
-            edge_decoder(editor, on_event),
+            edge_decoder(on_event),
+            escape_decoder(editor, on_event),
           ]),
         ),
       ],
@@ -257,12 +258,13 @@ fn key_decoder(
   }
 }
 
-/// Live view: the four keys that leave the field's rows, each only at the
-/// edge it leaves by. Fails for every other key press, so those stay native
-/// and cost no `update`. A line is a drawn line here: an arrow moves inside a
-/// wrapped row until it is on the row's first or last drawn line.
+/// The four keys that may leave the field's rows, each only at the edge of
+/// the field it leaves by, judged from the field as it is now. A line is a
+/// drawn line here: an arrow moves inside a wrapped row until it is on the
+/// field's first or last drawn line. Whether there is a row past the edge is
+/// for `editor.update`. Fails for every other key press, so those stay native
+/// and cost no `update`.
 fn edge_decoder(
-  editor: Editor,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
@@ -274,33 +276,23 @@ fn edge_decoder(
   use shown <- decode.then(shown_decoder())
   let #(anchor, head) = buffer.selection(shown)
   let plain = !{ shift || ctrl || meta || alt || composing } && anchor == head
-  let at_start = head == buffer.Position(row: 0, col: 0)
-  let at_end = head == buffer.end_of(buffer.text(shown))
-  let edge = case editor.region(editor), name {
-    Some(Region(first_row:, ..)), "Backspace"
-      if plain && at_start && first_row > 0
-    -> Ok(#(editor.JoinBefore, 0.0))
-    Some(Region(first_row:, ..)), "ArrowUp" if plain && first_row > 0 ->
+  let end = buffer.end_of(buffer.text(shown))
+  let edge = case name {
+    _ if !plain -> Error(Nil)
+    "Backspace" if head == buffer.Position(row: 0, col: 0) ->
+      Ok(#(editor.JoinBefore, 0.0))
+    "Delete" if head == end -> Ok(#(editor.JoinAfter, 0.0))
+    "ArrowUp" if head.row == 0 ->
       case caret_line(control_id) {
         #(True, _, x) -> Ok(#(editor.Up, x))
         _ -> Error(Nil)
       }
-    Some(Region(last_row:, ..)), "Delete" if plain && at_end ->
-      case last_row < editor.row_count(editor) - 1 {
-        True -> Ok(#(editor.JoinAfter, 0.0))
-        False -> Error(Nil)
+    "ArrowDown" if head.row == end.row ->
+      case caret_line(control_id) {
+        #(_, True, x) -> Ok(#(editor.Down, x))
+        _ -> Error(Nil)
       }
-    Some(Region(last_row:, ..)), "ArrowDown" if plain ->
-      case last_row < editor.row_count(editor) - 1, caret_line(control_id) {
-        True, #(_, True, x) -> Ok(#(editor.Down, x))
-        _, _ -> Error(Nil)
-      }
-    Some(_), "Escape" if !composing -> {
-      // Out of focus the whole note is drawn (`editor.is_idle`).
-      blur_control(control_id)
-      Error(Nil)
-    }
-    _, _ -> Error(Nil)
+    _ -> Error(Nil)
   }
   case edge {
     Ok(#(edge, x)) ->
@@ -312,6 +304,23 @@ fn edge_decoder(
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key at the edge of the field")
   }
+}
+
+fn escape_decoder(
+  editor: Editor,
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use name <- decode.field("key", decode.string)
+  use composing <- decode.field("isComposing", decode.bool)
+  use shown <- decode.then(shown_decoder())
+  case editor.region(editor), name {
+    // Out of focus the whole note is drawn (`editor.is_idle`).
+    Some(_), "Escape" if !composing -> blur_control(control_id)
+    _, _ -> Nil
+  }
+  on_event(editor.ControlChanged(shown:))
+  |> event.handler(prevent_default: False, stop_propagation: False)
+  |> decode.failure(expected: "Escape")
 }
 
 /// Boundary parse of `KeyboardEvent.key`: "Escape" -> Escape; "Enter" ->

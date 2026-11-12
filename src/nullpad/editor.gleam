@@ -57,8 +57,10 @@ pub type Event {
   /// A key that `claims` accepted. Its default action was cancelled, so
   /// `shown` is the control exactly as it is now.
   KeyPressed(key: vim.Key, shown: Buffer)
-  /// Live view: a key that would leave the control's rows. `x` is how far
-  /// the caret is from the control's left edge, in pixels.
+  /// A key at the edge of the control it would leave by. Its default action
+  /// was cancelled: `update` crosses to the row past that edge if live view
+  /// has one, and otherwise moves the caret as the key itself would have.
+  /// `x` is how far the caret is from the control's left edge, in pixels.
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
   /// Live view: a press on the drawn page (see `live.position`).
   Pointed(row: Int, visible: String, at_end: Bool)
@@ -191,11 +193,7 @@ fn typed(
   key: Option(vim.Key),
   place: fn(Editor) -> Editor,
 ) -> Outcome {
-  let seen = widen(editor, shown)
-  let base = case mode(editor) {
-    Plain | Insert -> seen
-    Normal -> with_selection_of(editor.buffer, seen)
-  }
+  let base = base(editor, shown)
   let #(keys, wanted, requests) = case key, editor.keys {
     Some(key), VimKeys(state) -> {
       let Step(state:, buffer:, requests:) = vim.press(state, base, key)
@@ -213,53 +211,62 @@ fn typed(
 }
 
 fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
-  let seen = widen(editor, shown)
-  let cursor = buffer.cursor(seen)
-  let lines = buffer.lines(seen)
+  let base = base(editor, shown)
+  let cursor = buffer.cursor(base)
+  let lines = buffer.lines(base)
   let end_of_row = fn(row) {
     let line = list.drop(lines, row) |> list.first
     Position(row:, col: string.length(result_or_empty(line)))
   }
-  let has_row_above = cursor.row > 0
-  let has_row_below = cursor.row < list.length(lines) - 1
-  let moved = case edge, editor.field {
-    _, Whole -> None
-    Up, _ if has_row_above ->
-      Some(#(buffer.move_to(seen, end_of_row(cursor.row - 1)), Some(LastLine)))
-    Down, _ if has_row_below ->
-      Some(#(
-        buffer.move_to(seen, Position(row: cursor.row + 1, col: 0)),
-        Some(FirstLine),
-      ))
-    JoinBefore, _ if has_row_above -> {
+  let live = editor.field != Whole
+  let row_above = live && cursor.row > 0
+  let row_below = live && cursor.row < list.length(lines) - 1
+  let #(wanted, aim) = case edge {
+    Up if row_above -> #(
+      buffer.move_to(base, end_of_row(cursor.row - 1)),
+      Some(LastLine),
+    )
+    Down if row_below -> #(
+      buffer.move_to(base, Position(row: cursor.row + 1, col: 0)),
+      Some(FirstLine),
+    )
+    JoinBefore if row_above -> {
       let from = end_of_row(cursor.row - 1)
       let to = Position(row: cursor.row, col: 0)
-      Some(#(buffer.replace(seen, from:, to:, with: ""), None))
+      #(buffer.replace(base, from:, to:, with: ""), None)
     }
-    JoinAfter, _ if has_row_below -> {
+    JoinAfter if row_below -> {
       let from = end_of_row(cursor.row)
       let to = Position(row: cursor.row + 1, col: 0)
-      Some(#(buffer.replace(seen, from:, to:, with: ""), None))
+      #(buffer.replace(base, from:, to:, with: ""), None)
     }
-    _, _ -> None
+    Up -> #(buffer.move_to(base, Position(row: cursor.row, col: 0)), None)
+    Down -> #(buffer.move_to(base, end_of_row(cursor.row)), None)
+    JoinBefore | JoinAfter -> #(base, None)
   }
-  case moved {
-    None -> typed(editor, shown, None, realign)
-    Some(#(buffer, aim)) -> {
-      let editor = Editor(..editor, buffer:) |> realign
-      let sync = case aim {
-        Some(line) -> WriteAndAim(field_buffer(editor), x:, line:)
-        None -> Write(field_buffer(editor))
-      }
-      Outcome(editor:, sync:, requests: [])
-    }
+  let editor = Editor(..editor, buffer: wanted) |> realign
+  let wanted_shown = field_buffer(editor)
+  let sync = case aim, wanted_shown == shown {
+    Some(line), _ -> WriteAndAim(wanted_shown, x:, line:)
+    None, True -> InSync
+    None, False -> Write(wanted_shown)
   }
+  Outcome(editor:, sync:, requests: [])
 }
 
 fn result_or_empty(line: Result(String, Nil)) -> String {
   case line {
     Ok(line) -> line
     Error(Nil) -> ""
+  }
+}
+
+/// Steps 0 and 1 of `update`: the note an event acts on.
+fn base(editor: Editor, shown: Buffer) -> Buffer {
+  let seen = widen(editor, shown)
+  case mode(editor) {
+    Plain | Insert -> seen
+    Normal -> with_selection_of(editor.buffer, seen)
   }
 }
 
