@@ -80,6 +80,18 @@ test('hiding the page saves at once', async ({ app, browser, disk, page }) => {
   await expect(page.text).toHaveValue('milk, eggs');
 });
 
+test('text typed just before a reload is kept', async ({ app, browser, disk, page }) => {
+  await disk.seed([trip, groceries]);
+  await app.open('/');
+  await expect(page.text).toHaveValue('milk');
+
+  await page.text.fill('milk, eggs');
+  await expect(page.saveState).toHaveText('Unsaved');
+  await browser.reload();
+
+  await expect(page.text).toHaveValue('milk, eggs');
+});
+
 test('Saving… shows while the disk is slow', async ({ app, disk, page }) => {
   await disk.seed([trip, groceries]);
   await app.open('/');

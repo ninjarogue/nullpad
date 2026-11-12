@@ -29,7 +29,7 @@ Preconditions: a fresh run. A ready journey is `journeys/tasks.mjs`.
 - **Tick with the mouse.** `await box.click()`. The box is ticked and the others are as they were.
 - **Tick with the keyboard.** Press `Tab` and read `document.activeElement.getAttribute('aria-label')` after each press until it is the box's name, then press `Space`. Loop with a cap, because the starting point differs after a click.
 - **Back to markdown.** Click `Markdown`. The text field shows `[x]` on the lines that were ticked and every other character as typed.
-- **Reload.** The status still reads "Saved" for a moment after a tick, so wait for "Unsaved" first, then for "Saved", then `await page.reload()`. A reload less than a second after a tick loses it. The text field has the ticks. The Markdown choice is remembered, so the field holds the note; click `Markdown` and press Escape: the same boxes are ticked.
+- **Reload.** The status still reads "Saved" for a moment after a tick, so wait for "Unsaved" first, then for "Saved", then `await page.reload()`. A reload right after a tick keeps it too: leaving the page saves. The text field has the ticks. The Markdown choice is remembered, so the field holds the note; click `Markdown` and press Escape: the same boxes are ticked.
 - **Untick.** Click a ticked box. Turn Markdown on and `[x]` is `[ ]` on that line only.
 - **Phone.** `await page.setViewportSize({ width: 390, height: 844 })`. `await box.boundingBox()` is at least 24 by 24.
 
