@@ -11,6 +11,8 @@
 //// In live view the control holds only some rows of the note (`Part`), so
 //// `shown` is a slice. It is spliced into the buffer at those rows before
 //// anything else looks at it, and what is written back is a slice too.
+//// Live view also keeps the note's blocks, parsed once for each change to
+//// its text, for the page to be drawn from.
 ////
 //// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`,
 //// `live`, `markdown`.
@@ -20,9 +22,10 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
 import nullpad/live.{type Region, Region}
-import nullpad/markdown
+import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
+/// Every change to `buffer` goes through `edit`.
 pub opaque type Editor {
   Editor(buffer: Buffer, keys: Keys, field: Field, focused: Bool)
 }
@@ -30,8 +33,9 @@ pub opaque type Editor {
 /// What the control holds.
 type Field {
   Whole
-  /// Live view: these rows only. Invariant: the rows exist in `buffer`.
-  Part(Region)
+  /// Live view: these rows only. Invariants: the rows exist in `buffer`, and
+  /// `blocks` is the text of `buffer` parsed.
+  Part(rows: Region, blocks: List(Block))
 }
 
 type Keys {
@@ -125,10 +129,11 @@ fn fresh_keys(vim_enabled: Bool) -> Keys {
 /// A note was loaded: replace the text, cursor at the start, fresh vim state.
 /// Always asks for a `Write`.
 pub fn open(editor: Editor, text: String) -> Outcome {
-  let buffer = buffer.from_text(text)
   let keys = fresh_keys(editor.keys != PlainKeys)
-  let editor = Editor(..editor, buffer:, keys:) |> realign
-  write_and_focus(editor)
+  Editor(..editor, keys:)
+  |> edit(buffer.from_text(text))
+  |> realign
+  |> write_and_focus
 }
 
 /// A `Write` gives the control the keyboard, so the editor counts as in
@@ -143,7 +148,9 @@ fn write_and_focus(editor: Editor) -> Outcome {
 /// Turn live view on or off, keeping the text and the cursor.
 pub fn set_live(editor: Editor, on: Bool) -> Outcome {
   let editor = case on {
-    True -> Editor(..editor, field: Part(Region(0, 0))) |> realign
+    True ->
+      Editor(..editor, field: Part(Region(0, 0), parse(editor.buffer)))
+      |> realign
     False -> Editor(..editor, field: Whole)
   }
   write_and_focus(editor)
@@ -185,7 +192,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       let outcome = typed(editor, shown, None, realign)
       case outcome.editor.field {
         Whole -> outcome
-        Part(_) -> {
+        Part(..) -> {
           let editor = Editor(..outcome.editor, focused: False)
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
         }
@@ -194,8 +201,9 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
     Pointed(row:, visible:, at_end:) -> {
       let lines = buffer.lines(editor.buffer)
       let position = live.position(lines, row:, visible:, at_end:)
-      let buffer = buffer.move_to(editor.buffer, position)
-      Editor(..editor, buffer:) |> realign |> write_and_focus
+      edit(editor, buffer.move_to(editor.buffer, position))
+      |> realign
+      |> write_and_focus
     }
     FocusChanged(focused:) ->
       Outcome(editor: Editor(..editor, focused:), sync: InSync, requests: [])
@@ -216,7 +224,7 @@ fn typed(
     }
     _, _ -> #(editor.keys, base, [])
   }
-  let editor = Editor(..editor, buffer: wanted, keys:) |> place
+  let editor = Editor(..editor, keys:) |> edit(wanted) |> place
   let wanted_shown = field_buffer(editor)
   let sync = case wanted_shown == shown {
     True -> InSync
@@ -259,7 +267,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     Down -> #(buffer.move_to(base, end_of_row(cursor.row)), None)
     JoinBefore | JoinAfter -> #(base, None)
   }
-  let editor = Editor(..editor, buffer: wanted) |> realign
+  let editor = edit(editor, wanted) |> realign
   let wanted_shown = field_buffer(editor)
   let sync = case aim, wanted_shown == shown {
     Some(line), _ -> WriteAndAim(wanted_shown, x:, line:)
@@ -289,7 +297,7 @@ fn base(editor: Editor, shown: Buffer) -> Buffer {
 fn widen(editor: Editor, shown: Buffer) -> Buffer {
   case editor.field {
     Whole -> shown
-    Part(Region(first_row:, last_row:)) -> {
+    Part(rows: Region(first_row:, last_row:), ..) -> {
       let #(anchor, head) = buffer.selection(shown)
       let down = fn(position: Position) {
         Position(..position, row: position.row + first_row)
@@ -314,7 +322,7 @@ fn widen(editor: Editor, shown: Buffer) -> Buffer {
 pub fn field_buffer(editor: Editor) -> Buffer {
   case editor.field {
     Whole -> editor.buffer
-    Part(Region(first_row:, last_row:)) -> {
+    Part(rows: Region(first_row:, last_row:), ..) -> {
       let #(anchor, head) = buffer.selection(editor.buffer)
       let up = fn(position: Position) {
         Position(..position, row: position.row - first_row)
@@ -329,16 +337,43 @@ pub fn field_buffer(editor: Editor) -> Buffer {
   }
 }
 
+/// The one way to change the buffer. In live view the note is parsed again
+/// when its text changed, and only then.
+fn edit(editor: Editor, buffer: Buffer) -> Editor {
+  let field = case editor.field {
+    Whole -> Whole
+    Part(rows:, blocks:) ->
+      case same_lines(buffer.lines(buffer), buffer.lines(editor.buffer)) {
+        True -> Part(rows:, blocks:)
+        False -> Part(rows:, blocks: parse(buffer))
+      }
+  }
+  Editor(..editor, buffer:, field:)
+}
+
+fn parse(buffer: Buffer) -> List(Block) {
+  markdown.parse(buffer.text(buffer))
+}
+
+/// `==` on the lists, but each pair of lines is compared as strings, which
+/// is quick for the lines an edit left in place.
+fn same_lines(lines: List(String), others: List(String)) -> Bool {
+  case lines, others {
+    [], [] -> True
+    [line, ..lines], [other, ..others] if line == other ->
+      same_lines(lines, others)
+    _, _ -> False
+  }
+}
+
 /// Live view: make the control's rows the blocks the selection touches.
 fn realign(editor: Editor) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(_) -> {
+    Part(blocks:, ..) -> {
       let #(anchor, head) = buffer.selection(editor.buffer)
-      let region =
-        markdown.parse(buffer.text(editor.buffer))
-        |> live.reveal(from: anchor.row, to: head.row)
-      Editor(..editor, field: Part(region))
+      let rows = live.reveal(blocks, from: anchor.row, to: head.row)
+      Editor(..editor, field: Part(rows:, blocks:))
     }
   }
 }
@@ -348,12 +383,10 @@ fn realign(editor: Editor) -> Editor {
 fn hold_rows(editor: Editor, shown: Buffer) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(Region(first_row:, ..)) -> {
-      let rows = list.length(buffer.lines(shown))
-      Editor(
-        ..editor,
-        field: Part(Region(first_row:, last_row: first_row + rows - 1)),
-      )
+    Part(rows: Region(first_row:, ..), blocks:) -> {
+      let count = list.length(buffer.lines(shown))
+      let rows = Region(first_row:, last_row: first_row + count - 1)
+      Editor(..editor, field: Part(rows:, blocks:))
     }
   }
 }
@@ -372,7 +405,7 @@ pub fn replace_line(editor: Editor, row: Int, with line: String) -> Outcome {
         )
         |> with_selection_of(editor.buffer)
       let before = field_buffer(editor)
-      let editor = Editor(..editor, buffer:)
+      let editor = edit(editor, buffer)
       let sync = case field_buffer(editor) == before {
         True -> InSync
         False -> WriteQuietly(field_buffer(editor))
@@ -401,7 +434,16 @@ pub fn text(editor: Editor) -> String {
 pub fn region(editor: Editor) -> Option(Region) {
   case editor.field {
     Whole -> None
-    Part(region) -> Some(region)
+    Part(rows:, ..) -> Some(rows)
+  }
+}
+
+/// Live view: the note's blocks, parsed once for each change to its text.
+/// Empty while the control holds the note, since nothing draws it then.
+pub fn blocks(editor: Editor) -> List(Block) {
+  case editor.field {
+    Whole -> []
+    Part(blocks:, ..) -> blocks
   }
 }
 
@@ -416,7 +458,7 @@ pub fn is_idle(editor: Editor) -> Bool {
 pub fn around(editor: Editor) -> #(String, String) {
   case editor.field {
     Whole -> #("", "")
-    Part(Region(first_row:, last_row:)) -> {
+    Part(rows: Region(first_row:, last_row:), ..) -> {
       let lines = buffer.lines(editor.buffer)
       #(
         list.take(lines, first_row) |> string.join("\n"),

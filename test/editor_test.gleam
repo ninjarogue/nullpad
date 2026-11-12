@@ -8,6 +8,7 @@ import gleam/string
 import nullpad/buffer.{Position}
 import nullpad/editor.{type Editor, type Outcome, Outcome}
 import nullpad/live.{Region}
+import nullpad/markdown
 import nullpad/vim
 
 pub fn typing_never_writes_back_test() {
@@ -371,4 +372,43 @@ pub fn leaving_live_view_puts_the_whole_note_back_test() {
 
   assert sync == editor.Write(caret(live_note, 4, 4))
   assert editor.region(ed) == None
+}
+
+pub fn live_view_keeps_the_blocks_of_the_text_after_every_change_test() {
+  let parsed = fn(ed: Editor) {
+    editor.blocks(ed) == markdown.parse(editor.text(ed))
+  }
+  let ed = live(live_note)
+  assert parsed(ed)
+
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("# Trips", 0, 7)))
+  assert parsed(ed)
+  let composed = caret("# Trips\n\n> a", 2, 3)
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.Composing(shown: composed))
+  assert parsed(ed)
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(shown: composed))
+  assert editor.region(ed) == Some(Region(2, 2))
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.JoinBefore, x: 0.0, shown: caret("> a", 0, 0)),
+    )
+  assert editor.text(ed)
+    == "# Trips\n> a\n\nFlights are **booked**.\n\n- one\n- two"
+  assert parsed(ed)
+  let Outcome(editor: ed, ..) = editor.replace_line(ed, 5, with: "- [x] one")
+  assert editor.text(ed)
+    == "# Trips\n> a\n\nFlights are **booked**.\n\n- [x] one\n- two"
+  assert parsed(ed)
+  let Outcome(editor: ed, ..) = editor.open(ed, "1. a\n2. b")
+  assert parsed(ed)
+}
+
+pub fn the_whole_note_in_the_field_has_no_blocks_to_draw_test() {
+  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open(live_note)
+
+  assert editor.blocks(ed) == []
 }
