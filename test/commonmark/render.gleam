@@ -33,13 +33,13 @@ fn block(block: Block) -> String {
       <> "\">\n"
       <> list_items(spacing, items)
       <> "</ol>\n"
-    CodeBlock(language: Some(word), code:) ->
+    CodeBlock(language: Some(word), code:, ..) ->
       "<pre><code class=\"language-"
       <> escape(word)
       <> "\">"
       <> escape(code)
       <> "</code></pre>\n"
-    CodeBlock(language: None, code:) ->
+    CodeBlock(language: None, code:, ..) ->
       "<pre><code>" <> escape(code) <> "</code></pre>\n"
     Table(columns:, rows:) -> {
       let body = case rows {

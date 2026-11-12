@@ -293,14 +293,14 @@ pub fn a_checkbox_is_named_after_the_words_of_the_first_paragraph_test() {
 
 pub fn code_renders_as_pre_and_code_as_typed_test() {
   assert string.contains(
-    render(CodeBlock(None, "  a <b> &c\n\nd\n")),
+    render(CodeBlock(None, "  a <b> &c\n\nd\n", 0)),
     "<pre><code>  a &lt;b&gt; &amp;c\n\nd\n</code></pre>",
   )
 }
 
 pub fn code_names_its_language_in_a_class_test() {
   assert string.contains(
-    render(CodeBlock(Some("gleam"), "x\n")),
+    render(CodeBlock(Some("gleam"), "x\n", 0)),
     "<pre><code class=\"language-gleam\">x\n</code></pre>",
   )
 }

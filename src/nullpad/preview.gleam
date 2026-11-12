@@ -4,7 +4,6 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -134,23 +133,12 @@ fn block(
         [attribute.attribute("start", int.to_string(start)), ..here],
         list_items(items, spacing),
       )
-    CodeBlock(language, code) -> {
+    CodeBlock(language, code, code_row) -> {
       let class = case language {
         Some(word) -> [attribute.class("language-" <> word)]
         None -> []
       }
-      // A fenced block has more rows than lines of code: its code starts
-      // one row below the fence.
-      let code_rows = list.length(string.split(code, "\n")) - 1
-      let first_code_row = case
-        shown.last_row - shown.first_row + 1 > code_rows
-      {
-        True -> shown.first_row + 1
-        False -> shown.first_row
-      }
-      html.pre(at(rows, first_code_row), [
-        html.code(class, [element.text(code)]),
-      ])
+      html.pre(at(rows, code_row), [html.code(class, [element.text(code)])])
     }
     Table(columns, table_rows) ->
       table(shown.first_row, rows, columns, table_rows)
