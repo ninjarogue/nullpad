@@ -11,6 +11,7 @@
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -52,7 +53,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
-  html.div([attribute.class(classes(editor))], [
+  html.div([attribute.class(classes(editor)), marker(editor)], [
     mirror(editor),
     element.element(
       "textarea",
@@ -82,6 +83,17 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   ])
 }
 
+/// A list item's marker hangs left of its words, as wide as it is typed, so
+/// the words stay where the drawn item had them, on every wrapped line.
+fn marker(editor: Editor) -> attribute.Attribute(msg) {
+  let text = buffer.text(editor.field_buffer(editor))
+  case editor.region(editor), live.kind(text) {
+    Some(_), live.ListItem(..) ->
+      attribute.style("--marker", float.to_string(marker_width(text)) <> "px")
+    _, _ -> attribute.none()
+  }
+}
+
 /// Live view sets the field like the block it holds, so the words barely
 /// move when a block turns into its markdown. `idle` hides the field.
 fn classes(editor: Editor) -> String {
@@ -92,7 +104,8 @@ fn classes(editor: Editor) -> String {
       case live.kind(buffer.text(editor.field_buffer(editor))) {
         live.Body -> "editor part"
         live.Mono -> "editor part mono"
-        live.ListItem -> "editor part item"
+        live.ListItem(task: False) -> "editor part item"
+        live.ListItem(task: True) -> "editor part item task"
         live.Title(markdown.H1) -> "editor part h1"
         live.Title(markdown.H2) -> "editor part h2"
         live.Title(markdown.H3) -> "editor part h3"
@@ -337,6 +350,9 @@ fn mirror(editor: Editor) -> Element(msg) {
 
 @external(javascript, "./surface.ffi.mjs", "writeControl")
 fn write_control(id: String, text: String, start: Int, end: Int) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "markerWidth")
+fn marker_width(item: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
 fn focus_control(id: String) -> Nil

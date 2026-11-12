@@ -1,4 +1,6 @@
 :root {
+  --gutter: 2rem;
+  --task-pad: 0;
   color-scheme: light dark;
   --paper: #fbfaf7;
   --panel: #f1efe9;
@@ -401,14 +403,21 @@ button[aria-pressed="true"] {
   font: 0.875rem/1.5 var(--text-font);
 }
 
-/* An item's marker sits in the list's gutter when drawn. Indenting the
-   field by the gutter less the marker keeps the item's words in place. */
+/* An item's marker sits in the list's gutter when drawn. In the field the
+   typed marker hangs left by its own width (`--marker`, set by `surface`),
+   so the item's words stay in place, on every wrapped line. */
 .editor.part.item {
-  margin: 0.25em 0;
+  margin: 0.25rem 0;
+  margin-left: min(0px, var(--gutter) - var(--marker));
 }
 
 .editor.part.item > * {
-  padding-left: calc(2rem - 0.9em);
+  padding-left: max(var(--gutter), var(--marker));
+  text-indent: calc(-1 * var(--marker));
+}
+
+.editor.part.task > * {
+  padding-block: var(--task-pad);
 }
 
 .editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
@@ -455,9 +464,7 @@ button[aria-pressed="true"] {
 
 .preview {
   --box: 1.25rem;
-  --gutter: 2rem;
   --box-gap: 0.5rem;
-  --task-pad: 0;
 }
 
 .preview p {
@@ -643,6 +650,9 @@ button[aria-pressed="true"] {
 @media (max-width: 40rem), (pointer: coarse) {
   .preview {
     --box: 1.5rem;
+  }
+
+  :root {
     --task-pad: 0.45rem;
   }
 

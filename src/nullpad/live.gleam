@@ -5,6 +5,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
@@ -55,7 +56,7 @@ pub type Kind {
   Body
   Title(Level)
   Mono
-  ListItem
+  ListItem(task: Bool)
 }
 
 pub fn kind(field_text: String) -> Kind {
@@ -63,8 +64,9 @@ pub fn kind(field_text: String) -> Kind {
     [Block(content: Heading(level:, ..), ..)] -> Title(level)
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
-    [Block(content: BulletList(..), ..)]
-    | [Block(content: OrderedList(..), ..)] -> ListItem
+    [Block(content: BulletList(items: [first, ..], ..), ..)]
+    | [Block(content: OrderedList(items: [first, ..], ..), ..)] ->
+      ListItem(task: option.is_some(first.task))
     _ -> Body
   }
 }
