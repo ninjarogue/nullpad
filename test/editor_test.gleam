@@ -14,7 +14,8 @@ import nullpad/vim
 pub fn typing_never_writes_back_test() {
   let shown = buffer.from_text("héllo 👋")
   let Outcome(editor: ed, sync:, ..) =
-    editor.new(vim: False) |> editor.update(editor.ControlChanged(shown:))
+    editor.new(vim: False, live: False)
+    |> editor.update(editor.ControlChanged(shown:))
 
   assert sync == editor.InSync
   assert editor.text(ed) == "héllo 👋"
@@ -24,7 +25,8 @@ pub fn moving_the_caret_never_writes_back_test() {
   let end = Position(row: 0, col: 2)
   let shown = buffer.from_text("hi") |> buffer.select(anchor: end, head: end)
   let Outcome(editor: ed, sync:, ..) =
-    editor.new(vim: False) |> editor.update(editor.ControlChanged(shown:))
+    editor.new(vim: False, live: False)
+    |> editor.update(editor.ControlChanged(shown:))
 
   assert sync == editor.InSync
   assert buffer.cursor(editor.buffer(ed)) == end
@@ -32,7 +34,7 @@ pub fn moving_the_caret_never_writes_back_test() {
 
 pub fn opening_a_note_writes_test() {
   let Outcome(editor: ed, sync:, ..) =
-    editor.new(vim: False) |> editor.open("one\ntwo")
+    editor.new(vim: False, live: False) |> editor.open("one\ntwo")
 
   assert editor.text(ed) == "one\ntwo"
   let assert editor.Write(written) = sync
@@ -44,7 +46,9 @@ pub fn opening_a_note_writes_test() {
 /// M4
 pub fn pending_dd_deletes_the_cursor_line() {
   let Outcome(editor: ed, sync:, ..) =
-    editor.new(vim: True) |> editor.open("one\ntwo\nthree") |> press("jdd")
+    editor.new(vim: True, live: False)
+    |> editor.open("one\ntwo\nthree")
+    |> press("jdd")
 
   assert editor.text(ed) == "one\nthree"
   assert buffer.cursor(editor.buffer(ed)) == Position(row: 1, col: 0)
@@ -53,7 +57,8 @@ pub fn pending_dd_deletes_the_cursor_line() {
 
 /// M4: text typed natively during insert mode is one undo step.
 pub fn pending_one_insert_is_one_undo_step() {
-  let opened = editor.new(vim: True) |> editor.open("ab") |> press("i")
+  let opened =
+    editor.new(vim: True, live: False) |> editor.open("ab") |> press("i")
   let end = Position(row: 0, col: 2)
   let typed = buffer.from_text("xyab") |> buffer.select(anchor: end, head: end)
   let Outcome(editor: ed, sync:, ..) =
@@ -66,7 +71,8 @@ pub fn pending_one_insert_is_one_undo_step() {
 }
 
 pub fn replace_line_test() {
-  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb\nc")
+  let Outcome(editor: ed, ..) =
+    editor.new(vim: False, live: False) |> editor.open("a\nb\nc")
   let Outcome(editor: ed, sync:, ..) = editor.replace_line(ed, 1, with: "- [x]")
 
   assert editor.text(ed) == "a\n- [x]\nc"
@@ -74,7 +80,8 @@ pub fn replace_line_test() {
 }
 
 pub fn replace_line_ignores_a_missing_row_test() {
-  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("a\nb")
+  let Outcome(editor: ed, ..) =
+    editor.new(vim: False, live: False) |> editor.open("a\nb")
   let Outcome(editor: unchanged, sync:, ..) =
     editor.replace_line(ed, 7, with: "x")
   let Outcome(editor: also_unchanged, ..) =
@@ -96,7 +103,7 @@ fn press(outcome: Outcome, keys: String) -> Outcome {
 const live_note = "# Trip\n\nFlights are **booked**.\n\n- one\n- two"
 
 fn live(text: String) -> Editor {
-  let opened = editor.new(vim: False) |> editor.open(text)
+  let opened = editor.new(vim: False, live: False) |> editor.open(text)
   editor.set_live(opened.editor, True).editor
 }
 
@@ -107,7 +114,7 @@ fn caret(text: String, row: Int, col: Int) -> buffer.Buffer {
 
 pub fn live_view_puts_only_the_cursors_block_in_the_field_test() {
   let Outcome(editor: ed, sync:, ..) =
-    editor.new(vim: False)
+    editor.new(vim: False, live: False)
     |> editor.open(live_note)
     |> fn(opened: Outcome) { editor.set_live(opened.editor, True) }
 
@@ -249,7 +256,7 @@ pub fn an_arrow_at_the_edge_of_the_field_already_there_changes_nothing_test() {
 
 pub fn edge_keys_never_cross_with_the_whole_note_in_the_field_test() {
   let Outcome(editor: whole, ..) =
-    editor.new(vim: False) |> editor.open("one\ntwo")
+    editor.new(vim: False, live: False) |> editor.open("one\ntwo")
   let edge = fn(edge, shown) {
     editor.update(whole, editor.EdgePressed(edge, x: 9.0, shown:))
   }
@@ -318,7 +325,7 @@ pub fn the_whole_note_is_drawn_while_the_field_is_out_of_focus_test() {
 
   let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(True))
   assert !editor.is_idle(ed)
-  assert !editor.is_idle(editor.new(vim: False))
+  assert !editor.is_idle(editor.new(vim: False, live: False))
 }
 
 pub fn escape_releases_the_field_in_live_view_test() {
@@ -333,7 +340,7 @@ pub fn escape_releases_the_field_in_live_view_test() {
 
 pub fn escape_right_after_live_view_comes_on_releases_the_field_test() {
   let Outcome(editor: markdown, ..) =
-    editor.new(vim: False) |> editor.open(live_note)
+    editor.new(vim: False, live: False) |> editor.open(live_note)
   let Outcome(editor: ed, ..) = editor.set_live(markdown, True)
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.EscapePressed(shown: caret("# Trip", 0, 0)))
@@ -343,7 +350,8 @@ pub fn escape_right_after_live_view_comes_on_releases_the_field_test() {
 }
 
 pub fn escape_with_the_whole_note_in_the_field_changes_nothing_test() {
-  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("one")
+  let Outcome(editor: ed, ..) =
+    editor.new(vim: False, live: False) |> editor.open("one")
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.EscapePressed(shown: caret("one", 0, 1)))
 
@@ -406,7 +414,23 @@ pub fn live_view_keeps_the_blocks_of_the_text_after_every_change_test() {
 }
 
 pub fn the_whole_note_in_the_field_has_no_blocks_to_draw_test() {
-  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open(live_note)
+  let Outcome(editor: ed, ..) =
+    editor.new(vim: False, live: False) |> editor.open(live_note)
 
   assert editor.blocks(ed) == []
+}
+
+pub fn a_new_editor_in_live_view_holds_a_part_and_is_idle_test() {
+  let ed = editor.new(vim: False, live: True)
+  assert editor.region(ed) == Some(Region(0, 0))
+  assert editor.is_idle(ed)
+}
+
+pub fn switching_vim_asks_for_no_write_test() {
+  let Outcome(editor: opened, ..) =
+    editor.new(vim: False, live: False) |> editor.open("one")
+  let Outcome(editor: ed, sync:, ..) = editor.set_vim(opened, True)
+  assert sync == editor.InSync
+  assert editor.mode(ed) == editor.Normal
+  assert editor.text(ed) == "one"
 }

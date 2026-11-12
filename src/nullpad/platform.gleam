@@ -74,14 +74,14 @@ fn write_clipboard(text: String) -> Nil
 @external(javascript, "./platform.ffi.mjs", "writeVimSetting")
 fn write_vim_setting(on: Bool) -> Nil
 
-/// Give the element with this test id the keyboard once it is drawn.
-pub fn focus(test_id: String) -> Effect(msg) {
+/// Give the element with this id the keyboard once it is drawn.
+pub fn focus(id: String) -> Effect(msg) {
   use _, _ <- effect.before_paint
-  focus_element(test_id)
+  focus_element(id)
 }
 
 @external(javascript, "./platform.ffi.mjs", "focusElement")
-fn focus_element(test_id: String) -> Nil
+fn focus_element(id: String) -> Nil
 
 /// The point just under the button a click event came from, in pixels from
 /// the window's corner. It is the same for a mouse and for the keyboard.

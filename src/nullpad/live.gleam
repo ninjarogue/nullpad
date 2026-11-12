@@ -14,6 +14,10 @@ import nullpad/markdown.{
   OrderedList, Table,
 }
 
+/// The `data-` attribute a drawn element carries its note row in. `preview`
+/// writes it and `surface` reads it back from a press on the page.
+pub const row_mark = "row"
+
 /// Rows of the note, both ends included, numbered like `Position.row`.
 pub type Region {
   Region(first_row: Int, last_row: Int)

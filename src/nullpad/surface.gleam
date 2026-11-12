@@ -5,7 +5,7 @@
 //// - WRITE: `sync` is the only code that sets the control's value or
 ////   selection. Lustre's virtual DOM never sets `value` (see `view`).
 //// In live view the control holds only the rows being edited, and this
-//// module also reads where a press on the drawn page lands (`on_point`).
+//// module also reads where a press on the drawn page lands (`page`).
 //// Imported by: the app shell only. Imports: `editor`, `buffer`, `live`,
 //// `vim` (for `Key`), `markdown`.
 
@@ -29,6 +29,8 @@ import nullpad/markdown
 import nullpad/vim
 
 const control_id = "nullpad-control"
+
+const live_class = "live"
 
 /// The editing pane. Render it once, unconditionally, and never remove it
 /// from the view: out of focus it hides itself (`idle`).
@@ -124,13 +126,24 @@ fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
   }
 }
 
+/// The attributes of the element that holds the field and, in live view, the
+/// drawn parts around it.
+pub fn page(
+  editor: Editor,
+  on_event: fn(editor.Event) -> msg,
+) -> List(attribute.Attribute(msg)) {
+  case editor.region(editor) {
+    None -> [attribute.class("page")]
+    Some(_) -> [attribute.class("page " <> live_class), on_point(on_event)]
+  }
+}
+
 /// Live view: a press on the drawn page puts the cursor at that place in
-/// the source. Set this on the element that holds the drawn parts and the
-/// field. Links, boxes and the field itself keep their own behaviour.
-pub fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
+/// the source. Links, boxes and the field itself keep their own behaviour.
+fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
     use press <- decode.then(decode.dynamic)
-    case locate(press) {
+    case locate(press, live.row_mark) {
       #(row, visible, at_end) if row >= 0 ->
         on_event(editor.Pointed(row:, visible:, at_end:))
         |> event.handler(prevent_default: True, stop_propagation: False)
@@ -298,7 +311,10 @@ fn edge_decoder(
     "ArrowDown" -> head.row == end.row
     _ -> False
   }
-  let edge = case plain && in_edge_row && drawn_in_page(control_id), name {
+  let edge = case
+    plain && in_edge_row && drawn_in_page(control_id, live_class),
+    name
+  {
     False, _ -> Error(Nil)
     True, "Backspace" -> Ok(#(editor.JoinBefore, 0.0))
     True, "Delete" -> Ok(#(editor.JoinAfter, 0.0))
@@ -393,7 +409,7 @@ fn blur_control(id: String) -> Nil
 /// Is the control drawn as one block of a page (live view) right now, rather
 /// than as the whole note.
 @external(javascript, "./surface.ffi.mjs", "drawnInPage")
-fn drawn_in_page(id: String) -> Bool
+fn drawn_in_page(id: String, live_class: String) -> Bool
 
 /// Is the caret on the control's first drawn line, is it on its last, and how
 /// many pixels is it from the control's left edge.
@@ -417,7 +433,7 @@ fn aim_control(
 /// Where a mouse press on the drawn page lands: `#(row, visible, at_end)`
 /// for `live.position`. The row is -1 when the press is not for the page.
 @external(javascript, "./surface.ffi.mjs", "locate")
-fn locate(press: Dynamic) -> #(Int, String, Bool)
+fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool)
 
 /// `#(before, after)` around a UTF-16 offset. Pure.
 @external(javascript, "./surface.ffi.mjs", "utf16Split")

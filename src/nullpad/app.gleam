@@ -35,6 +35,8 @@ import nullpad/storage.{type Failure, type NoteId, type Storage, type Summary}
 import nullpad/surface
 import nullpad/vim
 
+const delete_id = "nullpad-delete-note"
+
 /// What `main` hands to `init`.
 pub type Flags {
   Flags(
@@ -93,7 +95,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
     Model(
       storage:,
       library: started,
-      editor: editor.set_live(editor.new(vim: vim && can_vim), !markdown).editor,
+      editor: editor.new(vim: vim && can_vim, live: !markdown),
       showing: case markdown {
         True -> Markdown
         False -> Page
@@ -128,7 +130,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     UserOpenedMenu(menu) -> #(
       Model(..model, menu: Some(menu)),
-      platform.focus("delete-note"),
+      platform.focus(delete_id),
     )
     UserClosedMenu -> #(Model(..model, menu: None), effect.none())
     UserDeletedNote(id) ->
@@ -147,8 +149,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserToggledVim(on) -> {
-      let editor = editor.set_vim(model.editor, on && model.can_vim)
-      #(Model(..model, editor:, vim: on), platform.remember_vim_setting(on))
+      let #(model, synced) =
+        Model(..model, vim: on)
+        |> apply(editor.set_vim(model.editor, on && model.can_vim))
+      #(model, effect.batch([synced, platform.remember_vim_setting(on)]))
     }
   }
 }
@@ -280,7 +284,7 @@ pub fn view(model: Model) -> Element(Msg) {
 fn page(model: Model) -> Element(Msg) {
   let field = #("field", surface.view(model.editor, EditorSent))
   case editor.region(model.editor) {
-    None -> keyed.div([attribute.class("page")], [field])
+    None -> keyed.div(surface.page(model.editor, EditorSent), [field])
     Some(region) -> {
       let row_count = editor.row_count(model.editor)
       let blocks = editor.blocks(model.editor)
@@ -306,7 +310,7 @@ fn page(model: Model) -> Element(Msg) {
           )
         }
       }
-      keyed.div([attribute.class("page live"), surface.on_point(EditorSent)], [
+      keyed.div(surface.page(model.editor, EditorSent), [
         #("above", above),
         field,
         #("below", below),
@@ -509,6 +513,7 @@ fn note_menu(model: Model) -> Element(Msg) {
                 [
                   attribute.class("danger"),
                   attribute.role("menuitem"),
+                  attribute.id(delete_id),
                   attribute.data("test-id", "delete-note"),
                   event.on_click(UserDeletedNote(id)),
                 ],

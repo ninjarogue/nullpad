@@ -66,8 +66,8 @@ export function writeMarkdownSetting(on) {
   } catch {}
 }
 
-export function focusElement(testId) {
-  document.querySelector(`[data-test-id="${testId}"]`)?.focus();
+export function focusElement(id) {
+  document.getElementById(id)?.focus();
 }
 
 export function below(click) {

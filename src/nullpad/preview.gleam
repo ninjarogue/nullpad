@@ -9,6 +9,7 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import nullpad/live
 import nullpad/markdown.{
   type Alignment, type Block, type Cell, type Column, type Content, type Inline,
   type Item, type Level, type Spacing, type Task, Block, BulletList, Center,
@@ -161,7 +162,7 @@ type Rows {
 fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
-    Marked -> [attribute.data("row", int.to_string(row))]
+    Marked -> [attribute.data(live.row_mark, int.to_string(row))]
   }
 }
 
