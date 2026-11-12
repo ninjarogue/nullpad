@@ -323,3 +323,26 @@ test('the words of a list item stay where they are when the cursor reaches it', 
     }
   }
 });
+
+test('the words of a list with blank lines in it do not move as the cursor walks through', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const rows = ['top', '', '- alpha', '', '- bravo', '', '', '- charlie', '', '  delta', '', '1. echo', '', '2. foxtrot', '', 'golf'];
+  const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf'];
+  await openLive({ app, disk, page }, rows.join('\n'));
+  const places = async () => {
+    const found: Record<string, number> = {};
+    for (const word of words) found[word] = Math.round((await page.placeOf(word))!.top);
+    return found;
+  };
+  const still = await places();
+
+  for (const row of rows.slice(1)) {
+    await browser.keyboard.press('ArrowDown');
+    await pause(60);
+    expect({ row, ...(await places()) }).toEqual({ row, ...still });
+  }
+});
