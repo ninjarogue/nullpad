@@ -337,8 +337,6 @@ pub fn field_buffer(editor: Editor) -> Buffer {
   }
 }
 
-/// The one way to change the buffer. In live view the note is parsed again
-/// when its text changed, and only then.
 fn edit(editor: Editor, buffer: Buffer) -> Editor {
   let field = case editor.field {
     Whole -> Whole
@@ -355,8 +353,8 @@ fn parse(buffer: Buffer) -> List(Block) {
   markdown.parse(buffer.text(buffer))
 }
 
-/// `==` on the lists, but each pair of lines is compared as strings, which
-/// is quick for the lines an edit left in place.
+/// `==` on two lists walks them generically, about forty times slower than
+/// comparing the lines as strings.
 fn same_lines(lines: List(String), others: List(String)) -> Bool {
   case lines, others {
     [], [] -> True

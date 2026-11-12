@@ -66,8 +66,6 @@ pub fn part(
   )
 }
 
-/// The blocks that lie inside rows `from` up to `to`, and of a list that
-/// lies partly inside, the items that do.
 fn inside(blocks: List(Block), from from: Int, to to: Int) -> List(Block) {
   let within = fn(first_row, last_row) { first_row >= from && last_row < to }
   use shown <- list.filter_map(blocks)
