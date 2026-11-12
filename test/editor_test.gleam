@@ -224,7 +224,7 @@ pub fn an_edge_key_with_no_row_to_go_to_changes_nothing_test() {
   assert editor.text(ed) == "only"
 }
 
-pub fn an_arrow_with_no_row_to_go_to_moves_like_the_browsers_own_test() {
+pub fn an_arrow_with_no_row_to_go_to_leaves_the_caret_where_it_is_test() {
   let Outcome(editor: ed, sync:, ..) =
     live("only one")
     |> editor.update(editor.EdgePressed(
@@ -232,15 +232,48 @@ pub fn an_arrow_with_no_row_to_go_to_moves_like_the_browsers_own_test() {
       x: 30.0,
       shown: caret("only one", 0, 4),
     ))
-  assert sync == editor.Write(caret("only one", 0, 0))
+  assert sync == editor.InSync
   assert editor.region(ed) == Some(Region(0, 0))
+  assert editor.field_buffer(ed) == caret("only one", 0, 4)
 
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 0.0, shown: caret("only one", 0, 0)),
+      editor.EdgePressed(editor.Down, x: 0.0, shown: caret("only one", 0, 4)),
     )
-  assert sync == editor.Write(caret("only one", 0, 8))
+  assert sync == editor.InSync
+}
+
+pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
+  let note = "first\n\nsecond"
+  let Outcome(editor: ed, ..) =
+    live(note)
+    |> editor.update(editor.Pointed(row: 1, visible: "", at_end: False))
+  let around = editor.blocks(ed)
+
+  let composed = caret("wo", 0, 2)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Composing(shown: composed))
+  assert sync == editor.InSync
+  assert editor.text(ed) == "first\nwo\nsecond"
+  assert editor.region(ed) == Some(Region(1, 1))
+  assert editor.blocks(ed) == around
+
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(shown: composed))
+  assert editor.region(ed) == Some(Region(0, 2))
+  assert editor.blocks(ed) == markdown.parse("first\nwo\nsecond")
+}
+
+pub fn blocks_kept_through_a_composition_are_parsed_again_by_any_later_change_test() {
+  let Outcome(editor: ed, ..) =
+    live("first\n\nsecond")
+    |> editor.update(editor.Pointed(row: 1, visible: "", at_end: False))
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.Composing(shown: caret("wo", 0, 2)))
+
+  let Outcome(editor: ed, ..) = editor.set_live(ed, True)
+  assert editor.blocks(ed) == markdown.parse("first\nwo\nsecond")
 }
 
 pub fn an_arrow_at_the_edge_of_the_field_already_there_changes_nothing_test() {
@@ -262,10 +295,10 @@ pub fn edge_keys_never_cross_with_the_whole_note_in_the_field_test() {
   }
 
   let Outcome(editor: ed, sync:, ..) = edge(editor.Up, caret("one\ntwo", 0, 2))
-  assert sync == editor.Write(caret("one\ntwo", 0, 0))
+  assert sync == editor.InSync
   assert editor.region(ed) == None
   let Outcome(sync:, ..) = edge(editor.Down, caret("one\ntwo", 1, 1))
-  assert sync == editor.Write(caret("one\ntwo", 1, 3))
+  assert sync == editor.InSync
   let Outcome(editor: ed, sync:, ..) =
     edge(editor.JoinBefore, caret("one\ntwo", 0, 0))
   assert sync == editor.InSync

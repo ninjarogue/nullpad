@@ -167,9 +167,13 @@ pub fn sync(
           )
         }),
       ])
+    // Blurred at once, because a key pressed before the next paint would
+    // still be typed into the field, and again before that paint, after any
+    // focus an earlier key asked for.
     editor.Release(buffer) ->
       effect.batch([
         write(buffer),
+        effect.from(fn(_) { blur_control(control_id) }),
         effect.before_paint(fn(_, _) { blur_control(control_id) }),
       ])
   }

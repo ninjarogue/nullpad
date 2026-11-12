@@ -19,7 +19,7 @@ A markdown note editor in Gleam with Lustre. Read this before changing code.
 | One storage interface. Only `src/nullpad.gleam` imports a backend. | `gleam test` |
 | A public editor function that changes the editor returns an `editor.Outcome`, so a write to the field cannot be forgotten. | `gleam test` |
 | Nothing draws raw HTML. | `gleam test` |
-| An editor event costs at most one parse when it changes the note, and none when it does not. | `test/keystroke_cost.mjs` |
+| An editor event costs at most one parse of the note when it changes the note, and none when it does not. The event that ends an IME composition does the one parse the composing keys skipped. | `test/keystroke_cost.mjs` |
 | JavaScript listed as a measure changes nothing on the page. | review |
 | `app.gleam` routes messages. New behaviour goes in a pure module with unit tests first. | review |
 | No wildcard `case` over our own variant types. | review |

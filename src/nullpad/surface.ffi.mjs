@@ -125,7 +125,9 @@ export function locate(press, rowMark) {
     const range = document.createRange();
     range.setStart(holder, 0);
     range.setEnd(point.node, point.offset);
-    return [Number(holder.dataset[rowMark]), range.toString(), false];
+    // An element that draws no text, such as a fence with no code, has no
+    // place before its text: the press lands at the end of its row.
+    return [Number(holder.dataset[rowMark]), range.toString(), holder.textContent === ""];
   }
   let nearest = null;
   let gap = Infinity;
