@@ -313,6 +313,40 @@ class Page {
     }, word);
   }
 
+  /**
+   * Presses `keys` one after another while the page draws nothing, as on a
+   * device too busy to draw between two key presses. Then lets it draw.
+   */
+  async pressBeforeRedraw(...keys: string[]) {
+    await this.nextFrame();
+    await this.browser.evaluate(() => {
+      const real = window.requestAnimationFrame;
+      const held: FrameRequestCallback[] = [];
+      window.requestAnimationFrame = (run) => held.push(run);
+      (globalThis as { redraw?: () => void }).redraw = () => {
+        window.requestAnimationFrame = real;
+        for (const run of held) real(run);
+      };
+      return null;
+    });
+    for (const key of keys) await this.browser.keyboard.press(key);
+    await this.browser.evaluate(() => {
+      (globalThis as { redraw?: () => void }).redraw!();
+      return null;
+    });
+    await this.nextFrame();
+  }
+
+  /** Waits until the page has drawn a frame and run what it does before painting. */
+  nextFrame() {
+    return this.browser.evaluate(
+      () =>
+        new Promise<null>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done(null))),
+        ),
+    );
+  }
+
   /** The text field's text with `|` where the caret is. */
   caret() {
     return this.browser.evaluate(() => {
