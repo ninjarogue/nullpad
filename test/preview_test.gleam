@@ -691,3 +691,22 @@ pub fn the_rows_of_a_block_the_field_cuts_are_blank_test() {
       "<div class=\"blank\" data-row=\"1\"></div><ul data-row=\"2\"><li data-row=\"2\">c</li></ul>",
     )
 }
+
+pub fn twenty_thousand_blank_rows_are_drawn_test() {
+  let blanks = fn(html) {
+    list.length(string.split(html, "class=\"blank\"")) - 1
+  }
+
+  let note = "a" <> string.repeat("\n", 20_000) <> "b"
+  assert blanks(beside_field(note, 1, 20_000)) == 19_999
+  assert blanks(beside_field("```\n" <> string.repeat("a\n", 20_000), 1, 20_000))
+    == 20_000
+}
+
+pub fn a_list_of_twenty_thousand_items_is_drawn_test() {
+  let items = fn(html) { list.length(string.split(html, "<li")) - 1 }
+  let note = string.repeat("- a\n\n", 20_000)
+
+  assert items(render_blocks(markdown.parse(note))) == 20_000
+  assert items(beside_field(note, 0, 40_000)) == 39_999
+}
