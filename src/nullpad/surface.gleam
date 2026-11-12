@@ -84,12 +84,14 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
 }
 
 /// A list item's marker hangs left of its words, as wide as it is typed, so
-/// the words stay where the drawn item had them, on every wrapped line.
+/// the words stay where the drawn item had them, on every wrapped line. It is
+/// measured here, as the view is built: CSS cannot measure typed text, and a
+/// width set after the draw would show the item one frame out of place.
 fn marker(editor: Editor) -> attribute.Attribute(msg) {
   let text = buffer.text(editor.field_buffer(editor))
   case editor.region(editor), live.kind(text) {
-    Some(_), live.ListItem(..) ->
-      attribute.style("--marker", float.to_string(marker_width(text)) <> "px")
+    Some(_), live.ListItem(marker:, ..) ->
+      attribute.style("--marker", float.to_string(text_width(marker)) <> "px")
     _, _ -> attribute.none()
   }
 }
@@ -351,8 +353,8 @@ fn mirror(editor: Editor) -> Element(msg) {
 @external(javascript, "./surface.ffi.mjs", "writeControl")
 fn write_control(id: String, text: String, start: Int, end: Int) -> Nil
 
-@external(javascript, "./surface.ffi.mjs", "markerWidth")
-fn marker_width(item: String) -> Float
+@external(javascript, "./surface.ffi.mjs", "textWidth")
+fn text_width(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
 fn focus_control(id: String) -> Nil
