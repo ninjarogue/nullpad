@@ -55,14 +55,65 @@ pub fn a_row_past_the_note_is_kept_as_asked_test() {
 pub fn the_field_is_set_like_the_block_it_holds_test() {
   assert live.kind("## Packing") == live.Title(markdown.H2)
   assert live.kind("Title\n===") == live.Title(markdown.H1)
-  assert live.kind("- Shoes\n  and socks") == live.ListItem(task: False)
-  assert live.kind("2. two") == live.ListItem(task: False)
-  assert live.kind("- [ ] pack") == live.ListItem(task: True)
+  assert live.kind("- Shoes\n  and socks")
+    == live.ListItem(task: False, marker: "- ")
+  assert live.kind("2. two") == live.ListItem(task: False, marker: "2. ")
+  assert live.kind("- [ ] pack") == live.ListItem(task: True, marker: "- [ ] ")
   assert live.kind("```\ncode\n```") == live.Mono
   assert live.kind("| a |\n|---|") == live.Mono
   assert live.kind("plain words") == live.Body
   assert live.kind("") == live.Body
   assert live.kind("one\n\ntwo") == live.Body
+}
+
+fn marker(field_text: String) -> String {
+  case live.kind(field_text) {
+    live.ListItem(marker:, ..) -> marker
+    live.Body | live.Mono | live.Title(_) -> "not an item"
+  }
+}
+
+pub fn an_item_in_the_field_has_the_marker_it_was_typed_with_test() {
+  assert marker("- a") == "- "
+  assert marker("* a") == "* "
+  assert marker("+ a") == "+ "
+  assert marker("12. a") == "12. "
+  assert marker("3) a") == "3) "
+}
+
+pub fn a_task_box_and_the_spaces_after_it_are_part_of_the_marker_test() {
+  assert marker("- [ ] a") == "- [ ] "
+  assert marker("- [x] a") == "- [x] "
+  assert marker("1. [ ] a") == "1. [ ] "
+  assert marker("- [ ]   a") == "- [ ]   "
+  assert marker("-\t[ ] a") == "-\t[ ] "
+}
+
+pub fn the_spaces_around_a_marker_are_part_of_it_test() {
+  assert marker("  - a") == "  - "
+  assert marker("   1. a") == "   1. "
+  assert marker("-  a") == "-  "
+  assert marker("-   a") == "-   "
+}
+
+pub fn only_the_first_line_of_an_item_has_a_marker_test() {
+  assert marker("- a\n  - b") == "- "
+  assert marker("1. a\n   1. [ ] b") == "1. "
+  assert marker("- a\n  more") == "- "
+  assert marker("\n- a") == "- "
+}
+
+pub fn an_item_with_nothing_after_its_marker_has_that_marker_test() {
+  assert marker("-") == "-"
+  assert marker("- ") == "- "
+  assert marker("-   ") == "-   "
+  assert marker("1.") == "1."
+  assert marker("- [ ]") == "- [ ]"
+  assert marker("- [ ] ") == "- [ ] "
+}
+
+pub fn the_marker_stops_where_code_in_the_item_begins_test() {
+  assert marker("-     a") == "- "
 }
 
 pub fn a_click_steps_over_the_marks_before_it_test() {

@@ -51,12 +51,13 @@ fn item_last_row(item: Item) -> Int {
 }
 
 /// How the text field is set, so the words barely move when a block turns
-/// into its markdown.
+/// into its markdown. A list item carries its `marker` as typed: the text
+/// before its words, from the start of the line.
 pub type Kind {
   Body
   Title(Level)
   Mono
-  ListItem(task: Bool)
+  ListItem(task: Bool, marker: String)
 }
 
 pub fn kind(field_text: String) -> Kind {
@@ -66,9 +67,23 @@ pub fn kind(field_text: String) -> Kind {
       Mono
     [Block(content: BulletList(items: [first, ..], ..), ..)]
     | [Block(content: OrderedList(items: [first, ..], ..), ..)] ->
-      ListItem(task: option.is_some(first.task))
+      ListItem(
+        task: option.is_some(first.task),
+        marker: marker(field_text, first),
+      )
     _ -> Body
   }
+}
+
+fn marker(field_text: String, item: Item) -> String {
+  field_text
+  |> string.split("\n")
+  |> list.drop(item.row)
+  |> list.first
+  |> result.unwrap("")
+  |> string.to_utf_codepoints
+  |> list.take(item.content_col)
+  |> string.from_utf_codepoints
 }
 
 /// Where a click on the drawn page lands in the source. `row` is the first

@@ -104,8 +104,8 @@ fn classes(editor: Editor) -> String {
       case live.kind(buffer.text(editor.field_buffer(editor))) {
         live.Body -> "editor part"
         live.Mono -> "editor part mono"
-        live.ListItem(task: False) -> "editor part item"
-        live.ListItem(task: True) -> "editor part item task"
+        live.ListItem(task: False, ..) -> "editor part item"
+        live.ListItem(task: True, ..) -> "editor part item task"
         live.Title(markdown.H1) -> "editor part h1"
         live.Title(markdown.H2) -> "editor part h2"
         live.Title(markdown.H3) -> "editor part h3"
