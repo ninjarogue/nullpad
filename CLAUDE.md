@@ -26,6 +26,7 @@ The rules live in `test/architecture/rules.gleam`. It parses every Gleam file wi
 - A rule that breaks twice gets a check, not a reminder: add it to `rules.gleam`, to this table, and add the break that proves it to `architecture_test.gleam`.
 - New JavaScript counts as changing the page until it is listed under `measures` in `rules.gleam`. Drawing and decoding code may only call measures.
 - `gleam run -m architecture_test` prints what each rule examined. A rule that examines nothing fails the test.
+- A check or script that judges code reads the syntax tree, not the text. Pick the tool that can see the real code before the one that is fastest to write, and ship the check with its break cases and the score from an attacker who is not its author.
 - The check was wrong twice when only its author tested it. After changing a rule, have someone who has not read the break list try to get past it, and add what they find.
 
 ## Checks
