@@ -1,12 +1,11 @@
-//// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
-//// CommonMark 0.31.2 for what nullpad supports (headings, paragraphs, block
+//// Follows CommonMark 0.31.2 for what nullpad supports (headings, paragraphs, block
 //// quotes, lists, code blocks, thematic breaks, code spans, emphasis, inline
 //// links, backslash escapes), and GFM for strikethrough, task items and tables.
 //// Everything else stays text as typed. Two rules are nullpad's own: a link to
 //// an address it will not follow (`is_safe_url`) stays text, and a box with
 //// nothing after it is a task.
 ////
-//// Imported by: `preview`, `storage`, `surface` (M6), the shell, tests.
+//// Imported by: `preview`, `storage`, `surface`, the shell, tests.
 //// Imports: stdlib, and `markdown.ffi.mjs` for two Unicode classes.
 
 import gleam/dict.{type Dict}
@@ -24,12 +23,10 @@ pub type Block {
 }
 
 pub type Content {
-  // M2
   Heading(level: Level, text: List(Inline))
   /// A line break between source lines stays in the text as "\n" (a soft
   /// break). The page shows it as a line break.
   Paragraph(text: List(Inline))
-  // M3
   BulletList(spacing: Spacing, items: List(Item))
   /// `start` is the first item's number. Later numbers are not kept.
   OrderedList(start: Int, spacing: Spacing, items: List(Item))
@@ -46,8 +43,6 @@ pub type Content {
   Table(columns: List(Column), rows: List(List(Cell)))
 }
 
-/// A column holds its alignment and its heading together, so a header row and
-/// a delimiter row that disagree on the number of columns cannot exist.
 pub type Column {
   Column(alignment: Alignment, heading: Cell)
 }
@@ -71,9 +66,8 @@ pub type Spacing {
   Loose
 }
 
-/// An item is a list of blocks, so a nested list is just a list block inside
-/// an item: nesting falls out of the recursion. `row` is the item's first
-/// line, the one that holds its marker. `content_col` counts the code points
+/// `row` is the item's first line, the one that holds its marker.
+/// `content_col` counts the code points
 /// of that line before the item's content: its indentation, the marker, the
 /// box of a task and the spaces after them, or the whole line when nothing
 /// follows the marker. Like `Task.col`, from the start of the line.
@@ -88,8 +82,6 @@ pub type Task {
   Task(checked: Bool, row: Int, col: Int)
 }
 
-/// Six variants, not an Int: the renderer's `case` is exhaustive and a
-/// "level 9" cannot exist.
 pub type Level {
   H1
   H2
@@ -100,17 +92,15 @@ pub type Level {
 }
 
 pub type Inline {
-  // M2
   Text(String)
   Strong(List(Inline))
   Emphasis(List(Inline))
   Code(String)
   Link(label: List(Inline), url: String, title: Option(String))
-  // M3
   Strike(List(Inline))
 }
 
-/// Parse a whole note. Total: any text is a valid document (unknown or
+/// Total: any text is a valid document (unknown or
 /// unclosed syntax becomes plain `Text`, and raw HTML is just text), so there
 /// is no error type.
 pub fn parse(source: String) -> List(Block) {
@@ -323,9 +313,7 @@ type Leaf {
     first_row: Int,
     last_row: Int,
     columns: List(Column),
-    /// Newest first.
     rows: List(List(Cell)),
-    /// The empty cells the rows were padded with.
     padded: Int,
   )
 }
@@ -932,16 +920,14 @@ fn drop_spaces_end(chars: List(String)) -> List(String) {
   chars |> list.reverse |> drop_spaces |> list.reverse
 }
 
-/// A bound on the empty cells a table's rows are padded with. Past it a row is
-/// not added: the table ends and the line starts a paragraph. Padding is the
-/// one place a table's output outgrows its text: a header of 1,000 columns over
+/// Past it a row is not added: the table ends and the line starts a paragraph.
+/// Padding is where a table's output outgrows its text: a header of 1,000 columns over
 /// short rows is 6 KB for half a million cells, and Chromium took four seconds
 /// to show them. cmark-gfm stops at 0x80000 (524,288), eight times as many.
 const max_padded_cells = 65_536
 
 /// A delimiter row under a paragraph's last line opens a table when the two
-/// have the same number of cells. The columns are the delimiter's alignments
-/// with the header's cells.
+/// have the same number of cells.
 fn table_columns(
   header: List(String),
   alignments: List(Alignment),
@@ -958,9 +944,8 @@ fn table_columns(
   }
 }
 
-/// `before` is the paragraph's lines above the header, newest first. They are
-/// a paragraph of their own, and as in cmark-gfm a backslash comes off every
-/// `\|` in them.
+/// As in cmark-gfm, a backslash comes off every `\|` in the paragraph above
+/// the header.
 fn open_table(
   open: Open,
   first_row: Int,
@@ -986,9 +971,6 @@ fn open_table(
   Open(..open, leaf: TableLeaf(row - 1, row, columns, [], 0))
 }
 
-/// The alignments of a delimiter row, one for each cell, or `Error` when the
-/// line is not one. The first character a delimiter row cannot hold ends the
-/// check, so a line of prose costs one step.
 fn delimiter_alignments(text: List(String)) -> Result(List(Alignment), Nil) {
   let is_delimiter = fn(char) {
     char == "-" || char == ":" || char == "|" || is_table_space(char)
@@ -1034,7 +1016,7 @@ fn align(left: Bool, right: Bool) -> Alignment {
   }
 }
 
-/// The cells of a row, trimmed, in order. A pipe ends a cell unless a
+/// A pipe ends a cell unless a
 /// backslash comes right before it, and then the backslash goes and the pipe
 /// stays. A pipe at the start or the end of the row adds no empty cell, and
 /// none of the cells has a line break. A row with no cells is not a row.
@@ -1045,7 +1027,6 @@ fn split_cells(chars: List(String)) -> List(List(String)) {
   }
 }
 
-/// `cell` is the cell being read, last character first.
 fn read_cells(
   chars: List(String),
   cell: List(String),
@@ -1084,8 +1065,6 @@ fn drop_table_spaces(chars: List(String)) -> List(String) {
   list.drop_while(chars, is_table_space)
 }
 
-/// One cell for each of `width` columns: the cells past the last column are
-/// dropped, and a short row gets empty ones. Also says how many it added.
 fn fit_cells(cells: List(List(String)), width: Int) -> #(List(Cell), Int) {
   let kept = list.take(cells, width)
   let missing = width - list.length(kept)
@@ -1096,10 +1075,8 @@ fn fit_cells(cells: List(List(String)), width: Int) -> #(List(Cell), Int) {
 // link with a `*` inside.
 
 type Piece {
-  /// Finished: text, a code span, a link. `depth` is how deeply it nests.
   Done(inline: Inline, depth: Int)
   DelimiterRun(symbol: Symbol, length: Int, opens: Bool, closes: Bool)
-  /// A `[` in place. Text, unless a later `]` makes a link of it.
   Bracket(id: Int)
 }
 
@@ -1109,16 +1086,8 @@ type Symbol {
   Tilde
 }
 
-/// One flat list of pieces for the whole text, so a `]` that makes no link
-/// costs one step, and a link pays only for its own text, which it consumes.
 type Scan {
-  Scan(
-    /// Newest first.
-    pieces: List(Piece),
-    /// The `[` that may still start a link, innermost first.
-    brackets: List(Int),
-    next_id: Int,
-  )
+  Scan(pieces: List(Piece), brackets: List(Int), next_id: Int)
 }
 
 /// A pair of marks, or a link, that would nest deeper than this is not built:
@@ -1130,9 +1099,7 @@ const max_depth = 32
 const safe_schemes = ["http", "https", "mailto"]
 
 /// Whether nullpad follows a link to `url`: only http, https, mailto and
-/// relative paths. The parser leaves any other link as the text that was
-/// typed, so the page, the note list and a later export all agree and
-/// nothing the user wrote goes missing.
+/// relative paths.
 pub fn is_safe_url(url: String) -> Bool {
   case string.split_once(url, ":") {
     Error(Nil) -> True
@@ -1142,10 +1109,8 @@ pub fn is_safe_url(url: String) -> Bool {
   }
 }
 
-/// A scheme holds only ASCII letters, digits, `+`, `-` and `.`, so text with
-/// anything else before the first colon is a relative path. Spaces and
-/// control characters are the exception: browsers drop some of them before
-/// they read the scheme, so they do not make a URL relative here.
+/// Browsers drop some spaces and control characters before they read the
+/// scheme, so they do not make a URL relative here.
 fn may_be_scheme(before_colon: String) -> Bool {
   before_colon
   |> string.to_utf_codepoints
@@ -1167,8 +1132,6 @@ fn inlines(chars: List(String)) -> List(Inline) {
   inlines
 }
 
-/// `previous` is the source character just before `chars`, "" at the start.
-/// `text` is plain text read since the last piece.
 fn scan(
   chars: List(String),
   previous: String,
@@ -1272,8 +1235,6 @@ fn count_run(
   }
 }
 
-/// Reads up to the next run of exactly `ticks` backticks. `content` is what
-/// it read so far, last first, with each line ending already a space.
 fn code_span(
   chars: List(String),
   ticks: Int,
@@ -1362,15 +1323,11 @@ fn is_space_or_tab(char: String) -> Bool {
   char == " " || char == "\t"
 }
 
-/// U+0000 to U+001F and U+007F. A one-code-point string sorts below " "
-/// exactly when it is one of the first 32.
 fn is_ascii_control(char: String) -> Bool {
   string.compare(char, " ") == order.Lt || char == "\u{7F}"
 }
 
 /// Links do not nest, so once a link forms no `[` to its left may start one.
-/// A link that is too deep or not safe to follow stays as typed, and still
-/// uses up the brackets, so its text is never paired twice.
 fn close_link(scan: Scan, id: Int, tail: Tail) -> Scan {
   let #(text, outside) = split_at_bracket(scan.pieces, id, [])
   let #(children, depth) = emphasize(text)
@@ -1388,7 +1345,6 @@ fn close_link(scan: Scan, id: Int, tail: Tail) -> Scan {
   Scan(..scan, pieces:, brackets: [])
 }
 
-/// The pieces after `Bracket(id)`, oldest first, and the ones before it.
 fn split_at_bracket(
   pieces: List(Piece),
   id: Int,
@@ -1401,13 +1357,10 @@ fn split_at_bracket(
   }
 }
 
-/// What an inline link has after its `]`: `(`, a destination, a title, `)`.
-/// `source` is all of it as typed, for a link the depth cap refuses.
 type Tail {
   Tail(url: String, title: Option(String), rest: List(String), source: String)
 }
 
-/// Characters not read yet, and the source text read so far.
 type Reader {
   Reader(rest: List(String), read: String)
 }
@@ -1427,8 +1380,6 @@ fn link_tail(chars: List(String)) -> Result(Tail, Nil) {
   }
 }
 
-/// Spaces, tabs and at most one line ending. `skipped` says whether there
-/// were any.
 fn whitespace(
   reader: Reader,
   line_ended: Bool,
@@ -1467,9 +1418,6 @@ fn pointy_destination(
   }
 }
 
-/// A `(` in a url that never closes raises the depth of every earlier scan
-/// still reading it, so no character is read by more than this many failing
-/// scans, plus one.
 const max_nesting = 32
 
 /// Ends before a space, a control character or a `)` that closes nothing,
@@ -1526,7 +1474,7 @@ fn title(reader: Reader) -> Result(#(Option(String), Reader), Nil) {
   }
 }
 
-/// `close` ends the title. A `(…)` title may not hold an unescaped `(`.
+/// A `(…)` title may not hold an unescaped `(`.
 fn title_text(
   chars: List(String),
   close: String,
@@ -1546,10 +1494,6 @@ fn title_text(
   }
 }
 
-/// What `emphasize` holds while it folds the pieces: the inlines at the
-/// innermost open level and how deeply they nest, the openers still waiting
-/// for a closer (innermost first) and how many there are, and the floors.
-///
 /// A floor is the spec's `openers_bottom`: for each kind of closer, the
 /// height below which no opener can pair with it. A search stops there, so
 /// a closer that finds nothing never makes the next one look again.
@@ -1563,9 +1507,7 @@ type Pairing {
   )
 }
 
-/// `length` is the run's length as typed, for rules 9 and 10. `left` is how
-/// many of its characters no pair has used yet. `before` is what came before
-/// it at its own level.
+/// `length` is the run's length as typed, for rules 9 and 10.
 type Opener {
   Opener(
     symbol: Symbol,
@@ -1577,10 +1519,6 @@ type Opener {
   )
 }
 
-/// Inlines in source order that join in one step. A pair the depth cap
-/// refuses hands its content back to the level around it, and an outer
-/// refused pair hands it back again: with a list that copies the content
-/// once per level, and ten thousand levels of it is quadratic.
 type Rope {
   Empty
   Leaf(Inline)
@@ -1634,7 +1572,6 @@ fn push(
   )
 }
 
-/// A run that can close, with `left` of its `length` characters not used.
 fn close(
   pairing: Pairing,
   symbol: Symbol,
@@ -1721,8 +1658,6 @@ fn lower_floors(pairing: Pairing) -> Pairing {
   Pairing(..pairing, floors:)
 }
 
-/// The nearest of the top `search` openers that the closer can pair with,
-/// the openers above it (innermost first), and the ones below it.
 fn find_opener(
   openers: List(Opener),
   search: Int,
@@ -1756,8 +1691,6 @@ fn can_pair(opener: Opener, symbol: Symbol, length: Int, opens: Bool) -> Bool {
   }
 }
 
-/// Openers that never closed are text: each one's unused characters, after
-/// what came before it and before the content after it.
 fn give_up(openers: List(Opener), inside: Rope, depth: Int) -> #(Rope, Int) {
   list.fold(openers, #(inside, depth), fn(content, opener) {
     let #(after, depth) = content
@@ -1785,8 +1718,6 @@ fn emphasis(symbol: Symbol, used: Int, children: List(Inline)) -> Inline {
   }
 }
 
-/// Takes the newest inline first, so `done` comes out in source order, and
-/// joins neighbouring text.
 fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
   case ropes, done {
     [], _ -> done
@@ -1798,8 +1729,6 @@ fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
   }
 }
 
-/// The words a reader sees: markup dropped, text and code kept, a line break
-/// as one space.
 pub fn plain_text(inlines: List(Inline)) -> String {
   inlines |> words |> string.replace("\n", " ")
 }
@@ -1921,14 +1850,12 @@ fn find_task(blocks: List(Block), row: Int, col: Int) -> Result(Task, Nil) {
   }
 }
 
-/// One styled piece of *source* text, for the editor's mirror (M6).
 pub type Run {
   Run(style: Style, text: String)
 }
 
 pub type Style {
   Plain
-  /// The syntax characters themselves: # ** ` > -
   Mark
   HeadingText
   StrongText
@@ -1938,9 +1865,6 @@ pub type Style {
   QuoteText
 }
 
-/// M6. One list of runs per source row. Lossless, which is what keeps the
-/// mirror's glyphs under the text field's caret: for every row, the runs'
-/// `text` concatenated is exactly that line.
 pub fn highlight(source: String) -> List(List(Run)) {
   let _ = source
   todo as "not implemented"

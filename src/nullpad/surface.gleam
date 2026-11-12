@@ -1,11 +1,3 @@
-//// The only module that touches the on-screen text control (a <textarea>).
-//// Hides: DOM event decoding, UTF-16 offsets, which keys get cancelled, the
-//// block-cursor / highlighting mirror, and all editor JavaScript.
-//// - READ: every listener decodes a full snapshot of the control.
-//// - WRITE: `sync` is the only code that sets the control's value or
-////   selection. Lustre's virtual DOM never sets `value` (see `view`).
-//// In live view the control holds only the rows being edited, and this
-//// module also reads where a press on the drawn page lands (`page`).
 //// Imported by: the app shell only. Imports: `editor`, `buffer`, `live`,
 //// `vim` (for `Key`), `markdown`.
 
@@ -32,9 +24,6 @@ const control_id = "nullpad-control"
 
 const live_class = "live"
 
-/// The editing pane. Render it once, unconditionally, and never remove it
-/// from the view: out of focus it hides itself (`idle`).
-///
 /// WARNING: never swap this for `html.textarea(attrs, text)`. In Lustre 5.7.1
 /// that helper adds a `value` property, which Lustre re-assigns on the next
 /// frame after any event from the element. With "" it wipes what was typed.
@@ -68,7 +57,6 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         attribute.id(control_id),
         attribute.data("test-id", "editor"),
         attribute.aria_label("Note text"),
-        // Normal mode locks the control: no typing, paste, drop or IME.
         attribute.readonly(editor.mode(editor) == editor.Normal),
         event.on("input", typed),
         event.on("compositionend", changed),
@@ -91,10 +79,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   ])
 }
 
-/// A list item's marker hangs left of its words, as wide as it is typed, so
-/// the words stay where the drawn item had them, on every wrapped line. It is
-/// measured here, as the view is built: CSS cannot measure typed text, and a
-/// width set after the draw would show the item one frame out of place.
+/// CSS cannot measure typed text, so the marker is measured here.
 fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
   case kind {
     Some(live.ListItem(marker:, ..)) ->
@@ -104,8 +89,6 @@ fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
   }
 }
 
-/// Live view sets the field like the block it holds, so the words barely
-/// move when a block turns into its markdown. `idle` hides the field.
 fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
   case kind, editor.is_idle(editor) {
     None, _ -> "editor"
@@ -126,8 +109,6 @@ fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
   }
 }
 
-/// The attributes of the element that holds the field and, in live view, the
-/// drawn parts around it.
 pub fn page(
   editor: Editor,
   on_event: fn(editor.Event) -> msg,
@@ -138,8 +119,6 @@ pub fn page(
   }
 }
 
-/// Live view: a press on the drawn page puts the cursor at that place in
-/// the source. Links, boxes and the field itself keep their own behaviour.
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
     use press <- decode.then(decode.dynamic)
@@ -156,16 +135,12 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   })
 }
 
-/// Carry out the `sync` of an `editor.Outcome`. The shell calls this for
-/// every outcome.
 pub fn sync(
   sync: editor.Sync,
   on_event: fn(editor.Event) -> msg,
 ) -> Effect(msg) {
   let write = fn(buffer) {
     let #(text, start, end) = to_control(buffer)
-    // Runs right after `update`, before any other browser event, so the
-    // next event's snapshot already includes this write.
     effect.from(fn(_) { write_control(control_id, text, start, end) })
   }
   case sync {
@@ -175,7 +150,6 @@ pub fn sync(
     editor.WriteAndAim(buffer, x:, line:) ->
       effect.batch([
         write(buffer),
-        // After the render, because the field's font follows its block.
         effect.before_paint(fn(dispatch, _) {
           focus_control(control_id)
           let #(text, start, end) = to_control(buffer)
@@ -188,7 +162,6 @@ pub fn sync(
               x,
               line == editor.LastLine,
             )
-          // A snapshot of the control as it is now, like every other event.
           dispatch(
             on_event(editor.ControlChanged(from_control(text, start, end))),
           )
@@ -197,7 +170,6 @@ pub fn sync(
     editor.Release(buffer) ->
       effect.batch([
         write(buffer),
-        // After any `focus` asked for earlier, which also waits for the render.
         effect.before_paint(fn(_, _) { blur_control(control_id) }),
       ])
   }
@@ -209,8 +181,7 @@ pub fn focus() -> Effect(msg) {
   effect.before_paint(fn(_, _) { focus_control(control_id) })
 }
 
-/// Boundary parse, browser -> domain: the control's `value` and its
-/// `selectionStart` / `selectionEnd` (UTF-16 offsets) become a `Buffer`.
+/// `selectionStart` and `selectionEnd` are UTF-16 offsets.
 fn from_control(text: String, start: Int, end: Int) -> Buffer {
   buffer.from_text(text)
   |> buffer.select(anchor: position(text, start), head: position(text, end))
@@ -221,8 +192,6 @@ fn position(text: String, offset: Int) -> Position {
   buffer.end_of(before)
 }
 
-/// Domain -> browser: `#(value, selectionStart, selectionEnd)`.
-/// Law: `to_control(from_control(t, s, e)) == #(t, s, e)`.
 fn to_control(buffer: Buffer) -> #(String, Int, Int) {
   let #(anchor, head) = buffer.selection(buffer)
   let lines = buffer.lines(buffer)
@@ -251,14 +220,6 @@ fn shown_decoder() -> Decoder(Buffer) {
   decode.success(from_control(text, start, end))
 }
 
-/// keydown: succeed, and cancel the key's default action, only if the editor
-/// claims the key. A failed decoder sends no message and the key stays
-/// native, so plain typing costs no `update` here.
-///
-/// Known gap: `editor` is the one from the last *rendered* frame (Lustre
-/// renders on requestAnimationFrame), so for one frame after a mode switch
-/// the old mode decides. Cost: at most one lost key press, never lost text
-/// (`vim.press` types it in insert; `editor.update` step 1 restores normal).
 fn key_decoder(
   editor: Editor,
   on_event: fn(editor.Event) -> msg,
@@ -284,13 +245,6 @@ fn key_decoder(
   }
 }
 
-/// The four keys that may leave the field's rows, each only at the edge of
-/// the field it leaves by, judged from the page as it is now: the field is
-/// drawn as one block of the page, and the caret is at that edge. A line is a
-/// drawn line here: an arrow moves inside a wrapped row until it is on the
-/// field's first or last drawn line. Whether there is a row past the edge is
-/// for `editor.update`. Fails for every other key press, so those stay native
-/// and cost no `update`.
 fn edge_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
@@ -357,10 +311,6 @@ fn escape_decoder(
   }
 }
 
-/// Boundary parse of `KeyboardEvent.key`: "Escape" -> Escape; "Enter" ->
-/// Enter; one grapheme -> Char or Ctrl. Error for everything else ("Shift",
-/// "Process", "Dead"...) and whenever `ignore` is true (Meta/Alt chord, IME
-/// composing).
 fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
   case ignore, name, string.length(name) {
     True, _, _ -> Error(Nil)
@@ -372,17 +322,6 @@ fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
   }
 }
 
-/// The picture layer: drawn by Lustre from the model, stacked exactly under
-/// the textarea (same CSS grid cell, font, padding, wrapping), whose own text
-/// is transparent. The browser keeps caret, selection, touch and IME. We
-/// choose the glyphs. The mirror also sizes the cell, so the pane scrolls.
-/// - Vim off, M1 to M5: hidden. The textarea shows its own text.
-/// - Live view: invisible, and holds the field's rows so the cell is as tall
-///   as its text and the field never scrolls.
-/// - M4, vim on: <pre aria-hidden> = text before the cursor,
-///   <span data-cursor>grapheme or " "</span>, text after. CSS paints
-///   `[data-cursor]` as a block in normal mode.
-/// - M6: one keyed row per line, spans from `markdown.highlight`.
 fn mirror(editor: Editor) -> Element(msg) {
   let text = case editor.region(editor) {
     None -> ""
@@ -406,20 +345,12 @@ fn focus_control(id: String) -> Nil
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil
 
-/// Is the control drawn as one block of a page (live view) right now, rather
-/// than as the whole note.
 @external(javascript, "./surface.ffi.mjs", "drawnInPage")
 fn drawn_in_page(id: String, live_class: String) -> Bool
 
-/// Is the caret on the control's first drawn line, is it on its last, and how
-/// many pixels is it from the control's left edge.
 @external(javascript, "./surface.ffi.mjs", "caretLine")
 fn caret_line(id: String) -> #(Bool, Bool, Float)
 
-/// While the control still holds `text` selected from `start` to `end`, put
-/// the caret on its first or last drawn line, as near to `x` as a character
-/// allows. Gives the control as it is afterwards: `#(value, selectionStart,
-/// selectionEnd)`.
 @external(javascript, "./surface.ffi.mjs", "aimControl")
 fn aim_control(
   id: String,
@@ -430,15 +361,11 @@ fn aim_control(
   last_line: Bool,
 ) -> #(String, Int, Int)
 
-/// Where a mouse press on the drawn page lands: `#(row, visible, at_end)`
-/// for `live.position`. The row is -1 when the press is not for the page.
 @external(javascript, "./surface.ffi.mjs", "locate")
 fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool)
 
-/// `#(before, after)` around a UTF-16 offset. Pure.
 @external(javascript, "./surface.ffi.mjs", "utf16Split")
 fn utf16_split(text: String, offset: Int) -> #(String, String)
 
-/// JavaScript's `.length`. Pure.
 @external(javascript, "./surface.ffi.mjs", "utf16Length")
 fn utf16_length(text: String) -> Int

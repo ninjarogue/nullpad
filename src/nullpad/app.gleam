@@ -37,43 +37,28 @@ import nullpad/vim
 
 const delete_id = "nullpad-delete-note"
 
-/// What `main` hands to `init`.
 pub type Flags {
-  Flags(
-    storage: Storage,
-    /// The remembered vim switch. Off for a new user.
-    vim: Bool,
-    /// False on phones: the vim switch is not offered at all.
-    can_vim: Bool,
-    /// The remembered Markdown button. Off for a new user.
-    markdown: Bool,
-  )
+  Flags(storage: Storage, vim: Bool, can_vim: Bool, markdown: Bool)
 }
 
 pub type Model {
   Model(
     storage: Storage,
     library: Library,
-    /// The text lives here and nowhere else in the model.
     editor: Editor,
     showing: Showing,
     vim: Bool,
     can_vim: Bool,
-    /// The note menu, when it is open.
     menu: Option(Menu),
   )
 }
 
-/// A note's menu and where it is drawn, in pixels from the window's corner.
 pub type Menu {
   Menu(id: NoteId, x: Float, y: Float)
 }
 
 pub type Showing {
-  /// The note is drawn as a page, and the text field holds only the block
-  /// being edited.
   Page
-  /// The text field holds the whole note as typed.
   Markdown
 }
 
@@ -108,7 +93,6 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
   let start =
     effect.batch([
       listed,
-      // Ctrl+E (Cmd+E on a Mac) flips between the page and its markdown.
       platform.on_shortcut("e", UserToggledMarkdown),
       platform.on_hide(ToLibrary(library.SaveDue)),
     ])
@@ -117,7 +101,6 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    // The editing loop: everything that can change the text ends in `apply`.
     EditorSent(event) -> apply(model, editor.update(model.editor, event))
     UserTickedTask(task:, checked:) ->
       case markdown.set_task(editor.text(model.editor), task, checked) {
@@ -279,8 +262,6 @@ pub fn view(model: Model) -> Element(Msg) {
   ])
 }
 
-/// The editing page. The text field is the same element in every state, so
-/// it keeps its focus when the drawn parts around it change.
 fn page(model: Model) -> Element(Msg) {
   let field = #("field", surface.view(model.editor, EditorSent))
   case editor.region(model.editor) {
@@ -456,8 +437,6 @@ fn mode_label(mode: String) -> Element(Msg) {
   ])
 }
 
-/// The visible way to the note menu, for a phone and for the keyboard. Only
-/// the open note has it, so the other rows stay plain text.
 fn more_button(model: Model, id: NoteId) -> Element(Msg) {
   html.button(
     [

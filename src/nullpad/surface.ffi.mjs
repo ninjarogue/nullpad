@@ -1,8 +1,5 @@
-// All editor JavaScript.
-
-// Make the control show `text` with the selection start..end (UTF-16
-// offsets). `value` is assigned only when it differs, because assigning
-// resets the browser's own undo history.
+// Assigning `value` resets the browser's own undo history, so it is
+// assigned only when it differs.
 export function writeControl(id, text, start, end) {
   const control = document.getElementById(id);
   if (!control) return;
@@ -83,9 +80,6 @@ export function caretLine(id) {
   ];
 }
 
-// Gives the control as it is afterwards: [value, selectionStart,
-// selectionEnd]. Aims only while the control is as the write left it: by the
-// time this runs, a later key may have put other rows in it or moved the caret.
 export function aimControl(id, text, start, end, x, lastLine) {
   const control = document.getElementById(id);
   if (!control) return ["", 0, 0];
@@ -113,8 +107,6 @@ export function aimControl(id, text, start, end, x, lastLine) {
   return shown();
 }
 
-// A press on the drawn page: the note row of the element under it, and the
-// drawn text from that element's start to the press.
 export function locate(press, rowMark) {
   const none = [-1, "", false];
   const target = press.target;
@@ -135,7 +127,6 @@ export function locate(press, rowMark) {
     range.setEnd(point.node, point.offset);
     return [Number(holder.dataset[rowMark]), range.toString(), false];
   }
-  // Between blocks, or beside them: the end of the nearest one.
   let nearest = null;
   let gap = Infinity;
   for (const element of page.querySelectorAll(marked)) {
@@ -159,7 +150,6 @@ function caretAt(x, y) {
   return range && { node: range.startContainer, offset: range.startOffset };
 }
 
-// How wide `text` is in the text field's font, in pixels.
 let pen = null;
 
 export function textWidth(text) {

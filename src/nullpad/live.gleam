@@ -1,6 +1,3 @@
-//// Live view: the note is drawn as a page, and the text field holds only the
-//// rows being edited. This module decides which rows those are, and where a
-//// click on the drawn page lands in the source. Pure Gleam.
 //// Imported by: `editor`, `surface`, tests. Imports: `markdown`, `buffer`.
 
 import gleam/int
@@ -14,8 +11,6 @@ import nullpad/markdown.{
   OrderedList, Table,
 }
 
-/// The `data-` attribute a drawn element carries its note row in. `preview`
-/// writes it and `surface` reads it back from a press on the page.
 pub const row_mark = "row"
 
 /// Rows of the note, both ends included, numbered like `Position.row`.
@@ -54,9 +49,6 @@ fn item_last_row(item: Item) -> Int {
   int.max(last, block.last_row)
 }
 
-/// How the text field is set, so the words barely move when a block turns
-/// into its markdown. A list item carries its `marker` as typed: the text
-/// before its words, from the start of the line.
 pub type Kind {
   Body
   Title(Level)
@@ -64,8 +56,6 @@ pub type Kind {
   ListItem(task: Bool, marker: String)
 }
 
-/// The kind of the field while it holds the rows `field` of the note whose
-/// `blocks` and `lines` these are.
 pub fn kind(
   blocks: List(Block),
   field field: Region,
@@ -127,10 +117,7 @@ pub fn position(
   }
 }
 
-/// The column in `line` just after the drawn text `visible`. The drawn text
-/// is the line without its marks, so its characters are matched in order and
-/// the marks between them are stepped over. An approximation: a mark that
-/// equals the next drawn character is taken for it.
+/// An approximation: a mark that equals the next drawn character is taken for it.
 pub fn column(line: String, after visible: String) -> Int {
   match(string.to_graphemes(line), string.to_graphemes(visible), 0)
 }
