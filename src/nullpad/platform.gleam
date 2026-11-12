@@ -46,6 +46,18 @@ pub fn remember_vim_setting(on: Bool) -> Effect(msg) {
   write_vim_setting(on)
 }
 
+/// The remembered Markdown button. False if it was never set.
+@external(javascript, "./platform.ffi.mjs", "readMarkdownSetting")
+pub fn read_markdown_setting() -> Bool
+
+pub fn remember_markdown_setting(on: Bool) -> Effect(msg) {
+  use _ <- effect.from
+  write_markdown_setting(on)
+}
+
+@external(javascript, "./platform.ffi.mjs", "writeMarkdownSetting")
+fn write_markdown_setting(on: Bool) -> Nil
+
 @external(javascript, "./platform.ffi.mjs", "setTimeout")
 fn set_timeout(ms: Int, run: fn() -> Nil) -> Nil
 
@@ -60,3 +72,12 @@ fn write_clipboard(text: String) -> Nil
 
 @external(javascript, "./platform.ffi.mjs", "writeVimSetting")
 fn write_vim_setting(on: Bool) -> Nil
+
+/// Scroll the element with this test id into sight once it is drawn.
+pub fn bring_into_view(test_id: String) -> Effect(msg) {
+  use _, _ <- effect.before_paint
+  scroll_into_view(test_id)
+}
+
+@external(javascript, "./platform.ffi.mjs", "scrollIntoView")
+fn scroll_into_view(test_id: String) -> Nil

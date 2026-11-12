@@ -164,11 +164,11 @@ class Page {
   readonly rows: Locator;
   readonly currentRow: Locator;
   readonly newNote: Locator;
-  readonly showPreview: Locator;
-  readonly showSource: Locator;
+  readonly markdown: Locator;
   readonly preview: Locator;
   readonly paragraphs: Locator;
   readonly everything: Locator;
+  readonly blanks: Locator;
   readonly strong: Locator;
   readonly emphasis: Locator;
   readonly code: Locator;
@@ -185,10 +185,13 @@ class Page {
   readonly headers: Locator;
   readonly cells: Locator;
   readonly delete: Locator;
+  readonly deleteOther: Locator;
   readonly confirmDelete: Locator;
   readonly keep: Locator;
   readonly vimSwitch: Locator;
   readonly vimMode: Locator;
+  readonly above: Locator;
+  readonly below: Locator;
 
   constructor(
     screen: Screen,
@@ -199,14 +202,14 @@ class Page {
     this.saveState = screen.getByRole('status');
     this.problem = screen.getByRole('alert');
     this.list = screen.getByTestId('note-list');
-    this.rows = this.list.getByRole('button');
+    this.rows = browser.locator('[data-test-id="note-list"] [data-test-id^="note-"]');
     this.currentRow = browser.locator('[aria-current="true"]');
     this.newNote = screen.getByRole('button', 'New note');
-    this.showPreview = screen.getByRole('button', 'Preview');
-    this.showSource = screen.getByRole('button', 'Edit');
+    this.markdown = screen.getByRole('button', 'Markdown');
     this.preview = screen.getByTestId('preview');
     this.paragraphs = this.inPreview('p');
-    this.everything = this.inPreview('*');
+    this.everything = this.inPreview(':not(.blank)');
+    this.blanks = this.inPreview('.blank');
     this.strong = this.inPreview('strong');
     this.emphasis = this.inPreview('em');
     this.code = this.inPreview('code');
@@ -223,10 +226,47 @@ class Page {
     this.headers = this.preview.getByRole('columnheader');
     this.cells = this.preview.getByRole('cell');
     this.delete = screen.getByTestId('delete-note');
+    this.deleteOther = screen.getByTestId('delete-other');
     this.confirmDelete = screen.getByTestId('confirm-delete');
     this.keep = screen.getByRole('button', 'Keep');
     this.vimSwitch = screen.getByLabel('Vim');
     this.vimMode = screen.getByTestId('mode');
+    this.above = screen.getByTestId('live-above');
+    this.below = screen.getByTestId('live-below');
+  }
+
+  /** An element of the note drawn around the text field. */
+  drawn(selector: string) {
+    return this.browser.locator(`.page.live .part ${selector}`);
+  }
+
+  /** Elements of the part drawn above or below the text field. */
+  drawnIn(part: 'live-above' | 'live-below', selector: string) {
+    return this.browser.locator(`[data-test-id="${part}"] ${selector}`);
+  }
+
+  /** Where the text field is in the window. */
+  fieldBox() {
+    return this.browser.evaluate(() => {
+      const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+      return { top: box.top, height: box.height };
+    });
+  }
+
+  /** How far down the window the last element matching `selector` starts. */
+  topOf(selector: string) {
+    return this.browser.evaluate((selector: string) => {
+      const found = [...document.querySelectorAll(selector)];
+      return found[found.length - 1].getBoundingClientRect().top;
+    }, selector);
+  }
+
+  /** The text field's text with `|` where the caret is. */
+  caret() {
+    return this.browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      return `${field.value.slice(0, field.selectionStart)}|${field.value.slice(field.selectionEnd)}`;
+    });
   }
 
   inPreview(selector: string) {
@@ -342,8 +382,29 @@ class Page {
     });
   }
 
-  pressPreviewShortcut() {
+  pressMarkdownShortcut() {
     return this.browser.keyboard.press('ControlOrMeta+e');
+  }
+
+  /** From the markdown to the page, with nothing being edited, so the whole note is drawn. */
+  async showPage() {
+    await expect(this.markdown).toHaveAttribute('aria-pressed', 'true');
+    await this.markdown.tap();
+    await this.stopEditing();
+  }
+
+  /** On the page: leave the text field, so the whole note is drawn. */
+  async stopEditing() {
+    await expect(this.text).toBeFocused();
+    await this.browser.keyboard.press('Escape');
+    await expect(this.preview).toBeVisible();
+  }
+
+  /** From the page to the whole note as typed. */
+  async showMarkdown() {
+    await expect(this.markdown).toHaveAttribute('aria-pressed', 'false');
+    await this.markdown.tap();
+    await expect(this.markdown).toHaveAttribute('aria-pressed', 'true');
   }
 }
 
@@ -354,6 +415,16 @@ export const test = base.extend<{ disk: Disk; page: Page }>({
   },
   page: async ({ screen, browser }, use) => {
     await browser.addInitScript(recordCrashes);
+    // Most tests type and read whole notes, so they start with Markdown on.
+    await browser.addInitScript(() => {
+      try {
+        if (localStorage.getItem('nullpad.markdown') === null) {
+          localStorage.setItem('nullpad.markdown', 'on');
+        }
+      } catch {
+        // A blank page has no storage.
+      }
+    });
     await use(new Page(screen, browser));
     const crash = await browser.evaluate(() => localStorage.getItem('testPage.crash'));
     expect(crash, 'the page threw an error nothing caught').toBeNull();

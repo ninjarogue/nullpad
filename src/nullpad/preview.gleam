@@ -4,6 +4,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -23,32 +24,93 @@ import nullpad/markdown.{
 /// `on_task(task, checked)`, and the shell rewrites the task's line. The page
 /// never edits text itself.
 ///
-/// Wrapped in `data-test-id="preview"`. M6 HTML export is
-/// `element.to_string(preview.view(blocks, ..))`.
+/// The whole note with no row marks, for the M6 HTML export:
+/// `element.to_string(preview.view(blocks, ..))`. The app draws `part`.
 pub fn view(
   blocks: List(Block),
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   html.div(
     [attribute.class("preview"), attribute.data("test-id", "preview")],
-    list.map(blocks, block(_, on_task)),
+    list.map(blocks, block(_, Unmarked, on_task)),
   )
 }
 
-fn block(shown: Block, on_task: fn(Task, Bool) -> msg) -> Element(msg) {
+/// A run of `rows` rows of the note drawn as a page, beside the text field.
+/// `first_row` is where the run starts in the note. Each element carries
+/// the note row it starts on as `data-row`, which is how a click finds its
+/// place in the source (`surface.on_point`), and a ticked task names its row
+/// in the note, not in the run.
+///
+/// A row outside every block is blank, and is drawn as one empty line
+/// (`div.blank`), so every row of the note has a place on the page.
+pub fn part(
+  blocks: List(Block),
+  rows rows: Int,
+  first_row first_row: Int,
+  test_id test_id: String,
+  on_task on_task: fn(Task, Bool) -> msg,
+) -> Element(msg) {
+  let on_task = fn(task: Task, checked) {
+    on_task(markdown.Task(..task, row: task.row + first_row), checked)
+  }
+  let #(next, drawn) = {
+    use next, drawn <- list.map_fold(blocks, 0)
+    let before = blanks(first_row, from: next, to: drawn.first_row)
+    let drawn_block = block(drawn, Marked(first_row), on_task)
+    #(drawn.last_row + 1, list.append(before, [drawn_block]))
+  }
+  html.div(
+    [attribute.class("preview part"), attribute.data("test-id", test_id)],
+    list.flatten(drawn)
+      |> list.append(blanks(first_row, from: next, to: rows)),
+  )
+}
+
+fn blanks(first_row: Int, from from: Int, to to: Int) -> List(Element(msg)) {
+  case from < to {
+    False -> []
+    True -> [
+      html.div([attribute.class("blank"), ..at(Marked(first_row), from)], []),
+      ..blanks(first_row, from: from + 1, to:)
+    ]
+  }
+}
+
+type Rows {
+  Unmarked
+  Marked(first_row: Int)
+}
+
+fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
+  case rows {
+    Unmarked -> []
+    Marked(first_row:) -> [
+      attribute.data("row", int.to_string(first_row + row)),
+    ]
+  }
+}
+
+fn block(
+  shown: Block,
+  rows: Rows,
+  on_task: fn(Task, Bool) -> msg,
+) -> Element(msg) {
+  let here = at(rows, shown.first_row)
   let list_items = fn(items: List(Item), spacing) {
-    list.map(items, item(_, spacing, on_task))
+    list.map(items, item(_, spacing, rows, on_task))
   }
   case shown.content {
-    Heading(level, text) -> heading(level, inlines(text))
-    Paragraph(text) -> html.p([], inlines(text))
-    Rule -> html.hr([])
-    Quote(blocks) -> html.blockquote([], list.map(blocks, block(_, on_task)))
-    BulletList(spacing, items) -> html.ul([], list_items(items, spacing))
-    OrderedList(1, spacing, items) -> html.ol([], list_items(items, spacing))
+    Heading(level, text) -> heading(level, here, inlines(text))
+    Paragraph(text) -> html.p(here, inlines(text))
+    Rule -> html.hr(here)
+    Quote(blocks) ->
+      html.blockquote(here, list.map(blocks, block(_, rows, on_task)))
+    BulletList(spacing, items) -> html.ul(here, list_items(items, spacing))
+    OrderedList(1, spacing, items) -> html.ol(here, list_items(items, spacing))
     OrderedList(start, spacing, items) ->
       html.ol(
-        [attribute.attribute("start", int.to_string(start))],
+        [attribute.attribute("start", int.to_string(start)), ..here],
         list_items(items, spacing),
       )
     CodeBlock(language, code) -> {
@@ -56,22 +118,47 @@ fn block(shown: Block, on_task: fn(Task, Bool) -> msg) -> Element(msg) {
         Some(word) -> [attribute.class("language-" <> word)]
         None -> []
       }
-      html.pre([], [html.code(class, [element.text(code)])])
+      // A fenced block has more rows than lines of code: its code starts
+      // one row below the fence.
+      let code_rows = list.length(string.split(code, "\n")) - 1
+      let first_code_row = case
+        shown.last_row - shown.first_row + 1 > code_rows
+      {
+        True -> shown.first_row + 1
+        False -> shown.first_row
+      }
+      html.pre(at(rows, first_code_row), [
+        html.code(class, [element.text(code)]),
+      ])
     }
-    Table(columns, rows) -> table(columns, rows)
+    Table(columns, table_rows) ->
+      table(shown.first_row, rows, columns, table_rows)
   }
 }
 
 /// A table wider than the page scrolls inside its own box, so the page does
 /// not. The box takes the keyboard, since a scrolled box nobody can focus
 /// cannot be scrolled without a pointer.
-fn table(columns: List(Column), rows: List(List(Cell))) -> Element(msg) {
+fn table(
+  first_row: Int,
+  marks: Rows,
+  columns: List(Column),
+  rows: List(List(Cell)),
+) -> Element(msg) {
   let heading = fn(column: Column) {
     aligned(html.th, column.alignment, [attribute.scope("col")], column.heading)
   }
   let body = case rows {
     [] -> []
-    _ -> [html.tbody([], list.map(rows, row(columns, _)))]
+    _ -> [
+      html.tbody(
+        [],
+        // The header is the table's first row and the delimiter its second.
+        list.index_map(rows, fn(cells, index) {
+          row(at(marks, first_row + 2 + index), columns, cells)
+        }),
+      ),
+    ]
   }
   html.div(
     [
@@ -82,16 +169,22 @@ fn table(columns: List(Column), rows: List(List(Cell))) -> Element(msg) {
     ],
     [
       html.table([], [
-        html.thead([], [html.tr([], list.map(columns, heading))]),
+        html.thead([], [
+          html.tr(at(marks, first_row), list.map(columns, heading)),
+        ]),
         ..body
       ]),
     ],
   )
 }
 
-fn row(columns: List(Column), cells: List(Cell)) -> Element(msg) {
+fn row(
+  here: List(attribute.Attribute(msg)),
+  columns: List(Column),
+  cells: List(Cell),
+) -> Element(msg) {
   html.tr(
-    [],
+    here,
     list.zip(columns, cells)
       |> list.map(fn(pair) {
         aligned(html.td, { pair.0 }.alignment, [], pair.1)
@@ -117,19 +210,21 @@ fn aligned(
 fn item(
   shown: Item,
   spacing: Spacing,
+  rows: Rows,
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
+  let here = at(rows, shown.row)
   let children =
     list.flat_map(shown.blocks, fn(child) {
       case child.content, spacing {
         Paragraph(text), Tight -> inlines(text)
-        _, _ -> [block(child, on_task)]
+        _, _ -> [block(child, rows, on_task)]
       }
     })
   case shown.task {
-    None -> html.li([], children)
+    None -> html.li(here, children)
     Some(task) ->
-      html.li([attribute.class("task")], [
+      html.li([attribute.class("task"), ..here], [
         html.input([
           attribute.type_("checkbox"),
           attribute.checked(task.checked),
@@ -155,14 +250,18 @@ fn task_label(blocks: List(Block)) -> String {
   }
 }
 
-fn heading(level: Level, children: List(Element(msg))) -> Element(msg) {
+fn heading(
+  level: Level,
+  here: List(attribute.Attribute(msg)),
+  children: List(Element(msg)),
+) -> Element(msg) {
   case level {
-    H1 -> html.h1([], children)
-    H2 -> html.h2([], children)
-    H3 -> html.h3([], children)
-    H4 -> html.h4([], children)
-    H5 -> html.h5([], children)
-    H6 -> html.h6([], children)
+    H1 -> html.h1(here, children)
+    H2 -> html.h2(here, children)
+    H3 -> html.h3(here, children)
+    H4 -> html.h4(here, children)
+    H5 -> html.h5(here, children)
+    H6 -> html.h6(here, children)
   }
 }
 

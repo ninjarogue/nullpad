@@ -413,3 +413,38 @@ fn paragraph(inline: Inline) -> Content {
 fn link(url: String, label: String) -> Inline {
   Link([Text(label)], url, None)
 }
+
+pub fn a_part_marks_each_element_with_its_row_in_the_note_test() {
+  let html =
+    markdown.parse(
+      "# Trip\n\n- one\n- two\n\n```\ncode\n```\n\n| a |\n|---|\n| 1 |",
+    )
+    |> preview.part(
+      rows: 12,
+      first_row: 10,
+      test_id: "live-below",
+      on_task: fn(task, _) { task },
+    )
+    |> element.to_string
+
+  assert string.contains(html, "data-test-id=\"live-below\"")
+  assert string.contains(html, "<h1 data-row=\"10\">")
+  // Row 1 of the run is blank, and so is every other row between blocks.
+  assert string.contains(html, "<div class=\"blank\" data-row=\"11\">")
+  assert list.length(string.split(html, "class=\"blank\"")) == 4
+  assert string.contains(html, "<li data-row=\"12\">one")
+  assert string.contains(html, "<li data-row=\"13\">two")
+  // The code starts one row below its fence.
+  assert string.contains(html, "<pre data-row=\"16\">")
+  assert string.contains(html, "<tr data-row=\"19\">")
+  assert string.contains(html, "<tr data-row=\"21\">")
+}
+
+pub fn the_rendered_page_carries_no_row_marks_test() {
+  let html =
+    markdown.parse("# Trip\n\n- one")
+    |> preview.view(fn(task, _) { task })
+    |> element.to_string
+
+  assert !string.contains(html, "data-row")
+}

@@ -1,14 +1,17 @@
 //// Stable test ids (`data-test-id`), for the browser tests in `e2e/`:
 ////   editor            the text field               (set in `surface`)
-////   preview           the rendered page
+////   preview           the whole note drawn, while nothing is being edited
 ////   mode              "NORMAL" / "INSERT" (only while vim is on)
-////   toggle-rendered   the source / rendered button
+////   toggle-markdown   the Markdown button
 ////   toggle-vim        the vim switch (only when `can_vim`)
+////   live-above        the note drawn above the text field
+////   live-below        the note drawn below it
 ////   new-note          the new note button
 ////   note-list         the list; each row is  note-<storage.id_text(id)>
 ////   title             the title field
 ////   save-state        "Saved" / "Saving…" / "Unsaved"
-////   delete-note       asks; then confirm-delete / cancel-delete answer
+////   delete-note       on the open note's row in the list; it asks, then
+////                     confirm-delete / cancel-delete answer
 ////   problem           the storage error banner
 
 import gleam/list
@@ -42,6 +45,8 @@ pub type Flags {
     vim: Bool,
     /// False on phones: the vim switch is not offered at all.
     can_vim: Bool,
+    /// The remembered Markdown button. Off for a new user.
+    markdown: Bool,
   )
 }
 
@@ -86,17 +91,21 @@ pub type SaveState {
   Saved
 }
 
+/// Any note in the list can be deleted, open or not, one at a time.
 pub type Deletion {
   NotAsked
-  Asked
-  /// Storage has the request. Nothing is saved until it answers, or the
-  /// save would bring the note back.
-  Deleting
+  Asked(NoteId)
+  /// Storage has the request. If it is for the open note, nothing is saved
+  /// until storage answers, or the save would bring the note back.
+  Deleting(NoteId)
 }
 
 pub type Showing {
-  Source
-  Rendered
+  /// The note is drawn as a page, and the text field holds only the block
+  /// being edited.
+  Page
+  /// The text field holds the whole note as typed.
+  Markdown
 }
 
 pub type Msg {
@@ -110,26 +119,29 @@ pub type Msg {
   StorageDeleted(id: NoteId, result: Result(Nil, Failure))
   UserPickedNote(NoteId)
   UserAskedForNewNote
-  UserAskedToDelete
+  UserAskedToDelete(NoteId)
   UserKeptNote
   UserDeletedNote(NoteId)
   UserRenamedNote(title: String)
-  UserToggledRendered
+  UserToggledMarkdown
   UserToggledVim(on: Bool)
   UserTickedTask(task: markdown.Task, checked: Bool)
 }
 
 pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
-  let Flags(storage:, vim:, can_vim:) = flags
+  let Flags(storage:, vim:, can_vim:, markdown:) = flags
   let model =
     Model(
       storage:,
       notes: [],
       open: None,
-      editor: editor.new(vim: vim && can_vim),
+      editor: editor.set_live(editor.new(vim: vim && can_vim), !markdown).editor,
       edits: 0,
       leaving_for: None,
-      showing: Source,
+      showing: case markdown {
+        True -> Markdown
+        False -> Page
+      },
       vim:,
       can_vim:,
       deletion: NotAsked,
@@ -138,8 +150,8 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
   let start =
     effect.batch([
       list_notes(model),
-      // Ctrl+E (Cmd+E on a Mac) flips between source and rendered page.
-      platform.on_shortcut("e", UserToggledRendered),
+      // Ctrl+E (Cmd+E on a Mac) flips between the page and its markdown.
+      platform.on_shortcut("e", UserToggledMarkdown),
       platform.on_hide(PageHidden),
     ])
   #(model, start)
@@ -208,17 +220,30 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       leave_when_saved(Model(..model, leaving_for: Some(ExistingNote(id))))
 
     UserAskedForNewNote, _ ->
-      Model(..model, showing: Source, leaving_for: Some(NewNote))
-      |> leave_when_saved
+      leave_when_saved(Model(..model, leaving_for: Some(NewNote)))
 
-    UserAskedToDelete, _ | UserKeptNote, _ if model.deletion == Deleting -> #(
-      model,
-      effect.none(),
+    UserAskedToDelete(id), _ ->
+      case model.deletion {
+        Deleting(_) -> #(model, effect.none())
+        NotAsked | Asked(_) -> #(
+          Model(..model, deletion: Asked(id)),
+          platform.bring_into_view("cancel-delete"),
+        )
+      }
+    UserKeptNote, _ ->
+      case model.deletion {
+        Deleting(_) -> #(model, effect.none())
+        NotAsked | Asked(_) -> #(
+          Model(..model, deletion: NotAsked),
+          effect.none(),
+        )
+      }
+    UserDeletedNote(id), Some(open) if open.id == id -> #(
+      Model(..model, deletion: Deleting(id), leaving_for: None),
+      storage.delete(model.storage, id, StorageDeleted(id, _)),
     )
-    UserAskedToDelete, _ -> #(Model(..model, deletion: Asked), effect.none())
-    UserKeptNote, _ -> #(Model(..model, deletion: NotAsked), effect.none())
     UserDeletedNote(id), _ -> #(
-      Model(..model, deletion: Deleting, leaving_for: None),
+      Model(..model, deletion: Deleting(id)),
       storage.delete(model.storage, id, StorageDeleted(id, _)),
     )
     StorageDeleted(id:, result:), Some(open) if open.id == id -> {
@@ -236,13 +261,26 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     }
-    StorageDeleted(result: Ok(_), ..), _ -> #(model, list_notes(model))
+    StorageDeleted(result: Ok(_), ..), _ -> #(
+      Model(..model, deletion: NotAsked),
+      list_notes(model),
+    )
+    StorageDeleted(result: Error(failure), ..), _ -> #(
+      Model(..model, deletion: NotAsked, problem: Some(describe(failure))),
+      effect.none(),
+    )
 
-    UserToggledRendered, _ ->
-      case model.showing {
-        Source -> #(Model(..model, showing: Rendered), effect.none())
-        Rendered -> #(Model(..model, showing: Source), surface.focus())
+    UserToggledMarkdown, _ -> {
+      let showing = case model.showing {
+        Page -> Markdown
+        Markdown -> Page
       }
+      let #(model, synced) =
+        Model(..model, showing:)
+        |> apply(editor.set_live(model.editor, showing == Page))
+      let remembered = platform.remember_markdown_setting(showing == Markdown)
+      #(model, effect.batch([synced, remembered]))
+    }
 
     UserToggledVim(on), _ -> {
       let editor = editor.set_vim(model.editor, on && model.can_vim)
@@ -256,7 +294,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     StorageListed(Error(failure)), _
     | StorageLoaded(Error(failure)), _
     | StorageCreated(Error(failure)), _
-    | StorageDeleted(result: Error(failure), ..), _
     -> #(Model(..model, problem: Some(describe(failure))), effect.none())
   }
 }
@@ -277,7 +314,7 @@ fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
     let #(model, effect) = perform(model, request)
     #(model, [effect, ..effects])
   }
-  #(model, effect.batch([surface.sync(sync), autosave, ..asked]))
+  #(model, effect.batch([surface.sync(sync, EditorSent), autosave, ..asked]))
 }
 
 fn perform(model: Model, request: vim.Request) -> #(Model, Effect(Msg)) {
@@ -324,7 +361,10 @@ fn start_autosave_timer(model: Model) -> Effect(Msg) {
 
 fn save(model: Model) -> #(Model, Effect(Msg)) {
   case model.open, model.deletion {
-    _, Deleting -> #(model, effect.none())
+    Some(open), Deleting(deleting) if open.id == deleting -> #(
+      model,
+      effect.none(),
+    )
     Some(Open(id:, title:, save_state: Unsaved) as open), _ -> {
       let note = Note(id:, title:, body: editor.text(model.editor))
       #(
@@ -362,7 +402,7 @@ fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
       deletion: NotAsked,
       problem: None,
     ),
-    surface.sync(sync),
+    surface.sync(sync, EditorSent),
   )
 }
 
@@ -410,22 +450,44 @@ pub fn view(model: Model) -> Element(Msg) {
           )
         None -> element.none()
       },
-      // The text field stays in the page while the rendered view shows, so
-      // its cursor and the browser's undo history survive the flip.
-      html.div(
-        [attribute.class("page"), attribute.hidden(model.showing == Rendered)],
-        [surface.view(model.editor, EditorSent)],
-      ),
-      case model.showing {
-        Source -> element.none()
-        Rendered -> rendered(model)
-      },
+      page(model),
     ]),
   ])
 }
 
-fn rendered(model: Model) -> Element(Msg) {
-  markdown.parse(editor.text(model.editor)) |> preview.view(UserTickedTask)
+/// The editing page. The text field is the same element in every state, so
+/// it keeps its focus when the drawn parts around it change.
+fn page(model: Model) -> Element(Msg) {
+  let field = #("field", surface.view(model.editor, EditorSent))
+  case editor.region(model.editor) {
+    None -> keyed.div([attribute.class("page")], [field])
+    Some(region) -> {
+      let row_count = editor.row_count(model.editor)
+      let part = fn(text, rows, first_row, test_id) {
+        markdown.parse(text)
+        |> preview.part(rows:, first_row:, test_id:, on_task: UserTickedTask)
+      }
+      let #(above, below) = case editor.is_idle(model.editor) {
+        True -> #(
+          part(editor.text(model.editor), row_count, 0, "preview"),
+          part("", 0, row_count, "live-below"),
+        )
+        False -> {
+          let #(above, below) = editor.around(model.editor)
+          let after = region.last_row + 1
+          #(
+            part(above, region.first_row, 0, "live-above"),
+            part(below, row_count - after, after, "live-below"),
+          )
+        }
+      }
+      keyed.div([attribute.class("page live"), surface.on_point(EditorSent)], [
+        #("above", above),
+        field,
+        #("below", below),
+      ])
+    }
+  }
 }
 
 fn sidebar(model: Model) -> Element(Msg) {
@@ -442,7 +504,8 @@ fn sidebar(model: Model) -> Element(Msg) {
       [attribute.class("note-list"), attribute.data("test-id", "note-list")],
       list.map(model.notes, fn(summary) {
         let key = storage.id_text(summary.id)
-        #(key, html.li([], [note_row(model, summary)]))
+        let row = [note_row(model, summary), delete_buttons(model, summary.id)]
+        #(key, html.li([], row))
       }),
     ),
   ])
@@ -492,7 +555,6 @@ fn toolbar(model: Model) -> Element(Msg) {
         [element.text(save_state_label(open.save_state))],
       ),
       toggles(model),
-      delete_buttons(model, open),
     ]
   })
 }
@@ -514,16 +576,15 @@ fn toggles(model: Model) -> Element(Msg) {
     },
     html.button(
       [
-        attribute.data("test-id", "toggle-rendered"),
-        attribute.title("Ctrl+E"),
-        event.on_click(UserToggledRendered),
-      ],
-      [
-        element.text(case model.showing {
-          Source -> "Preview"
-          Rendered -> "Edit"
+        attribute.data("test-id", "toggle-markdown"),
+        attribute.title("Show the note as markdown (Ctrl+E)"),
+        attribute.aria_pressed(case model.showing {
+          Page -> "false"
+          Markdown -> "true"
         }),
+        event.on_click(UserToggledMarkdown),
       ],
+      [element.text("Markdown")],
     ),
     case model.can_vim {
       True ->
@@ -547,25 +608,38 @@ fn mode_label(mode: String) -> Element(Msg) {
   ])
 }
 
-fn delete_buttons(model: Model, open: Open) -> Element(Msg) {
-  case model.deletion {
-    NotAsked | Deleting ->
-      html.button(
-        [
-          attribute.data("test-id", "delete-note"),
-          attribute.disabled(model.deletion == Deleting),
-          event.on_click(UserAskedToDelete),
-        ],
-        [element.text("Delete")],
-      )
-    Asked ->
+/// The × on a note's row, or the question it asks. The open note's button
+/// is `delete-note` for the tests, every other row's is `delete-other`.
+fn delete_buttons(model: Model, id: NoteId) -> Element(Msg) {
+  let is_open = case model.open {
+    Some(open) -> open.id == id
+    None -> False
+  }
+  let ask =
+    html.button(
+      [
+        attribute.class("delete"),
+        attribute.data("test-id", case is_open {
+          True -> "delete-note"
+          False -> "delete-other"
+        }),
+        attribute.aria_label("Delete note"),
+        attribute.title("Delete note"),
+        attribute.disabled(model.deletion == Deleting(id)),
+        event.on_click(UserAskedToDelete(id)),
+      ],
+      [element.text("×")],
+    )
+  case model.deletion == Asked(id) {
+    False -> ask
+    True ->
       html.span([attribute.class("confirm")], [
-        element.text("Delete this note?"),
+        element.text("Delete?"),
         html.button(
           [
             attribute.class("danger"),
             attribute.data("test-id", "confirm-delete"),
-            event.on_click(UserDeletedNote(open.id)),
+            event.on_click(UserDeletedNote(id)),
           ],
           [element.text("Delete")],
         ),

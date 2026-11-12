@@ -1,11 +1,11 @@
 # Task lists
 
-A `- [ ]` or `- [x]` item shows on the rendered page as a box. Ticking the box changes that one line of the note, and the note saves like any other edit.
+A `- [ ]` or `- [x]` item shows on the page as a box, also while the field has focus. Ticking the box changes that one line of the note, and the note saves like any other edit.
 
 ## Sub-features
 
 - `task-box` `- [ ]` is an unticked box and `- [x]` or `- [X]` a ticked one, named by the item's text. An item with no marker has no box. `- [ ] buy **fresh** milk` is named "buy fresh milk", and an item with no words is named "Task".
-- `task-click` a mouse click ticks the box and changes `[ ]` to `[x]` on that line. A click on a ticked box changes `[x]` back to `[ ]`.
+- `task-click` a mouse click ticks the box without giving the text field focus, and changes `[ ]` to `[x]` on that line. A click on a ticked box changes `[x]` back to `[ ]`.
 - `task-key` Tab reaches a box and Space ticks or unticks it. Focus stays on the box, so Space again undoes it.
 - `task-source` a tick changes the box on its own line and no other character of the note, trailing spaces and blank lines included.
 - `task-save` after a tick the status reads "Unsaved", then "Saved". After a reload the text field and the boxes agree with the tick.
@@ -16,7 +16,7 @@ A `- [ ]` or `- [x]` item shows on the rendered page as a box. Ticking the box c
 
 ## How to get to it (user POV)
 
-- Open a note that has task items and press Ctrl+E or click Preview.
+- Open a note that has task items and press Escape in the text field, so the whole note is drawn.
 - Click a box with the mouse, or tap it on a phone.
 - Press Tab until a box has the focus ring, then press Space.
 
@@ -24,13 +24,13 @@ A `- [ ]` or `- [x]` item shows on the rendered page as a box. Ticking the box c
 
 Preconditions: a fresh run. A ready journey is `journeys/tasks.mjs`.
 
-- **Type.** `await type('# Shopping\n\n- [ ] buy milk\n- [ ] call mom\n- [x] pay rent')`. The text field has exactly that text, with nothing added after Enter.
-- **Flip with the key.** `await page.keyboard.press('Control+e')`. The box handle is `preview.getByRole('checkbox', { name: 'buy milk' })`, with `preview = page.locator('[data-test-id=preview]')`. Scope to the page, because the Vim switch, when the app offers it, is a checkbox too. `isChecked()` is false for `buy milk` and true for `pay rent`.
+- **Type.** Click the Markdown button and wait for the field to have focus. `await type('# Shopping\n\n- [ ] buy milk\n- [ ] call mom\n- [x] pay rent')`. The text field has exactly that text, with nothing added after Enter.
+- **Show the page.** Click `Markdown` again, then press Escape. The box handle is `preview.getByRole('checkbox', { name: 'buy milk' })`, with `preview = page.locator('[data-test-id=preview]')`. Scope to the page, because the Vim switch, when the app offers it, is a checkbox too. `isChecked()` is false for `buy milk` and true for `pay rent`.
 - **Tick with the mouse.** `await box.click()`. The box is ticked and the others are as they were.
-- **Tick with the keyboard.** Press `Tab` and read `document.activeElement.getAttribute('aria-label')` after each press until it is the box's name, then press `Space`. After Ctrl+E from the text field the first Tab lands on the first box. Loop with a cap, because the starting point differs after a click on Preview.
-- **Flip back.** Click `Edit`. The text field shows `[x]` on the lines that were ticked and every other character as typed.
-- **Reload.** The status still reads "Saved" for a moment after a tick, so wait for "Unsaved" first, then for "Saved", then `await page.reload()`. A reload less than a second after a tick loses it. The text field has the ticks. Click `Preview`: the same boxes are ticked.
-- **Untick.** Click a ticked box. Flip to the source and `[x]` is `[ ]` on that line only.
+- **Tick with the keyboard.** Press `Tab` and read `document.activeElement.getAttribute('aria-label')` after each press until it is the box's name, then press `Space`. Loop with a cap, because the starting point differs after a click.
+- **Back to markdown.** Click `Markdown`. The text field shows `[x]` on the lines that were ticked and every other character as typed.
+- **Reload.** The status still reads "Saved" for a moment after a tick, so wait for "Unsaved" first, then for "Saved", then `await page.reload()`. A reload less than a second after a tick loses it. The text field has the ticks. The Markdown choice is remembered, so the field holds the note; click `Markdown` and press Escape: the same boxes are ticked.
+- **Untick.** Click a ticked box. Turn Markdown on and `[x]` is `[ ]` on that line only.
 - **Phone.** `await page.setViewportSize({ width: 390, height: 844 })`. `await box.boundingBox()` is at least 24 by 24.
 
 ## Gotchas

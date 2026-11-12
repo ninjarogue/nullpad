@@ -16,7 +16,7 @@ test.beforeEach(async ({ app, page }) => {
 
 test('a typed table shows as a table with its headings and cells', async ({ page }) => {
   await page.text.fill('| Item | Qty |\n| --- | --- |\n| Apples | 3 |\n| Pears | 12 |');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.tables).toHaveCount(1);
   await expect(page.headers).toHaveText(['Item', 'Qty']);
@@ -26,7 +26,7 @@ test('a typed table shows as a table with its headings and cells', async ({ page
 
 test('the pipes at the ends of a row are not needed', async ({ page }) => {
   await page.text.fill('Item | Qty\n--- | ---\nApples | 3');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.headers).toHaveText(['Item', 'Qty']);
   await expect(page.cells).toHaveText(['Apples', '3']);
@@ -34,7 +34,7 @@ test('the pipes at the ends of a row are not needed', async ({ page }) => {
 
 test('a heading with no delimiter row under it stays text', async ({ page }) => {
   await page.text.fill('Item | Qty\nApples | 3');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.tables).toHaveCount(0);
   await expect(page.paragraphs).toHaveText(['Item | Qty Apples | 3']);
@@ -44,7 +44,7 @@ test('a row with too few cells gets empty ones and a row with too many loses the
   page,
 }) => {
   await page.text.fill('| a | b | c |\n| - | - | - |\n| 1 |\n| 2 | 3 | 4 | 5 |');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.headers).toHaveText(['a', 'b', 'c']);
   await expect(page.cells).toHaveText(['1', '', '', '2', '3', '4']);
@@ -54,7 +54,7 @@ test('bold, italic, code, strikethrough and a link work inside a cell', async ({
   await page.text.fill(
     '| a | b |\n| - | - |\n| **bold** *italic* | `code` ~~gone~~ |\n| [docs](https://example.com/) | x |',
   );
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.strong).toHaveText(['bold']);
   await expect(page.emphasis).toHaveText(['italic']);
@@ -69,14 +69,14 @@ test('an escaped pipe is a pipe in the cell, and a pipe in code still splits the
   page,
 }) => {
   await page.text.fill('| a | b |\n| - | - |\n| x \\| y | `p|q` |');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.cells).toHaveText(['x | y', '`p']);
 });
 
 test('typed HTML and an unsafe link in a cell show as the text typed', async ({ page }) => {
   await page.text.fill('| a |\n| - |\n| <b>x</b> |\n| [y](javascript:alert(1)) |');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.cells).toHaveText(['<b>x</b>', '[y](javascript:alert(1))']);
   await expect(page.preview.getByRole('link')).toHaveCount(0);
@@ -85,7 +85,7 @@ test('typed HTML and an unsafe link in a cell show as the text typed', async ({ 
 
 test('a blank line ends the table and the next line is a paragraph', async ({ page }) => {
   await page.text.fill('| a |\n| - |\n| 1 |\n\nafter');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.cells).toHaveText(['1']);
   await expect(page.paragraphs).toHaveText(['after']);
@@ -93,7 +93,7 @@ test('a blank line ends the table and the next line is a paragraph', async ({ pa
 
 test('a table sits inside a list item and inside a quote', async ({ page }) => {
   await page.text.fill('- item\n\n  | a | b |\n  | - | - |\n  | 1 | 2 |\n\n> | c |\n> | - |\n> | 3 |');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.tables).toHaveCount(2);
   await expect(page.inPreview('li table')).toHaveCount(1);
@@ -110,7 +110,7 @@ test('colons in the delimiter row set each column to left, centre or right', asy
       '| a | b | c | d |\n| :-- | :-: | --: | --- |\n' +
       longCells,
   );
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.tables).toHaveCount(2);
 
   const room = 12;
@@ -146,12 +146,12 @@ test('colons in the delimiter row set each column to left, centre or right', asy
 
 test('an edit shows on the next flip', async ({ page }) => {
   await page.text.fill('| a | b |\n| - | - |\n| 1 | 2 |');
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.headers).toHaveText(['a', 'b']);
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await page.text.fill('| a | b | c |\n| - | - | - |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.headers).toHaveText(['a', 'b', 'c']);
   await expect(page.cells).toHaveText(['1', '2', '3', '4', '5', '6']);
@@ -170,7 +170,7 @@ for (const width of widths) {
   }) => {
     await browser.setViewport({ width, height: 844 });
     await page.text.fill(`| a | b |\n| - | - |\n| 1 | 2 |\n\n${wide}`);
-    await page.showPreview.tap();
+    await page.showPage();
     await expect(page.tables).toHaveCount(2);
     await expect(page.tableBoxes).toHaveCount(2);
 
@@ -186,12 +186,12 @@ for (const width of widths) {
 test('the keyboard reaches a wide table and scrolls it', async ({ browser, page }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await page.text.fill(wide);
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.tableBoxes).toHaveCount(1);
 
   // Chromium focuses a box that scrolls with no tabindex, and Safari does not.
   await expect(page.tableBoxes).toHaveAttribute('tabindex', '0');
-  await page.showSource.focus();
+  await page.markdown.focus();
   const focused = () =>
     browser.evaluate(() => document.activeElement?.classList.contains('table-scroll') ?? false);
   for (let presses = 0; presses < 6 && !(await focused()); presses++) {
@@ -214,7 +214,7 @@ for (const scheme of ['light', 'dark'] as const) {
   }) => {
     await browser.emulateMedia({ colorScheme: scheme });
     await page.text.fill('| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |');
-    await page.showPreview.tap();
+    await page.showPage();
     await expect(page.tables).toHaveCount(1);
 
     const look = await browser.evaluate(() => {

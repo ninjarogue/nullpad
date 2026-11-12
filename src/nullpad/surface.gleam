@@ -4,12 +4,16 @@
 //// - READ: every listener decodes a full snapshot of the control.
 //// - WRITE: `sync` is the only code that sets the control's value or
 ////   selection. Lustre's virtual DOM never sets `value` (see `view`).
-//// Imported by: the app shell only. Imports: `editor`, `buffer`, `vim` (for
-//// `Key`), and from M6 `markdown` (for `highlight`).
+//// In live view the control holds only the rows being edited, and this
+//// module also reads where a press on the drawn page lands (`on_point`).
+//// Imported by: the app shell only. Imports: `editor`, `buffer`, `live`,
+//// `vim` (for `Key`), `markdown`.
 
+import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import lustre/attribute
@@ -19,12 +23,14 @@ import lustre/element/html
 import lustre/event
 import nullpad/buffer.{type Buffer, type Position}
 import nullpad/editor.{type Editor}
+import nullpad/live.{Region}
+import nullpad/markdown
 import nullpad/vim
 
 const control_id = "nullpad-control"
 
-/// The editing pane. Render it once, unconditionally. To show the rendered
-/// page instead, hide this with CSS; do not remove it from the view.
+/// The editing pane. Render it once, unconditionally, and never remove it
+/// from the view: out of focus it hides itself (`idle`).
 ///
 /// WARNING: never swap this for `html.textarea(attrs, text)`. In Lustre 5.7.1
 /// that helper adds a `value` property, which Lustre re-assigns on the next
@@ -35,7 +41,18 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
     use shown <- decode.map(shown_decoder())
     on_event(editor.ControlChanged(shown:))
   }
-  html.div([attribute.class("editor")], [
+  let typed = {
+    use composing <- decode.optional_field("isComposing", False, decode.bool)
+    use shown <- decode.map(shown_decoder())
+    case composing {
+      True -> on_event(editor.Composing(shown:))
+      False -> on_event(editor.ControlChanged(shown:))
+    }
+  }
+  let focus_changed = fn(focused) {
+    decode.success(on_event(editor.FocusChanged(focused:)))
+  }
+  html.div([attribute.class(classes(editor))], [
     mirror(editor),
     element.element(
       "textarea",
@@ -45,32 +62,101 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         attribute.aria_label("Note text"),
         // Normal mode locks the control: no typing, paste, drop or IME.
         attribute.readonly(editor.mode(editor) == editor.Normal),
-        event.on("input", changed),
+        event.on("input", typed),
+        event.on("compositionend", changed),
         event.on("select", changed),
         event.on("pointerup", changed),
-        event.advanced("keydown", key_decoder(editor, on_event)),
+        event.on("focus", focus_changed(True)),
+        event.on("blur", focus_changed(False)),
+        event.advanced(
+          "keydown",
+          decode.one_of(key_decoder(editor, on_event), [
+            edge_decoder(editor, on_event),
+          ]),
+        ),
       ],
       // Child text is only the *default* value: a brand-new DOM node starts
       // with the model's text. The browser ignores it after the first edit.
-      [element.text(editor.text(editor))],
+      [element.text(buffer.text(editor.field_buffer(editor)))],
     ),
   ])
 }
 
+/// Live view sets the field like the block it holds, so the words barely
+/// move when a block turns into its markdown. `idle` hides the field.
+fn classes(editor: Editor) -> String {
+  case editor.region(editor), editor.is_idle(editor) {
+    None, _ -> "editor"
+    Some(_), True -> "editor part idle"
+    Some(_), False ->
+      case live.kind(buffer.text(editor.field_buffer(editor))) {
+        live.Body -> "editor part"
+        live.Mono -> "editor part mono"
+        live.ListItem -> "editor part item"
+        live.Title(markdown.H1) -> "editor part h1"
+        live.Title(markdown.H2) -> "editor part h2"
+        live.Title(markdown.H3) -> "editor part h3"
+        live.Title(markdown.H4) -> "editor part h4"
+        live.Title(markdown.H5) -> "editor part h5"
+        live.Title(markdown.H6) -> "editor part h6"
+      }
+  }
+}
+
+/// Live view: a press on the drawn page puts the cursor at that place in
+/// the source. Set this on the element that holds the drawn parts and the
+/// field. Links, boxes and the field itself keep their own behaviour.
+pub fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
+  event.advanced("mousedown", {
+    use press <- decode.then(decode.dynamic)
+    case locate(press) {
+      #(row, visible, at_end) if row >= 0 ->
+        on_event(editor.Pointed(row:, visible:, at_end:))
+        |> event.handler(prevent_default: True, stop_propagation: False)
+        |> decode.success
+      _ ->
+        on_event(editor.FocusChanged(False))
+        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> decode.failure(expected: "a place on the drawn page")
+    }
+  })
+}
+
 /// Carry out the `sync` of an `editor.Outcome`. The shell calls this for
 /// every outcome.
-pub fn sync(sync: editor.Sync) -> Effect(msg) {
+pub fn sync(
+  sync: editor.Sync,
+  on_event: fn(editor.Event) -> msg,
+) -> Effect(msg) {
+  let write = fn(buffer) {
+    let #(text, start, end) = to_control(buffer)
+    // Runs right after `update`, before any other browser event, so the
+    // next event's snapshot already includes this write.
+    effect.from(fn(_) { write_control(control_id, text, start, end) })
+  }
   case sync {
     editor.InSync -> effect.none()
-    editor.Write(buffer) -> {
-      let #(text, start, end) = to_control(buffer)
+    editor.Write(buffer) -> effect.batch([write(buffer), focus()])
+    editor.WriteQuietly(buffer) -> write(buffer)
+    editor.WriteAndAim(buffer, x:, line:) ->
       effect.batch([
-        // Runs right after `update`, before any other browser event, so the
-        // next event's snapshot already includes this write.
-        effect.from(fn(_) { write_control(control_id, text, start, end) }),
-        focus(),
+        write(buffer),
+        // After the render, because the field's font follows its block.
+        effect.before_paint(fn(dispatch, _) {
+          focus_control(control_id)
+          let #(text, start, end) =
+            aim_control(
+              control_id,
+              buffer.text(buffer),
+              x,
+              line == editor.LastLine,
+            )
+          // A snapshot of the control as it is now, like every other event.
+          dispatch(
+            on_event(editor.ControlChanged(from_control(text, start, end))),
+          )
+        }),
       ])
-    }
   }
 }
 
@@ -155,6 +241,63 @@ fn key_decoder(
   }
 }
 
+/// Live view: the four keys that leave the field's rows, each only at the
+/// edge it leaves by. Fails for every other key press, so those stay native
+/// and cost no `update`. A line is a drawn line here: an arrow moves inside a
+/// wrapped row until it is on the row's first or last drawn line.
+fn edge_decoder(
+  editor: Editor,
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use name <- decode.field("key", decode.string)
+  use shift <- decode.field("shiftKey", decode.bool)
+  use ctrl <- decode.field("ctrlKey", decode.bool)
+  use meta <- decode.field("metaKey", decode.bool)
+  use alt <- decode.field("altKey", decode.bool)
+  use composing <- decode.field("isComposing", decode.bool)
+  use shown <- decode.then(shown_decoder())
+  let #(anchor, head) = buffer.selection(shown)
+  let plain = !{ shift || ctrl || meta || alt || composing } && anchor == head
+  let at_start = head == buffer.Position(row: 0, col: 0)
+  let at_end = head == buffer.end_of(buffer.text(shown))
+  let edge = case editor.region(editor), name {
+    Some(Region(first_row:, ..)), "Backspace"
+      if plain && at_start && first_row > 0
+    -> Ok(#(editor.JoinBefore, 0.0))
+    Some(Region(first_row:, ..)), "ArrowUp" if plain && first_row > 0 ->
+      case caret_line(control_id) {
+        #(True, _, x) -> Ok(#(editor.Up, x))
+        _ -> Error(Nil)
+      }
+    Some(Region(last_row:, ..)), "Delete" if plain && at_end ->
+      case last_row < editor.row_count(editor) - 1 {
+        True -> Ok(#(editor.JoinAfter, 0.0))
+        False -> Error(Nil)
+      }
+    Some(Region(last_row:, ..)), "ArrowDown" if plain ->
+      case last_row < editor.row_count(editor) - 1, caret_line(control_id) {
+        True, #(_, True, x) -> Ok(#(editor.Down, x))
+        _, _ -> Error(Nil)
+      }
+    Some(_), "Escape" if !composing -> {
+      // Out of focus the whole note is drawn (`editor.is_idle`).
+      blur_control(control_id)
+      Error(Nil)
+    }
+    _, _ -> Error(Nil)
+  }
+  case edge {
+    Ok(#(edge, x)) ->
+      on_event(editor.EdgePressed(edge:, x:, shown:))
+      |> event.handler(prevent_default: True, stop_propagation: False)
+      |> decode.success
+    Error(Nil) ->
+      on_event(editor.ControlChanged(shown:))
+      |> event.handler(prevent_default: False, stop_propagation: False)
+      |> decode.failure(expected: "a key at the edge of the field")
+  }
+}
+
 /// Boundary parse of `KeyboardEvent.key`: "Escape" -> Escape; "Enter" ->
 /// Enter; one grapheme -> Char or Ctrl. Error for everything else ("Shift",
 /// "Process", "Dead"...) and whenever `ignore` is true (Meta/Alt chord, IME
@@ -174,13 +317,22 @@ fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
 /// the textarea (same CSS grid cell, font, padding, wrapping), whose own text
 /// is transparent. The browser keeps caret, selection, touch and IME. We
 /// choose the glyphs. The mirror also sizes the cell, so the pane scrolls.
-/// - Vim off, M1 to M5: `element.none()`. The textarea shows its own text.
+/// - Vim off, M1 to M5: hidden. The textarea shows its own text.
+/// - Live view: invisible, and holds the field's rows so the cell is as tall
+///   as its text and the field never scrolls.
 /// - M4, vim on: <pre aria-hidden> = text before the cursor,
 ///   <span data-cursor>grapheme or " "</span>, text after. CSS paints
 ///   `[data-cursor]` as a block in normal mode.
 /// - M6: one keyed row per line, spans from `markdown.highlight`.
-fn mirror(_editor: Editor) -> Element(msg) {
-  element.none()
+fn mirror(editor: Editor) -> Element(msg) {
+  let text = case editor.region(editor) {
+    None -> ""
+    // The zero-width space gives an empty last row its height.
+    Some(_) -> buffer.text(editor.field_buffer(editor)) <> "\u{200b}"
+  }
+  html.pre([attribute.class("mirror"), attribute.aria_hidden(True)], [
+    element.text(text),
+  ])
 }
 
 @external(javascript, "./surface.ffi.mjs", "writeControl")
@@ -188,6 +340,30 @@ fn write_control(id: String, text: String, start: Int, end: Int) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
 fn focus_control(id: String) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "blurControl")
+fn blur_control(id: String) -> Nil
+
+/// Is the caret on the control's first drawn line, is it on its last, and how
+/// many pixels is it from the control's left edge.
+@external(javascript, "./surface.ffi.mjs", "caretLine")
+fn caret_line(id: String) -> #(Bool, Bool, Float)
+
+/// While the control still holds `text`, put the caret on its first or last
+/// drawn line, as near to `x` as a character allows. Gives the control as it
+/// is afterwards: `#(value, selectionStart, selectionEnd)`.
+@external(javascript, "./surface.ffi.mjs", "aimControl")
+fn aim_control(
+  id: String,
+  text: String,
+  x: Float,
+  last_line: Bool,
+) -> #(String, Int, Int)
+
+/// Where a mouse press on the drawn page lands: `#(row, visible, at_end)`
+/// for `live.position`. The row is -1 when the press is not for the page.
+@external(javascript, "./surface.ffi.mjs", "locate")
+fn locate(press: Dynamic) -> #(Int, String, Bool)
 
 /// `#(before, after)` around a UTF-16 offset. Pure.
 @external(javascript, "./surface.ffi.mjs", "utf16Split")

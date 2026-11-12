@@ -95,7 +95,7 @@ test('a saved note moves to the top of the list', async ({ disk, page }) => {
 });
 
 test('a new note opens empty, at the top, ready to type in', async ({ disk, page }) => {
-  await page.showPreview.tap();
+  await page.showPage();
   await page.newNote.tap();
 
   await expect(page.text).toHaveValue('');
@@ -162,25 +162,65 @@ test('the delete question does not follow you to another note', async ({ disk, p
   expect(await disk.notes()).toEqual([trip, groceries]);
 });
 
-test('the button flips to the preview and back', async ({ page }) => {
-  await page.showPreview.tap();
-  await expect(page.preview).toHaveText('milk');
-  await expect(page.text).toBeHidden();
+test('a note that is not open is deleted from its row, and the open note stays', async ({
+  disk,
+  page,
+}) => {
+  await page.text.fill('milk, eggs');
+  await page.deleteOther.tap();
+  await expect(page.text).toHaveValue('milk, eggs');
+  await page.confirmDelete.tap();
 
-  await page.showSource.tap();
-  await expect(page.preview).toBeHidden();
-  await expect(page.showPreview).toBeVisible();
-  await expect(page.text).toBeFocused();
+  await expect(page.rows).toHaveText(['Groceries']);
+  await expect(page.confirmDelete).toBeHidden();
+  await expect(page.text).toHaveValue('milk, eggs');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([{ ...groceries, body: 'milk, eggs' }]);
 });
 
-test('Ctrl+E flips to the preview and back', async ({ page }) => {
-  await page.pressPreviewShortcut();
-  await expect(page.preview).toHaveText('milk');
-  await expect(page.text).toBeHidden();
+test('the Markdown button flips between the page and its markdown', async ({
+  browser,
+  page,
+}) => {
+  await page.row('Trip').tap();
+  await expect(page.text).toHaveValue('# Trip');
 
-  await page.pressPreviewShortcut();
+  await page.markdown.tap();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.text).toBeFocused();
+  await expect(page.text).toHaveValue('# Trip');
+  await browser.keyboard.press('Escape');
+  await expect(page.preview.getByRole('heading', 'Trip', { level: 1 })).toBeVisible();
+
+  await page.markdown.tap();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
   await expect(page.preview).toBeHidden();
   await expect(page.text).toBeFocused();
+  await expect(page.text).toHaveValue('# Trip');
+});
+
+test('Ctrl+E flips between the page and its markdown', async ({ page }) => {
+  await page.pressMarkdownShortcut();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.text).toBeFocused();
+
+  await page.pressMarkdownShortcut();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.text).toBeFocused();
+  await expect(page.text).toHaveValue('milk');
+});
+
+test('the Markdown button is remembered', async ({ app, browser, page }) => {
+  await browser.evaluate(() => {
+    localStorage.setItem('nullpad.markdown', 'off');
+    return null;
+  });
+  await app.open('/');
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
+
+  await page.markdown.tap();
+  await browser.reload();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('vim keys are not offered yet', async ({ page }) => {

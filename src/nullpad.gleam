@@ -12,6 +12,7 @@ pub fn main() -> Nil {
       storage: storage.new(indexeddb.backend()),
       vim: platform.read_vim_setting(),
       can_vim: vim_keys_are_written && platform.has_hardware_keyboard(),
+      markdown: platform.read_markdown_setting(),
     )
   let assert Ok(_) =
     lustre.application(app.init, app.update, app.view)
