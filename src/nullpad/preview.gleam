@@ -54,25 +54,46 @@ pub fn part(
   let on_task = fn(task: Task, checked) {
     on_task(markdown.Task(..task, row: task.row + first_row), checked)
   }
-  let #(next, drawn) = {
-    use next, drawn <- list.map_fold(blocks, 0)
-    let before = blanks(first_row, from: next, to: drawn.first_row)
-    let drawn_block = block(drawn, Marked(first_row), on_task)
-    #(drawn.last_row + 1, list.append(before, [drawn_block]))
-  }
+  let marks = Marked(first_row)
   html.div(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
-    list.flatten(drawn)
-      |> list.append(blanks(first_row, from: next, to: rows)),
+    spaced(blocks, from: 0, to: rows, rows: marks, draw: fn(shown) {
+      [block(shown, marks, on_task)]
+    }),
   )
 }
 
-fn blanks(first_row: Int, from from: Int, to to: Int) -> List(Element(msg)) {
-  case from < to {
-    False -> []
-    True -> [
-      html.div([attribute.class("blank"), ..at(Marked(first_row), from)], []),
-      ..blanks(first_row, from: from + 1, to:)
+/// `blocks` drawn in order, with one empty line for each blank row before,
+/// between and after them, from row `from` up to row `to`.
+fn spaced(
+  blocks: List(Block),
+  from from: Int,
+  to to: Int,
+  rows rows: Rows,
+  draw draw: fn(Block) -> List(Element(msg)),
+) -> List(Element(msg)) {
+  let #(next, drawn) = {
+    use next, shown <- list.map_fold(blocks, from)
+    let before = blanks(html.div, rows, from: next, to: shown.first_row)
+    #(shown.last_row + 1, list.append(before, draw(shown)))
+  }
+  list.flatten(drawn)
+  |> list.append(blanks(html.div, rows, from: next, to:))
+}
+
+/// Only a marked run draws its blank rows: `view` sets blocks apart with
+/// margins.
+fn blanks(
+  tag: fn(List(attribute.Attribute(msg)), List(Element(msg))) -> Element(msg),
+  rows: Rows,
+  from from: Int,
+  to to: Int,
+) -> List(Element(msg)) {
+  case rows, from < to {
+    Unmarked, _ | _, False -> []
+    Marked(..), True -> [
+      tag([attribute.class("blank"), ..at(rows, from)], []),
+      ..blanks(tag, rows, from: from + 1, to:)
     ]
   }
 }
@@ -97,8 +118,8 @@ fn block(
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let here = at(rows, shown.first_row)
-  let list_items = fn(items: List(Item), spacing) {
-    list.map(items, item(_, spacing, rows, on_task))
+  let list_items = fn(listed: List(Item), spacing) {
+    items(listed, spacing, shown.last_row + 1, rows, on_task)
   }
   case shown.content {
     Heading(level, text) -> heading(level, here, inlines(text))
@@ -207,15 +228,54 @@ fn aligned(
   tag(attributes, inlines(cell))
 }
 
+/// The items of a list that ends before row `end`. A blank row inside an
+/// item is drawn in it, and the blank rows after an item are drawn between
+/// it and the next, as items that are not counted or announced.
+fn items(
+  listed: List(Item),
+  spacing: Spacing,
+  end: Int,
+  rows: Rows,
+  on_task: fn(Task, Bool) -> msg,
+) -> List(Element(msg)) {
+  case listed {
+    [] -> []
+    [shown, ..rest] -> {
+      let next = case rest {
+        [after, ..] -> after.row
+        [] -> end
+      }
+      let last = case list.last(shown.blocks) {
+        Ok(child) -> child.last_row + 1
+        Error(Nil) -> shown.row + 1
+      }
+      let gap =
+        blanks(
+          fn(attributes, children) {
+            html.li([attribute.aria_hidden(True), ..attributes], children)
+          },
+          rows,
+          from: last,
+          to: next,
+        )
+      [
+        item(shown, spacing, last, rows, on_task),
+        ..list.append(gap, items(rest, spacing, end, rows, on_task))
+      ]
+    }
+  }
+}
+
 fn item(
   shown: Item,
   spacing: Spacing,
+  end: Int,
   rows: Rows,
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let here = at(rows, shown.row)
   let children =
-    list.flat_map(shown.blocks, fn(child) {
+    spaced(shown.blocks, from: shown.row, to: end, rows:, draw: fn(child) {
       case child.content, spacing {
         Paragraph(text), Tight -> inlines(text)
         _, _ -> [block(child, rows, on_task)]

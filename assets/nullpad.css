@@ -336,11 +336,17 @@ button[aria-pressed="true"] {
 /* On the page a blank row of the note is one empty line, and nothing else
    sets top-level blocks apart. A block then takes the same room drawn as it
    does in the field, and the words do not move when the cursor arrives. */
-.page.live .preview > .blank {
+.page.live .preview .blank {
   height: 1.7rem;
 }
 
-.page.live .preview > :is(p, ul, ol, blockquote, .table-scroll) {
+.page.live .preview li.blank {
+  display: block;
+  margin: 0;
+}
+
+.page.live .preview > :is(p, ul, ol, blockquote, .table-scroll),
+.page.live .preview li > p {
   margin-block: 0;
 }
 
