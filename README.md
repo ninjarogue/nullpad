@@ -9,6 +9,7 @@ the browser's own storage.
 ```sh
 gleam run -m lustre/dev start         # Serve the app at http://localhost:1234 and reload on change
 gleam test                            # Run the unit tests
+node test/architecture.mjs            # Check the module boundaries listed in CLAUDE.md
 node test/keystroke_cost.mjs          # Count the parses one key costs, after gleam test
 cd e2e && npm install && npm test     # Run the browser tests
 gleam format src test                 # Format the code
