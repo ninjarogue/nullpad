@@ -28,6 +28,10 @@ function run(mode, request, done, fail) {
       const pending = request(transaction.objectStore(STORE));
       transaction.oncomplete = () => done(pending.result);
       transaction.onabort = () => failed(transaction.error ?? "aborted");
+      // Without this the commit waits for the request's success event, which
+      // never comes when the page is being left: a save begun by a reload or
+      // a closed tab was lost.
+      if (mode === "readwrite") transaction.commit();
     })
     .catch(failed);
 }

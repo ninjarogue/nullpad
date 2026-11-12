@@ -137,6 +137,24 @@ test('a ticked box is saved and is still ticked after a reload', async ({
   await expect(page.box('buy milk')).not.toBeChecked();
 });
 
+test('a box ticked just before a reload is still ticked', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await disk.seed([stored(shopping)]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(shopping);
+  await page.showPreview.tap();
+
+  await page.box('call mom').tap();
+  await expect(page.saveState).toHaveText('Unsaved');
+  await browser.reload();
+
+  await expect(page.text).toHaveValue(shopping.replace('- [ ] call mom', '- [x] call mom'));
+});
+
 test('an unticked box is saved and is still unticked after a reload', async ({
   app,
   browser,

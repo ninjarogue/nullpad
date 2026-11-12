@@ -49,6 +49,13 @@ function installTestDisk() {
     };
   }
 
+  // The app commits its writes at once. A failing disk must not: its request
+  // has to succeed first, so that the abort above can run.
+  const commit = IDBTransaction.prototype.commit;
+  IDBTransaction.prototype.commit = function () {
+    if (!localStorage.getItem(failing) || mine.has(this)) commit.call(this);
+  };
+
   const transact = <T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => T) =>
     new Promise<T>((resolve, reject) => {
       const open = indexedDB.open('nullpad', 1);
