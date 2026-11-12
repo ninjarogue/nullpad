@@ -169,7 +169,10 @@ pub fn an_ordered_list_keeps_only_its_first_number_test() {
       Block(
         0,
         1,
-        OrderedList(3, Tight, [item(0, [para(0, "a")]), item(1, [para(1, "b")])]),
+        OrderedList(3, Tight, [
+          numbered(0, [para(0, "a")]),
+          numbered(1, [para(1, "b")]),
+        ]),
       ),
     ]
 }
@@ -182,8 +185,8 @@ pub fn another_bullet_or_delimiter_starts_another_list_test() {
     ]
   assert markdown.parse("1. a\n2) b")
     == [
-      Block(0, 0, OrderedList(1, Tight, [item(0, [para(0, "a")])])),
-      Block(1, 1, OrderedList(2, Tight, [item(1, [para(1, "b")])])),
+      Block(0, 0, OrderedList(1, Tight, [numbered(0, [para(0, "a")])])),
+      Block(1, 1, OrderedList(2, Tight, [numbered(1, [para(1, "b")])])),
     ]
 }
 
@@ -214,7 +217,11 @@ pub fn a_blank_line_inside_an_item_makes_the_list_loose_test() {
 
 pub fn a_nested_list_is_loose_on_its_own_test() {
   let inner =
-    Block(1, 3, BulletList(Loose, [item(1, [para(1, "b"), para(3, "c")])]))
+    Block(
+      1,
+      3,
+      BulletList(Loose, [Item(1, 4, None, [para(1, "b"), para(3, "c")])]),
+    )
   assert markdown.parse("- a\n  - b\n\n    c\n- d")
     == [
       Block(
@@ -259,15 +266,15 @@ pub fn only_a_list_from_one_with_text_interrupts_a_paragraph_test() {
   assert markdown.parse("a\n1. b")
     == [
       para(0, "a"),
-      Block(1, 1, OrderedList(1, Tight, [item(1, [para(1, "b")])])),
+      Block(1, 1, OrderedList(1, Tight, [numbered(1, [para(1, "b")])])),
     ]
 }
 
 pub fn an_item_may_begin_with_one_blank_line_test() {
   assert markdown.parse("-\n  a")
-    == [Block(0, 1, BulletList(Tight, [item(0, [para(1, "a")])]))]
+    == [Block(0, 1, BulletList(Tight, [Item(0, 1, None, [para(1, "a")])]))]
   assert markdown.parse("-\n\n  a")
-    == [Block(0, 0, BulletList(Tight, [item(0, [])])), para(2, "a")]
+    == [Block(0, 0, BulletList(Tight, [Item(0, 1, None, [])])), para(2, "a")]
 }
 
 pub fn lists_stop_at_thirty_two_levels_test() {
@@ -300,30 +307,69 @@ fn innermost_item(
 }
 
 fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
-  Item(row, None, blocks)
+  Item(row, 2, None, blocks)
+}
+
+fn numbered(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
+  Item(row, 3, None, blocks)
 }
 
 pub fn a_box_after_the_marker_makes_a_task_test() {
-  let milk = Item(0, Some(Task(False, 0, 3)), [para(0, "milk")])
-  let eggs = Item(1, Some(Task(True, 1, 3)), [para(1, "eggs")])
+  let milk = Item(0, 6, Some(Task(False, 0, 3)), [para(0, "milk")])
+  let eggs = Item(1, 6, Some(Task(True, 1, 3)), [para(1, "eggs")])
 
   assert markdown.parse("- [ ] milk\n- [x] eggs")
     == [Block(0, 1, BulletList(Tight, [milk, eggs]))]
 }
 
 pub fn a_capital_x_is_checked_and_a_box_may_be_all_there_is_test() {
-  let one = Item(0, Some(Task(True, 0, 4)), [para(0, "a")])
-  let two = Item(1, Some(Task(False, 1, 4)), [])
+  let one = Item(0, 7, Some(Task(True, 0, 4)), [para(0, "a")])
+  let two = Item(1, 6, Some(Task(False, 1, 4)), [])
 
   assert markdown.parse("1. [X] a\n2. [ ]")
     == [Block(0, 1, OrderedList(1, Tight, [one, two]))]
 }
 
 pub fn a_box_alone_keeps_its_item_open_across_a_blank_line_test() {
-  let task = Item(0, Some(Task(False, 0, 3)), [para(2, "a")])
+  let task = Item(0, 5, Some(Task(False, 0, 3)), [para(2, "a")])
 
   assert markdown.parse("- [ ]\n\n  a")
     == [Block(0, 2, BulletList(Tight, [task]))]
+}
+
+fn content_col(source: String) -> Int {
+  case markdown.parse(source) {
+    [Block(content: BulletList(items: [Item(content_col:, ..), ..], ..), ..)]
+    | [Block(content: OrderedList(items: [Item(content_col:, ..), ..], ..), ..)] ->
+      content_col
+    _ -> -1
+  }
+}
+
+pub fn an_item_knows_where_its_content_starts_test() {
+  assert content_col("- a") == 2
+  assert content_col("12. a") == 4
+  assert content_col("3) a") == 3
+  assert content_col("   -   a") == 7
+  assert content_col("-\ta") == 2
+  assert content_col("- [ ] a") == 6
+  assert content_col("1. [x]   a") == 9
+}
+
+pub fn an_empty_item_is_all_marker_and_the_spaces_after_it_test() {
+  assert content_col("-") == 1
+  assert content_col("- ") == 2
+  assert content_col("-    ") == 5
+  assert content_col("- [ ]") == 5
+  assert content_col("- [ ]   ") == 8
+}
+
+pub fn a_marker_ends_at_one_space_when_code_follows_it_test() {
+  assert content_col("-     a") == 2
+}
+
+pub fn a_box_that_is_not_on_the_markers_line_is_not_part_of_it_test() {
+  assert content_col("-\n  [ ] a") == 1
 }
 
 pub fn a_box_needs_a_space_after_it_and_one_mark_inside_test() {
@@ -365,7 +411,7 @@ pub fn a_box_outside_a_list_or_after_the_first_line_is_text_test() {
 }
 
 pub fn a_task_knows_its_place_inside_a_quote_and_a_nested_list_test() {
-  let task = Item(1, Some(Task(True, 1, 7)), [para(1, "b")])
+  let task = Item(1, 10, Some(Task(True, 1, 7)), [para(1, "b")])
   let inner = Block(1, 1, BulletList(Tight, [task]))
 
   assert markdown.parse("> - a\n>   - [x] b")
@@ -373,7 +419,13 @@ pub fn a_task_knows_its_place_inside_a_quote_and_a_nested_list_test() {
       Block(
         0,
         1,
-        Quote([Block(0, 1, BulletList(Tight, [item(0, [para(0, "a"), inner])]))]),
+        Quote([
+          Block(
+            0,
+            1,
+            BulletList(Tight, [Item(0, 4, None, [para(0, "a"), inner])]),
+          ),
+        ]),
       ),
     ]
 }
@@ -384,7 +436,9 @@ pub fn a_tab_before_the_box_is_one_character_test() {
       Block(
         0,
         0,
-        BulletList(Tight, [Item(0, Some(Task(False, 0, 3)), [para(0, "a")])]),
+        BulletList(Tight, [
+          Item(0, 6, Some(Task(False, 0, 3)), [para(0, "a")]),
+        ]),
       ),
     ]
 }
@@ -536,7 +590,10 @@ pub fn code_inside_an_item_is_indented_past_the_item_test() {
         0,
         2,
         OrderedList(1, Loose, [
-          item(0, [para(0, "a"), Block(2, 2, CodeBlock(None, "code\n", 2))]),
+          Item(0, 4, None, [
+            para(0, "a"),
+            Block(2, 2, CodeBlock(None, "code\n", 2)),
+          ]),
         ]),
       ),
     ]
@@ -1147,7 +1204,7 @@ pub fn another_block_ends_a_table_test() {
   assert markdown.parse("a|b\n-|-\n2. i")
     == [
       table,
-      Block(2, 2, OrderedList(2, Tight, [item(2, [para(2, "i")])])),
+      Block(2, 2, OrderedList(2, Tight, [numbered(2, [para(2, "i")])])),
     ]
 }
 

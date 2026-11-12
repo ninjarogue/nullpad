@@ -399,11 +399,16 @@ fn render_blocks(blocks: List(markdown.Block)) -> String {
 }
 
 fn item(row: Int, blocks: List(markdown.Block)) -> markdown.Item {
-  markdown.Item(row:, task: None, blocks:)
+  markdown.Item(row:, content_col: 2, task: None, blocks:)
 }
 
 fn task(checked: Bool, blocks: List(markdown.Block)) -> markdown.Item {
-  markdown.Item(row: 0, task: Some(markdown.Task(checked, 0, 3)), blocks:)
+  markdown.Item(
+    row: 0,
+    content_col: 6,
+    task: Some(markdown.Task(checked, 0, 3)),
+    blocks:,
+  )
 }
 
 fn paragraph(inline: Inline) -> Content {
