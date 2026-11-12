@@ -622,6 +622,30 @@ pub fn an_ordered_list_split_by_the_field_keeps_its_numbers_test() {
     )
 }
 
+pub fn the_items_of_a_split_list_are_spaced_like_the_whole_list_test() {
+  let note = "- one\n\n- two\n\n- three"
+
+  assert beside_field(note, 0, 2)
+    == drawn_part(
+      "<ul data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">one</p></li></ul><div class=\"blank\" data-row=\"1\"></div>",
+    )
+  assert beside_field(note, 3, 2)
+    == drawn_part(
+      "<div class=\"blank\" data-row=\"3\"></div><ul data-row=\"4\"><li data-row=\"4\"><p data-row=\"4\">three</p></li></ul>",
+    )
+}
+
+pub fn the_items_of_a_split_list_are_numbered_like_the_whole_list_test() {
+  assert beside_field("1. a\n1. b\n1. c", 2, 1)
+    == drawn_part(
+      "<ol data-row=\"2\" start=\"3\"><li data-row=\"2\">c</li></ol>",
+    )
+  assert beside_field("7. a\n1. b\n1. c\n1. d", 2, 2)
+    == drawn_part(
+      "<ol data-row=\"2\" start=\"9\"><li data-row=\"2\">c</li><li data-row=\"3\">d</li></ol>",
+    )
+}
+
 pub fn an_item_beside_the_field_is_drawn_with_what_it_holds_test() {
   assert beside_field("- a\n  - a1\n- b\n- c", 0, 2)
     == drawn_part(
