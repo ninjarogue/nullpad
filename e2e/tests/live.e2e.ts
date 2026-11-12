@@ -1,6 +1,6 @@
 import { expect } from 'e2e';
 import type { App, Locator } from 'e2e';
-import { test } from './nullpad.ts';
+import { pause, test } from './nullpad.ts';
 import type { Note } from './nullpad.ts';
 
 const paragraph = 'Flights are **booked** and the hotel is *not*.';
@@ -297,3 +297,29 @@ test('coming back from the title to the note does not scroll the page', async ({
   expect(await page.scrolled()).toBe(0);
 });
 
+
+test('the words of a list item stay where they are when the cursor reaches it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const long = `long ${'wrap '.repeat(60)}tail`;
+  const items = ['- bullet', `- ${long}`, '1. first', '12. twelfth', '- [ ] task', '- [x] done'];
+  const words = ['bullet', 'long', 'tail', 'first', 'twelfth', 'task', 'done'];
+  await openLive({ app, disk, page }, `top\n\n${items.join('\n')}`);
+  const drawn = new Map<string, { left: number; top: number } | null>();
+  for (const word of words) drawn.set(word, await page.placeOf(word));
+
+  for (const item of items) {
+    while ((await page.text.inputValue()) !== item) {
+      await browser.keyboard.press('ArrowDown');
+      await pause(60);
+    }
+    for (const word of words.filter((word) => item.includes(word))) {
+      const was = drawn.get(word)!;
+      const now = (await page.placeOf(word))!;
+      expect({ word, left: Math.round(now.left - was.left), top: Math.round(now.top - was.top) }).toEqual({ word, left: 0, top: 0 });
+    }
+  }
+});

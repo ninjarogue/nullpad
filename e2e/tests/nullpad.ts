@@ -288,6 +288,24 @@ class Page {
     }, selector);
   }
 
+  /** Where `word` starts on the page, drawn or in the text field, however far the page is scrolled. */
+  placeOf(word: string) {
+    return this.browser.evaluate((word: string) => {
+      const sheet = document.querySelector('.page')!;
+      const texts = document.createTreeWalker(sheet, NodeFilter.SHOW_TEXT);
+      for (let text = texts.nextNode() as Text | null; text; text = texts.nextNode() as Text | null) {
+        const at = text.data.indexOf(word);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(text, at);
+        range.setEnd(text, at + word.length);
+        const box = range.getClientRects()[0];
+        return { left: box.left, top: box.top - sheet.getBoundingClientRect().top + sheet.scrollTop };
+      }
+      return null;
+    }, word);
+  }
+
   /** The text field's text with `|` where the caret is. */
   caret() {
     return this.browser.evaluate(() => {
