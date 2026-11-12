@@ -40,10 +40,18 @@ export default async ({ page, type, look, shot, check }) => {
     }
   };
 
-  await text.click();
+  const markdown = page.getByRole('button', { name: 'Markdown' });
+  // The button gives the field focus a moment after the click. Keys typed sooner are lost.
+  const focused = () => page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Note text');
+
+  await markdown.click();
+  await text.waitFor();
+  await focused();
   await type(typed);
   await look();
-  await page.keyboard.press('Control+e');
+  await markdown.click();
+  await focused();
+  await page.keyboard.press('Escape');
   await preview.waitFor();
   await look();
   await shot('wide-light');
@@ -101,9 +109,10 @@ export default async ({ page, type, look, shot, check }) => {
     if (widths.overflow <= 0) throw new Error('the code line does not scroll');
   });
 
-  await page.getByRole('button', { name: 'Edit' }).click();
+  await markdown.click();
+  await focused();
   await text.waitFor();
-  await check('flipping back shows the note exactly as typed', async () => {
+  await check('Markdown shows the note exactly as typed', async () => {
     expectEqual(await text.inputValue(), typed);
   });
 };

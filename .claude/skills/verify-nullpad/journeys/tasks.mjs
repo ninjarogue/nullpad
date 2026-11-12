@@ -36,13 +36,21 @@ export default async ({ page, type, look, shot, check }) => {
     throw new Error(`Tab never reached the box "${name}"`);
   };
 
-  await text.click();
+  const markdown = page.getByRole('button', { name: 'Markdown' });
+  // The button gives the field focus a moment after the click. Keys typed sooner are lost.
+  const focused = () => page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Note text');
+
+  await markdown.click();
+  await text.waitFor();
+  await focused();
   await type(typed);
   await look();
   await shot('typed');
   await check('the typed note is in the text field exactly', () => expectSource(typed));
 
-  await page.keyboard.press('Control+e');
+  await markdown.click();
+  await focused();
+  await page.keyboard.press('Escape');
   await preview.waitFor();
   await look();
   await shot('page');
@@ -59,6 +67,10 @@ export default async ({ page, type, look, shot, check }) => {
     expectBoxes({ 'buy milk': true, 'call mom': false, 'pay rent': true, 'quoted task': false }),
   );
 
+  await check('a click on a box leaves the text field without focus', async () => {
+    if (await text.evaluate((node) => node === document.activeElement)) throw new Error('the field took focus');
+  });
+
   await tabTo('call mom');
   await shot('box-focused');
   await page.keyboard.press('Space');
@@ -74,7 +86,8 @@ export default async ({ page, type, look, shot, check }) => {
     expectBoxes({ 'buy milk': true, 'call mom': true, 'pay rent': true, 'quoted task': true }),
   );
 
-  await page.getByRole('button', { name: 'Edit' }).click();
+  await markdown.click();
+  await focused();
   await text.waitFor();
   await look();
   await shot('source-after-ticks');
@@ -89,7 +102,9 @@ export default async ({ page, type, look, shot, check }) => {
   await check('after a reload the source holds the ticks', () =>
     expectSource(ticked),
   );
-  await page.getByRole('button', { name: 'Preview' }).click();
+  await markdown.click();
+  await focused();
+  await page.keyboard.press('Escape');
   await preview.waitFor();
   await look();
   await shot('page-after-reload');
@@ -102,12 +117,15 @@ export default async ({ page, type, look, shot, check }) => {
   await check('a click on a ticked box unticks it', () =>
     expectBoxes({ 'buy milk': true, 'call mom': true, 'pay rent': false, 'quoted task': true }),
   );
-  await page.getByRole('button', { name: 'Edit' }).click();
+  await markdown.click();
+  await focused();
   await check('the source shows the untick on that line only', () =>
     expectSource(unticked),
   );
 
-  await page.getByRole('button', { name: 'Preview' }).click();
+  await markdown.click();
+  await focused();
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await look();

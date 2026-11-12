@@ -18,7 +18,7 @@ export default async ({ page, type, look, shot, check }) => {
     if (have !== want) throw new Error(`the field holds ${JSON.stringify(have)}`);
   };
 
-  await page.getByLabel('Live').check();
+  // The page view is the default, and Markdown is off.
   await text.click();
   await type(note);
   await look();
@@ -56,12 +56,13 @@ export default async ({ page, type, look, shot, check }) => {
   await page.keyboard.press('Escape');
   await look();
   await shot('idle');
-  await check('Escape draws the whole note', async () => {
+  await check('Escape draws the whole note in the preview', async () => {
+    if ((await above.count()) !== 0) throw new Error('live-above is still there');
+    if ((await page.locator('[data-test-id=preview]').locator('blockquote').count()) !== 1) throw new Error('the quote is not drawn');
     if (await text.evaluate((control) => control === document.activeElement)) throw new Error('still focused');
-    if ((await above.locator('blockquote').count()) !== 1) throw new Error('the quote is not drawn');
   });
 
-  await above.getByRole('checkbox', { name: 'Passport' }).click();
+  await page.locator('[data-test-id=preview]').getByRole('checkbox', { name: 'Passport' }).click();
   // Long enough for the autosave that follows the tick.
   await look(1500);
   await check('a drawn box ticks without opening its block', async () => {
@@ -70,7 +71,7 @@ export default async ({ page, type, look, shot, check }) => {
 
   await page.getByText('Saved', { exact: true }).waitFor();
   await page.reload();
-  await page.getByLabel('Live').uncheck();
+  await page.getByRole('button', { name: 'Markdown' }).click();
   await look();
   await shot('source');
   await check('the saved note is the whole note with the tick', () => field(note.replace('[ ]', '[x]')));

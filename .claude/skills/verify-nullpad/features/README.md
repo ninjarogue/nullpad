@@ -4,7 +4,7 @@ What a person can do in nullpad, and how to prove each part works. Read this, th
 
 ## Baseline
 
-- Every run starts from an empty browser: the app makes one empty note and focuses the text field.
+- Every run starts from an empty browser: the app makes one empty note, focuses the text field and shows the page view (Markdown off).
 - Run `doctor.sh` first. Drive only the instance `drive.mjs` started.
 - Act through the keyboard and visible controls. Prefer labels and roles over CSS.
 
@@ -22,9 +22,9 @@ An H1, one paragraph, then four H2s in this order: `Sub-features`, `How to get t
 ## Features
 
 - [Write a note](./write-a-note.md): typing, autosave, reload.
-- [Rendered page](./rendered-page.md): the Ctrl+E page and the markdown it shows.
+- [Rendered page](./rendered-page.md): the whole note drawn as a page, the Markdown toggle, and the markdown it shows.
 - [Task lists](./task-lists.md): boxes on the page that tick the `[ ]` in the note.
-- [Live view](./live-view.md): the note drawn as a page while you write, with the text field on one block.
-- [Note list](./note-list.md): new, switch, title, delete.
+- [Live view](./live-view.md): how the page works while you write, with the text field on one block.
+- [Note list](./note-list.md): new, switch, title, delete (the × on a row).
 
 Not built yet, so not mapped: vim keys (the switch is hidden), images, autolinks, link reference definitions, hard line breaks, character entities, sync.
