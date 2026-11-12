@@ -262,8 +262,6 @@ button:hover {
 }
 
 .editor.part textarea {
-  background: color-mix(in srgb, var(--accent) 8%, var(--paper));
-  border-radius: 3px;
   color: inherit;
   height: 100%;
   inset: 0;
