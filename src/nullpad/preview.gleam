@@ -9,9 +9,10 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import nullpad/markdown.{
-  type Block, type Inline, type Item, type Level, type Spacing, type Task,
-  BulletList, Code, CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Link,
-  OrderedList, Paragraph, Quote, Rule, Strike, Strong, Text, Tight,
+  type Alignment, type Block, type Cell, type Column, type Inline, type Item,
+  type Level, type Spacing, type Task, BulletList, Center, Code, CodeBlock,
+  Emphasis, H1, H2, H3, H4, H5, H6, Heading, Left, Link, OrderedList, Paragraph,
+  Quote, Right, Rule, Strike, Strong, Table, Text, Tight, Unaligned,
 }
 
 /// Safe by construction: all text goes through `element.text` (escaped) and
@@ -57,7 +58,60 @@ fn block(shown: Block, on_task: fn(Task, Bool) -> msg) -> Element(msg) {
       }
       html.pre([], [html.code(class, [element.text(code)])])
     }
+    Table(columns, rows) -> table(columns, rows)
   }
+}
+
+/// A table wider than the page scrolls inside its own box, so the page does
+/// not. The box takes the keyboard, since a scrolled box nobody can focus
+/// cannot be scrolled without a pointer.
+fn table(columns: List(Column), rows: List(List(Cell))) -> Element(msg) {
+  let heading = fn(column: Column) {
+    aligned(html.th, column.alignment, [attribute.scope("col")], column.heading)
+  }
+  let body = case rows {
+    [] -> []
+    _ -> [html.tbody([], list.map(rows, row(columns, _)))]
+  }
+  html.div(
+    [
+      attribute.class("table-scroll"),
+      attribute.role("region"),
+      attribute.aria_label("Table"),
+      attribute.tabindex(0),
+    ],
+    [
+      html.table([], [
+        html.thead([], [html.tr([], list.map(columns, heading))]),
+        ..body
+      ]),
+    ],
+  )
+}
+
+fn row(columns: List(Column), cells: List(Cell)) -> Element(msg) {
+  html.tr(
+    [],
+    list.zip(columns, cells)
+      |> list.map(fn(pair) {
+        aligned(html.td, { pair.0 }.alignment, [], pair.1)
+      }),
+  )
+}
+
+fn aligned(
+  tag: fn(List(attribute.Attribute(msg)), List(Element(msg))) -> Element(msg),
+  alignment: Alignment,
+  attributes: List(attribute.Attribute(msg)),
+  cell: Cell,
+) -> Element(msg) {
+  let attributes = case alignment {
+    Unaligned -> attributes
+    Left -> [attribute.attribute("align", "left"), ..attributes]
+    Center -> [attribute.attribute("align", "center"), ..attributes]
+    Right -> [attribute.attribute("align", "right"), ..attributes]
+  }
+  tag(attributes, inlines(cell))
 }
 
 fn item(

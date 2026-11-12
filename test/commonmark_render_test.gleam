@@ -1,8 +1,9 @@
 import commonmark/render
 import gleam/option.{None, Some}
 import nullpad/markdown.{
-  Block, BulletList, Code, CodeBlock, Emphasis, H3, Heading, Item, Link, Loose,
-  OrderedList, Paragraph, Quote, Rule, Strike, Strong, Task, Text, Tight,
+  Block, BulletList, Center, Code, CodeBlock, Column, Emphasis, H3, Heading,
+  Item, Left, Link, Loose, OrderedList, Paragraph, Quote, Right, Rule, Strike,
+  Strong, Table, Task, Text, Tight, Unaligned,
 }
 
 fn paragraph(text: List(markdown.Inline)) -> String {
@@ -80,6 +81,30 @@ pub fn a_task_starts_its_item_with_a_disabled_checkbox_test() {
     == "<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> a</li>\n</ul>\n"
   assert render.html([Block(0, 0, BulletList(Loose, [task(True)]))])
     == "<ul>\n<li><input type=\"checkbox\" checked=\"\" disabled=\"\" /> \n<p>a</p>\n</li>\n</ul>\n"
+}
+
+pub fn a_table_has_a_head_and_a_body_only_when_it_has_rows_test() {
+  let heading = [Column(Unaligned, [Text("a")]), Column(Unaligned, [Text("b")])]
+  assert render.html([Block(0, 1, Table(heading, [[[Text("1")], []]]))])
+    == "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n"
+    <> "<tbody>\n<tr>\n<td>1</td>\n<td></td>\n</tr>\n</tbody>\n</table>\n"
+  assert render.html([Block(0, 1, Table(heading, []))])
+    == "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n</table>\n"
+}
+
+pub fn a_column_names_its_alignment_on_every_cell_it_has_test() {
+  let columns = [
+    Column(Left, [Text("l")]),
+    Column(Center, [Text("c")]),
+    Column(Right, [Text("r")]),
+    Column(Unaligned, [Text("n")]),
+  ]
+  let row = [[Text("1")], [Text("2")], [Text("3")], [Text("4")]]
+  assert render.html([Block(0, 2, Table(columns, [row]))])
+    == "<table>\n<thead>\n<tr>\n<th align=\"left\">l</th>\n<th align=\"center\">c</th>\n"
+    <> "<th align=\"right\">r</th>\n<th>n</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n"
+    <> "<td align=\"left\">1</td>\n<td align=\"center\">2</td>\n<td align=\"right\">3</td>\n<td>4</td>\n"
+    <> "</tr>\n</tbody>\n</table>\n"
 }
 
 fn item(row: Int, text: String) -> markdown.Item {

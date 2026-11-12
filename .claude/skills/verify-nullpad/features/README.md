@@ -26,4 +26,4 @@ An H1, one paragraph, then four H2s in this order: `Sub-features`, `How to get t
 - [Task lists](./task-lists.md): boxes on the page that tick the `[ ]` in the note.
 - [Note list](./note-list.md): new, switch, title, delete.
 
-Not built yet, so not mapped: vim keys (the switch is hidden), tables, images, autolinks, link reference definitions, hard line breaks, character entities, sync.
+Not built yet, so not mapped: vim keys (the switch is hidden), images, autolinks, link reference definitions, hard line breaks, character entities, sync.

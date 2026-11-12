@@ -74,9 +74,9 @@ export default async ({ page, type, look, shot, check }) => {
 node .claude/skills/verify-nullpad/drive.mjs journey.mjs trip
 ```
 
-`page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot. `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
+`page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot of the window only, so scroll the subject into view first (`locator.scrollIntoViewIfNeeded()`). `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
 
-Keep journeys in a scratch folder, not in the repo. Ready ones are in `journeys/`: `rendered-page.mjs`, `blocks.mjs` and `tasks.mjs`.
+Keep journeys in a scratch folder, not in the repo. Ready ones are in `journeys/`: `rendered-page.mjs`, `blocks.mjs`, `tasks.mjs` and `tables.mjs`.
 
 Handles that do not change:
 
@@ -92,13 +92,16 @@ Handles that do not change:
 | To rendered page, and back | `getByRole('button', { name: 'Preview' })`, `{ name: 'Edit' }`, or Ctrl+E |
 | Rendered page | `[data-test-id=preview]` |
 | Task box | `[data-test-id=preview]` then `getByRole('checkbox', { name: 'buy milk' })`, named by the item's text |
+| Table, its heading and cells, its scrolling box | `[data-test-id=preview] table`, `getByRole('columnheader')`, `getByRole('cell')`, `getByRole('region', { name: 'Table' })` inside the page |
 | Delete, confirm, keep | `[data-test-id=delete-note]`, `[data-test-id=confirm-delete]`, `getByRole('button', { name: 'Keep' })` |
 
 `e2e/tests/nullpad.ts` holds the same handles for the regression suite. Run that suite with `cd e2e && npm test`. It answers "did anything break". A journey answers "does this feature work for a person" and leaves proof.
 
 ## Evidence
 
-Everything lands in `.verify/<name>/` (ignored by git): `session.webm` is the whole session, `shots/` the screenshots, `report.json` the checks and page errors. For a file phones can play: `ffmpeg -i session.webm -c:v libx264 -pix_fmt yuv420p session.mp4`.
+Everything lands in `.verify/<name>/` (ignored by git): `session.webm` is the whole session, `shots/` the screenshots, `report.json` the checks and page errors. For a file phones can play: `ffmpeg -i session.webm -c:v libx264 -pix_fmt yuv420p session.mp4`. The video frame is always 1280 by 800. After `setViewportSize` to a phone width the page sits scaled at the left of the frame, so crop it for a phone-shaped file: add `-vf crop=370:800:0:0`.
+
+To change text already typed without `fill`, click the text field, move with `Control+End`, `Home` and the arrow keys, select with `Shift+ArrowRight`, and type over the selection.
 
 A proof is good when:
 

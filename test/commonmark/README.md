@@ -21,21 +21,34 @@ the HTML renderer in `render.gleam`. Reports:
 
 ## GFM
 
-`gfm.json` holds the examples of GitHub Flavored Markdown's strikethrough and
-task list extensions, in the same shape plus `extensions`. They come unchanged
-from two files of https://github.com/github/cmark-gfm at commit
-27d942c8b0a62d192f616e5bf3578f4b6a89e180:
+`gfm.json` holds the examples of GitHub Flavored Markdown's table,
+strikethrough and task list extensions, in the same shape plus `extensions`.
+They come unchanged from two files of https://github.com/github/cmark-gfm at
+commit 27d942c8b0a62d192f616e5bf3578f4b6a89e180:
 
-- `test/spec.txt` (GFM 0.29), section "Strikethrough (extension)". Its
-  section "Task list items (extension)" has two examples, both marked
-  `disabled`, so the extractor leaves them out.
-- `test/extensions.txt`, sections "Strikethroughs" and "Task lists".
+- `test/spec.txt` (GFM 0.29), sections "Tables (extension)" and
+  "Strikethrough (extension)". Its section "Task list items (extension)" has
+  two examples, both marked `disabled`, so the extractor leaves them out.
+- `test/extensions.txt`, the sections "Tables" and "Strikethroughs" and
+  "Task lists", every sub-section of "Tables" (the extractor names an example
+  after the nearest heading above it, so each one is a section of its own), and
+  the one example of "Interop" that holds a table.
 
-Each object is what that repository's extractor, `python3
-test/spec_tests.py --spec <file> --pattern 'strikethrough|task list'
---dump-tests`, writes for the example, so `example`, `start_line` and
-`end_line` count within its own file. The two dumps are joined in that order. `test/spec.txt` is licensed
-under CC BY-SA 4.0, as its front matter says. `test/extensions.txt` is under
-cmark-gfm's BSD 2-clause licence (its `COPYING`).
+Each object is what that repository's extractor, `python3 test/spec_tests.py
+--spec <file> --pattern <regex> --dump-tests`, writes for the example, so
+`example`, `start_line` and `end_line` count within its own file. Three dumps
+are joined in this order:
 
-`gfm_test.gleam` runs them the same way. Every one must pass.
+    --spec test/spec.txt --pattern 'strikethrough|tables'
+    --spec test/extensions.txt --pattern '^(tables|table cell count mismatches|embedded pipes|oddly-formatted markers|escaping|embedded html|reference-style links|sequential cells|interaction with emphasis|a table can be recognised.*|strikethroughs|task lists)$'
+    --spec test/extensions.txt --pattern '^interop$' --number 27
+
+`test/spec.txt` is licensed under CC BY-SA 4.0, as its front matter says.
+`test/extensions.txt` is under cmark-gfm's BSD 2-clause licence (its
+`COPYING`).
+
+`gfm_test.gleam` runs them the same way as the CommonMark examples, with the
+same listing of the examples that may fail:
+
+    gleam run -m gfm_test                        pass count, table per section, count per reason
+    gleam run -m gfm_test -- Autolinks           the listed examples of one reason, with expected and actual html

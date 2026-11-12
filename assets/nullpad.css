@@ -361,6 +361,57 @@ button:hover {
   padding: 0;
 }
 
+/* A wide table scrolls inside its own box, so the page never does. */
+.preview .table-scroll {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 0 0 1em;
+  max-width: 100%;
+  overflow-x: auto;
+  width: fit-content;
+}
+
+.preview table {
+  border-collapse: separate;
+  border-spacing: 0;
+  max-width: 100%;
+  width: max-content;
+}
+
+.preview :is(th, td) {
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  line-height: 1.5;
+  padding: 0.35rem 0.75rem;
+  text-align: start;
+  vertical-align: top;
+}
+
+.preview :is(th, td):last-child {
+  border-right: 0;
+}
+
+.preview table > :last-child > tr:last-child > * {
+  border-bottom: 0;
+}
+
+.preview th {
+  background: var(--panel);
+  font-weight: 600;
+}
+
+.preview :is(th, td)[align="left"] {
+  text-align: left;
+}
+
+.preview :is(th, td)[align="center"] {
+  text-align: center;
+}
+
+.preview :is(th, td)[align="right"] {
+  text-align: right;
+}
+
 .preview hr {
   border: 0;
   border-top: 2px solid var(--line);

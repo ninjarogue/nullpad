@@ -1,7 +1,7 @@
 //// Hand-written markdown parser. Pure Gleam: text in, tree out. It follows
 //// CommonMark 0.31.2 for what nullpad supports (headings, paragraphs, block
 //// quotes, lists, code blocks, thematic breaks, code spans, emphasis, inline
-//// links, backslash escapes), and GFM for strikethrough and task items.
+//// links, backslash escapes), and GFM for strikethrough, task items and tables.
 //// Everything else stays text as typed. Two rules are nullpad's own: a link to
 //// an address it will not follow (`is_safe_url`) stays text, and a box with
 //// nothing after it is a task.
@@ -36,9 +36,29 @@ pub type Content {
   Quote(blocks: List(Block))
   CodeBlock(language: Option(String), code: String)
   Rule
-  // After M3, in its own milestone: Table. Adding the variant makes the
-  // compiler list every `case` that must handle it.
+  /// A GFM pipe table. Every row has one cell for each column: the parser
+  /// pads a short row with empty cells and drops the cells past the last
+  /// column, so nothing that reads a table checks a length. A table with no
+  /// rows is a header alone.
+  Table(columns: List(Column), rows: List(List(Cell)))
 }
+
+/// A column holds its alignment and its heading together, so a header row and
+/// a delimiter row that disagree on the number of columns cannot exist.
+pub type Column {
+  Column(alignment: Alignment, heading: Cell)
+}
+
+pub type Alignment {
+  Unaligned
+  Left
+  Center
+  Right
+}
+
+/// What sits between two pipes: inlines only, on one line.
+pub type Cell =
+  List(Inline)
 
 /// A tight list shows each item's own paragraphs as bare text. A list is
 /// loose when two of its items, or two blocks directly inside one item, have
@@ -270,7 +290,15 @@ type Marker {
 
 type Leaf {
   NoLeaf
-  ParagraphLeaf(first_row: Int, last_row: Int, lines: List(List(String)))
+  ParagraphLeaf(
+    first_row: Int,
+    last_row: Int,
+    lines: List(List(String)),
+    /// A delimiter row that no header matched ends the search: cmark-gfm
+    /// looks for a table once in a paragraph, so a later pair in it stays
+    /// text.
+    table_refused: Bool,
+  )
   FencedLeaf(
     first_row: Int,
     fence: String,
@@ -284,6 +312,15 @@ type Leaf {
     last_row: Int,
     lines: List(List(String)),
     blanks: List(List(String)),
+  )
+  TableLeaf(
+    first_row: Int,
+    last_row: Int,
+    columns: List(Column),
+    /// Newest first.
+    rows: List(List(Cell)),
+    /// The empty cells the rows were padded with.
+    padded: Int,
   )
 }
 
@@ -347,6 +384,8 @@ fn continue_leaf(open: Open, line: Line) -> Open {
         Error(Nil) -> start_blocks(open, open.depth, line)
       }
     ParagraphLeaf(..), _ -> start_blocks(open, open.depth, line)
+    TableLeaf(..), [] -> close_leaf(open, line.row)
+    TableLeaf(..), _ -> start_blocks(open, open.depth, line)
     FencedLeaf(fence:, length:, fence_indent:, lines:, ..) as leaf, text ->
       case line.indent < 4 && closes_fence(text, fence, length) {
         True -> close_leaf(open, line.row)
@@ -382,8 +421,43 @@ fn continue_leaf(open: Open, line: Line) -> Open {
 fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
   let row = line.row
   case start(open, matched, line), open.leaf {
-    TextLine, ParagraphLeaf(first_row:, lines:, ..) ->
-      Open(..open, leaf: ParagraphLeaf(first_row, row, [line.text, ..lines]))
+    TextLine, ParagraphLeaf(first_row:, lines:, table_refused:, ..) -> {
+      let continued = fn(refused) {
+        let leaf = ParagraphLeaf(first_row, row, [line.text, ..lines], refused)
+        Open(..open, leaf:)
+      }
+      case lines {
+        [header, ..before]
+          if matched == open.depth && line.indent < 4 && !table_refused
+        ->
+          case delimiter_alignments(line.text) {
+            Error(Nil) -> continued(False)
+            Ok(alignments) ->
+              case table_columns(header, alignments) {
+                Ok(columns) -> open_table(open, first_row, before, columns, row)
+                Error(Nil) -> continued(True)
+              }
+          }
+        _ -> continued(table_refused)
+      }
+    }
+    TextLine, TableLeaf(columns:, rows:, padded:, ..) as leaf
+      if matched == open.depth && padded <= max_padded_cells
+    ->
+      case split_cells(line.text) {
+        [] -> open_paragraph(close_to(open, matched, row), line)
+        cells -> {
+          let #(row_cells, missing) = fit_cells(cells, list.length(columns))
+          let leaf =
+            TableLeaf(
+              ..leaf,
+              last_row: row,
+              rows: [row_cells, ..rows],
+              padded: padded + missing,
+            )
+          Open(..open, leaf:)
+        }
+      }
     TextLine, _ -> open_paragraph(close_to(open, matched, row), line)
     Blank, _ -> close_to(open, matched, row) |> end_empty_item(row)
     QuoteStart(rest), _ ->
@@ -592,7 +666,7 @@ fn setext_level(text: List(String)) -> Result(Level, Nil) {
 fn open_paragraph(open: Open, line: Line) -> Open {
   let line = skip_margin(line)
   let paragraph = fn(open: Open, text) {
-    Open(..open, leaf: ParagraphLeaf(line.row, line.row, [text]))
+    Open(..open, leaf: ParagraphLeaf(line.row, line.row, [text], False))
   }
   case open.frames, task_box(line) {
     [Frame(InList(of, Some(OpenItem(task: None, ..) as item)), []), ..outer],
@@ -729,7 +803,7 @@ fn close_leaf(open: Open, fence_end: Int) -> Open {
   let closed = Open(..open, leaf: NoLeaf)
   case open.leaf {
     NoLeaf -> open
-    ParagraphLeaf(first_row, last_row, lines) ->
+    ParagraphLeaf(first_row, last_row, lines, _) ->
       push_block(
         closed,
         Block(first_row, last_row, Paragraph(inlines(paragraph_text(lines)))),
@@ -743,6 +817,11 @@ fn close_leaf(open: Open, fence_end: Int) -> Open {
       push_block(
         closed,
         Block(first_row, last_row, CodeBlock(None, code_text(lines))),
+      )
+    TableLeaf(first_row:, last_row:, columns:, rows:, ..) ->
+      push_block(
+        closed,
+        Block(first_row, last_row, Table(columns, list.reverse(rows))),
       )
   }
 }
@@ -815,6 +894,166 @@ fn drop_spaces(chars: List(String)) -> List(String) {
 
 fn drop_spaces_end(chars: List(String)) -> List(String) {
   chars |> list.reverse |> drop_spaces |> list.reverse
+}
+
+/// A bound on the empty cells a table's rows are padded with. Past it a row is
+/// not added: the table ends and the line starts a paragraph. Padding is the
+/// one place a table's output outgrows its text: a header of 1,000 columns over
+/// short rows is 6 KB for half a million cells, and Chromium took four seconds
+/// to show them. cmark-gfm stops at 0x80000 (524,288), eight times as many.
+const max_padded_cells = 65_536
+
+/// A delimiter row under a paragraph's last line opens a table when the two
+/// have the same number of cells. The columns are the delimiter's alignments
+/// with the header's cells.
+fn table_columns(
+  header: List(String),
+  alignments: List(Alignment),
+) -> Result(List(Column), Nil) {
+  let headings = split_cells(header)
+  case list.length(headings) == list.length(alignments) {
+    True ->
+      Ok(
+        list.map2(alignments, headings, fn(alignment, heading) {
+          Column(alignment, inlines(heading))
+        }),
+      )
+    False -> Error(Nil)
+  }
+}
+
+/// `before` is the paragraph's lines above the header, newest first. They are
+/// a paragraph of their own, and as in cmark-gfm a backslash comes off every
+/// `\|` in them.
+fn open_table(
+  open: Open,
+  first_row: Int,
+  before: List(List(String)),
+  columns: List(Column),
+  row: Int,
+) -> Open {
+  let open = Open(..open, leaf: NoLeaf)
+  let open = case before {
+    [] -> open
+    _ ->
+      push_block(
+        open,
+        Block(
+          first_row,
+          row - 2,
+          Paragraph(
+            inlines(paragraph_text(list.map(before, unescape_pipes(_, [])))),
+          ),
+        ),
+      )
+  }
+  Open(..open, leaf: TableLeaf(row - 1, row, columns, [], 0))
+}
+
+/// The alignments of a delimiter row, one for each cell, or `Error` when the
+/// line is not one. The first character a delimiter row cannot hold ends the
+/// check, so a line of prose costs one step.
+fn delimiter_alignments(text: List(String)) -> Result(List(Alignment), Nil) {
+  let is_delimiter = fn(char) {
+    char == "-" || char == ":" || char == "|" || is_table_space(char)
+  }
+  case list.all(text, is_delimiter) {
+    False -> Error(Nil)
+    True ->
+      case list.try_map(split_cells(text), alignment) {
+        Ok([]) -> Error(Nil)
+        columns -> columns
+      }
+  }
+}
+
+/// A vertical tab or form feed beside the colon makes the cell valid but
+/// leaves it unaligned on that side, as in cmark-gfm.
+fn alignment(cell: List(String)) -> Result(Alignment, Nil) {
+  let core =
+    cell
+    |> drop_table_spaces
+    |> list.reverse
+    |> drop_table_spaces
+    |> list.reverse
+  let #(colon_before, after_colon) = case core {
+    [":", ..rest] -> #(True, rest)
+    _ -> #(False, core)
+  }
+  let left = colon_before && list.first(cell) == Ok(":")
+  case count_run(after_colon, "-", 0) {
+    #(0, _) -> Error(Nil)
+    #(_, []) -> Ok(align(left, False))
+    #(_, [":"]) -> Ok(align(left, list.last(cell) == Ok(":")))
+    _ -> Error(Nil)
+  }
+}
+
+fn align(left: Bool, right: Bool) -> Alignment {
+  case left, right {
+    True, True -> Center
+    True, False -> Left
+    False, True -> Right
+    False, False -> Unaligned
+  }
+}
+
+/// The cells of a row, trimmed, in order. A pipe ends a cell unless a
+/// backslash comes right before it, and then the backslash goes and the pipe
+/// stays. A pipe at the start or the end of the row adds no empty cell, and
+/// none of the cells has a line break. A row with no cells is not a row.
+fn split_cells(chars: List(String)) -> List(List(String)) {
+  case chars {
+    ["|", ..rest] -> read_cells(drop_table_spaces(rest), [], [])
+    _ -> read_cells(chars, [], [])
+  }
+}
+
+/// `cell` is the cell being read, last character first.
+fn read_cells(
+  chars: List(String),
+  cell: List(String),
+  cells: List(List(String)),
+) -> List(List(String)) {
+  case chars, cell {
+    [], [] -> list.reverse(cells)
+    [], _ -> list.reverse([end_cell(cell), ..cells])
+    ["\\", "|", ..rest], _ -> read_cells(rest, ["|", ..cell], cells)
+    ["|", ..rest], _ ->
+      read_cells(drop_table_spaces(rest), [], [end_cell(cell), ..cells])
+    [char, ..rest], _ -> read_cells(rest, [char, ..cell], cells)
+  }
+}
+
+fn unescape_pipes(chars: List(String), done: List(String)) -> List(String) {
+  case chars {
+    [] -> list.reverse(done)
+    ["\\", "|", ..rest] -> unescape_pipes(rest, ["|", ..done])
+    [char, ..rest] -> unescape_pipes(rest, [char, ..done])
+  }
+}
+
+fn end_cell(backwards: List(String)) -> List(String) {
+  backwards |> drop_spaces |> list.reverse
+}
+
+/// A vertical tab and a form feed count as spaces to cmark-gfm's table scanner
+/// when it skips past a pipe and in a delimiter row, but not when it trims a
+/// cell.
+fn is_table_space(char: String) -> Bool {
+  is_space_or_tab(char) || char == "\u{B}" || char == "\u{C}"
+}
+
+fn drop_table_spaces(chars: List(String)) -> List(String) {
+  list.drop_while(chars, is_table_space)
+}
+
+/// One cell for each of `width` columns: the cells past the last column are
+/// dropped, and a short row gets empty ones. Also says how many it added.
+fn fit_cells(cells: List(List(String)), width: Int) -> #(List(Cell), Int) {
+  let kept = list.take(cells, width)
+  let missing = width - list.length(kept)
+  #(list.append(list.map(kept, inlines), list.repeat([], missing)), missing)
 }
 
 // Links settle before emphasis: link text binds tighter, so `*[a*](u)` is a
@@ -1575,6 +1814,11 @@ fn shown(blocks: List(Block)) -> String {
       use item <- first_shown(items)
       shown(item.blocks)
     }
+    Table(columns:, rows:) -> {
+      let headings = list.map(columns, fn(column) { column.heading })
+      use cell <- first_shown(list.append(headings, list.flatten(rows)))
+      first_line(words(cell))
+    }
     Rule -> ""
   }
 }
@@ -1637,7 +1881,7 @@ fn find_task(blocks: List(Block), row: Int, col: Int) -> Result(Task, Nil) {
         _ -> find_task(item.blocks, row, col)
       }
     }
-    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule -> Error(Nil)
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Table(..) | Rule -> Error(Nil)
   }
 }
 
