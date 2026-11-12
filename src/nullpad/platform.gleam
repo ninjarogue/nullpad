@@ -46,6 +46,18 @@ pub fn remember_vim_setting(on: Bool) -> Effect(msg) {
   write_vim_setting(on)
 }
 
+/// The remembered live view switch. False if it was never set.
+@external(javascript, "./platform.ffi.mjs", "readLiveSetting")
+pub fn read_live_setting() -> Bool
+
+pub fn remember_live_setting(on: Bool) -> Effect(msg) {
+  use _ <- effect.from
+  write_live_setting(on)
+}
+
+@external(javascript, "./platform.ffi.mjs", "writeLiveSetting")
+fn write_live_setting(on: Bool) -> Nil
+
 @external(javascript, "./platform.ffi.mjs", "setTimeout")
 fn set_timeout(ms: Int, run: fn() -> Nil) -> Nil
 

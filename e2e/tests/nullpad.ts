@@ -189,6 +189,9 @@ class Page {
   readonly keep: Locator;
   readonly vimSwitch: Locator;
   readonly vimMode: Locator;
+  readonly liveSwitch: Locator;
+  readonly above: Locator;
+  readonly below: Locator;
 
   constructor(
     screen: Screen,
@@ -227,6 +230,22 @@ class Page {
     this.keep = screen.getByRole('button', 'Keep');
     this.vimSwitch = screen.getByLabel('Vim');
     this.vimMode = screen.getByTestId('mode');
+    this.liveSwitch = screen.getByLabel('Live');
+    this.above = screen.getByTestId('live-above');
+    this.below = screen.getByTestId('live-below');
+  }
+
+  /** Live view: an element of the note drawn around the text field. */
+  drawn(selector: string) {
+    return this.browser.locator(`.page.live .part ${selector}`);
+  }
+
+  /** The text field's text with `|` where the caret is. */
+  caret() {
+    return this.browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      return `${field.value.slice(0, field.selectionStart)}|${field.value.slice(field.selectionEnd)}`;
+    });
   }
 
   inPreview(selector: string) {

@@ -206,7 +206,7 @@ test('marks such as === and ~~ show as the characters typed, in the source and i
       selector,
     );
 
-  expect(await ligatures('.editor > *')).toEqual(['none']);
+  expect(await ligatures('.editor > *')).toEqual(['none', 'none']);
   await page.showPreview.tap();
   expect(await ligatures('[data-test-id="preview"] code')).toEqual(['none', 'none']);
 });

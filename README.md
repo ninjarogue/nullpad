@@ -31,6 +31,15 @@ cd e2e && npm install && npx @e2e-dev/web install chromium
 The hook tests the files in your working folder, so commit or stash first.
 `git push --no-verify` skips it.
 
+## Live view
+
+The Live switch draws the note as a page while you write it. The text field
+holds only the block the cursor is in, as markdown, and every other block is
+drawn with its marks hidden. Arrow keys and clicks move the field from block
+to block, and Escape draws the whole note. It is off by default while it is
+being tried out: there is no undo across blocks yet, and a selection cannot
+leave the field.
+
 ## Markdown
 
 The parser is hand-written and follows [CommonMark](https://spec.commonmark.org/0.31.2/)
