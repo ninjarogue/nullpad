@@ -126,36 +126,85 @@ button[aria-pressed="true"] {
   color: var(--ink);
 }
 
-/* The open note's row carries its delete button, and the question it asks
-   sits on a line of its own under the row. */
-.note-list .delete {
+/* Only the open note shows the way to its menu. */
+.note-list .more {
   background: none;
   border-color: transparent;
   color: var(--faint);
   flex: none;
+  line-height: 1;
 }
 
-.note-list .delete:hover {
-  color: var(--danger);
-}
-
-/* With a mouse, only the open note and the row under the pointer show
-   their ×. A touch screen has no pointer to rest, so every row shows it. */
-@media (hover: hover) {
-  .note-list li:not(:hover, :focus-within) > [aria-current="false"] + .delete {
-    opacity: 0;
-  }
-}
-
-.note-list .confirm {
-  flex: 1 0 100%;
-  flex-wrap: wrap;
-  font-size: 0.85rem;
-  padding: 0.25rem 0.5rem 0.5rem;
+.note-list .more:hover,
+.note-list .more[aria-expanded="true"] {
+  color: var(--ink);
 }
 
 .note-list li > button[aria-current="true"] {
   color: var(--ink);
+  font-weight: 600;
+}
+
+/* The note menu sits at the pointer, or under the button that opened it,
+   and never leaves the window. The backdrop takes the click that closes it. */
+.menu-backdrop {
+  inset: 0;
+  position: fixed;
+  z-index: 10;
+}
+
+.menu {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 14%);
+  display: flex;
+  flex-direction: column;
+  left: min(var(--x), calc(100vw - 9.5rem));
+  min-width: 9rem;
+  padding: 0.25rem;
+  position: fixed;
+  top: min(var(--y), calc(100dvh - 3.5rem));
+}
+
+.menu button {
+  border-color: transparent;
+  min-height: 2.25rem;
+  text-align: left;
+}
+
+.menu button:hover,
+.menu button:focus-visible {
+  background: var(--panel);
+}
+
+.toast {
+  align-items: center;
+  background: var(--ink);
+  border-radius: 8px;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  color: var(--paper);
+  display: flex;
+  gap: 0.75rem;
+  left: 50%;
+  max-width: calc(100vw - 2rem);
+  padding: 0.4rem 0.4rem 0.4rem 0.9rem;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 10;
+}
+
+.toast span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast button {
+  border-color: color-mix(in srgb, var(--paper) 35%, transparent);
+  color: inherit;
+  flex: none;
   font-weight: 600;
 }
 
@@ -204,12 +253,6 @@ button[aria-pressed="true"] {
   align-items: center;
   display: flex;
   gap: 0.3rem;
-}
-
-.confirm {
-  align-items: center;
-  display: flex;
-  gap: 0.5rem;
 }
 
 .danger {
@@ -602,6 +645,13 @@ button[aria-pressed="true"] {
     --box: 1.5rem;
     --task-pad: 0.45rem;
   }
+
+  .note-list .more,
+  .menu button,
+  .toast button {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
 }
 
 @media (max-width: 40rem) {
@@ -634,11 +684,5 @@ button[aria-pressed="true"] {
 
   .note-list li > button:first-child {
     max-width: 10rem;
-  }
-
-  .note-list .confirm {
-    flex: none;
-    padding: 0 0.25rem;
-    white-space: nowrap;
   }
 }

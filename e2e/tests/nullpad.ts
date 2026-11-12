@@ -184,10 +184,11 @@ class Page {
   readonly tableBoxes: Locator;
   readonly headers: Locator;
   readonly cells: Locator;
+  readonly noteActions: Locator;
+  readonly noteMenu: Locator;
   readonly delete: Locator;
-  readonly deleteOther: Locator;
-  readonly confirmDelete: Locator;
-  readonly keep: Locator;
+  readonly undoToast: Locator;
+  readonly undo: Locator;
   readonly vimSwitch: Locator;
   readonly vimMode: Locator;
   readonly above: Locator;
@@ -225,10 +226,11 @@ class Page {
     this.tableBoxes = this.preview.getByRole('region', 'Table');
     this.headers = this.preview.getByRole('columnheader');
     this.cells = this.preview.getByRole('cell');
+    this.noteActions = screen.getByTestId('row-actions');
+    this.noteMenu = screen.getByTestId('note-menu');
     this.delete = screen.getByTestId('delete-note');
-    this.deleteOther = screen.getByTestId('delete-other');
-    this.confirmDelete = screen.getByTestId('confirm-delete');
-    this.keep = screen.getByRole('button', 'Keep');
+    this.undoToast = screen.getByTestId('undo-toast');
+    this.undo = screen.getByTestId('undo-delete');
     this.vimSwitch = screen.getByLabel('Vim');
     this.vimMode = screen.getByTestId('mode');
     this.above = screen.getByTestId('live-above');
@@ -243,6 +245,26 @@ class Page {
   /** Elements of the part drawn above or below the text field. */
   drawnIn(part: 'live-above' | 'live-below', selector: string) {
     return this.browser.locator(`[data-test-id="${part}"] ${selector}`);
+  }
+
+  /** Right-click the note's row, as a mouse does. */
+  rightClick(title: string) {
+    return this.browser.evaluate((title: string) => {
+      const row = [...document.querySelectorAll('[data-test-id="note-list"] [data-test-id^="note-"]')].find(
+        (row) => row.textContent === title,
+      )!;
+      const box = row.getBoundingClientRect();
+      row.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          clientX: box.left + 20,
+          clientY: box.top + 10,
+        }),
+      );
+      return null;
+    }, title);
   }
 
   /** How far down the page of the note is scrolled. */

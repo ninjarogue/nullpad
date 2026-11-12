@@ -66,8 +66,11 @@ export function writeMarkdownSetting(on) {
   } catch {}
 }
 
-export function scrollIntoView(testId) {
-  document
-    .querySelector(`[data-test-id="${testId}"]`)
-    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+export function focusElement(testId) {
+  document.querySelector(`[data-test-id="${testId}"]`)?.focus();
+}
+
+export function below(click) {
+  const box = click.target.closest("button").getBoundingClientRect();
+  return [box.left, box.bottom + 4];
 }
