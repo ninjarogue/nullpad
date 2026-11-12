@@ -105,9 +105,7 @@ pub type Command {
   SaveNote(note: Note, edits: Int)
   DeleteNote(Note)
   RestoreNote(note: Note, was_open: Bool)
-  /// Send `event` back after `ms` milliseconds.
   After(ms: Int, event: Event)
-  /// Replace the editor's text with a note that was just opened.
   OpenInEditor(text: String)
 }
 
