@@ -113,7 +113,6 @@ pub fn live_view_puts_only_the_cursors_block_in_the_field_test() {
 
   assert sync == editor.Write(caret("# Trip", 0, 0))
   assert editor.region(ed) == Some(Region(0, 0))
-  assert editor.around(ed) == #("", "\nFlights are **booked**.\n\n- one\n- two")
   assert editor.text(ed) == live_note
 }
 
@@ -134,7 +133,6 @@ pub fn a_new_block_takes_the_field_and_the_old_one_is_drawn_test() {
 
   assert sync == editor.Write(caret("New", 0, 3))
   assert editor.region(ed) == Some(Region(2, 2))
-  assert editor.around(ed) == #("# Trip\n", "")
 }
 
 pub fn the_field_is_left_alone_during_a_composition_test() {

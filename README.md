@@ -38,7 +38,9 @@ block the cursor is in, as markdown, and every other block is drawn with its
 marks hidden. Arrow keys and clicks move the field from block to block, and
 Escape draws the whole note. A blank line of the note is an empty line on
 the page and nothing else sets blocks apart, so the words hold still when the
-cursor arrives. The Markdown button, or Ctrl+E, puts the whole
+cursor arrives. A list the field splits is still drawn as one list, so the
+items below the field are numbered on from the items above it. The Markdown
+button, or Ctrl+E, puts the whole
 note in the text field as typed, and is remembered. Two things are missing on
 the page: undo across blocks, and a selection that leaves the field.
 

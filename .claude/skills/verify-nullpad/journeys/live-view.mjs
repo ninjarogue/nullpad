@@ -75,4 +75,18 @@ export default async ({ page, type, look, shot, check }) => {
   await look();
   await shot('source');
   await check('the saved note is the whole note with the tick', () => field(note.replace('[ ]', '[x]')));
+
+  await text.press('Control+a');
+  await type('1. Pack\n1. Leave\n1. Arrive\n1. Rest');
+  await page.getByRole('button', { name: 'Markdown' }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Note text');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await look();
+  await shot('split-list');
+  await check('the items below the field are numbered on from the items above it', async () => {
+    await field('1. Leave');
+    const start = await below.locator('ol').getAttribute('start');
+    if (start !== '3') throw new Error(`the list below starts at ${start ?? 1}`);
+  });
 };

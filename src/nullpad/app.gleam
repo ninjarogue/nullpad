@@ -283,21 +283,26 @@ fn page(model: Model) -> Element(Msg) {
     None -> keyed.div([attribute.class("page")], [field])
     Some(region) -> {
       let row_count = editor.row_count(model.editor)
-      let part = fn(text, rows, first_row, test_id) {
-        markdown.parse(text)
-        |> preview.part(rows:, first_row:, test_id:, on_task: UserTickedTask)
+      let blocks = editor.blocks(model.editor)
+      let part = fn(rows, first_row, test_id) {
+        preview.part(
+          blocks,
+          rows:,
+          first_row:,
+          test_id:,
+          on_task: UserTickedTask,
+        )
       }
       let #(above, below) = case editor.is_idle(model.editor) {
         True -> #(
-          part(editor.text(model.editor), row_count, 0, "preview"),
-          part("", 0, row_count, "live-below"),
+          part(row_count, 0, "preview"),
+          part(0, row_count, "live-below"),
         )
         False -> {
-          let #(above, below) = editor.around(model.editor)
           let after = region.last_row + 1
           #(
-            part(above, region.first_row, 0, "live-above"),
-            part(below, row_count - after, after, "live-below"),
+            part(region.first_row, 0, "live-above"),
+            part(row_count - after, after, "live-below"),
           )
         }
       }

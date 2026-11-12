@@ -453,21 +453,6 @@ pub fn is_idle(editor: Editor) -> Bool {
   editor.field != Whole && !editor.focused
 }
 
-/// Live view: the note's text above the control's rows, and below them.
-/// With the whole note in the control both are empty.
-pub fn around(editor: Editor) -> #(String, String) {
-  case editor.field {
-    Whole -> #("", "")
-    Part(rows: Region(first_row:, last_row:), ..) -> {
-      let lines = buffer.lines(editor.buffer)
-      #(
-        list.take(lines, first_row) |> string.join("\n"),
-        list.drop(lines, last_row + 1) |> string.join("\n"),
-      )
-    }
-  }
-}
-
 pub fn row_count(editor: Editor) -> Int {
   list.length(buffer.lines(editor.buffer))
 }

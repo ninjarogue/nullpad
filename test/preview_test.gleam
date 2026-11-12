@@ -422,7 +422,7 @@ fn link(url: String, label: String) -> Inline {
 pub fn a_part_marks_each_element_with_its_row_in_the_note_test() {
   let html =
     markdown.parse(
-      "# Trip\n\n- one\n- two\n\n```\ncode\n```\n\n| a |\n|---|\n| 1 |",
+      "above\n\n\n\n\n\n\n\n\n\n# Trip\n\n- one\n- two\n\n```\ncode\n```\n\n| a |\n|---|\n| 1 |",
     )
     |> preview.part(
       rows: 12,
@@ -571,11 +571,7 @@ pub fn the_rows_of_a_table_in_a_list_item_are_marked_with_their_rows_in_the_note
 /// Rows `first_row` up to `first_row + rows` of `note`, drawn the way live
 /// view draws the note beside the text field.
 fn beside_field(note: String, first_row: Int, rows: Int) -> String {
-  string.split(note, "\n")
-  |> list.drop(first_row)
-  |> list.take(rows)
-  |> string.join("\n")
-  |> markdown.parse
+  markdown.parse(note)
   |> preview.part(
     rows:,
     first_row:,
@@ -682,4 +678,16 @@ pub fn the_blank_rows_beside_the_field_are_drawn_test() {
       "<div class=\"blank\" data-row=\"3\"></div><p data-row=\"4\">b</p>",
     )
   assert beside_field("a\n\n\n\nb", 5, 0) == drawn_part("")
+}
+
+/// Only a composition holds the field on rows that cut a block in two.
+pub fn the_rows_of_a_block_the_field_cuts_are_blank_test() {
+  assert beside_field("```\na\nb", 1, 2)
+    == drawn_part(
+      "<div class=\"blank\" data-row=\"1\"></div><div class=\"blank\" data-row=\"2\"></div>",
+    )
+  assert beside_field("- a\n  b\n- c", 1, 2)
+    == drawn_part(
+      "<div class=\"blank\" data-row=\"1\"></div><ul data-row=\"2\"><li data-row=\"2\">c</li></ul>",
+    )
 }
