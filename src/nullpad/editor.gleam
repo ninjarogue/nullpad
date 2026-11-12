@@ -7,15 +7,31 @@
 ////   model -> control  `update` returns a `Sync`, computed by comparing what
 ////                     we want with `shown`. Stateless and safe to apply twice.
 ////
-//// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`.
+////
+//// In live view the control holds only some rows of the note (`Part`), so
+//// `shown` is a slice. It is spliced into the buffer at those rows before
+//// anything else looks at it, and what is written back is a slice too.
+////
+//// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`,
+//// `live`, `markdown`.
 
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
-import nullpad/buffer.{type Buffer, Position}
+import nullpad/buffer.{type Buffer, type Position, Position}
+import nullpad/live.{type Region, Region}
+import nullpad/markdown
 import nullpad/vim.{Step}
 
 pub opaque type Editor {
-  Editor(buffer: Buffer, keys: Keys)
+  Editor(buffer: Buffer, keys: Keys, field: Field, focused: Bool)
+}
+
+/// What the control holds.
+type Field {
+  Whole
+  /// Live view: these rows only. Invariant: the rows exist in `buffer`.
+  Part(Region)
 }
 
 type Keys {
@@ -35,15 +51,45 @@ pub type Mode {
 pub type Event {
   /// The user typed, pasted, composed with an IME or moved the selection.
   ControlChanged(shown: Buffer)
+  /// The same, in the middle of an IME composition. The control must not be
+  /// written to until it ends, so the rows it holds stay as they are.
+  Composing(shown: Buffer)
   /// A key that `claims` accepted. Its default action was cancelled, so
   /// `shown` is the control exactly as it is now.
   KeyPressed(key: vim.Key, shown: Buffer)
+  /// Live view: a key that would leave the control's rows. `x` is how far
+  /// the caret is from the control's left edge, in pixels.
+  EdgePressed(edge: Edge, x: Float, shown: Buffer)
+  /// Live view: a press on the drawn page (see `live.position`).
+  Pointed(row: Int, visible: String, at_end: Bool)
+  FocusChanged(focused: Bool)
+}
+
+pub type Edge {
+  /// Arrow up on the control's first line, arrow down on its last.
+  Up
+  Down
+  /// Backspace at the control's start, Delete at its end.
+  JoinBefore
+  JoinAfter
 }
 
 /// What `surface.sync` must do to the control after an update.
 pub type Sync {
   InSync
+  /// Write, and give the control the keyboard.
   Write(Buffer)
+  /// Write, and leave the keyboard where it is: a ticked box is not a
+  /// reason to start editing.
+  WriteQuietly(Buffer)
+  /// Write, then put the caret on the first or last drawn line of the
+  /// control, as near to `x` pixels from its left edge as a character allows.
+  WriteAndAim(Buffer, x: Float, line: Line)
+}
+
+pub type Line {
+  FirstLine
+  LastLine
 }
 
 /// The result of every editor operation. Returning `sync` from all of them
@@ -54,7 +100,12 @@ pub type Outcome {
 }
 
 pub fn new(vim vim_enabled: Bool) -> Editor {
-  Editor(buffer: buffer.from_text(""), keys: fresh_keys(vim_enabled))
+  Editor(
+    buffer: buffer.from_text(""),
+    keys: fresh_keys(vim_enabled),
+    field: Whole,
+    focused: False,
+  )
 }
 
 fn fresh_keys(vim_enabled: Bool) -> Keys {
@@ -69,7 +120,26 @@ fn fresh_keys(vim_enabled: Bool) -> Keys {
 pub fn open(editor: Editor, text: String) -> Outcome {
   let buffer = buffer.from_text(text)
   let keys = fresh_keys(editor.keys != PlainKeys)
-  Outcome(editor: Editor(buffer:, keys:), sync: Write(buffer), requests: [])
+  let editor = Editor(..editor, buffer:, keys:) |> realign
+  write_and_focus(editor)
+}
+
+/// A `Write` gives the control the keyboard, so the editor counts as in
+/// focus from now, before the browser says so. The field is then drawn in
+/// its block before it takes the keyboard, and the browser has no reason to
+/// scroll to where an idle field sits, under the whole note.
+fn write_and_focus(editor: Editor) -> Outcome {
+  let editor = Editor(..editor, focused: True)
+  Outcome(editor:, sync: Write(field_buffer(editor)), requests: [])
+}
+
+/// Turn live view on or off, keeping the text and the cursor.
+pub fn set_live(editor: Editor, on: Bool) -> Outcome {
+  let editor = case on {
+    True -> Editor(..editor, field: Part(Region(0, 0))) |> realign
+    False -> Editor(..editor, field: Whole)
+  }
+  write_and_focus(editor)
 }
 
 /// Turn vim on or off, keeping the text.
@@ -81,44 +151,189 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Editor {
 }
 
 /// The whole editing rule:
-/// 1. Whose text wins? Plain / Insert: the control's, `base = shown`.
+/// 0. Live view only: splice the control's rows into the buffer. From here
+///    on `seen` is the whole note as the control shows it.
+/// 1. Whose text wins? Plain / Insert: the control's, `base = seen`.
 ///    Normal: ours, `base` = our buffer with the control's selection (the
 ///    control is read-only then, so its text should match anyway).
 /// 2. `KeyPressed` with vim on: `vim.press(state, base, key)` gives the
 ///    wanted buffer and any requests. Otherwise `wanted = base`.
-/// 3. `sync = case wanted == shown { True -> InSync  False -> Write(wanted) }`
+/// 3. Live view only: the control's rows become the blocks the selection
+///    touches now.
+/// 4. `sync` is `InSync` when the control already shows what it should.
 ///
-/// Guarantee (tested): in Plain and Insert, `ControlChanged` always gives
-/// `InSync`. We never answer the user's typing with a write. That is what
-/// keeps IME composition, autocorrect and the phone's native undo intact.
+/// Guarantee (tested): with the whole note in the control, in Plain and
+/// Insert, `ControlChanged` always gives `InSync`. We never answer the user's
+/// typing with a write. That is what keeps IME composition, autocorrect and
+/// the phone's native undo intact. In live view the control is rewritten
+/// when the cursor's block changes, but never during a composition.
 /// Idempotent: the same event twice gives the same editor.
 pub fn update(editor: Editor, event: Event) -> Outcome {
-  let shown = case event {
-    ControlChanged(shown:) | KeyPressed(shown:, ..) -> shown
-  }
-  let base = case mode(editor) {
-    Plain | Insert -> shown
-    Normal -> {
-      let #(anchor, head) = buffer.selection(shown)
-      buffer.select(editor.buffer, anchor:, head:)
+  case event {
+    ControlChanged(shown:) -> typed(editor, shown, None, realign)
+    Composing(shown:) -> typed(editor, shown, None, hold_rows(_, shown))
+    KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
+    EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
+    Pointed(row:, visible:, at_end:) -> {
+      let lines = buffer.lines(editor.buffer)
+      let position = live.position(lines, row:, visible:, at_end:)
+      let buffer = buffer.move_to(editor.buffer, position)
+      Editor(..editor, buffer:) |> realign |> write_and_focus
     }
+    FocusChanged(focused:) ->
+      Outcome(editor: Editor(..editor, focused:), sync: InSync, requests: [])
   }
-  let #(keys, wanted, requests) = case event, editor.keys {
-    KeyPressed(key:, ..), VimKeys(state) -> {
+}
+
+fn typed(
+  editor: Editor,
+  shown: Buffer,
+  key: Option(vim.Key),
+  place: fn(Editor) -> Editor,
+) -> Outcome {
+  let seen = widen(editor, shown)
+  let base = case mode(editor) {
+    Plain | Insert -> seen
+    Normal -> with_selection_of(editor.buffer, seen)
+  }
+  let #(keys, wanted, requests) = case key, editor.keys {
+    Some(key), VimKeys(state) -> {
       let Step(state:, buffer:, requests:) = vim.press(state, base, key)
       #(VimKeys(state), buffer, requests)
     }
-    KeyPressed(..), PlainKeys | ControlChanged(..), _ -> #(
-      editor.keys,
-      base,
-      [],
-    )
+    _, _ -> #(editor.keys, base, [])
   }
-  let sync = case wanted == shown {
+  let editor = Editor(..editor, buffer: wanted, keys:) |> place
+  let wanted_shown = field_buffer(editor)
+  let sync = case wanted_shown == shown {
     True -> InSync
-    False -> Write(wanted)
+    False -> Write(wanted_shown)
   }
-  Outcome(editor: Editor(buffer: wanted, keys:), sync:, requests:)
+  Outcome(editor:, sync:, requests:)
+}
+
+fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
+  let seen = widen(editor, shown)
+  let cursor = buffer.cursor(seen)
+  let lines = buffer.lines(seen)
+  let end_of_row = fn(row) {
+    let line = list.drop(lines, row) |> list.first
+    Position(row:, col: string.length(result_or_empty(line)))
+  }
+  let has_row_above = cursor.row > 0
+  let has_row_below = cursor.row < list.length(lines) - 1
+  let moved = case edge, editor.field {
+    _, Whole -> None
+    Up, _ if has_row_above ->
+      Some(#(buffer.move_to(seen, end_of_row(cursor.row - 1)), Some(LastLine)))
+    Down, _ if has_row_below ->
+      Some(#(
+        buffer.move_to(seen, Position(row: cursor.row + 1, col: 0)),
+        Some(FirstLine),
+      ))
+    JoinBefore, _ if has_row_above -> {
+      let from = end_of_row(cursor.row - 1)
+      let to = Position(row: cursor.row, col: 0)
+      Some(#(buffer.replace(seen, from:, to:, with: ""), None))
+    }
+    JoinAfter, _ if has_row_below -> {
+      let from = end_of_row(cursor.row)
+      let to = Position(row: cursor.row + 1, col: 0)
+      Some(#(buffer.replace(seen, from:, to:, with: ""), None))
+    }
+    _, _ -> None
+  }
+  case moved {
+    None -> typed(editor, shown, None, realign)
+    Some(#(buffer, aim)) -> {
+      let editor = Editor(..editor, buffer:) |> realign
+      let sync = case aim {
+        Some(line) -> WriteAndAim(field_buffer(editor), x:, line:)
+        None -> Write(field_buffer(editor))
+      }
+      Outcome(editor:, sync:, requests: [])
+    }
+  }
+}
+
+fn result_or_empty(line: Result(String, Nil)) -> String {
+  case line {
+    Ok(line) -> line
+    Error(Nil) -> ""
+  }
+}
+
+/// The whole note, given what the control shows.
+fn widen(editor: Editor, shown: Buffer) -> Buffer {
+  case editor.field {
+    Whole -> shown
+    Part(Region(first_row:, last_row:)) -> {
+      let #(anchor, head) = buffer.selection(shown)
+      let down = fn(position: Position) {
+        Position(..position, row: position.row + first_row)
+      }
+      let last_line =
+        buffer.lines(editor.buffer) |> list.drop(last_row) |> list.first
+      editor.buffer
+      |> buffer.replace(
+        from: Position(row: first_row, col: 0),
+        to: Position(
+          row: last_row,
+          col: string.length(result_or_empty(last_line)),
+        ),
+        with: buffer.text(shown),
+      )
+      |> buffer.select(anchor: down(anchor), head: down(head))
+    }
+  }
+}
+
+/// What the control should show: the whole buffer, or its rows in live view.
+pub fn field_buffer(editor: Editor) -> Buffer {
+  case editor.field {
+    Whole -> editor.buffer
+    Part(Region(first_row:, last_row:)) -> {
+      let #(anchor, head) = buffer.selection(editor.buffer)
+      let up = fn(position: Position) {
+        Position(..position, row: position.row - first_row)
+      }
+      buffer.lines(editor.buffer)
+      |> list.drop(first_row)
+      |> list.take(last_row - first_row + 1)
+      |> string.join("\n")
+      |> buffer.from_text
+      |> buffer.select(anchor: up(anchor), head: up(head))
+    }
+  }
+}
+
+/// Live view: make the control's rows the blocks the selection touches.
+fn realign(editor: Editor) -> Editor {
+  case editor.field {
+    Whole -> editor
+    Part(_) -> {
+      let #(anchor, head) = buffer.selection(editor.buffer)
+      let region =
+        markdown.parse(buffer.text(editor.buffer))
+        |> live.reveal(from: anchor.row, to: head.row)
+      Editor(..editor, field: Part(region))
+    }
+  }
+}
+
+/// Live view, mid-composition: keep the control's first row, and follow only
+/// the number of rows it holds now.
+fn hold_rows(editor: Editor, shown: Buffer) -> Editor {
+  case editor.field {
+    Whole -> editor
+    Part(Region(first_row:, ..)) -> {
+      let rows = list.length(buffer.lines(shown))
+      Editor(
+        ..editor,
+        field: Part(Region(first_row:, last_row: first_row + rows - 1)),
+      )
+    }
+  }
 }
 
 /// Replace one line from outside the control. A row that does not exist
@@ -134,11 +349,13 @@ pub fn replace_line(editor: Editor, row: Int, with line: String) -> Outcome {
           with: line,
         )
         |> with_selection_of(editor.buffer)
-      Outcome(
-        editor: Editor(..editor, buffer:),
-        sync: Write(buffer),
-        requests: [],
-      )
+      let before = field_buffer(editor)
+      let editor = Editor(..editor, buffer:)
+      let sync = case field_buffer(editor) == before {
+        True -> InSync
+        False -> WriteQuietly(field_buffer(editor))
+      }
+      Outcome(editor:, sync:, requests: [])
     }
     _ -> Outcome(editor:, sync: InSync, requests: [])
   }
@@ -156,6 +373,39 @@ pub fn buffer(editor: Editor) -> Buffer {
 /// What the preview and storage read.
 pub fn text(editor: Editor) -> String {
   buffer.text(editor.buffer)
+}
+
+/// Live view: the rows the control holds. `None` when it holds the note.
+pub fn region(editor: Editor) -> Option(Region) {
+  case editor.field {
+    Whole -> None
+    Part(region) -> Some(region)
+  }
+}
+
+/// Live view with the control out of focus: nothing is being edited, so the
+/// whole note is drawn.
+pub fn is_idle(editor: Editor) -> Bool {
+  editor.field != Whole && !editor.focused
+}
+
+/// Live view: the note's text above the control's rows, and below them.
+/// With the whole note in the control both are empty.
+pub fn around(editor: Editor) -> #(String, String) {
+  case editor.field {
+    Whole -> #("", "")
+    Part(Region(first_row:, last_row:)) -> {
+      let lines = buffer.lines(editor.buffer)
+      #(
+        list.take(lines, first_row) |> string.join("\n"),
+        list.drop(lines, last_row + 1) |> string.join("\n"),
+      )
+    }
+  }
+}
+
+pub fn row_count(editor: Editor) -> Int {
+  list.length(buffer.lines(editor.buffer))
 }
 
 pub fn mode(editor: Editor) -> Mode {

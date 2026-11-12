@@ -8,7 +8,7 @@ test.beforeEach(async ({ app, page }) => {
 
 test('headings show at their level', async ({ page }) => {
   await page.text.fill('# a\n## b\n### c\n#### d\n##### e\n###### f');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.preview.getByRole('heading')).toHaveText(['a', 'b', 'c', 'd', 'e', 'f']);
   for (const [level, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
@@ -21,22 +21,25 @@ test('lines with no blank line between are one paragraph, a blank line starts th
   page,
 }) => {
   await page.text.fill('one\ntwo\n\nthree');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveText(['one two', 'three']);
 });
 
-test('more blank lines than one still only separate paragraphs', async ({ page }) => {
+test('every blank line is an empty line on the page, and only paragraphs are made', async ({
+  page,
+}) => {
   await page.text.fill('one\n\n\n\ntwo\n\n');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveText(['one', 'two']);
   await expect(page.everything).toHaveCount(2);
+  await expect(page.blanks).toHaveCount(5);
 });
 
 test('text that only looks like a heading stays a paragraph', async ({ page }) => {
   await page.text.fill('#hashtag\n\n####### seven');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveText(['#hashtag', '####### seven']);
   await expect(page.preview.getByRole('heading')).toHaveCount(0);
@@ -44,7 +47,7 @@ test('text that only looks like a heading stays a paragraph', async ({ page }) =
 
 test('a heading ends the paragraph above it', async ({ page }) => {
   await page.text.fill('before\n## Middle\nafter');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveText(['before', 'after']);
   await expect(page.preview.getByRole('heading', 'Middle', { level: 2 })).toBeVisible();
@@ -52,34 +55,37 @@ test('a heading ends the paragraph above it', async ({ page }) => {
 
 test('the page shows the edit made after the last preview', async ({ page }) => {
   await page.text.fill('# First\n\nold words');
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.preview.getByRole('heading', 'First', { level: 1 })).toBeVisible();
   await expect(page.paragraphs).toHaveText(['old words']);
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await page.text.fill('## Second\n\nnew words\n\nmore words');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.preview.getByRole('heading')).toHaveText(['Second']);
   await expect(page.preview.getByRole('heading', 'Second', { level: 2 })).toBeVisible();
   await expect(page.paragraphs).toHaveText(['new words', 'more words']);
 });
 
-test('Ctrl+E also shows the edit made after the last preview', async ({ page }) => {
+test('Ctrl+E also shows the edit made in the markdown', async ({ page }) => {
   await page.text.fill('# First');
-  await page.pressPreviewShortcut();
+  await page.pressMarkdownShortcut();
+  await page.stopEditing();
   await expect(page.preview.getByRole('heading', 'First', { level: 1 })).toBeVisible();
 
-  await page.pressPreviewShortcut();
+  await page.text.focus();
+  await page.pressMarkdownShortcut();
   await page.text.fill('# Second');
-  await page.pressPreviewShortcut();
+  await page.pressMarkdownShortcut();
+  await page.stopEditing();
 
   await expect(page.preview.getByRole('heading')).toHaveText(['Second']);
 });
 
 test('bold shows as strong text', async ({ page }) => {
   await page.text.fill('a **b** c');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.strong).toHaveText(['b']);
   await expect(page.paragraphs).toHaveText(['a b c']);
@@ -87,7 +93,7 @@ test('bold shows as strong text', async ({ page }) => {
 
 test('italic shows as emphasis', async ({ page }) => {
   await page.text.fill('a *b* c');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.emphasis).toHaveText(['b']);
   await expect(page.paragraphs).toHaveText(['a b c']);
@@ -95,7 +101,7 @@ test('italic shows as emphasis', async ({ page }) => {
 
 test('emphasis may open on one line of a paragraph and close on the next', async ({ page }) => {
   await page.text.fill('one *two\nthree* four');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.emphasis).toHaveText(['two three']);
   await expect(page.paragraphs).toHaveText(['one two three four']);
@@ -103,7 +109,7 @@ test('emphasis may open on one line of a paragraph and close on the next', async
 
 test('each line of a paragraph shows on its own line', async ({ browser, page }) => {
   await page.text.fill('milk\neggs\n\nbread');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveCount(2);
   const shown = () => browser.evaluate(() => document.querySelector('p')?.innerText ?? null);
@@ -112,7 +118,7 @@ test('each line of a paragraph shows on its own line', async ({ browser, page })
 
 test('a note that opens with unclosed bold is listed as its page shows it', async ({ page }) => {
   await page.text.fill('**bold and more');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveText(['**bold and more']);
   await expect(page.currentRow).toHaveText('**bold and more');
@@ -120,7 +126,7 @@ test('a note that opens with unclosed bold is listed as its page shows it', asyn
 
 test('inline code shows as code', async ({ page }) => {
   await page.text.fill('run `go **build**` now');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.code).toHaveText(['go **build**']);
   await expect(page.strong).toHaveCount(0);
@@ -129,7 +135,7 @@ test('inline code shows as code', async ({ page }) => {
 
 test('a link opens in a new tab', async ({ page }) => {
   await page.text.fill('see [docs](https://example.com/) here');
-  await page.showPreview.tap();
+  await page.showPage();
 
   const link = page.preview.getByRole('link', 'docs');
   await expect(link).toHaveAttribute('href', 'https://example.com/');
@@ -140,7 +146,7 @@ test('a link opens in a new tab', async ({ page }) => {
 
 test('a link title shows when the pointer rests on the link', async ({ page }) => {
   await page.text.fill('see [docs](https://example.com/ "The manual") here');
-  await page.showPreview.tap();
+  await page.showPage();
 
   const link = page.preview.getByRole('link', 'docs');
   await expect(link).toHaveAttribute('href', 'https://example.com/');
@@ -150,7 +156,7 @@ test('a link title shows when the pointer rests on the link', async ({ page }) =
 
 test('a javascript: link shows as the text typed', async ({ page }) => {
   await page.text.fill('[x](javascript:alert(1))');
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveText(['[x](javascript:alert(1))']);
   await expect(page.preview.getByRole('link')).toHaveCount(0);
@@ -159,7 +165,7 @@ test('a javascript: link shows as the text typed', async ({ page }) => {
 
 test('a line nested thousands of levels deep still shows', async ({ page }) => {
   await page.text.fill('*a '.repeat(3000) + 'b' + ' a*'.repeat(3000));
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveCount(1);
   await expect(page.emphasis).toHaveCount(32);

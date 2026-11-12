@@ -19,7 +19,7 @@ for (const width of widths) {
     const inList = '- item\n\n  ```\n  ' + long + '\n  ```';
     const inQuote = '> ```\n> ' + long + '\n> ```';
     await page.text.fill([fence, inList, inQuote, '    ' + long].join('\n\n'));
-    await page.showPreview.tap();
+    await page.showPage();
     await expect(page.codeBlocks).toHaveCount(4);
 
     const shown = await browser.evaluate(() => {
@@ -48,7 +48,7 @@ test('a word too long for the line wraps inside a list and a quote instead of wi
   await browser.setViewport({ width: 390, height: 844 });
   const word = 'x'.repeat(200);
   await page.text.fill(`- ${word}\n  - ${word}\n\n> ${word}\n\n- [ ] ${word}`);
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.items).toHaveCount(3);
 
   const shown = await browser.evaluate(() => {
@@ -74,7 +74,7 @@ for (const width of widths) {
       '- [ ] tight one\n- [x] tight two\n\n* [ ] loose one\n\n* [x] loose two\n\n1. [ ] ordered one\n\n- [ ] ' +
         'a task with enough words to need more than one line on a phone, so the box stays by the first',
     );
-    await page.showPreview.tap();
+    await page.showPage();
     await expect(page.boxes).toHaveCount(6);
 
     const measured = [];
@@ -92,7 +92,7 @@ test('a task item shows no bullet, and an ordered task keeps its number', async 
   page,
 }) => {
   await page.text.fill('- [ ] a\n- b\n\n1. [ ] c');
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.boxes).toHaveCount(2);
 
   expect((await page.measureTask(0)).marker).toBe('none');
@@ -111,7 +111,7 @@ test('on a phone a task box is at least 24px square and rows are 44px apart', as
 }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await page.text.fill('- [ ] one\n- [ ] two\n- [ ] three');
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.boxes).toHaveCount(3);
 
   const [one, two, three] = [
@@ -134,7 +134,7 @@ for (const scheme of ['light', 'dark'] as const) {
   }) => {
     await browser.emulateMedia({ colorScheme: scheme });
     await page.text.fill('plain\n\n> quoted\n\n```\ncode\n```');
-    await page.showPreview.tap();
+    await page.showPage();
     await expect(page.quotes).toHaveCount(1);
     await expect(page.codeBlocks).toHaveCount(1);
 
@@ -183,7 +183,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
 test('struck text has a line through it', async ({ browser, page }) => {
   await page.text.fill('a ~~gone~~ b');
-  await page.showPreview.tap();
+  await page.showPage();
 
   const line = await browser.evaluate(
     () =>
@@ -206,7 +206,7 @@ test('marks such as === and ~~ show as the characters typed, in the source and i
       selector,
     );
 
-  expect(await ligatures('.editor > *')).toEqual(['none']);
-  await page.showPreview.tap();
+  expect(await ligatures('.editor > *')).toEqual(['none', 'none']);
+  await page.showPage();
   expect(await ligatures('[data-test-id="preview"] code')).toEqual(['none', 'none']);
 });

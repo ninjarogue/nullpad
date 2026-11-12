@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs one journey against this checkout, served on a free port, and records it.
 //   node .claude/skills/verify-nullpad/drive.mjs <journey.mjs> [name]
-// Evidence lands in .verify/<name>/: session.webm, shots/*.png, report.json.
+// Evidence lands in .verify/<name>/ (or $VERIFY_OUT/<name>/): session.webm, shots/*.png, report.json.
 
 import { spawn } from "node:child_process";
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -23,7 +23,7 @@ const { chromium } = createRequire(join(repo, "e2e/package.json"))(
   process.env.VERIFY_PLAYWRIGHT ?? "playwright-core",
 );
 const journey = (await import(pathToFileURL(resolve(journeyPath)).href)).default;
-const evidence = join(repo, ".verify", name);
+const evidence = join(process.env.VERIFY_OUT ?? join(repo, ".verify"), name);
 await rm(evidence, { recursive: true, force: true });
 await mkdir(join(evidence, "shots"), { recursive: true });
 

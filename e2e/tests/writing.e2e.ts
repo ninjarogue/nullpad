@@ -106,18 +106,18 @@ test('Saving… shows while the disk is slow', async ({ app, disk, page }) => {
   expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
 });
 
-test('looking at the preview never changes the stored note', async ({ app, disk, page }) => {
+test('looking at the page never changes the stored note', async ({ app, disk, page }) => {
   const body = '#   Spaced  \n\n\n\nline one\nline two   \n\n\n';
   const note = { key: 'spaced', title: null, body };
   await disk.seed([note]);
   await app.open('/');
   await expect(page.text).toHaveValue(body);
 
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.preview.getByRole('heading', 'Spaced', { level: 1 })).toBeVisible();
-  await page.showSource.tap();
-  await page.pressPreviewShortcut();
-  await page.pressPreviewShortcut();
+  await page.showMarkdown();
+  await page.pressMarkdownShortcut();
+  await page.pressMarkdownShortcut();
   await expect(page.text).toHaveValue(body);
 
   await expect(page.saveState).toHaveText('Saved');
@@ -132,7 +132,7 @@ test('HTML typed in a note shows as text and makes nothing', async ({ app, brows
   await expect(page.text).toBeFocused();
 
   await page.text.fill(`${typed}\n\n<script>globalThis.ran = 1</script>`);
-  await page.showPreview.tap();
+  await page.showPage();
 
   await expect(page.paragraphs).toHaveText([typed, '<script>globalThis.ran = 1</script>']);
   await expect(page.everything).toHaveCount(2);
@@ -141,9 +141,9 @@ test('HTML typed in a note shows as text and makes nothing', async ({ app, brows
   expect(await browser.evaluate(() => Reflect.get(globalThis, 'ran') ?? null)).toBeNull();
 });
 
-test('the preview renders markdown', async ({ app, page }) => {
+test('the page renders markdown', async ({ app, page }) => {
   await app.open('/');
   await page.text.fill('# Hi');
-  await page.showPreview.tap();
+  await page.showPage();
   await expect(page.preview.getByRole('heading', 'Hi', { level: 1 })).toBeVisible();
 });

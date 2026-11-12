@@ -1,5 +1,6 @@
 //// Imported by: the app shell and `nullpad.main`. Imports: lustre/effect.
 
+import gleam/dynamic.{type Dynamic}
 import lustre/effect.{type Effect}
 
 /// Deliver `msg` after `ms` milliseconds. There is no cancel: the receiver
@@ -46,6 +47,18 @@ pub fn remember_vim_setting(on: Bool) -> Effect(msg) {
   write_vim_setting(on)
 }
 
+/// The remembered Markdown button. False if it was never set.
+@external(javascript, "./platform.ffi.mjs", "readMarkdownSetting")
+pub fn read_markdown_setting() -> Bool
+
+pub fn remember_markdown_setting(on: Bool) -> Effect(msg) {
+  use _ <- effect.from
+  write_markdown_setting(on)
+}
+
+@external(javascript, "./platform.ffi.mjs", "writeMarkdownSetting")
+fn write_markdown_setting(on: Bool) -> Nil
+
 @external(javascript, "./platform.ffi.mjs", "setTimeout")
 fn set_timeout(ms: Int, run: fn() -> Nil) -> Nil
 
@@ -60,3 +73,17 @@ fn write_clipboard(text: String) -> Nil
 
 @external(javascript, "./platform.ffi.mjs", "writeVimSetting")
 fn write_vim_setting(on: Bool) -> Nil
+
+/// Give the element with this test id the keyboard once it is drawn.
+pub fn focus(test_id: String) -> Effect(msg) {
+  use _, _ <- effect.before_paint
+  focus_element(test_id)
+}
+
+@external(javascript, "./platform.ffi.mjs", "focusElement")
+fn focus_element(test_id: String) -> Nil
+
+/// The point just under the button a click event came from, in pixels from
+/// the window's corner. It is the same for a mouse and for the keyboard.
+@external(javascript, "./platform.ffi.mjs", "below")
+pub fn below(click: Dynamic) -> #(Float, Float)

@@ -8,14 +8,14 @@ const stored = (body: string): Note => ({ key: 'tasks', title: null, body });
 type Fixtures = {
   app: App;
   disk: { seed(notes: Note[]): Promise<void> };
-  page: { text: Locator; showPreview: Locator };
+  page: { text: Locator; showPage(): Promise<void> };
 };
 
 async function showTasks({ app, disk, page }: Fixtures, body: string) {
   await disk.seed([stored(body)]);
   await app.open('/');
   await expect(page.text).toHaveValue(body);
-  await page.showPreview.tap();
+  await page.showPage();
 }
 
 const shopping = '# Shopping\n\n- [ ] buy milk  \n- [ ] call mom\n\nend\n\n';
@@ -53,7 +53,7 @@ test('clicking a box ticks it and changes that line of the note and nothing else
   await expect(page.box('call mom')).toBeChecked();
   await expect(page.box('buy milk')).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue(shopping.replace('- [ ] call mom', '- [x] call mom'));
 });
 
@@ -70,7 +70,7 @@ test('pressing Space on a focused box ticks it and changes that line of the note
   await expect(page.box('buy milk')).toBeChecked();
   await expect(page.box('call mom')).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue(shopping.replace('- [ ] buy milk', '- [x] buy milk'));
 });
 
@@ -86,7 +86,7 @@ test('clicking a ticked box unticks it and changes that line of the note', async
   await expect(page.box('done')).not.toBeChecked();
   await expect(page.box('also done')).toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue('- [ ] done\n- [x] also done\n');
 });
 
@@ -97,7 +97,7 @@ test('Space unticks a ticked box', async ({ app, disk, page }) => {
   await page.box('done').press('Space');
   await expect(page.box('done')).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue('- [ ] done');
 });
 
@@ -109,7 +109,7 @@ test('ticking and unticking a box gives back the note as it was', async ({ app, 
   await page.box('buy milk').tap();
   await expect(page.box('buy milk')).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue(shopping);
 });
 
@@ -122,7 +122,7 @@ test('a ticked box is saved and is still ticked after a reload', async ({
   await disk.seed([stored(shopping)]);
   await app.open('/');
   await expect(page.text).toHaveValue(shopping);
-  await page.showPreview.tap();
+  await page.showPage();
   const ticked = shopping.replace('- [ ] call mom', '- [x] call mom');
 
   await page.box('call mom').tap();
@@ -131,8 +131,7 @@ test('a ticked box is saved and is still ticked after a reload', async ({
   expect(await disk.notes()).toEqual([stored(ticked)]);
 
   await browser.reload();
-  await expect(page.text).toHaveValue(ticked);
-  await page.showPreview.tap();
+  await page.stopEditing();
   await expect(page.box('call mom')).toBeChecked();
   await expect(page.box('buy milk')).not.toBeChecked();
 });
@@ -146,13 +145,17 @@ test('a box ticked just before a reload is still ticked', async ({
   await disk.seed([stored(shopping)]);
   await app.open('/');
   await expect(page.text).toHaveValue(shopping);
-  await page.showPreview.tap();
+  await page.showPage();
 
   await page.box('call mom').tap();
   await expect(page.saveState).toHaveText('Unsaved');
   await browser.reload();
 
-  await expect(page.text).toHaveValue(shopping.replace('- [ ] call mom', '- [x] call mom'));
+  await page.stopEditing();
+  await expect(page.box('call mom')).toBeChecked();
+  expect(await disk.notes()).toEqual([
+    stored(shopping.replace('- [ ] call mom', '- [x] call mom')),
+  ]);
 });
 
 test('an unticked box is saved and is still unticked after a reload', async ({
@@ -165,7 +168,7 @@ test('an unticked box is saved and is still unticked after a reload', async ({
   await disk.seed([stored(body)]);
   await app.open('/');
   await expect(page.text).toHaveValue(body);
-  await page.showPreview.tap();
+  await page.showPage();
 
   await page.box('done').tap();
   await expect(page.saveState).toHaveText('Unsaved');
@@ -173,7 +176,7 @@ test('an unticked box is saved and is still unticked after a reload', async ({
   expect(await disk.notes()).toEqual([stored('- [ ] done\n- [ ] not yet')]);
 
   await browser.reload();
-  await page.showPreview.tap();
+  await page.stopEditing();
   await expect(page.box('done')).not.toBeChecked();
 });
 
@@ -186,7 +189,7 @@ test('a task in a nested list ticks its own line', async ({ app, disk, page }) =
   await expect(page.box('one a')).not.toBeChecked();
   await expect(page.box('one')).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue('- [ ] one\n  - [ ] one a\n  - [x] one b\n- [ ] two');
 });
 
@@ -199,7 +202,7 @@ test('a task in a quote ticks its own line', async ({ app, disk, page }) => {
   await expect(page.box('quoted a')).not.toBeChecked();
   await expect(page.box('outside')).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue('- [ ] outside\n\n> - [ ] quoted a\n> - [x] quoted b');
 });
 
@@ -209,7 +212,7 @@ test('a task in an ordered list ticks its own line', async ({ app, disk, page })
   await page.box('second').tap();
   await expect(page.box('second')).toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue('1. [ ] first\n2. [x] second');
 });
 
@@ -225,7 +228,7 @@ test('of two tasks with the same words, the one clicked is ticked', async ({
   await expect(page.box('milk').nth(1)).toBeChecked();
   await expect(page.box('milk').nth(2)).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue('- [ ] milk\n- [x] milk\n- [ ] milk');
 });
 
@@ -239,7 +242,7 @@ test('a task below blocks of many lines ticks its own line', async ({ app, disk,
   await expect(page.box('second')).toBeChecked();
   await expect(page.box('first')).not.toBeChecked();
 
-  await page.showSource.tap();
+  await page.showMarkdown();
   await expect(page.text).toHaveValue(body.replace('- [ ] second', '- [x] second'));
 });
 
