@@ -265,7 +265,8 @@ fn key_decoder(
 }
 
 /// The four keys that may leave the field's rows, each only at the edge of
-/// the field it leaves by, judged from the field as it is now. A line is a
+/// the field it leaves by, judged from the page as it is now: the field is
+/// drawn as one block of the page, and the caret is at that edge. A line is a
 /// drawn line here: an arrow moves inside a wrapped row until it is on the
 /// field's first or last drawn line. Whether there is a row past the edge is
 /// for `editor.update`. Fails for every other key press, so those stay native
@@ -283,22 +284,28 @@ fn edge_decoder(
   let #(anchor, head) = buffer.selection(shown)
   let plain = !{ shift || ctrl || meta || alt || composing } && anchor == head
   let end = buffer.end_of(buffer.text(shown))
-  let edge = case name {
-    _ if !plain -> Error(Nil)
-    "Backspace" if head == buffer.Position(row: 0, col: 0) ->
-      Ok(#(editor.JoinBefore, 0.0))
-    "Delete" if head == end -> Ok(#(editor.JoinAfter, 0.0))
-    "ArrowUp" if head.row == 0 ->
+  let in_edge_row = case name {
+    "Backspace" -> head == buffer.Position(row: 0, col: 0)
+    "Delete" -> head == end
+    "ArrowUp" -> head.row == 0
+    "ArrowDown" -> head.row == end.row
+    _ -> False
+  }
+  let edge = case plain && in_edge_row && drawn_in_page(control_id), name {
+    False, _ -> Error(Nil)
+    True, "Backspace" -> Ok(#(editor.JoinBefore, 0.0))
+    True, "Delete" -> Ok(#(editor.JoinAfter, 0.0))
+    True, "ArrowUp" ->
       case caret_line(control_id) {
         #(True, _, x) -> Ok(#(editor.Up, x))
         _ -> Error(Nil)
       }
-    "ArrowDown" if head.row == end.row ->
+    True, "ArrowDown" ->
       case caret_line(control_id) {
         #(_, True, x) -> Ok(#(editor.Down, x))
         _ -> Error(Nil)
       }
-    _ -> Error(Nil)
+    True, _ -> Error(Nil)
   }
   case edge {
     Ok(#(edge, x)) ->
@@ -375,6 +382,11 @@ fn focus_control(id: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil
+
+/// Is the control drawn as one block of a page (live view) right now, rather
+/// than as the whole note.
+@external(javascript, "./surface.ffi.mjs", "drawnInPage")
+fn drawn_in_page(id: String) -> Bool
 
 /// Is the caret on the control's first drawn line, is it on its last, and how
 /// many pixels is it from the control's left edge.

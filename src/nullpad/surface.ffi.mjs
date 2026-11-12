@@ -67,6 +67,10 @@ const COPIED = [
   "paddingRight", "paddingBottom", "paddingLeft",
 ];
 
+export function drawnInPage(id) {
+  return document.getElementById(id)?.closest(".page.live") != null;
+}
+
 export function caretLine(id) {
   const control = document.getElementById(id);
   if (!control) return [false, false, 0];
