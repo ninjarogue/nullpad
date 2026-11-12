@@ -174,6 +174,32 @@ test('Escape pressed before the page redraws after Ctrl+E draws the whole note',
   await expect(page.text).not.toBeFocused();
 });
 
+test('in the markdown, an arrow past the first or last line keeps the column it came from', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const rows = 'abcdef\nabcdef\nabcdef';
+  await disk.seed([stored(rows)]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(rows);
+
+  await browser.keyboard.press('ArrowDown');
+  for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('ArrowRight');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('ArrowUp');
+  expect(await page.caret()).toBe(`|${rows}`);
+  await browser.keyboard.press('ArrowDown');
+  expect(await page.caret()).toBe('abcdef\nabc|def\nabcdef');
+
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  expect(await page.caret()).toBe(`${rows}|`);
+  await browser.keyboard.press('ArrowUp');
+  expect(await page.caret()).toBe('abcdef\nabc|def\nabcdef');
+});
+
 test('a new paragraph takes the field and the one before it is drawn', async ({
   app,
   browser,
