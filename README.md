@@ -9,6 +9,7 @@ the browser's own storage.
 ```sh
 gleam run -m lustre/dev start         # Serve the app at http://localhost:1234 and reload on change
 gleam test                            # Run the unit tests
+node test/keystroke_cost.mjs          # Count the parses one key costs, after gleam test
 cd e2e && npm install && npm test     # Run the browser tests
 gleam format src test                 # Format the code
 ```
@@ -20,8 +21,13 @@ what a person does with it: writing, saving, switching and deleting notes,
 ticking task boxes on the page, what the page shows for each markdown
 block, and what it shows when storage is slow or fails.
 
-Both suites run before every `git push`, and a failure stops the push. Turn
-that on once per clone:
+`test/keystroke_cost.mjs` types into notes of 5, 20 and 100 KB in page view
+the way the app does, one update and one draw per key. It fails when a typed
+character parses the note more than once or a caret move parses it at all,
+and prints how long each key took without judging the time.
+
+Both suites and that script run before every `git push`, and a failure stops
+the push. Turn that on once per clone:
 
 ```sh
 git config core.hooksPath .githooks
