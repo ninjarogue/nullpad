@@ -270,6 +270,21 @@ pub fn deleting_the_open_note_saves_nothing_until_storage_answers_test() {
   assert commands == [LoadNote(trip.id)]
 }
 
+pub fn deleting_the_open_note_cancels_leaving_it_test() {
+  let #(groceries, trip) = groceries_and_trip()
+  let #(typed, _) =
+    library.update(opened([groceries, trip]), TextEdited, "milk, eggs")
+  let #(saving, save) = library.update(typed, SaveDue, "milk, eggs")
+  let #(leaving, _) =
+    library.update(saving, UserPickedNote(trip.id), "milk, eggs")
+  let #(deleting, _) =
+    library.update(leaving, UserDeletedNote(groceries.id), "milk, eggs")
+
+  let #(_, commands) =
+    library.update(deleting, saved(save, Ok(Nil)), "milk, eggs")
+  assert commands == [ListNotes]
+}
+
 pub fn deleting_another_note_keeps_the_open_one_test() {
   let #(groceries, trip) = groceries_and_trip()
   let #(finding, commands) =
@@ -420,6 +435,23 @@ pub fn a_note_gone_before_its_delete_leaves_the_list_test() {
   assert commands == [ListNotes]
   assert library.deleting(gone) == None
   assert library.problem(gone) == Some(storage.NotFound)
+}
+
+pub fn a_note_that_opens_clears_the_storage_problem_test() {
+  let #(groceries, trip) = groceries_and_trip()
+  let #(loading, _) =
+    library.update(opened([groceries, trip]), UserPickedNote(trip.id), "milk")
+  let #(failed, commands) =
+    library.update(loading, StorageLoaded(Error(full)), "milk")
+  assert commands == []
+  assert library.problem(failed) == Some(full)
+  assert open_id(failed) == Some(groceries.id)
+
+  let #(loading_again, _) =
+    library.update(failed, UserPickedNote(trip.id), "milk")
+  let #(arrived, _) =
+    library.update(loading_again, StorageLoaded(Ok(trip)), "milk")
+  assert library.problem(arrived) == None
 }
 
 pub fn a_note_gone_when_it_is_picked_leaves_the_list_and_the_open_one_stays_test() {
