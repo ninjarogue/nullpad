@@ -119,7 +119,9 @@ export function locate(press) {
   const point = caretAt(press.clientX, press.clientY);
   const inside = point && (point.node instanceof Element ? point.node : point.node.parentElement);
   const holder = inside?.closest("[data-row]");
-  if (holder) {
+  // A press in the gap between two blocks is on neither, but the browser
+  // still names the nearest text, at its start.
+  if (holder && target.closest("[data-row]")) {
     const range = document.createRange();
     range.setStart(holder, 0);
     range.setEnd(point.node, point.offset);
