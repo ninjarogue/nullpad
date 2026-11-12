@@ -534,6 +534,18 @@ pub fn code_in_a_quote_is_marked_with_its_row_in_the_note_test() {
   assert pre_rows("> ```\n> x\nb") == ["1"]
 }
 
+pub fn an_empty_fenced_block_is_marked_with_its_opening_fence_test() {
+  assert pre_rows("```\n```") == ["0"]
+  assert pre_rows("p\n\n~~~ a\n~~~\n\nq") == ["2"]
+}
+
+pub fn an_unclosed_empty_fence_is_marked_inside_its_block_test() {
+  assert pre_rows("```") == ["0"]
+  assert pre_rows("p\n\n```") == ["2"]
+  assert pre_rows("> ```\n\nb") == ["0"]
+  assert pre_rows("- ```\n- b") == ["0"]
+}
+
 pub fn the_body_rows_of_a_table_are_marked_below_its_delimiter_row_test() {
   assert tr_rows("| a |\n|---|\n| 1 |\n| 2 |") == ["0", "2", "3"]
   assert tr_rows("p\n| a |\n|---|\n| 1 |") == ["1", "3"]
