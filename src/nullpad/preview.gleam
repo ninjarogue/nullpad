@@ -132,12 +132,24 @@ fn blanks(
   from from: Int,
   to to: Int,
 ) -> List(Element(msg)) {
-  case rows, from < to {
-    Unmarked, _ | _, False -> []
-    Marked, True -> [
-      tag([attribute.class("blank"), ..at(rows, from)], []),
-      ..blanks(tag, rows, from: from + 1, to:)
-    ]
+  case rows {
+    Unmarked -> []
+    Marked -> blank_rows(tag, from:, row: to - 1, drawn: [])
+  }
+}
+
+fn blank_rows(
+  tag: fn(List(attribute.Attribute(msg)), List(Element(msg))) -> Element(msg),
+  from from: Int,
+  row row: Int,
+  drawn drawn: List(Element(msg)),
+) -> List(Element(msg)) {
+  case row < from {
+    True -> drawn
+    False -> {
+      let blank = tag([attribute.class("blank"), ..at(Marked, row)], [])
+      blank_rows(tag, from:, row: row - 1, drawn: [blank, ..drawn])
+    }
   }
 }
 
@@ -268,29 +280,22 @@ fn items(
   rows: Rows,
   on_task: fn(Task, Bool) -> msg,
 ) -> List(Element(msg)) {
-  case listed {
-    [] -> []
-    [shown, ..rest] -> {
-      let next = case rest {
-        [after, ..] -> after.row
-        [] -> end
-      }
-      let last = last_row(shown) + 1
-      let gap =
-        blanks(
-          fn(attributes, children) {
-            html.li([attribute.aria_hidden(True), ..attributes], children)
-          },
-          rows,
-          from: last,
-          to: next,
-        )
-      [
-        item(shown, spacing, last, rows, on_task),
-        ..list.append(gap, items(rest, spacing, end, rows, on_task))
-      ]
-    }
-  }
+  let nexts =
+    list.map(listed, fn(next: Item) { next.row })
+    |> list.drop(1)
+    |> list.append([end])
+  use #(shown, next) <- list.flat_map(list.zip(listed, nexts))
+  let last = last_row(shown) + 1
+  let gap =
+    blanks(
+      fn(attributes, children) {
+        html.li([attribute.aria_hidden(True), ..attributes], children)
+      },
+      rows,
+      from: last,
+      to: next,
+    )
+  [item(shown, spacing, last, rows, on_task), ..gap]
 }
 
 fn item(
