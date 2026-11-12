@@ -229,3 +229,53 @@ test('Markdown shows the whole note as typed, and the choice is remembered', asy
   await expect(page.text).toHaveValue(body);
   await expect(page.above).toHaveCount(0);
 });
+
+test('Enter on an empty line makes another, and the arrows cross each one', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'hello');
+
+  await browser.keyboard.press('End');
+  const top = async () => (await page.fieldBox()).top;
+  let last = await top();
+  for (let line = 1; line <= 3; line++) {
+    await browser.keyboard.press('Enter');
+    await expect(page.text).toHaveValue('');
+    await expect(page.drawnIn('live-above', '.blank')).toHaveCount(line - 1);
+    expect(await top()).toBeGreaterThan(last + 10);
+    last = await top();
+  }
+  await browser.keyboard.type('world');
+  const below = await top();
+
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.drawnIn('live-below', '.blank')).toHaveCount(0);
+  expect(await top()).toBeLessThan(below - 10);
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.drawnIn('live-below', '.blank')).toHaveCount(1);
+  await expect(page.below).toHaveText('world');
+
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('hello\n\n\nworld');
+});
+
+test('the words below do not move when the cursor reaches a heading or a blank line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'intro\n\n\n## Packing\ntext\n\n- one\n\nEND');
+  const end = () => page.topOf('.part p:last-child');
+  const still = await end();
+
+  for (let row = 0; row < 7; row++) {
+    await browser.keyboard.press('ArrowDown');
+    expect(Math.abs((await end()) - still)).toBeLessThan(1);
+  }
+  await expect(page.text).toHaveValue('');
+});
+

@@ -419,13 +419,19 @@ pub fn a_part_marks_each_element_with_its_row_in_the_note_test() {
     markdown.parse(
       "# Trip\n\n- one\n- two\n\n```\ncode\n```\n\n| a |\n|---|\n| 1 |",
     )
-    |> preview.part(first_row: 10, test_id: "live-below", on_task: fn(task, _) {
-      task
-    })
+    |> preview.part(
+      rows: 12,
+      first_row: 10,
+      test_id: "live-below",
+      on_task: fn(task, _) { task },
+    )
     |> element.to_string
 
   assert string.contains(html, "data-test-id=\"live-below\"")
   assert string.contains(html, "<h1 data-row=\"10\">")
+  // Row 1 of the run is blank, and so is every other row between blocks.
+  assert string.contains(html, "<div class=\"blank\" data-row=\"11\">")
+  assert list.length(string.split(html, "class=\"blank\"")) == 4
   assert string.contains(html, "<li data-row=\"12\">one")
   assert string.contains(html, "<li data-row=\"13\">two")
   // The code starts one row below its fence.

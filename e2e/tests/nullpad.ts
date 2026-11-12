@@ -168,6 +168,7 @@ class Page {
   readonly preview: Locator;
   readonly paragraphs: Locator;
   readonly everything: Locator;
+  readonly blanks: Locator;
   readonly strong: Locator;
   readonly emphasis: Locator;
   readonly code: Locator;
@@ -207,7 +208,8 @@ class Page {
     this.markdown = screen.getByRole('button', 'Markdown');
     this.preview = screen.getByTestId('preview');
     this.paragraphs = this.inPreview('p');
-    this.everything = this.inPreview('*');
+    this.everything = this.inPreview(':not(.blank)');
+    this.blanks = this.inPreview('.blank');
     this.strong = this.inPreview('strong');
     this.emphasis = this.inPreview('em');
     this.code = this.inPreview('code');
@@ -236,6 +238,27 @@ class Page {
   /** An element of the note drawn around the text field. */
   drawn(selector: string) {
     return this.browser.locator(`.page.live .part ${selector}`);
+  }
+
+  /** Elements of the part drawn above or below the text field. */
+  drawnIn(part: 'live-above' | 'live-below', selector: string) {
+    return this.browser.locator(`[data-test-id="${part}"] ${selector}`);
+  }
+
+  /** Where the text field is in the window. */
+  fieldBox() {
+    return this.browser.evaluate(() => {
+      const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+      return { top: box.top, height: box.height };
+    });
+  }
+
+  /** How far down the window the last element matching `selector` starts. */
+  topOf(selector: string) {
+    return this.browser.evaluate((selector: string) => {
+      const found = [...document.querySelectorAll(selector)];
+      return found[found.length - 1].getBoundingClientRect().top;
+    }, selector);
   }
 
   /** The text field's text with `|` where the caret is. */

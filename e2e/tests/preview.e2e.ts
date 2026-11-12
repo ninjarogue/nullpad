@@ -26,12 +26,15 @@ test('lines with no blank line between are one paragraph, a blank line starts th
   await expect(page.paragraphs).toHaveText(['one two', 'three']);
 });
 
-test('more blank lines than one still only separate paragraphs', async ({ page }) => {
+test('every blank line is an empty line on the page, and only paragraphs are made', async ({
+  page,
+}) => {
   await page.text.fill('one\n\n\n\ntwo\n\n');
   await page.showPage();
 
   await expect(page.paragraphs).toHaveText(['one', 'two']);
   await expect(page.everything).toHaveCount(2);
+  await expect(page.blanks).toHaveCount(5);
 });
 
 test('text that only looks like a heading stays a paragraph', async ({ page }) => {

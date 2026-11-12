@@ -285,9 +285,41 @@ button[aria-pressed="true"] {
   display: none;
 }
 
+/* On the page a blank row of the note is one empty line, and nothing else
+   sets top-level blocks apart. A block then takes the same room drawn as it
+   does in the field, and the words do not move when the cursor arrives. */
+.page.live .preview > .blank {
+  height: 1.7rem;
+}
+
+.page.live .preview > :is(p, ul, ol, blockquote, .table-scroll) {
+  margin-block: 0;
+}
+
+.page.live .preview > :is(h1, h2, h3, h4, h5, h6),
+.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) {
+  margin: 0.4rem 0 0;
+}
+
+.page.live .preview:first-child > :is(h1, h2, h3, h4, h5, h6):first-child,
+.page.live .preview:empty + .editor.part {
+  margin-top: 0;
+}
+
+/* The two fence rows of a code block are its top and bottom padding. */
+.page.live .preview > pre {
+  margin-block: 0;
+  line-height: 1.3125rem;
+  padding-block: calc(0.875rem * 1.5 - 1px);
+}
+
+.page.live .preview > hr {
+  margin-block: calc(0.85rem - 1px);
+}
+
 .editor.part {
   display: block;
-  margin: 0 0 1em;
+  margin: 0;
   position: relative;
 }
 
@@ -331,18 +363,6 @@ button[aria-pressed="true"] {
 
 .editor.part.item > * {
   padding-left: calc(2rem - 0.9em);
-}
-
-.page.live .part:has(+ .editor.item) > :is(ul, ol):last-child {
-  margin-bottom: 0;
-}
-
-.page.live .editor.item + .part > :is(ul, ol):first-child {
-  margin-top: 0;
-}
-
-.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) {
-  margin: 1.6em 0 0.5em;
 }
 
 .editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {

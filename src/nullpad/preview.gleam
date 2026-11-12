@@ -36,12 +36,17 @@ pub fn view(
   )
 }
 
-/// A run of the note's rows drawn as a page, beside the text field. `first_row` is where the run starts in the note. Each element
-/// carries the note row it starts on as `data-row`, which is how a click
-/// finds its place in the source (`surface.on_point`), and a ticked task
-/// names its row in the note, not in the run.
+/// A run of `rows` rows of the note drawn as a page, beside the text field.
+/// `first_row` is where the run starts in the note. Each element carries
+/// the note row it starts on as `data-row`, which is how a click finds its
+/// place in the source (`surface.on_point`), and a ticked task names its row
+/// in the note, not in the run.
+///
+/// A row outside every block is blank, and is drawn as one empty line
+/// (`div.blank`), so every row of the note has a place on the page.
 pub fn part(
   blocks: List(Block),
+  rows rows: Int,
   first_row first_row: Int,
   test_id test_id: String,
   on_task on_task: fn(Task, Bool) -> msg,
@@ -49,10 +54,27 @@ pub fn part(
   let on_task = fn(task: Task, checked) {
     on_task(markdown.Task(..task, row: task.row + first_row), checked)
   }
+  let #(next, drawn) = {
+    use next, drawn <- list.map_fold(blocks, 0)
+    let before = blanks(first_row, from: next, to: drawn.first_row)
+    let drawn_block = block(drawn, Marked(first_row), on_task)
+    #(drawn.last_row + 1, list.append(before, [drawn_block]))
+  }
   html.div(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
-    list.map(blocks, block(_, Marked(first_row), on_task)),
+    list.flatten(drawn)
+      |> list.append(blanks(first_row, from: next, to: rows)),
   )
+}
+
+fn blanks(first_row: Int, from from: Int, to to: Int) -> List(Element(msg)) {
+  case from < to {
+    False -> []
+    True -> [
+      html.div([attribute.class("blank"), ..at(Marked(first_row), from)], []),
+      ..blanks(first_row, from: from + 1, to:)
+    ]
+  }
 }
 
 type Rows {

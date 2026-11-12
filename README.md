@@ -36,7 +36,9 @@ The hook tests the files in your working folder, so commit or stash first.
 The note is drawn as a page while you write it. The text field holds only the
 block the cursor is in, as markdown, and every other block is drawn with its
 marks hidden. Arrow keys and clicks move the field from block to block, and
-Escape draws the whole note. The Markdown button, or Ctrl+E, puts the whole
+Escape draws the whole note. A blank line of the note is an empty line on
+the page and nothing else sets blocks apart, so the words hold still when the
+cursor arrives. The Markdown button, or Ctrl+E, puts the whole
 note in the text field as typed, and is remembered. Two things are missing on
 the page: undo across blocks, and a selection that leaves the field.
 
