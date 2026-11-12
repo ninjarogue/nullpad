@@ -150,3 +150,20 @@ function caretAt(x, y) {
   const range = document.caretRangeFromPoint?.(x, y);
   return range && { node: range.startContainer, offset: range.startOffset };
 }
+
+// How wide a list item's marker is in the field's font, in pixels: "- ",
+// "12. " or "- [ ] ", with the spaces before and after it.
+const markers = new Map();
+let pen = null;
+
+export function markerWidth(item) {
+  const marker = /^\s*(?:[-*+]|\d+[.)])(?:\s+\[[ xX]\])?\s*/.exec(item)?.[0] ?? "";
+  if (typeof document === "undefined") return 0.0;
+  if (!markers.has(marker)) {
+    pen ??= document.createElement("canvas").getContext("2d");
+    const root = getComputedStyle(document.documentElement);
+    pen.font = `${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
+    markers.set(marker, pen.measureText(marker).width);
+  }
+  return markers.get(marker);
+}

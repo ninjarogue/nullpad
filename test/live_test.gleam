@@ -55,8 +55,9 @@ pub fn a_row_past_the_note_is_kept_as_asked_test() {
 pub fn the_field_is_set_like_the_block_it_holds_test() {
   assert live.kind("## Packing") == live.Title(markdown.H2)
   assert live.kind("Title\n===") == live.Title(markdown.H1)
-  assert live.kind("- Shoes\n  and socks") == live.ListItem
-  assert live.kind("2. two") == live.ListItem
+  assert live.kind("- Shoes\n  and socks") == live.ListItem(task: False)
+  assert live.kind("2. two") == live.ListItem(task: False)
+  assert live.kind("- [ ] pack") == live.ListItem(task: True)
   assert live.kind("```\ncode\n```") == live.Mono
   assert live.kind("| a |\n|---|") == live.Mono
   assert live.kind("plain words") == live.Body
