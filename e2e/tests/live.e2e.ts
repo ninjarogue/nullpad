@@ -344,7 +344,8 @@ test('Enter on an empty line makes another, and the arrows cross each one', asyn
     await browser.keyboard.press('Enter');
     await expect(page.text).toHaveValue('');
     await expect(page.drawnIn('live-above', '.blank')).toHaveCount(line - 1);
-    expect(await top()).toBeGreaterThan(last + 10);
+    const before = last;
+    await expect.poll(top).toBeGreaterThan(before + 10);
     last = await top();
   }
   await browser.keyboard.type('world');
@@ -353,7 +354,7 @@ test('Enter on an empty line makes another, and the arrows cross each one', asyn
   await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('');
   await expect(page.drawnIn('live-below', '.blank')).toHaveCount(0);
-  expect(await top()).toBeLessThan(below - 10);
+  await expect.poll(top).toBeLessThan(below - 10);
   await browser.keyboard.press('ArrowUp');
   await expect(page.drawnIn('live-below', '.blank')).toHaveCount(1);
   await expect(page.below).toHaveText('world');
