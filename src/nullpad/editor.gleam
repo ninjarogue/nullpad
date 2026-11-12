@@ -62,6 +62,9 @@ pub type Event {
   /// has one, and otherwise moves the caret as the key itself would have.
   /// `x` is how far the caret is from the control's left edge, in pixels.
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
+  /// Escape, outside an IME composition. In live view it ends editing, so
+  /// the whole note is drawn.
+  EscapePressed(shown: Buffer)
   /// Live view: a press on the drawn page (see `live.position`).
   Pointed(row: Int, visible: String, at_end: Bool)
   FocusChanged(focused: Bool)
@@ -87,6 +90,8 @@ pub type Sync {
   /// Write, then put the caret on the first or last drawn line of the
   /// control, as near to `x` pixels from its left edge as a character allows.
   WriteAndAim(Buffer, x: Float, line: Line)
+  /// Write, and take the keyboard from the control: nothing is being edited.
+  Release(Buffer)
 }
 
 pub type Line {
@@ -176,6 +181,16 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
     Composing(shown:) -> typed(editor, shown, None, hold_rows(_, shown))
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
+    EscapePressed(shown:) -> {
+      let outcome = typed(editor, shown, None, realign)
+      case outcome.editor.field {
+        Whole -> outcome
+        Part(_) -> {
+          let editor = Editor(..outcome.editor, focused: False)
+          Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
+        }
+      }
+    }
     Pointed(row:, visible:, at_end:) -> {
       let lines = buffer.lines(editor.buffer)
       let position = live.position(lines, row:, visible:, at_end:)

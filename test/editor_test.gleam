@@ -322,6 +322,36 @@ pub fn the_whole_note_is_drawn_while_the_field_is_out_of_focus_test() {
   assert !editor.is_idle(editor.new(vim: False))
 }
 
+pub fn escape_releases_the_field_in_live_view_test() {
+  let ed = live(live_note)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: editor.field_buffer(ed)))
+
+  assert sync == editor.Release(caret("# Trip", 0, 0))
+  assert editor.is_idle(ed)
+  assert editor.text(ed) == live_note
+}
+
+pub fn escape_right_after_live_view_comes_on_releases_the_field_test() {
+  let Outcome(editor: markdown, ..) =
+    editor.new(vim: False) |> editor.open(live_note)
+  let Outcome(editor: ed, ..) = editor.set_live(markdown, True)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: caret("# Trip", 0, 0)))
+
+  assert sync == editor.Release(caret("# Trip", 0, 0))
+  assert editor.is_idle(ed)
+}
+
+pub fn escape_with_the_whole_note_in_the_field_changes_nothing_test() {
+  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("one")
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: caret("one", 0, 1)))
+
+  assert sync == editor.InSync
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 0, col: 1)
+}
+
 pub fn a_write_counts_as_focus_before_the_browser_says_so_test() {
   // The field is drawn in its block before it takes the keyboard.
   assert !editor.is_idle(live(live_note))

@@ -73,7 +73,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
           "keydown",
           decode.one_of(key_decoder(editor, on_event), [
             edge_decoder(on_event),
-            escape_decoder(editor, on_event),
+            escape_decoder(on_event),
           ]),
         ),
       ],
@@ -173,6 +173,12 @@ pub fn sync(
             on_event(editor.ControlChanged(from_control(text, start, end))),
           )
         }),
+      ])
+    editor.Release(buffer) ->
+      effect.batch([
+        write(buffer),
+        // After any `focus` asked for earlier, which also waits for the render.
+        effect.before_paint(fn(_, _) { blur_control(control_id) }),
       ])
   }
 }
@@ -307,20 +313,18 @@ fn edge_decoder(
 }
 
 fn escape_decoder(
-  editor: Editor,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
   use composing <- decode.field("isComposing", decode.bool)
   use shown <- decode.then(shown_decoder())
-  case editor.region(editor), name {
-    // Out of focus the whole note is drawn (`editor.is_idle`).
-    Some(_), "Escape" if !composing -> blur_control(control_id)
-    _, _ -> Nil
+  let handler =
+    on_event(editor.EscapePressed(shown:))
+    |> event.handler(prevent_default: False, stop_propagation: False)
+  case name, composing {
+    "Escape", False -> decode.success(handler)
+    _, _ -> decode.failure(handler, expected: "Escape")
   }
-  on_event(editor.ControlChanged(shown:))
-  |> event.handler(prevent_default: False, stop_propagation: False)
-  |> decode.failure(expected: "Escape")
 }
 
 /// Boundary parse of `KeyboardEvent.key`: "Escape" -> Escape; "Enter" ->
