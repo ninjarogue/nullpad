@@ -78,7 +78,7 @@ pub type Model {
     /// Counts deletes, so an old timer cannot clear a newer undo.
     deletes: Int,
     /// Last storage failure, shown in a banner.
-    problem: Option(String),
+    problem: Option(Failure),
   )
 }
 
@@ -221,7 +221,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.batch([left, list_notes(model)]))
     }
     StorageSaved(id:, edits:, result: Error(failure)), _ -> {
-      let model = Model(..model, problem: Some(describe(failure)))
+      let model = Model(..model, problem: Some(failure))
       case is_awaited_answer(model, id, edits) {
         True -> #(
           Model(..with_save_state(model, Unsaved), leaving_for: None),
@@ -278,7 +278,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       storage.delete(model.storage, note.id, StorageDeleted(note, _)),
     )
     StorageFoundDoomed(Error(failure)), _ -> #(
-      Model(..model, deletion: NotDeleting, problem: Some(describe(failure))),
+      Model(..model, deletion: NotDeleting, problem: Some(failure)),
       list_notes(model),
     )
 
@@ -300,8 +300,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.batch([list_notes(model), expire]))
     }
     StorageDeleted(note:, result: Error(failure)), _ -> {
-      let model =
-        Model(..model, deletion: NotDeleting, problem: Some(describe(failure)))
+      let model = Model(..model, deletion: NotDeleting, problem: Some(failure))
       case is_open(model, note.id) {
         True -> #(
           model,
@@ -330,11 +329,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       list_notes(model),
     )
     StorageRestored(note:, was_open:, result: Error(failure)), _ -> #(
-      Model(
-        ..model,
-        undo: Some(Undo(note:, was_open:)),
-        problem: Some(describe(failure)),
-      ),
+      Model(..model, undo: Some(Undo(note:, was_open:)), problem: Some(failure)),
       effect.none(),
     )
     UndoExpired(deletes), _ if deletes == model.deletes -> #(
@@ -361,13 +356,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     StorageLoaded(Error(storage.NotFound as failure)), _ -> #(
-      Model(..model, problem: Some(describe(failure))),
+      Model(..model, problem: Some(failure)),
       list_notes(model),
     )
     StorageListed(Error(failure)), _
     | StorageLoaded(Error(failure)), _
     | StorageCreated(Error(failure)), _
-    -> #(Model(..model, problem: Some(describe(failure))), effect.none())
+    -> #(Model(..model, problem: Some(failure)), effect.none())
   }
 }
 
@@ -519,7 +514,7 @@ pub fn view(model: Model) -> Element(Msg) {
               attribute.role("alert"),
               attribute.data("test-id", "problem"),
             ],
-            [element.text(problem)],
+            [element.text(describe(problem))],
           )
         None -> element.none()
       },
