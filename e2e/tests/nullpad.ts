@@ -482,13 +482,6 @@ class Page {
   /** On the page: leave the text field, so the whole note is drawn. */
   async stopEditing() {
     await expect(this.text).toBeFocused();
-    // A toggle gives the field the keyboard a frame later, also when it has it.
-    await this.browser.evaluate(
-      () =>
-        new Promise<null>((done) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => done(null))),
-        ),
-    );
     await this.browser.keyboard.press('Escape');
     await expect(this.preview).toBeVisible();
   }
