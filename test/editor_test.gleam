@@ -241,12 +241,24 @@ pub fn ticking_a_drawn_task_leaves_the_field_alone_test() {
 }
 
 pub fn the_whole_note_is_drawn_while_the_field_is_out_of_focus_test() {
-  let ed = live(live_note)
+  let Outcome(editor: ed, ..) =
+    editor.update(live(live_note), editor.FocusChanged(False))
   assert editor.is_idle(ed)
 
   let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(True))
   assert !editor.is_idle(ed)
   assert !editor.is_idle(editor.new(vim: False))
+}
+
+pub fn a_write_counts_as_focus_before_the_browser_says_so_test() {
+  // The field is drawn in its block before it takes the keyboard.
+  assert !editor.is_idle(live(live_note))
+
+  let Outcome(editor: ed, ..) =
+    editor.update(live(live_note), editor.FocusChanged(False))
+    |> fn(outcome: Outcome) { outcome.editor }
+    |> editor.update(editor.Pointed(row: 4, visible: "on", at_end: False))
+  assert !editor.is_idle(ed)
 }
 
 pub fn leaving_live_view_puts_the_whole_note_back_test() {
