@@ -109,8 +109,11 @@ button[aria-pressed="true"] {
   gap: 2px;
 }
 
+/* Rows are plain text on the panel. The open note is the bold one. */
 .note-list li > button:first-child {
+  background: none;
   border-color: transparent;
+  color: var(--faint);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -119,13 +122,14 @@ button[aria-pressed="true"] {
   white-space: nowrap;
 }
 
-.note-list li > button:hover {
-  background: var(--line);
+.note-list li > button:first-child:hover {
+  color: var(--ink);
 }
 
 /* The open note's row carries its delete button, and the question it asks
    sits on a line of its own under the row. */
 .note-list .delete {
+  background: none;
   border-color: transparent;
   color: var(--faint);
   flex: none;
@@ -150,9 +154,8 @@ button[aria-pressed="true"] {
   padding: 0.25rem 0.5rem 0.5rem;
 }
 
-.note-list button[aria-current="true"] {
-  background: var(--paper);
-  border-color: var(--line);
+.note-list li > button[aria-current="true"] {
+  color: var(--ink);
   font-weight: 600;
 }
 
