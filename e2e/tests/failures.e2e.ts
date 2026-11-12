@@ -120,8 +120,8 @@ test('a delete that fails says so and keeps the note open', async ({ app, disk, 
   await expect(page.text).toHaveValue('milk');
 
   await disk.fail();
+  await page.noteActions.tap();
   await page.delete.tap();
-  await page.confirmDelete.tap();
   await expect(page.problem).toHaveText(notWorking);
   await expect(page.currentRow).toHaveText('Groceries');
   await expect(page.text).toHaveValue('milk');
@@ -143,9 +143,9 @@ test('typing while a delete is under way does not bring the note back', async ({
   await expect(page.text).toHaveValue('milk');
 
   await disk.hold();
+  await page.noteActions.tap();
   await page.delete.tap();
-  await page.confirmDelete.tap();
-  await expect(page.delete).toBeDisabled();
+  await expect(page.noteActions).toBeDisabled();
   await page.text.fill('milk, eggs');
   await pause(autosaveMs + timerSlackMs);
   await disk.release();

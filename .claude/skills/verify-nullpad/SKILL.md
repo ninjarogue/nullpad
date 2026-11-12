@@ -94,7 +94,8 @@ Handles that do not change:
 | Drawn parts around the field | `[data-test-id=live-above]`, `[data-test-id=live-below]` |
 | Task box | `[data-test-id=preview]` then `getByRole('checkbox', { name: 'buy milk' })`, named by the item's text |
 | Table, its heading and cells, its scrolling box | `[data-test-id=preview] table`, `getByRole('columnheader')`, `getByRole('cell')`, `getByRole('region', { name: 'Table' })` inside the page |
-| Delete "×" on a row (open note, other note), confirm, keep | `[data-test-id=delete-note]`, `[data-test-id=delete-other]`, `[data-test-id=confirm-delete]`, `[data-test-id=cancel-delete]` |
+| Note menu: the ⋯ on the open note's row, or a right-click on any row | `[data-test-id=row-actions]`, `locator.click({ button: 'right' })`, then `[data-test-id=note-menu]` |
+| Delete in the menu, the "Deleted …" toast, Undo | `[data-test-id=delete-note]`, `[data-test-id=undo-toast]`, `[data-test-id=undo-delete]` |
 
 `e2e/tests/nullpad.ts` holds the same handles for the regression suite. Run that suite with `cd e2e && npm test`. It answers "did anything break". A journey answers "does this feature work for a person" and leaves proof.
 

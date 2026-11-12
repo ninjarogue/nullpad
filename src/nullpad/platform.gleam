@@ -1,5 +1,6 @@
 //// Imported by: the app shell and `nullpad.main`. Imports: lustre/effect.
 
+import gleam/dynamic.{type Dynamic}
 import lustre/effect.{type Effect}
 
 /// Deliver `msg` after `ms` milliseconds. There is no cancel: the receiver
@@ -73,11 +74,16 @@ fn write_clipboard(text: String) -> Nil
 @external(javascript, "./platform.ffi.mjs", "writeVimSetting")
 fn write_vim_setting(on: Bool) -> Nil
 
-/// Scroll the element with this test id into sight once it is drawn.
-pub fn bring_into_view(test_id: String) -> Effect(msg) {
+/// Give the element with this test id the keyboard once it is drawn.
+pub fn focus(test_id: String) -> Effect(msg) {
   use _, _ <- effect.before_paint
-  scroll_into_view(test_id)
+  focus_element(test_id)
 }
 
-@external(javascript, "./platform.ffi.mjs", "scrollIntoView")
-fn scroll_into_view(test_id: String) -> Nil
+@external(javascript, "./platform.ffi.mjs", "focusElement")
+fn focus_element(test_id: String) -> Nil
+
+/// The point just under the button a click event came from, in pixels from
+/// the window's corner. It is the same for a mouse and for the keyboard.
+@external(javascript, "./platform.ffi.mjs", "below")
+pub fn below(click: Dynamic) -> #(Float, Float)

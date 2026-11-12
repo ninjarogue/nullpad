@@ -10,10 +10,14 @@
 ////   note-list         the list; each row is  note-<storage.id_text(id)>
 ////   title             the title field
 ////   save-state        "Saved" / "Saving…" / "Unsaved"
-////   delete-note       on the open note's row in the list; it asks, then
-////                     confirm-delete / cancel-delete answer
+////   row-actions       the ⋯ on the open note's row; opens the note menu
+////   note-menu         the menu, also opened by a right-click on any row
+////   delete-note       Delete in the menu
+////   undo-toast        "Deleted …" for a few seconds; undo-delete undoes it
 ////   problem           the storage error banner
 
+import gleam/dynamic/decode
+import gleam/float
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import lustre/attribute
@@ -36,6 +40,9 @@ import nullpad/vim
 const autosave_ms = 800
 
 const retry_save_ms = 5000
+
+/// How long a deleted note can be brought back.
+const undo_ms = 5000
 
 /// What `main` hands to `init`.
 pub type Flags {
@@ -63,7 +70,13 @@ pub type Model {
     showing: Showing,
     vim: Bool,
     can_vim: Bool,
+    /// The note menu, when it is open.
+    menu: Option(Menu),
     deletion: Deletion,
+    /// The note deleted last, while it can still be brought back.
+    undo: Option(Undo),
+    /// Counts deletes, so an old timer cannot clear a newer undo.
+    deletes: Int,
     /// Last storage failure, shown in a banner.
     problem: Option(String),
   )
@@ -91,13 +104,22 @@ pub type SaveState {
   Saved
 }
 
+/// A note's menu and where it is drawn, in pixels from the window's corner.
+pub type Menu {
+  Menu(id: NoteId, x: Float, y: Float)
+}
+
 /// Any note in the list can be deleted, open or not, one at a time.
 pub type Deletion {
-  NotAsked
-  Asked(NoteId)
+  NotDeleting
   /// Storage has the request. If it is for the open note, nothing is saved
   /// until storage answers, or the save would bring the note back.
   Deleting(NoteId)
+}
+
+/// A delete is not asked about. It can be undone for a few seconds instead.
+pub type Undo {
+  Undo(note: Note, was_open: Bool)
 }
 
 pub type Showing {
@@ -116,12 +138,17 @@ pub type Msg {
   StorageLoaded(Result(Note, Failure))
   StorageCreated(Result(Note, Failure))
   StorageSaved(id: NoteId, edits: Int, result: Result(Nil, Failure))
-  StorageDeleted(id: NoteId, result: Result(Nil, Failure))
+  /// The body of a note that is not open, read so its delete can be undone.
+  StorageFoundDoomed(id: NoteId, result: Result(Note, Failure))
+  StorageDeleted(note: Note, result: Result(Nil, Failure))
+  StorageRestored(note: Note, was_open: Bool, result: Result(Nil, Failure))
+  UndoExpired(deletes: Int)
   UserPickedNote(NoteId)
   UserAskedForNewNote
-  UserAskedToDelete(NoteId)
-  UserKeptNote
+  UserOpenedMenu(Menu)
+  UserClosedMenu
   UserDeletedNote(NoteId)
+  UserUndidDelete
   UserRenamedNote(title: String)
   UserToggledMarkdown
   UserToggledVim(on: Bool)
@@ -144,7 +171,10 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
       },
       vim:,
       can_vim:,
-      deletion: NotAsked,
+      menu: None,
+      deletion: NotDeleting,
+      undo: None,
+      deletes: 0,
       problem: None,
     )
   let start =
@@ -222,53 +252,96 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserAskedForNewNote, _ ->
       leave_when_saved(Model(..model, leaving_for: Some(NewNote)))
 
-    UserAskedToDelete(id), _ ->
-      case model.deletion {
-        Deleting(_) -> #(model, effect.none())
-        NotAsked | Asked(_) -> #(
-          Model(..model, deletion: Asked(id)),
-          platform.bring_into_view("cancel-delete"),
-        )
-      }
-    UserKeptNote, _ ->
-      case model.deletion {
-        Deleting(_) -> #(model, effect.none())
-        NotAsked | Asked(_) -> #(
-          Model(..model, deletion: NotAsked),
-          effect.none(),
-        )
-      }
-    UserDeletedNote(id), Some(open) if open.id == id -> #(
-      Model(..model, deletion: Deleting(id), leaving_for: None),
-      storage.delete(model.storage, id, StorageDeleted(id, _)),
+    UserOpenedMenu(menu), _ -> #(
+      Model(..model, menu: Some(menu)),
+      platform.focus("delete-note"),
     )
-    UserDeletedNote(id), _ -> #(
-      Model(..model, deletion: Deleting(id)),
-      storage.delete(model.storage, id, StorageDeleted(id, _)),
-    )
-    StorageDeleted(id:, result:), Some(open) if open.id == id -> {
-      let model = Model(..model, deletion: NotAsked)
-      case result {
-        Ok(_) -> {
-          let #(model, left) = leave_when_saved(Model(..model, open: None))
-          #(model, effect.batch([left, list_notes(model)]))
-        }
-        Error(failure) -> {
-          let model = Model(..model, problem: Some(describe(failure)))
-          let #(model, left) = leave_when_saved(model)
-          let retry = platform.after(retry_save_ms, AutosaveDue(model.edits))
-          #(model, effect.batch([left, retry]))
-        }
-      }
-    }
-    StorageDeleted(result: Ok(_), ..), _ -> #(
-      Model(..model, deletion: NotAsked),
-      list_notes(model),
-    )
-    StorageDeleted(result: Error(failure), ..), _ -> #(
-      Model(..model, deletion: NotAsked, problem: Some(describe(failure))),
+    UserClosedMenu, _ -> #(Model(..model, menu: None), effect.none())
+
+    UserDeletedNote(_), _ if model.deletion != NotDeleting -> #(
+      Model(..model, menu: None),
       effect.none(),
     )
+    UserDeletedNote(id), Some(open) if open.id == id -> {
+      let note = Note(id:, title: open.title, body: editor.text(model.editor))
+      #(
+        Model(..model, menu: None, deletion: Deleting(id), leaving_for: None),
+        storage.delete(model.storage, id, StorageDeleted(note, _)),
+      )
+    }
+    UserDeletedNote(id), _ -> #(
+      Model(..model, menu: None, deletion: Deleting(id)),
+      storage.load(model.storage, id, StorageFoundDoomed(id, _)),
+    )
+    StorageFoundDoomed(result: Ok(note), ..), _ -> #(
+      model,
+      storage.delete(model.storage, note.id, StorageDeleted(note, _)),
+    )
+    StorageFoundDoomed(result: Error(failure), ..), _ -> #(
+      Model(..model, deletion: NotDeleting, problem: Some(describe(failure))),
+      list_notes(model),
+    )
+
+    StorageDeleted(note:, result: Ok(_)), _ -> {
+      let was_open = is_open(model, note.id)
+      let deletes = model.deletes + 1
+      let model =
+        Model(
+          ..model,
+          deletion: NotDeleting,
+          undo: Some(Undo(note:, was_open:)),
+          deletes:,
+        )
+      let model = case was_open {
+        True -> Model(..model, open: None)
+        False -> model
+      }
+      let expire = platform.after(undo_ms, UndoExpired(deletes))
+      #(model, effect.batch([list_notes(model), expire]))
+    }
+    StorageDeleted(note:, result: Error(failure)), _ -> {
+      let model =
+        Model(..model, deletion: NotDeleting, problem: Some(describe(failure)))
+      case is_open(model, note.id) {
+        True -> #(
+          model,
+          platform.after(retry_save_ms, AutosaveDue(model.edits)),
+        )
+        False -> #(model, effect.none())
+      }
+    }
+
+    UserUndidDelete, _ ->
+      case model.undo {
+        Some(Undo(note:, was_open:)) -> #(
+          Model(..model, undo: None),
+          storage.save(model.storage, note, StorageRestored(note, was_open, _)),
+        )
+        None -> #(model, effect.none())
+      }
+    StorageRestored(note:, was_open: True, result: Ok(_)), _ -> {
+      let #(model, left) =
+        Model(..model, leaving_for: Some(ExistingNote(note.id)))
+        |> leave_when_saved
+      #(model, effect.batch([left, list_notes(model)]))
+    }
+    StorageRestored(was_open: False, result: Ok(_), ..), _ -> #(
+      model,
+      list_notes(model),
+    )
+    StorageRestored(note:, was_open:, result: Error(failure)), _ -> #(
+      Model(
+        ..model,
+        undo: Some(Undo(note:, was_open:)),
+        problem: Some(describe(failure)),
+      ),
+      effect.none(),
+    )
+    UndoExpired(deletes), _ if deletes == model.deletes -> #(
+      Model(..model, undo: None),
+      effect.none(),
+    )
+    UndoExpired(_), _ -> #(model, effect.none())
 
     UserToggledMarkdown, _ -> {
       let showing = case model.showing {
@@ -394,14 +467,7 @@ fn open_note(model: Model, note: Note) -> #(Model, Effect(Msg)) {
   let Outcome(editor:, sync:, ..) = editor.open(model.editor, note.body)
   let open = Open(id: note.id, title: note.title, save_state: Saved)
   #(
-    Model(
-      ..model,
-      editor:,
-      open: Some(open),
-      leaving_for: None,
-      deletion: NotAsked,
-      problem: None,
-    ),
+    Model(..model, editor:, open: Some(open), leaving_for: None, problem: None),
     surface.sync(sync, EditorSent),
   )
 }
@@ -424,6 +490,13 @@ fn load(model: Model, id: NoteId) -> Effect(Msg) {
 
 fn create(model: Model) -> Effect(Msg) {
   storage.create(model.storage, StorageCreated)
+}
+
+fn is_open(model: Model, id: NoteId) -> Bool {
+  case model.open {
+    Some(open) -> open.id == id
+    None -> False
+  }
 }
 
 fn describe(failure: Failure) -> String {
@@ -452,6 +525,8 @@ pub fn view(model: Model) -> Element(Msg) {
       },
       page(model),
     ]),
+    note_menu(model),
+    undo_toast(model),
   ])
 }
 
@@ -504,7 +579,10 @@ fn sidebar(model: Model) -> Element(Msg) {
       [attribute.class("note-list"), attribute.data("test-id", "note-list")],
       list.map(model.notes, fn(summary) {
         let key = storage.id_text(summary.id)
-        let row = [note_row(model, summary), delete_buttons(model, summary.id)]
+        let row = case is_open(model, summary.id) {
+          True -> [note_row(model, summary), more_button(model, summary.id)]
+          False -> [note_row(model, summary)]
+        }
         #(key, html.li([], row))
       }),
     ),
@@ -524,6 +602,22 @@ fn note_row(model: Model, summary: Summary) -> Element(Msg) {
       attribute.data("test-id", "note-" <> storage.id_text(summary.id)),
       attribute.aria_current(current),
       event.on_click(UserPickedNote(summary.id)),
+      // A right-click, a long press where the browser makes it one, and the
+      // keyboard's menu key.
+      event.advanced("contextmenu", {
+        use x <- decode.field("clientX", decode.float)
+        use y <- decode.field("clientY", decode.float)
+        UserOpenedMenu(Menu(id: summary.id, x:, y:))
+        |> event.handler(prevent_default: True, stop_propagation: False)
+        |> decode.success
+      }),
+      event.on("keydown", {
+        use key <- decode.field("key", decode.string)
+        case key {
+          "Delete" | "Backspace" -> decode.success(UserDeletedNote(summary.id))
+          _ -> decode.failure(UserClosedMenu, expected: "the Delete key")
+        }
+      }),
     ],
     [element.text(title)],
   )
@@ -608,48 +702,99 @@ fn mode_label(mode: String) -> Element(Msg) {
   ])
 }
 
-/// The × on a note's row, or the question it asks. The open note's button
-/// is `delete-note` for the tests, every other row's is `delete-other`.
-fn delete_buttons(model: Model, id: NoteId) -> Element(Msg) {
-  let is_open = case model.open {
-    Some(open) -> open.id == id
-    None -> False
+/// The visible way to the note menu, for a phone and for the keyboard. Only
+/// the open note has it, so the other rows stay plain text.
+fn more_button(model: Model, id: NoteId) -> Element(Msg) {
+  html.button(
+    [
+      attribute.class("more"),
+      attribute.data("test-id", "row-actions"),
+      attribute.aria_label("Note actions"),
+      attribute.aria_haspopup("menu"),
+      attribute.aria_expanded(model.menu != None),
+      attribute.disabled(model.deletion == Deleting(id)),
+      event.on("click", {
+        use press <- decode.then(decode.dynamic)
+        let #(x, y) = platform.below(press)
+        decode.success(UserOpenedMenu(Menu(id:, x:, y:)))
+      }),
+    ],
+    [element.text("⋯")],
+  )
+}
+
+fn note_menu(model: Model) -> Element(Msg) {
+  case model.menu {
+    None -> element.none()
+    Some(Menu(id:, x:, y:)) ->
+      html.div(
+        [
+          attribute.class("menu-backdrop"),
+          event.on_click(UserClosedMenu),
+          event.advanced(
+            "contextmenu",
+            UserClosedMenu
+              |> event.handler(prevent_default: True, stop_propagation: False)
+              |> decode.success,
+          ),
+          event.on("keydown", {
+            use key <- decode.field("key", decode.string)
+            case key {
+              "Escape" -> decode.success(UserClosedMenu)
+              _ -> decode.failure(UserClosedMenu, expected: "Escape")
+            }
+          }),
+        ],
+        [
+          html.div(
+            [
+              attribute.class("menu"),
+              attribute.role("menu"),
+              attribute.data("test-id", "note-menu"),
+              attribute.style("--x", float.to_string(x) <> "px"),
+              attribute.style("--y", float.to_string(y) <> "px"),
+            ],
+            [
+              html.button(
+                [
+                  attribute.class("danger"),
+                  attribute.role("menuitem"),
+                  attribute.data("test-id", "delete-note"),
+                  event.on_click(UserDeletedNote(id)),
+                ],
+                [element.text("Delete")],
+              ),
+            ],
+          ),
+        ],
+      )
   }
-  let ask =
-    html.button(
-      [
-        attribute.class("delete"),
-        attribute.data("test-id", case is_open {
-          True -> "delete-note"
-          False -> "delete-other"
-        }),
-        attribute.aria_label("Delete note"),
-        attribute.title("Delete note"),
-        attribute.disabled(model.deletion == Deleting(id)),
-        event.on_click(UserAskedToDelete(id)),
-      ],
-      [element.text("×")],
-    )
-  case model.deletion == Asked(id) {
-    False -> ask
-    True ->
-      html.span([attribute.class("confirm")], [
-        element.text("Delete?"),
-        html.button(
-          [
-            attribute.class("danger"),
-            attribute.data("test-id", "confirm-delete"),
-            event.on_click(UserDeletedNote(id)),
-          ],
-          [element.text("Delete")],
-        ),
-        html.button(
-          [
-            attribute.data("test-id", "cancel-delete"),
-            event.on_click(UserKeptNote),
-          ],
-          [element.text("Keep")],
-        ),
-      ])
+}
+
+fn undo_toast(model: Model) -> Element(Msg) {
+  case model.undo {
+    None -> element.none()
+    Some(Undo(note:, ..)) ->
+      html.div(
+        [
+          attribute.class("toast"),
+          attribute.aria_live("polite"),
+          attribute.data("test-id", "undo-toast"),
+        ],
+        [
+          html.span([], [
+            element.text(
+              "Deleted “" <> storage.display_title(note.title, note.body) <> "”",
+            ),
+          ]),
+          html.button(
+            [
+              attribute.data("test-id", "undo-delete"),
+              event.on_click(UserUndidDelete),
+            ],
+            [element.text("Undo")],
+          ),
+        ],
+      )
   }
 }
