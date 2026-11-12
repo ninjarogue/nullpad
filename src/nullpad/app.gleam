@@ -11,7 +11,8 @@
 ////   note-list         the list; each row is  note-<storage.id_text(id)>
 ////   title             the title field
 ////   save-state        "Saved" / "Saving…" / "Unsaved"
-////   delete-note       asks; then confirm-delete / cancel-delete answer
+////   delete-note       on the open note's row in the list; it asks, then
+////                     confirm-delete / cancel-delete answer
 ////   problem           the storage error banner
 
 import gleam/list
@@ -94,12 +95,13 @@ pub type SaveState {
   Saved
 }
 
+/// Any note in the list can be deleted, open or not, one at a time.
 pub type Deletion {
   NotAsked
-  Asked
-  /// Storage has the request. Nothing is saved until it answers, or the
-  /// save would bring the note back.
-  Deleting
+  Asked(NoteId)
+  /// Storage has the request. If it is for the open note, nothing is saved
+  /// until storage answers, or the save would bring the note back.
+  Deleting(NoteId)
 }
 
 pub type Showing {
@@ -118,7 +120,7 @@ pub type Msg {
   StorageDeleted(id: NoteId, result: Result(Nil, Failure))
   UserPickedNote(NoteId)
   UserAskedForNewNote
-  UserAskedToDelete
+  UserAskedToDelete(NoteId)
   UserKeptNote
   UserDeletedNote(NoteId)
   UserRenamedNote(title: String)
@@ -221,14 +223,28 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, showing: Source, leaving_for: Some(NewNote))
       |> leave_when_saved
 
-    UserAskedToDelete, _ | UserKeptNote, _ if model.deletion == Deleting -> #(
-      model,
-      effect.none(),
+    UserAskedToDelete(id), _ ->
+      case model.deletion {
+        Deleting(_) -> #(model, effect.none())
+        NotAsked | Asked(_) -> #(
+          Model(..model, deletion: Asked(id)),
+          platform.bring_into_view("cancel-delete"),
+        )
+      }
+    UserKeptNote, _ ->
+      case model.deletion {
+        Deleting(_) -> #(model, effect.none())
+        NotAsked | Asked(_) -> #(
+          Model(..model, deletion: NotAsked),
+          effect.none(),
+        )
+      }
+    UserDeletedNote(id), Some(open) if open.id == id -> #(
+      Model(..model, deletion: Deleting(id), leaving_for: None),
+      storage.delete(model.storage, id, StorageDeleted(id, _)),
     )
-    UserAskedToDelete, _ -> #(Model(..model, deletion: Asked), effect.none())
-    UserKeptNote, _ -> #(Model(..model, deletion: NotAsked), effect.none())
     UserDeletedNote(id), _ -> #(
-      Model(..model, deletion: Deleting, leaving_for: None),
+      Model(..model, deletion: Deleting(id)),
       storage.delete(model.storage, id, StorageDeleted(id, _)),
     )
     StorageDeleted(id:, result:), Some(open) if open.id == id -> {
@@ -246,7 +262,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     }
-    StorageDeleted(result: Ok(_), ..), _ -> #(model, list_notes(model))
+    StorageDeleted(result: Ok(_), ..), _ -> #(
+      Model(..model, deletion: NotAsked),
+      list_notes(model),
+    )
+    StorageDeleted(result: Error(failure), ..), _ -> #(
+      Model(..model, deletion: NotAsked, problem: Some(describe(failure))),
+      effect.none(),
+    )
 
     UserToggledRendered, _ ->
       case model.showing {
@@ -272,7 +295,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     StorageListed(Error(failure)), _
     | StorageLoaded(Error(failure)), _
     | StorageCreated(Error(failure)), _
-    | StorageDeleted(result: Error(failure), ..), _
     -> #(Model(..model, problem: Some(describe(failure))), effect.none())
   }
 }
@@ -340,7 +362,10 @@ fn start_autosave_timer(model: Model) -> Effect(Msg) {
 
 fn save(model: Model) -> #(Model, Effect(Msg)) {
   case model.open, model.deletion {
-    _, Deleting -> #(model, effect.none())
+    Some(open), Deleting(deleting) if open.id == deleting -> #(
+      model,
+      effect.none(),
+    )
     Some(Open(id:, title:, save_state: Unsaved) as open), _ -> {
       let note = Note(id:, title:, body: editor.text(model.editor))
       #(
@@ -483,7 +508,8 @@ fn sidebar(model: Model) -> Element(Msg) {
       [attribute.class("note-list"), attribute.data("test-id", "note-list")],
       list.map(model.notes, fn(summary) {
         let key = storage.id_text(summary.id)
-        #(key, html.li([], [note_row(model, summary)]))
+        let row = [note_row(model, summary), delete_buttons(model, summary.id)]
+        #(key, html.li([], row))
       }),
     ),
   ])
@@ -533,7 +559,6 @@ fn toolbar(model: Model) -> Element(Msg) {
         [element.text(save_state_label(open.save_state))],
       ),
       toggles(model),
-      delete_buttons(model, open),
     ]
   })
 }
@@ -597,25 +622,38 @@ fn mode_label(mode: String) -> Element(Msg) {
   ])
 }
 
-fn delete_buttons(model: Model, open: Open) -> Element(Msg) {
-  case model.deletion {
-    NotAsked | Deleting ->
-      html.button(
-        [
-          attribute.data("test-id", "delete-note"),
-          attribute.disabled(model.deletion == Deleting),
-          event.on_click(UserAskedToDelete),
-        ],
-        [element.text("Delete")],
-      )
-    Asked ->
+/// The × on a note's row, or the question it asks. The open note's button
+/// is `delete-note` for the tests, every other row's is `delete-other`.
+fn delete_buttons(model: Model, id: NoteId) -> Element(Msg) {
+  let is_open = case model.open {
+    Some(open) -> open.id == id
+    None -> False
+  }
+  let ask =
+    html.button(
+      [
+        attribute.class("delete"),
+        attribute.data("test-id", case is_open {
+          True -> "delete-note"
+          False -> "delete-other"
+        }),
+        attribute.aria_label("Delete note"),
+        attribute.title("Delete note"),
+        attribute.disabled(model.deletion == Deleting(id)),
+        event.on_click(UserAskedToDelete(id)),
+      ],
+      [element.text("×")],
+    )
+  case model.deletion == Asked(id) {
+    False -> ask
+    True ->
       html.span([attribute.class("confirm")], [
-        element.text("Delete this note?"),
+        element.text("Delete?"),
         html.button(
           [
             attribute.class("danger"),
             attribute.data("test-id", "confirm-delete"),
-            event.on_click(UserDeletedNote(open.id)),
+            event.on_click(UserDeletedNote(id)),
           ],
           [element.text("Delete")],
         ),

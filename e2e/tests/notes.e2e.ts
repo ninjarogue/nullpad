@@ -162,6 +162,22 @@ test('the delete question does not follow you to another note', async ({ disk, p
   expect(await disk.notes()).toEqual([trip, groceries]);
 });
 
+test('a note that is not open is deleted from its row, and the open note stays', async ({
+  disk,
+  page,
+}) => {
+  await page.text.fill('milk, eggs');
+  await page.deleteOther.tap();
+  await expect(page.text).toHaveValue('milk, eggs');
+  await page.confirmDelete.tap();
+
+  await expect(page.rows).toHaveText(['Groceries']);
+  await expect(page.confirmDelete).toBeHidden();
+  await expect(page.text).toHaveValue('milk, eggs');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([{ ...groceries, body: 'milk, eggs' }]);
+});
+
 test('the button flips to the preview and back', async ({ page }) => {
   await page.showPreview.tap();
   await expect(page.preview).toHaveText('milk');

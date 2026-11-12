@@ -72,3 +72,12 @@ fn write_clipboard(text: String) -> Nil
 
 @external(javascript, "./platform.ffi.mjs", "writeVimSetting")
 fn write_vim_setting(on: Bool) -> Nil
+
+/// Scroll the element with this test id into sight once it is drawn.
+pub fn bring_into_view(test_id: String) -> Effect(msg) {
+  use _, _ <- effect.before_paint
+  scroll_into_view(test_id)
+}
+
+@external(javascript, "./platform.ffi.mjs", "scrollIntoView")
+fn scroll_into_view(test_id: String) -> Nil

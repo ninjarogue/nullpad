@@ -185,6 +185,7 @@ class Page {
   readonly headers: Locator;
   readonly cells: Locator;
   readonly delete: Locator;
+  readonly deleteOther: Locator;
   readonly confirmDelete: Locator;
   readonly keep: Locator;
   readonly vimSwitch: Locator;
@@ -202,7 +203,7 @@ class Page {
     this.saveState = screen.getByRole('status');
     this.problem = screen.getByRole('alert');
     this.list = screen.getByTestId('note-list');
-    this.rows = this.list.getByRole('button');
+    this.rows = browser.locator('[data-test-id="note-list"] [data-test-id^="note-"]');
     this.currentRow = browser.locator('[aria-current="true"]');
     this.newNote = screen.getByRole('button', 'New note');
     this.showPreview = screen.getByRole('button', 'Preview');
@@ -226,6 +227,7 @@ class Page {
     this.headers = this.preview.getByRole('columnheader');
     this.cells = this.preview.getByRole('cell');
     this.delete = screen.getByTestId('delete-note');
+    this.deleteOther = screen.getByTestId('delete-other');
     this.confirmDelete = screen.getByTestId('confirm-delete');
     this.keep = screen.getByRole('button', 'Keep');
     this.vimSwitch = screen.getByLabel('Vim');

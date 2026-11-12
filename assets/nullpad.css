@@ -97,17 +97,52 @@ button:hover {
   padding: 0;
 }
 
-.note-list button {
+.note-list li {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.note-list li > button:first-child {
   border-color: transparent;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  width: 100%;
 }
 
-.note-list button:hover {
+.note-list li > button:hover {
   background: var(--line);
+}
+
+/* The open note's row carries its delete button, and the question it asks
+   sits on a line of its own under the row. */
+.note-list .delete {
+  border-color: transparent;
+  color: var(--faint);
+  flex: none;
+}
+
+.note-list .delete:hover {
+  color: var(--danger);
+}
+
+/* With a mouse, only the open note and the row under the pointer show
+   their ×. A touch screen has no pointer to rest, so every row shows it. */
+@media (hover: hover) {
+  .note-list li:not(:hover, :focus-within) > [aria-current="false"] + .delete {
+    opacity: 0;
+  }
+}
+
+.note-list .confirm {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem 0.5rem;
 }
 
 .note-list button[aria-current="true"] {
@@ -564,7 +599,18 @@ button:hover {
     overflow-y: hidden;
   }
 
-  .note-list button {
+  .note-list li {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+
+  .note-list li > button:first-child {
     max-width: 10rem;
+  }
+
+  .note-list .confirm {
+    flex: none;
+    padding: 0 0.25rem;
+    white-space: nowrap;
   }
 }

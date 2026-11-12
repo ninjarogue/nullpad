@@ -65,3 +65,9 @@ export function writeLiveSetting(on) {
     localStorage.setItem(LIVE_SETTING, on ? "on" : "off");
   } catch {}
 }
+
+export function scrollIntoView(testId) {
+  document
+    .querySelector(`[data-test-id="${testId}"]`)
+    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
