@@ -323,6 +323,12 @@ const marked = [
     words: ['star', 'plus', 'paren', 'roomy', 'indented', 'deeper', 'boxed'],
     between: '\n\n',
   },
+  {
+    title: 'when a box has no space after it, so it is no box',
+    items: ['- [ ]zulu', '1. [x]yankee'],
+    words: ['zulu', 'yankee'],
+    between: '\n\n',
+  },
 ];
 
 for (const { title, items, words, between } of marked) {
