@@ -567,3 +567,95 @@ pub fn the_rows_of_a_table_in_a_list_item_are_marked_with_their_rows_in_the_note
   assert tr_rows("- x\n\n  | a |\n  |---|\n  | 1 |\n  | 2 |") == ["2", "4", "5"]
   assert tr_rows("- > | a |\n  > |---|\n  > | 1 |") == ["0", "2"]
 }
+
+/// Rows `first_row` up to `first_row + rows` of `note`, drawn the way live
+/// view draws the note beside the text field.
+fn beside_field(note: String, first_row: Int, rows: Int) -> String {
+  string.split(note, "\n")
+  |> list.drop(first_row)
+  |> list.take(rows)
+  |> string.join("\n")
+  |> markdown.parse
+  |> preview.part(
+    rows:,
+    first_row:,
+    test_id: "live-below",
+    on_task: fn(task, _) { task },
+  )
+  |> element.to_string
+}
+
+fn drawn_part(inner: String) -> String {
+  "<div class=\"preview part\" data-test-id=\"live-below\">"
+  <> inner
+  <> "</div>"
+}
+
+pub fn a_list_split_by_the_field_draws_its_items_on_each_side_test() {
+  let note = "- one\n- two\n- three\n- four"
+
+  assert beside_field(note, 0, 1)
+    == drawn_part("<ul data-row=\"0\"><li data-row=\"0\">one</li></ul>")
+  assert beside_field(note, 2, 2)
+    == drawn_part(
+      "<ul data-row=\"2\"><li data-row=\"2\">three</li><li data-row=\"3\">four</li></ul>",
+    )
+}
+
+pub fn a_loose_list_split_by_the_field_keeps_its_blank_rows_test() {
+  let note = "- one\n\n- two\n\n- three"
+
+  assert beside_field(note, 0, 4)
+    == drawn_part(
+      "<ul data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">one</p></li><li aria-hidden=\"true\" class=\"blank\" data-row=\"1\"></li><li data-row=\"2\"><p data-row=\"2\">two</p></li></ul><div class=\"blank\" data-row=\"3\"></div>",
+    )
+}
+
+pub fn an_ordered_list_split_by_the_field_keeps_its_numbers_test() {
+  assert beside_field("3. a\n4. b\n5. c", 0, 1)
+    == drawn_part(
+      "<ol data-row=\"0\" start=\"3\"><li data-row=\"0\">a</li></ol>",
+    )
+  assert beside_field("3. a\n4. b\n5. c", 2, 1)
+    == drawn_part(
+      "<ol data-row=\"2\" start=\"5\"><li data-row=\"2\">c</li></ol>",
+    )
+}
+
+pub fn an_item_beside_the_field_is_drawn_with_what_it_holds_test() {
+  assert beside_field("- a\n  - a1\n- b\n- c", 0, 2)
+    == drawn_part(
+      "<ul data-row=\"0\"><li data-row=\"0\">a<ul data-row=\"1\"><li data-row=\"1\">a1</li></ul></li></ul>",
+    )
+  assert beside_field("- [ ] a\n- [x] b\n- [ ] c", 2, 1)
+    == drawn_part(
+      "<ul data-row=\"2\"><li class=\"task\" data-row=\"2\"><input aria-label=\"c\" type=\"checkbox\">c</li></ul>",
+    )
+}
+
+pub fn a_quote_a_table_and_code_beside_the_field_are_drawn_whole_test() {
+  assert beside_field("p\n\n> a\n> b\n\nq", 1, 5)
+    == drawn_part(
+      "<div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">a\nb</p></blockquote><div class=\"blank\" data-row=\"4\"></div><p data-row=\"5\">q</p>",
+    )
+  assert beside_field("# T\n\n| a | b |\n|---|---|\n| 1 | 2 |", 1, 4)
+    == drawn_part(
+      "<div class=\"blank\" data-row=\"1\"></div><div aria-label=\"Table\" class=\"table-scroll\" role=\"region\" tabindex=\"0\"><table><thead><tr data-row=\"2\"><th scope=\"col\">a</th><th scope=\"col\">b</th></tr></thead><tbody><tr data-row=\"4\"><td>1</td><td>2</td></tr></tbody></table></div>",
+    )
+  assert beside_field("```\ncode\n\nmore\n```\n\np", 0, 6)
+    == drawn_part(
+      "<pre data-row=\"1\"><code>code\n\nmore\n</code></pre><div class=\"blank\" data-row=\"5\"></div>",
+    )
+}
+
+pub fn the_blank_rows_beside_the_field_are_drawn_test() {
+  assert beside_field("a\n\n\n\nb", 0, 2)
+    == drawn_part(
+      "<p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div>",
+    )
+  assert beside_field("a\n\n\n\nb", 3, 2)
+    == drawn_part(
+      "<div class=\"blank\" data-row=\"3\"></div><p data-row=\"4\">b</p>",
+    )
+  assert beside_field("a\n\n\n\nb", 5, 0) == drawn_part("")
+}
