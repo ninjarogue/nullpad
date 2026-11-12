@@ -66,6 +66,11 @@ button:hover {
   border-color: var(--faint);
 }
 
+button[aria-pressed="true"] {
+  background: var(--line);
+  border-color: var(--faint);
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

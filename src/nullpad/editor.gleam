@@ -77,7 +77,11 @@ pub type Edge {
 /// What `surface.sync` must do to the control after an update.
 pub type Sync {
   InSync
+  /// Write, and give the control the keyboard.
   Write(Buffer)
+  /// Write, and leave the keyboard where it is: a ticked box is not a
+  /// reason to start editing.
+  WriteQuietly(Buffer)
   /// Write, then put the caret on the first or last drawn line of the
   /// control, as near to `x` pixels from its left edge as a character allows.
   WriteAndAim(Buffer, x: Float, line: Line)
@@ -341,7 +345,7 @@ pub fn replace_line(editor: Editor, row: Int, with line: String) -> Outcome {
       let editor = Editor(..editor, buffer:)
       let sync = case field_buffer(editor) == before {
         True -> InSync
-        False -> Write(field_buffer(editor))
+        False -> WriteQuietly(field_buffer(editor))
       }
       Outcome(editor:, sync:, requests: [])
     }

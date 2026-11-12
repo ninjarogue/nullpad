@@ -1,7 +1,7 @@
 // Small browser calls for `nullpad/platform`.
 
 const VIM_SETTING = "nullpad.vim";
-const LIVE_SETTING = "nullpad.live";
+const MARKDOWN_SETTING = "nullpad.markdown";
 
 export function setTimeout(ms, run) {
   globalThis.setTimeout(run, ms);
@@ -52,17 +52,17 @@ export function writeVimSetting(on) {
   } catch {}
 }
 
-export function readLiveSetting() {
+export function readMarkdownSetting() {
   try {
-    return localStorage.getItem(LIVE_SETTING) === "on";
+    return localStorage.getItem(MARKDOWN_SETTING) === "on";
   } catch {
     return false;
   }
 }
 
-export function writeLiveSetting(on) {
+export function writeMarkdownSetting(on) {
   try {
-    localStorage.setItem(LIVE_SETTING, on ? "on" : "off");
+    localStorage.setItem(MARKDOWN_SETTING, on ? "on" : "off");
   } catch {}
 }
 

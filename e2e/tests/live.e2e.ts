@@ -10,18 +10,18 @@ const stored = (body: string): Note => ({ key: 'live', title: null, body });
 type Fixtures = {
   app: App;
   disk: { seed(notes: Note[]): Promise<void> };
-  page: { text: Locator; liveSwitch: Locator };
+  page: { text: Locator; markdown: Locator };
 };
 
 async function openLive({ app, disk, page }: Fixtures, body: string) {
   await disk.seed([stored(body)]);
   await app.open('/');
   await expect(page.text).toHaveValue(body);
-  await page.liveSwitch.tap();
+  await page.markdown.tap();
   await expect(page.text).toBeFocused();
 }
 
-test('live view draws the note and keeps only the cursor block in the text field', async ({
+test('the page draws the note and keeps only the cursor block in the text field', async ({
   app,
   disk,
   page,
@@ -99,7 +99,7 @@ test('arrow keys pressed faster than the page redraws leave the note as it was',
   for (let presses = 0; presses < 12; presses++) await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('# Trip');
 
-  await page.liveSwitch.tap();
+  await page.markdown.tap();
   await expect(page.text).toHaveValue(body);
 });
 
@@ -193,12 +193,12 @@ test('Escape draws the whole note, and a box ticks without opening its block', a
 
   await browser.keyboard.press('Escape');
   await expect(page.text).not.toBeFocused();
-  await expect(page.above.getByRole('heading')).toHaveText('Trip');
-  await expect(page.above.getByRole('listitem')).toHaveText(['Passport', 'Shoes']);
+  await expect(page.preview.getByRole('heading')).toHaveText('Trip');
+  await expect(page.preview.getByRole('listitem')).toHaveText(['Passport', 'Shoes']);
 
-  await page.above.getByRole('checkbox', 'Passport').tap();
+  await page.preview.getByRole('checkbox', 'Passport').tap();
   await expect(page.saveState).toHaveText('Unsaved');
-  await expect(page.above.getByRole('checkbox', 'Passport')).toBeChecked();
+  await expect(page.preview.getByRole('checkbox', 'Passport')).toBeChecked();
   await expect(page.saveState).toHaveText('Saved');
   await expect(page.text).not.toBeFocused();
   expect(await disk.notes()).toEqual([stored(body.replace('[ ]', '[x]'))]);
@@ -213,7 +213,7 @@ test('a box below the field ticks its own row of the note', async ({ app, disk, 
   expect(await disk.notes()).toEqual([stored('# Trip\n\n- [ ] one\n- [x] two')]);
 });
 
-test('the live switch is remembered, and turning it off shows the whole note', async ({
+test('Markdown shows the whole note as typed, and the choice is remembered', async ({
   app,
   browser,
   disk,
@@ -222,10 +222,10 @@ test('the live switch is remembered, and turning it off shows the whole note', a
   await openLive({ app, disk, page }, body);
 
   await browser.reload();
-  await expect(page.liveSwitch).toBeChecked();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
   await expect(page.text).toHaveValue('# Trip');
 
-  await page.liveSwitch.tap();
+  await page.markdown.tap();
   await expect(page.text).toHaveValue(body);
   await expect(page.above).toHaveCount(0);
 });

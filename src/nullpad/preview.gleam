@@ -24,8 +24,8 @@ import nullpad/markdown.{
 /// `on_task(task, checked)`, and the shell rewrites the task's line. The page
 /// never edits text itself.
 ///
-/// Wrapped in `data-test-id="preview"`. M6 HTML export is
-/// `element.to_string(preview.view(blocks, ..))`.
+/// The whole note with no row marks, for the M6 HTML export:
+/// `element.to_string(preview.view(blocks, ..))`. The app draws `part`.
 pub fn view(
   blocks: List(Block),
   on_task: fn(Task, Bool) -> msg,
@@ -36,8 +36,7 @@ pub fn view(
   )
 }
 
-/// Live view: a run of the note's rows drawn as a page, beside the text
-/// field. `first_row` is where the run starts in the note. Each element
+/// A run of the note's rows drawn as a page, beside the text field. `first_row` is where the run starts in the note. Each element
 /// carries the note row it starts on as `data-row`, which is how a click
 /// finds its place in the source (`surface.on_point`), and a ticked task
 /// names its row in the note, not in the run.

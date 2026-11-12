@@ -17,7 +17,7 @@ gleam format src test                 # Format the code
 markdown and note titles. The browser tests build the app and use it in
 Chromium through [e2e](https://www.npmjs.com/package/e2e), so they cover
 what a person does with it: writing, saving, switching and deleting notes,
-ticking task boxes on the rendered page, what the page shows for each markdown
+ticking task boxes on the page, what the page shows for each markdown
 block, and what it shows when storage is slow or fails.
 
 Both suites run before every `git push`, and a failure stops the push. Turn
@@ -31,14 +31,14 @@ cd e2e && npm install && npx @e2e-dev/web install chromium
 The hook tests the files in your working folder, so commit or stash first.
 `git push --no-verify` skips it.
 
-## Live view
+## The page
 
-The Live switch draws the note as a page while you write it. The text field
-holds only the block the cursor is in, as markdown, and every other block is
-drawn with its marks hidden. Arrow keys and clicks move the field from block
-to block, and Escape draws the whole note. It is off by default while it is
-being tried out: there is no undo across blocks yet, and a selection cannot
-leave the field.
+The note is drawn as a page while you write it. The text field holds only the
+block the cursor is in, as markdown, and every other block is drawn with its
+marks hidden. Arrow keys and clicks move the field from block to block, and
+Escape draws the whole note. The Markdown button, or Ctrl+E, puts the whole
+note in the text field as typed, and is remembered. Two things are missing on
+the page: undo across blocks, and a selection that leaves the field.
 
 ## Markdown
 
@@ -59,9 +59,9 @@ inside a cell, a pipe inside a code span still ends the cell, and a blank line
 or the start of another block ends the table. A table is not continued by a
 lazy line. Padding is bounded: rows stop at 65,536 padded cells, a line past
 that starts a paragraph, where cmark-gfm stops at 524,288. A wide table scrolls
-inside its own box on the rendered page, and the box takes the keyboard.
+inside its own box on the page, and the box takes the keyboard.
 
-On the rendered page a task's box is live. Ticking it changes `[ ]` to `[x]`
+On the page a task's box is live. Ticking it changes `[ ]` to `[x]`
 (or back) on that line of the note and nowhere else, and the note saves as it
 does after any edit.
 

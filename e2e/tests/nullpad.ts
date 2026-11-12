@@ -164,8 +164,7 @@ class Page {
   readonly rows: Locator;
   readonly currentRow: Locator;
   readonly newNote: Locator;
-  readonly showPreview: Locator;
-  readonly showSource: Locator;
+  readonly markdown: Locator;
   readonly preview: Locator;
   readonly paragraphs: Locator;
   readonly everything: Locator;
@@ -190,7 +189,6 @@ class Page {
   readonly keep: Locator;
   readonly vimSwitch: Locator;
   readonly vimMode: Locator;
-  readonly liveSwitch: Locator;
   readonly above: Locator;
   readonly below: Locator;
 
@@ -206,8 +204,7 @@ class Page {
     this.rows = browser.locator('[data-test-id="note-list"] [data-test-id^="note-"]');
     this.currentRow = browser.locator('[aria-current="true"]');
     this.newNote = screen.getByRole('button', 'New note');
-    this.showPreview = screen.getByRole('button', 'Preview');
-    this.showSource = screen.getByRole('button', 'Edit');
+    this.markdown = screen.getByRole('button', 'Markdown');
     this.preview = screen.getByTestId('preview');
     this.paragraphs = this.inPreview('p');
     this.everything = this.inPreview('*');
@@ -232,12 +229,11 @@ class Page {
     this.keep = screen.getByRole('button', 'Keep');
     this.vimSwitch = screen.getByLabel('Vim');
     this.vimMode = screen.getByTestId('mode');
-    this.liveSwitch = screen.getByLabel('Live');
     this.above = screen.getByTestId('live-above');
     this.below = screen.getByTestId('live-below');
   }
 
-  /** Live view: an element of the note drawn around the text field. */
+  /** An element of the note drawn around the text field. */
   drawn(selector: string) {
     return this.browser.locator(`.page.live .part ${selector}`);
   }
@@ -363,8 +359,29 @@ class Page {
     });
   }
 
-  pressPreviewShortcut() {
+  pressMarkdownShortcut() {
     return this.browser.keyboard.press('ControlOrMeta+e');
+  }
+
+  /** From the markdown to the page, with nothing being edited, so the whole note is drawn. */
+  async showPage() {
+    await expect(this.markdown).toHaveAttribute('aria-pressed', 'true');
+    await this.markdown.tap();
+    await this.stopEditing();
+  }
+
+  /** On the page: leave the text field, so the whole note is drawn. */
+  async stopEditing() {
+    await expect(this.text).toBeFocused();
+    await this.browser.keyboard.press('Escape');
+    await expect(this.preview).toBeVisible();
+  }
+
+  /** From the page to the whole note as typed. */
+  async showMarkdown() {
+    await expect(this.markdown).toHaveAttribute('aria-pressed', 'false');
+    await this.markdown.tap();
+    await expect(this.markdown).toHaveAttribute('aria-pressed', 'true');
   }
 }
 
@@ -375,6 +392,16 @@ export const test = base.extend<{ disk: Disk; page: Page }>({
   },
   page: async ({ screen, browser }, use) => {
     await browser.addInitScript(recordCrashes);
+    // Most tests type and read whole notes, so they start with Markdown on.
+    await browser.addInitScript(() => {
+      try {
+        if (localStorage.getItem('nullpad.markdown') === null) {
+          localStorage.setItem('nullpad.markdown', 'on');
+        }
+      } catch {
+        // A blank page has no storage.
+      }
+    });
     await use(new Page(screen, browser));
     const crash = await browser.evaluate(() => localStorage.getItem('testPage.crash'));
     expect(crash, 'the page threw an error nothing caught').toBeNull();

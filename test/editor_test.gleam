@@ -69,7 +69,7 @@ pub fn replace_line_test() {
   let Outcome(editor: ed, sync:, ..) = editor.replace_line(ed, 1, with: "- [x]")
 
   assert editor.text(ed) == "a\n- [x]\nc"
-  assert sync == editor.Write(editor.buffer(ed))
+  assert sync == editor.WriteQuietly(editor.buffer(ed))
 }
 
 pub fn replace_line_ignores_a_missing_row_test() {

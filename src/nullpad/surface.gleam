@@ -29,8 +29,8 @@ import nullpad/vim
 
 const control_id = "nullpad-control"
 
-/// The editing pane. Render it once, unconditionally. To show the rendered
-/// page instead, hide this with CSS; do not remove it from the view.
+/// The editing pane. Render it once, unconditionally, and never remove it
+/// from the view: out of focus it hides itself (`idle`).
 ///
 /// WARNING: never swap this for `html.textarea(attrs, text)`. In Lustre 5.7.1
 /// that helper adds a `value` property, which Lustre re-assigns on the next
@@ -137,6 +137,7 @@ pub fn sync(
   case sync {
     editor.InSync -> effect.none()
     editor.Write(buffer) -> effect.batch([write(buffer), focus()])
+    editor.WriteQuietly(buffer) -> write(buffer)
     editor.WriteAndAim(buffer, x:, line:) ->
       effect.batch([
         write(buffer),

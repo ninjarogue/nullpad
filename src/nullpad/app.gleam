@@ -1,12 +1,11 @@
 //// Stable test ids (`data-test-id`), for the browser tests in `e2e/`:
 ////   editor            the text field               (set in `surface`)
-////   preview           the rendered page
+////   preview           the whole note drawn, while nothing is being edited
 ////   mode              "NORMAL" / "INSERT" (only while vim is on)
-////   toggle-rendered   the source / rendered button
+////   toggle-markdown   the Markdown button
 ////   toggle-vim        the vim switch (only when `can_vim`)
-////   toggle-live       the live view switch
-////   live-above        live view: the note drawn above the text field
-////   live-below        live view: the note drawn below it
+////   live-above        the note drawn above the text field
+////   live-below        the note drawn below it
 ////   new-note          the new note button
 ////   note-list         the list; each row is  note-<storage.id_text(id)>
 ////   title             the title field
@@ -46,8 +45,8 @@ pub type Flags {
     vim: Bool,
     /// False on phones: the vim switch is not offered at all.
     can_vim: Bool,
-    /// The remembered live view switch. Off for a new user.
-    live: Bool,
+    /// The remembered Markdown button. Off for a new user.
+    markdown: Bool,
   )
 }
 
@@ -64,9 +63,6 @@ pub type Model {
     showing: Showing,
     vim: Bool,
     can_vim: Bool,
-    /// Live view: the note is drawn as a page and the text field holds only
-    /// the block being edited.
-    live: Bool,
     deletion: Deletion,
     /// Last storage failure, shown in a banner.
     problem: Option(String),
@@ -105,8 +101,11 @@ pub type Deletion {
 }
 
 pub type Showing {
-  Source
-  Rendered
+  /// The note is drawn as a page, and the text field holds only the block
+  /// being edited.
+  Page
+  /// The text field holds the whole note as typed.
+  Markdown
 }
 
 pub type Msg {
@@ -124,34 +123,35 @@ pub type Msg {
   UserKeptNote
   UserDeletedNote(NoteId)
   UserRenamedNote(title: String)
-  UserToggledRendered
+  UserToggledMarkdown
   UserToggledVim(on: Bool)
-  UserToggledLive(on: Bool)
   UserTickedTask(task: markdown.Task, checked: Bool)
 }
 
 pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
-  let Flags(storage:, vim:, can_vim:, live:) = flags
+  let Flags(storage:, vim:, can_vim:, markdown:) = flags
   let model =
     Model(
       storage:,
       notes: [],
       open: None,
-      editor: editor.set_live(editor.new(vim: vim && can_vim), live).editor,
+      editor: editor.set_live(editor.new(vim: vim && can_vim), !markdown).editor,
       edits: 0,
       leaving_for: None,
-      showing: Source,
+      showing: case markdown {
+        True -> Markdown
+        False -> Page
+      },
       vim:,
       can_vim:,
-      live:,
       deletion: NotAsked,
       problem: None,
     )
   let start =
     effect.batch([
       list_notes(model),
-      // Ctrl+E (Cmd+E on a Mac) flips between source and rendered page.
-      platform.on_shortcut("e", UserToggledRendered),
+      // Ctrl+E (Cmd+E on a Mac) flips between the page and its markdown.
+      platform.on_shortcut("e", UserToggledMarkdown),
       platform.on_hide(PageHidden),
     ])
   #(model, start)
@@ -220,8 +220,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       leave_when_saved(Model(..model, leaving_for: Some(ExistingNote(id))))
 
     UserAskedForNewNote, _ ->
-      Model(..model, showing: Source, leaving_for: Some(NewNote))
-      |> leave_when_saved
+      leave_when_saved(Model(..model, leaving_for: Some(NewNote)))
 
     UserAskedToDelete(id), _ ->
       case model.deletion {
@@ -271,21 +270,21 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    UserToggledRendered, _ ->
-      case model.showing {
-        Source -> #(Model(..model, showing: Rendered), effect.none())
-        Rendered -> #(Model(..model, showing: Source), surface.focus())
+    UserToggledMarkdown, _ -> {
+      let showing = case model.showing {
+        Page -> Markdown
+        Markdown -> Page
       }
+      let #(model, synced) =
+        Model(..model, showing:)
+        |> apply(editor.set_live(model.editor, showing == Page))
+      let remembered = platform.remember_markdown_setting(showing == Markdown)
+      #(model, effect.batch([synced, remembered]))
+    }
 
     UserToggledVim(on), _ -> {
       let editor = editor.set_vim(model.editor, on && model.can_vim)
       #(Model(..model, editor:, vim: on), platform.remember_vim_setting(on))
-    }
-
-    UserToggledLive(on), _ -> {
-      let #(model, synced) =
-        apply(Model(..model, live: on), editor.set_live(model.editor, on))
-      #(model, effect.batch([synced, platform.remember_live_setting(on)]))
     }
 
     StorageLoaded(Error(storage.NotFound as failure)), _ -> #(
@@ -451,13 +450,7 @@ pub fn view(model: Model) -> Element(Msg) {
           )
         None -> element.none()
       },
-      // The text field stays in the page while the rendered view shows, so
-      // its cursor and the browser's undo history survive the flip.
       page(model),
-      case model.showing {
-        Source -> element.none()
-        Rendered -> rendered(model)
-      },
     ]),
   ])
 }
@@ -465,33 +458,28 @@ pub fn view(model: Model) -> Element(Msg) {
 /// The editing page. The text field is the same element in every state, so
 /// it keeps its focus when the drawn parts around it change.
 fn page(model: Model) -> Element(Msg) {
-  let hidden = attribute.hidden(model.showing == Rendered)
   let field = #("field", surface.view(model.editor, EditorSent))
   case editor.region(model.editor) {
-    None -> keyed.div([attribute.class("page"), hidden], [field])
+    None -> keyed.div([attribute.class("page")], [field])
     Some(region) -> {
-      let #(above, below) = case editor.is_idle(model.editor) {
-        True -> #(editor.text(model.editor), "")
-        False -> editor.around(model.editor)
+      let #(above, below, above_id) = case editor.is_idle(model.editor) {
+        True -> #(editor.text(model.editor), "", "preview")
+        False -> {
+          let #(above, below) = editor.around(model.editor)
+          #(above, below, "live-above")
+        }
       }
       let part = fn(text, first_row, test_id) {
         markdown.parse(text)
         |> preview.part(first_row:, test_id:, on_task: UserTickedTask)
       }
-      keyed.div(
-        [attribute.class("page live"), hidden, surface.on_point(EditorSent)],
-        [
-          #("above", part(above, 0, "live-above")),
-          field,
-          #("below", part(below, region.last_row + 1, "live-below")),
-        ],
-      )
+      keyed.div([attribute.class("page live"), surface.on_point(EditorSent)], [
+        #("above", part(above, 0, above_id)),
+        field,
+        #("below", part(below, region.last_row + 1, "live-below")),
+      ])
     }
   }
-}
-
-fn rendered(model: Model) -> Element(Msg) {
-  markdown.parse(editor.text(model.editor)) |> preview.view(UserTickedTask)
 }
 
 fn sidebar(model: Model) -> Element(Msg) {
@@ -580,26 +568,16 @@ fn toggles(model: Model) -> Element(Msg) {
     },
     html.button(
       [
-        attribute.data("test-id", "toggle-rendered"),
-        attribute.title("Ctrl+E"),
-        event.on_click(UserToggledRendered),
-      ],
-      [
-        element.text(case model.showing {
-          Source -> "Preview"
-          Rendered -> "Edit"
+        attribute.data("test-id", "toggle-markdown"),
+        attribute.title("Show the note as markdown (Ctrl+E)"),
+        attribute.aria_pressed(case model.showing {
+          Page -> "false"
+          Markdown -> "true"
         }),
+        event.on_click(UserToggledMarkdown),
       ],
+      [element.text("Markdown")],
     ),
-    html.label([attribute.class("vim-switch")], [
-      html.input([
-        attribute.data("test-id", "toggle-live"),
-        attribute.type_("checkbox"),
-        attribute.checked(model.live),
-        event.on_check(UserToggledLive),
-      ]),
-      element.text("Live"),
-    ]),
     case model.can_vim {
       True ->
         html.label([attribute.class("vim-switch")], [
