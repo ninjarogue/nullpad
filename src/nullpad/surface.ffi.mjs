@@ -80,13 +80,15 @@ export function caretLine(id) {
 }
 
 // Gives the control as it is afterwards: [value, selectionStart,
-// selectionEnd]. Aims only while the control still holds `text`: by the time
-// this runs, a later key may have put other rows in it.
-export function aimControl(id, text, x, lastLine) {
+// selectionEnd]. Aims only while the control is as the write left it: by the
+// time this runs, a later key may have put other rows in it or moved the caret.
+export function aimControl(id, text, start, end, x, lastLine) {
   const control = document.getElementById(id);
   if (!control) return ["", 0, 0];
   const shown = () => [control.value, control.selectionStart, control.selectionEnd];
-  if (control.value !== text) return shown();
+  const written =
+    control.value === text && control.selectionStart === start && control.selectionEnd === end;
+  if (!written) return shown();
   const place = measure(control);
   const length = control.value.length;
   const step = lastLine ? -1 : 1;

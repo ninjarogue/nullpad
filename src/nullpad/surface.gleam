@@ -157,10 +157,13 @@ pub fn sync(
         // After the render, because the field's font follows its block.
         effect.before_paint(fn(dispatch, _) {
           focus_control(control_id)
+          let #(text, start, end) = to_control(buffer)
           let #(text, start, end) =
             aim_control(
               control_id,
-              buffer.text(buffer),
+              text,
+              start,
+              end,
               x,
               line == editor.LastLine,
             )
@@ -365,13 +368,16 @@ fn blur_control(id: String) -> Nil
 @external(javascript, "./surface.ffi.mjs", "caretLine")
 fn caret_line(id: String) -> #(Bool, Bool, Float)
 
-/// While the control still holds `text`, put the caret on its first or last
-/// drawn line, as near to `x` as a character allows. Gives the control as it
-/// is afterwards: `#(value, selectionStart, selectionEnd)`.
+/// While the control still holds `text` selected from `start` to `end`, put
+/// the caret on its first or last drawn line, as near to `x` as a character
+/// allows. Gives the control as it is afterwards: `#(value, selectionStart,
+/// selectionEnd)`.
 @external(javascript, "./surface.ffi.mjs", "aimControl")
 fn aim_control(
   id: String,
   text: String,
+  start: Int,
+  end: Int,
   x: Float,
   last_line: Bool,
 ) -> #(String, Int, Int)
