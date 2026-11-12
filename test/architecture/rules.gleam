@@ -1,4 +1,4 @@
-//// The architecture rules in CLAUDE.md, as a check over the source text.
+//// The architecture rules in AGENTS.md, as a check over the source text.
 //// Gleam files are parsed with glance, so imports, calls and string literals
 //// are the real ones. JavaScript files are read line by line.
 ////

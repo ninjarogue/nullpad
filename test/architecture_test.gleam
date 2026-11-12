@@ -120,7 +120,7 @@ fn describe(report: Report) -> String {
       <> string.inspect(list.length(lines))
       <> " broken\n\n"
       <> string.join(lines, "\n\n")
-      <> "\n\nThe rules are in CLAUDE.md."
+      <> "\n\nThe rules are in AGENTS.md."
   }
 }
 

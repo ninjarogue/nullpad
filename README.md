@@ -9,7 +9,7 @@ the browser's own storage.
 ```sh
 gleam run -m lustre/dev start         # Serve the app at http://localhost:1234 and reload on change
 gleam test                            # Run the unit tests
-gleam run -m architecture_test        # Print what each architecture rule in CLAUDE.md examined
+gleam run -m architecture_test        # Print what each architecture rule in AGENTS.md examined
 node test/keystroke_cost.mjs          # Count the parses one key costs, after gleam test
 cd e2e && npm install && npm test     # Run the browser tests
 gleam format src test                 # Format the code
