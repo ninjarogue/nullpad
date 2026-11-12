@@ -4,7 +4,7 @@ import gleam/dynamic.{type Dynamic}
 import lustre/effect.{type Effect}
 
 /// Deliver `msg` after `ms` milliseconds. There is no cancel: the receiver
-/// checks whether the message is still current (see `app.AutosaveDue`).
+/// checks whether the message is still current (see `library.AutosaveDue`).
 pub fn after(ms: Int, msg: msg) -> Effect(msg) {
   use dispatch <- effect.from
   set_timeout(ms, fn() { dispatch(msg) })
