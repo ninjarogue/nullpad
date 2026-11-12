@@ -139,7 +139,7 @@ pub type Msg {
   StorageCreated(Result(Note, Failure))
   StorageSaved(id: NoteId, edits: Int, result: Result(Nil, Failure))
   /// The body of a note that is not open, read so its delete can be undone.
-  StorageFoundDoomed(id: NoteId, result: Result(Note, Failure))
+  StorageFoundDoomed(Result(Note, Failure))
   StorageDeleted(note: Note, result: Result(Nil, Failure))
   StorageRestored(note: Note, was_open: Bool, result: Result(Nil, Failure))
   UndoExpired(deletes: Int)
@@ -271,13 +271,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
     UserDeletedNote(id), _ -> #(
       Model(..model, menu: None, deletion: Deleting(id)),
-      storage.load(model.storage, id, StorageFoundDoomed(id, _)),
+      storage.load(model.storage, id, StorageFoundDoomed),
     )
-    StorageFoundDoomed(result: Ok(note), ..), _ -> #(
+    StorageFoundDoomed(Ok(note)), _ -> #(
       model,
       storage.delete(model.storage, note.id, StorageDeleted(note, _)),
     )
-    StorageFoundDoomed(result: Error(failure), ..), _ -> #(
+    StorageFoundDoomed(Error(failure)), _ -> #(
       Model(..model, deletion: NotDeleting, problem: Some(describe(failure))),
       list_notes(model),
     )
