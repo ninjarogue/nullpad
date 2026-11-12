@@ -54,28 +54,32 @@ pub fn a_row_past_the_note_is_kept_as_asked_test() {
   assert live.reveal([], from: 0, to: 0) == Region(0, 0)
 }
 
+/// How the field is set while it holds all of `text`.
+fn kind_of(text: String) -> live.Kind {
+  let lines = string.split(text, "\n")
+  let field = Region(0, list.length(lines) - 1)
+  live.kind(markdown.parse(text), field:, lines:)
+}
+
 pub fn the_field_is_set_like_the_block_it_holds_test() {
-  assert live.kind("## Packing") == live.Title(markdown.H2)
-  assert live.kind("Title\n===") == live.Title(markdown.H1)
-  assert live.kind("- Shoes\n  and socks")
+  assert kind_of("## Packing") == live.Title(markdown.H2)
+  assert kind_of("Title\n===") == live.Title(markdown.H1)
+  assert kind_of("- Shoes\n  and socks")
     == live.ListItem(task: False, marker: "- ")
-  assert live.kind("2. two") == live.ListItem(task: False, marker: "2. ")
-  assert live.kind("- [ ] pack") == live.ListItem(task: True, marker: "- [ ] ")
-  assert live.kind("```\ncode\n```") == live.Mono
-  assert live.kind("| a |\n|---|") == live.Mono
-  assert live.kind("plain words") == live.Body
-  assert live.kind("") == live.Body
-  assert live.kind("one\n\ntwo") == live.Body
+  assert kind_of("2. two") == live.ListItem(task: False, marker: "2. ")
+  assert kind_of("- [ ] pack") == live.ListItem(task: True, marker: "- [ ] ")
+  assert kind_of("```\ncode\n```") == live.Mono
+  assert kind_of("| a |\n|---|") == live.Mono
+  assert kind_of("plain words") == live.Body
+  assert kind_of("") == live.Body
+  assert kind_of("one\n\ntwo") == live.Body
 }
 
 /// How the field is set while it holds rows `first_row` to `last_row` of
 /// `note`.
 fn field_kind(first_row: Int, last_row: Int) -> live.Kind {
-  string.split(note, "\n")
-  |> list.drop(first_row)
-  |> list.take(last_row - first_row + 1)
-  |> string.join("\n")
-  |> live.kind
+  let field = Region(first_row, last_row)
+  live.kind(markdown.parse(note), field:, lines: string.split(note, "\n"))
 }
 
 pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
@@ -101,8 +105,17 @@ pub fn a_field_that_holds_two_blocks_is_set_as_body_text_test() {
   assert field_kind(10, 14) == live.Body
 }
 
+pub fn a_blank_row_between_two_items_is_set_as_body_text_test() {
+  let lines = ["- a", "", "- b"]
+  let blocks = markdown.parse("- a\n\n- b")
+
+  assert live.kind(blocks, field: Region(1, 1), lines:) == live.Body
+  assert live.kind(blocks, field: Region(1, 2), lines:)
+    == live.ListItem(task: False, marker: "- ")
+}
+
 fn marker(field_text: String) -> String {
-  case live.kind(field_text) {
+  case kind_of(field_text) {
     live.ListItem(marker:, ..) -> marker
     live.Body | live.Mono | live.Title(_) -> "not an item"
   }

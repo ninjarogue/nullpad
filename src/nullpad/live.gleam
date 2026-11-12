@@ -60,24 +60,38 @@ pub type Kind {
   ListItem(task: Bool, marker: String)
 }
 
-pub fn kind(field_text: String) -> Kind {
-  case markdown.parse(field_text) {
+/// The kind of the field while it holds the rows `field` of the note whose
+/// `blocks` and `lines` these are.
+pub fn kind(
+  blocks: List(Block),
+  field field: Region,
+  lines lines: List(String),
+) -> Kind {
+  let held = fn(first_row, last_row) {
+    first_row <= field.last_row && last_row >= field.first_row
+  }
+  case
+    list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
+  {
     [Block(content: Heading(level:, ..), ..)] -> Title(level)
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
-    [Block(content: BulletList(items: [first, ..], ..), ..)]
-    | [Block(content: OrderedList(items: [first, ..], ..), ..)] ->
-      ListItem(
-        task: option.is_some(first.task),
-        marker: marker(field_text, first),
-      )
+    [Block(content: BulletList(items:, ..), ..)]
+    | [Block(content: OrderedList(items:, ..), ..)] ->
+      case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
+        Ok(first) ->
+          ListItem(
+            task: option.is_some(first.task),
+            marker: marker(lines, first),
+          )
+        Error(Nil) -> Body
+      }
     _ -> Body
   }
 }
 
-fn marker(field_text: String, item: Item) -> String {
-  field_text
-  |> string.split("\n")
+fn marker(lines: List(String), item: Item) -> String {
+  lines
   |> list.drop(item.row)
   |> list.first
   |> result.unwrap("")
