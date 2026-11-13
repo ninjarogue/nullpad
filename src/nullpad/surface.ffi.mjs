@@ -37,11 +37,23 @@ export function focusControl(id, liveClass, paintedClass) {
     top = control.getBoundingClientRect().top + parseFloat(style.paddingTop) + headCaret(control, place).top - place(0).top;
     line = parseFloat(style.lineHeight);
   }
-  const box = page.getBoundingClientRect();
-  const above = Math.max(box.top, 0) - top;
-  const below = top + line - Math.min(box.bottom, innerHeight);
-  if (above > 0) page.scrollTop -= above;
-  else if (below > 0) page.scrollTop += below;
+  revealOnPage(page, top, top + line);
+}
+
+// Scrolls the page just enough to show what is drawn from `top` to `bottom`
+// in the window, and on the first or last row also the page's padding, as a
+// text field does.
+function revealOnPage(page, top, bottom) {
+  const view = page.getBoundingClientRect();
+  const style = getComputedStyle(page);
+  let to = page.scrollTop;
+  if (bottom > Math.min(view.bottom, innerHeight)) to += Math.ceil(bottom - Math.min(view.bottom, innerHeight));
+  else if (top < Math.max(view.top, 0)) to -= Math.ceil(Math.max(view.top, 0) - top);
+  const fromStart = top - view.top + page.scrollTop;
+  const toEnd = page.scrollHeight - (bottom - view.top + page.scrollTop);
+  if (fromStart <= parseFloat(style.paddingTop) + 1) to = 0;
+  else if (toEnd <= parseFloat(style.paddingBottom) + 1) to = page.scrollHeight - page.clientHeight;
+  if (to !== page.scrollTop) page.scrollTop = to;
 }
 
 // A press writes the field at once, but the page draws it where it was
@@ -837,11 +849,7 @@ export function revealCaret(id, liveClass, paintedClass) {
   const page = control?.closest("." + liveClass);
   if (!page || document.activeElement !== control || control.closest("." + paintedClass)) return;
   const { box } = fieldCaret(control);
-  const view = page.getBoundingClientRect();
-  const top = Math.max(view.top, 0);
-  const bottom = Math.min(view.bottom, innerHeight);
-  if (box.bottom > bottom) page.scrollTop += box.bottom - bottom;
-  else if (box.top < top) page.scrollTop -= top - box.top;
+  revealOnPage(page, box.top, box.bottom);
 }
 
 // The browser's own line move, from the first or last line to the start or
