@@ -33,9 +33,10 @@ type Field {
   /// outside `rows` changed, or the field lost focus. So it differs from
   /// `parsed` only inside `rows`, and typing on a row moves nothing outside
   /// the field. The page around the field and the field's rows come from
-  /// `drawn`: `rows` is `drawn` revealed around the selection, except while
-  /// a composition that added or took rows keeps them as the field shows
-  /// them.
+  /// `drawn`: `rows` is `drawn` revealed around the selection. Out of focus,
+  /// and while a composition that added or took rows, `rows` stay the rows
+  /// the field shows: a blurred field is left as it is, so the browser can
+  /// give it the focus back, and an IME owns the field it composes in.
   Part(rows: Region, drawn: List(Block), parsed: List(Block), composing: Bool)
 }
 
@@ -227,10 +228,14 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         True, Pressing -> Pressing
         True, Away | True, Focused -> Focused
       }
-      let changed = Editor(..editor, focus:) |> edit(editor.buffer) |> realign
+      let changed = Editor(..editor, focus:) |> edit(editor.buffer)
+      let changed = case focus {
+        Away -> changed
+        Focused | Pressing -> realign(changed)
+      }
       let sync = case field_buffer(changed) == field_buffer(editor) {
         True -> InSync
-        False -> Release(field_buffer(changed))
+        False -> Write(field_buffer(changed))
       }
       Outcome(editor: changed, sync:, requests: [])
     }

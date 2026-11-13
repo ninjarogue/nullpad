@@ -279,8 +279,9 @@ pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
   assert editor.blocks(ed) == around
 
   let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(False))
-  assert editor.region(ed) == Some(Region(0, 2))
   assert editor.blocks(ed) == markdown.parse("first\nwo\nsecond")
+  let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(True))
+  assert editor.region(ed) == Some(Region(0, 2))
 }
 
 pub fn blocks_kept_through_a_composition_are_parsed_again_by_any_later_change_test() {
@@ -918,10 +919,16 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
 
   let Outcome(editor: blurred, sync:, ..) =
     editor.update(ed, editor.FocusChanged(False))
-  assert sync == editor.Release(caret("Hello\n-", 1, 1))
-  assert editor.region(blurred) == Some(Region(0, 1))
+  assert sync == editor.InSync
+  assert editor.region(blurred) == Some(Region(1, 1))
   assert editor.blocks(blurred) == markdown.parse("Hello\n-")
   assert editor.is_idle(blurred)
+
+  let Outcome(editor: back, sync:, ..) =
+    editor.update(blurred, editor.FocusChanged(True))
+  assert sync == editor.Write(caret("Hello\n-", 1, 1))
+  assert editor.region(back) == Some(Region(0, 1))
+  assert editor.kind(back) == Some(live.Title(markdown.H2))
 
   let Outcome(editor: escaped, sync:, ..) =
     editor.update(ed, editor.EscapePressed(shown: caret("-", 0, 1)))
