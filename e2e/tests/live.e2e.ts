@@ -1494,3 +1494,27 @@ test('an arrow pressed while a selection is held moves one row on from its head,
   await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('bravo two');
 });
+
+test('an arrow past the first or last row of the note with a selection held goes to its start or end, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'abc def\n\nlast one');
+  await browser.keyboard.press('End');
+  for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(async () => (await page.selection()).selected).toBe('def');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('Xabc def');
+
+  for (let presses = 0; presses < 2; presses++) await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('last one');
+  await browser.keyboard.press('Home');
+  for (let presses = 0; presses < 4; presses++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('last');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.type('Y');
+  await expect(page.text).toHaveValue('last oneY');
+});
