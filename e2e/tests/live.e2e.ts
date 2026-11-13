@@ -843,7 +843,7 @@ test('a drag let go off the page leaves no press held', async ({ app, browser, d
   await browser.keyboard.press('Escape');
   await page.showMarkdown();
   await expect(page.text).toHaveValue(
-    '# Trip\n\nFlights are **\n\n- [ ] Passport\nbooked** and the hotel is *not*.- Shoes\n\nlast',
+    '# Trip\n\nFlights are **\n\n- [ ] Passport\n- booked** and the hotel is *not*.Shoes\n\nlast',
   );
 });
 
@@ -1683,7 +1683,11 @@ test('the end of a selection that the keys move stays in the window as the field
       const at = field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd;
       const line = field.value.slice(0, at).split('\n').length - 1;
       const height = parseFloat(getComputedStyle(field).lineHeight);
-      const top = field.getBoundingClientRect().top + line * height;
+      const painted = [...(CSS.highlights.get('nullpad-head') ?? [])][0] as Range | undefined;
+      const drawn = painted?.startContainer;
+      const top = drawn
+        ? (drawn instanceof Element ? drawn : drawn.parentElement!).getBoundingClientRect().top
+        : field.getBoundingClientRect().top + line * height;
       const sheet = document.querySelector('.page')!.getBoundingClientRect();
       return {
         row: field.value.slice(0, at).split('\n').at(-1) ?? '',
@@ -2064,7 +2068,7 @@ test('Shift and a press on the selected text select from the anchor, and a drag 
   await expect.poll(async () => (await page.selection()).selected).toBe('Flights');
 
   const inside = await page.pointAt('ghts');
-  const shoes = await page.pointAt('Shoes');
+  const shoes = await page.pointAt('hoes');
   await browser.keyboard.down('Shift');
   await browser.mouse.move(inside.x, inside.y);
   await browser.mouse.down();

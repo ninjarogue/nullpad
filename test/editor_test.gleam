@@ -1613,3 +1613,105 @@ pub fn a_selection_reaching_another_row_lays_out_the_row_typed_as_another_block_
   assert editor.blocks(ed) == markdown.parse("- a\n# b")
   assert editor.frame(ed) == Some(live.Body)
 }
+
+fn painted_from_trip_to_one() -> Editor {
+  let ed = pressed(live_note, 0, "Tr")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
+    )
+  let Outcome(editor: ed, ..) = editor.update(ed, editor.Released)
+  ed
+}
+
+fn selection_pointed(ed: Editor, row: Int, visible: String) -> Outcome {
+  editor.update(
+    ed,
+    editor.SelectionPointed(
+      row:,
+      visible:,
+      at_end: False,
+      next: "",
+      x: 0.0,
+      y: 0.0,
+    ),
+  )
+}
+
+pub fn a_press_on_a_painted_selection_holds_it_until_let_go_test() {
+  let ed = painted_from_trip_to_one()
+  assert editor.is_painted(ed)
+  let before = editor.buffer(ed)
+
+  let Outcome(editor: held, sync:, ..) =
+    selection_pointed(ed, 2, "Flights are ")
+  assert sync == editor.HoldSelection(x: 0.0, y: 0.0)
+  assert editor.buffer(held) == before
+  assert editor.is_painted(held)
+
+  let Outcome(editor: let_go, sync:, ..) = editor.update(held, editor.Released)
+  assert buffer.selection(editor.buffer(let_go))
+    == #(Position(2, 12), Position(2, 12))
+  assert !editor.is_painted(let_go)
+  assert sync == editor.Write(editor.field_buffer(let_go))
+}
+
+pub fn a_painted_selection_dragged_and_dropped_moves_and_keeps_no_press_test() {
+  let ed = painted_from_trip_to_one()
+  let Outcome(editor: held, ..) = selection_pointed(ed, 2, "Flights are ")
+  let Outcome(editor: started, sync:, ..) =
+    editor.update(held, editor.DragStarted)
+  assert sync == editor.InSync
+  let Outcome(editor: dropped, ..) =
+    editor.update(
+      started,
+      editor.Dropped(
+        row: 5,
+        visible: "two",
+        at_end: True,
+        next: "",
+        text: "ignored",
+        copy: False,
+        shown: editor.field_buffer(started),
+      ),
+    )
+  assert editor.text(dropped)
+    == "# Trne\n- twoip\n\nFlights are **booked**.\n\n- o"
+
+  let Outcome(editor: after, sync:, ..) =
+    editor.update(dropped, editor.Released)
+  assert editor.buffer(after) == editor.buffer(dropped)
+  assert sync == editor.InSync
+}
+
+pub fn a_painted_selection_dragged_off_the_page_stays_test() {
+  let ed = painted_from_trip_to_one()
+  let Outcome(editor: held, ..) = selection_pointed(ed, 2, "Flights are ")
+  let Outcome(editor: started, ..) = editor.update(held, editor.DragStarted)
+  let Outcome(editor: let_go, sync:, ..) =
+    editor.update(started, editor.Released)
+  assert editor.buffer(let_go) == editor.buffer(ed)
+  assert editor.is_painted(let_go)
+  assert sync == editor.InSync
+}
+
+pub fn a_press_on_a_selection_no_longer_painted_is_a_plain_press_test() {
+  let ed = pressed(live_note, 2, "Fli")
+  let Outcome(editor: plain, sync:, ..) =
+    selection_pointed(ed, 2, "Flights are ")
+  let Outcome(editor: pointed, sync: pointed_sync, ..) =
+    editor.update(
+      ed,
+      editor.Pointed(
+        row: 2,
+        visible: "Flights are ",
+        at_end: False,
+        next: "",
+        x: 0.0,
+        y: 0.0,
+      ),
+    )
+  assert editor.buffer(plain) == editor.buffer(pointed)
+  assert sync == pointed_sync
+}

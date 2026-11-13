@@ -38,6 +38,9 @@ type Press {
   /// A second press in a row selected this word: a drag selects whole words,
   /// and always this one.
   PressedOnWord(start: Position, end: Position)
+  /// A press on a painted selection, which drags it: let go where it was
+  /// pressed, it puts the caret there.
+  PressedOnSelection(Position)
 }
 
 /// Where a run of Shift and an arrow up or down aims on the drawn page: `x`
@@ -138,6 +141,17 @@ pub type Event {
     x: Float,
     y: Float,
   )
+  /// A press on a painted selection: moved, it drags the selected text, as
+  /// a press on a text field's selection does, and let go, it puts the caret
+  /// there.
+  SelectionPointed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
   /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool, next: String)
   /// Shift and an arrow up or down, taken by the surface: the head moves to
@@ -200,6 +214,9 @@ pub type Sync {
   /// a write, and focused where it is, and the pointer is followed until it
   /// is let go.
   Press(write: Option(Buffer), x: Float, y: Float)
+  /// A press at `x`, `y` on the painted selection: the page drags the
+  /// selected text when the pointer moves, and says when it is let go.
+  HoldSelection(x: Float, y: Float)
 }
 
 pub type Line {
@@ -363,6 +380,19 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     }
+    SelectionPointed(row:, visible:, at_end:, next:, x:, y:) ->
+      case is_painted(editor) {
+        True -> {
+          let at = place(editor.buffer, row:, visible:, at_end:, next:)
+          let press = Some(PressedOnSelection(at))
+          Outcome(
+            editor: Editor(..editor, press:, waiting: []),
+            sync: HoldSelection(x:, y:),
+            requests: [],
+          )
+        }
+        False -> update(editor, Pointed(row:, visible:, at_end:, next:, x:, y:))
+      }
     Dragged(row:, visible:, at_end:, next:) ->
       case editor.press {
         Some(press) -> {
@@ -404,12 +434,21 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
       Outcome(editor:, sync:, requests: [])
     }
-    Released ->
-      Outcome(
-        editor: Editor(..editor, press: None, dragging: False),
-        sync: InSync,
-        requests: [],
-      )
+    Released -> {
+      let let_go = Editor(..editor, press: None, dragging: False)
+      case editor.press, editor.dragging {
+        Some(PressedOnSelection(at)), False ->
+          Editor(..let_go, focus: Focused)
+          |> edit(buffer.move_to(editor.buffer, at))
+          |> realign
+          |> write
+        Some(PressedOnSelection(_)), True
+        | Some(PressedAt(_)), _
+        | Some(PressedOnWord(..)), _
+        | None, _
+        -> Outcome(editor: let_go, sync: InSync, requests: [])
+      }
+    }
     DragStarted ->
       Outcome(
         editor: Editor(..editor, dragging: True),
@@ -417,7 +456,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     Dropped(row:, visible:, at_end:, next:, text:, copy:, shown:) -> {
-      let let_go = Editor(..editor, dragging: False)
+      let let_go = Editor(..editor, press: None, dragging: False)
       case mode(editor) {
         Normal -> Outcome(editor: let_go, sync: InSync, requests: [])
         Plain | Insert -> {
@@ -485,7 +524,7 @@ fn reach(
 /// The anchor and head of a drag from a press to `at`.
 fn stretch(in: Buffer, press: Press, to at: Position) -> #(Position, Position) {
   case press {
-    PressedAt(from) -> #(from, at)
+    PressedAt(from) | PressedOnSelection(from) -> #(from, at)
     PressedOnWord(start:, end:) ->
       case buffer.compare(at, start), buffer.compare(at, end) {
         order.Lt, _ -> #(end, buffer.word_at(in, at).0)

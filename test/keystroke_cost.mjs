@@ -246,6 +246,10 @@ const events = {
     ["a row above", (_, row) => new editor.Grabbed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.Grabbed(row + 9, "", false, "", 0, 0)],
   ],
+  SelectionPointed: [
+    ["a row above", (_, row) => new editor.SelectionPointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.SelectionPointed(row + 9, "", false, "", 0, 0)],
+  ],
   Dragged: [
     ["a row above", (_, row) => new editor.Dragged(Math.max(0, row - 9), "", true, "")],
     ["a row below", (_, row) => new editor.Dragged(row + 9, "", false, "")],

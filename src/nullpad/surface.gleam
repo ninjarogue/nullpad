@@ -295,14 +295,20 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
       |> decode.success
     }
     case locate(press, live.row_mark), shift, shown {
-      #(row, visible, at_end, next, True), False, _ if row >= 0 ->
+      #(row, visible, at_end, next, True, _), False, _ if row >= 0 ->
         taken(editor.Grabbed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, False), False, _
+      #(row, visible, at_end, next, False, _), False, _
         if row >= 0 && clicks == 2
       -> taken(editor.WordPointed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, False), False, _ if row >= 0 ->
+      #(row, visible, at_end, next, False, True), False, _
+        if row >= 0 && clicks == 1 && button == 0
+      ->
+        on_event(editor.SelectionPointed(row:, visible:, at_end:, next:, x:, y:))
+        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> decode.success
+      #(row, visible, at_end, next, False, _), False, _ if row >= 0 ->
         taken(editor.Pointed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, _), True, Ok(shown) if row >= 0 ->
+      #(row, visible, at_end, next, _, _), True, Ok(shown) if row >= 0 ->
         taken(editor.ShiftPointed(
           row:,
           visible:,
@@ -352,7 +358,20 @@ pub fn sync(
     ])
   case sync {
     editor.InSync -> painted
-    editor.Write(buffer) -> effect.batch([write(buffer), focus(), painted])
+    // Painted before the page is scrolled to the head, which may be painted.
+    editor.Write(buffer) ->
+      effect.batch([
+        undrawn,
+        effect.from(fn(_) {
+          write_now(buffer)
+          focus_in_place(control_id)
+        }),
+        effect.before_paint(fn(_, _) {
+          paint(editor)
+          set_drawn(True)
+          focus_control(control_id, live_class, painted_class)
+        }),
+      ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
     // Stepped at once when the page shows where the step starts, so that a
     // key pressed before the next paint replaces what the step selected.
@@ -420,7 +439,7 @@ pub fn sync(
         }),
         effect.before_paint(fn(dispatch, _) {
           aim(dispatch, True)
-          focus_control(control_id, live_class)
+          focus_control(control_id, live_class, painted_class)
         }),
         painted,
       ])
@@ -467,6 +486,19 @@ pub fn sync(
         })
       effect.batch([placed, followed, painted])
     }
+    editor.HoldSelection(x:, y:) ->
+      effect.batch([
+        effect.from(fn(dispatch) {
+          hold_selection(
+            control_id,
+            x,
+            y,
+            fn() { dispatch(on_event(editor.DragStarted)) },
+            fn() { dispatch(on_event(editor.Released)) },
+          )
+        }),
+        painted,
+      ])
   }
 }
 
@@ -520,7 +552,9 @@ pub fn focus() -> Effect(msg) {
   // scrolled to once it is drawn where it belongs.
   effect.batch([
     effect.from(fn(_) { focus_in_place(control_id) }),
-    effect.before_paint(fn(_, _) { focus_control(control_id, live_class) }),
+    effect.before_paint(fn(_, _) {
+      focus_control(control_id, live_class, painted_class)
+    }),
   ])
 }
 
@@ -758,7 +792,7 @@ fn write_control(
 fn text_width(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
-fn focus_control(id: String, live_class: String) -> Nil
+fn focus_control(id: String, live_class: String, painted_class: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "isDrawn")
 fn is_drawn() -> Bool
@@ -845,7 +879,16 @@ fn find_control(id: String) -> Dynamic
 fn locate(
   press: Dynamic,
   row_mark: String,
-) -> #(Int, String, Bool, String, Bool)
+) -> #(Int, String, Bool, String, Bool, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "holdSelection")
+fn hold_selection(
+  id: String,
+  x: Float,
+  y: Float,
+  started: fn() -> Nil,
+  released: fn() -> Nil,
+) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "dropped")
 fn dropped(
