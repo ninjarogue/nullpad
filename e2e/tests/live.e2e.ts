@@ -1033,3 +1033,29 @@ test('a table or code in the text field is set with no ligatures', async ({ app,
   await expect(page.text).toHaveValue('```\n|-|-| -> !=\n```');
   expect((await page.fieldFont()).ligatures).toBe('none');
 });
+
+test('code typed after an open fence at the end of the note is set as code from its first letter', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'Steps');
+  await browser.keyboard.press('End');
+  await browser.keyboard.type('\n\n```js\n');
+  await expect(page.text).toHaveValue('```js\n');
+  await expect.poll(() => sizeOf(page)).toBe('14px');
+  const code = await page.fieldFont();
+  const top = (await page.fieldBox()).top;
+  const steps = await page.placeOf('Steps');
+
+  let typed = '```js\n';
+  for (const key of 'let a = 1;\nb') {
+    await browser.keyboard.type(key);
+    typed += key;
+    await expect(page.text).toHaveValue(typed);
+    expect({ typed, font: await page.fieldFont() }).toEqual({ typed, font: code });
+    expect({ typed, top: (await page.fieldBox()).top }).toEqual({ typed, top });
+    expect({ typed, steps: await page.placeOf('Steps') }).toEqual({ typed, steps });
+  }
+});
