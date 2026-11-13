@@ -1096,6 +1096,38 @@ pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
     == #(Position(row: 2, col: 3), Position(row: 4, col: 3))
 }
 
+pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
+  let ed = live("alpha beta gamma\n\nsecond para here")
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.WordPointed(
+        row: 2,
+        visible: "second pa",
+        at_end: False,
+        x: 1.0,
+        y: 2.0,
+      ),
+    )
+  let para = #(Position(2, 7), Position(2, 11))
+  assert buffer.selection(editor.buffer(ed)) == para
+  assert sync == editor.Press(Some(editor.field_buffer(ed)), x: 1.0, y: 2.0)
+
+  let drag = fn(ed, row, visible) {
+    editor.update(ed, editor.Dragged(row:, visible:, at_end: False)).editor
+    |> editor.buffer
+    |> buffer.selection
+  }
+  assert drag(ed, 0, "alpha be") == #(Position(2, 11), Position(0, 6))
+  assert drag(ed, 2, "second p") == para
+  assert drag(ed, 2, "second para he") == #(Position(2, 7), Position(2, 16))
+
+  let Outcome(editor: let_go, ..) = editor.update(ed, editor.Released)
+  let Outcome(sync:, ..) =
+    editor.update(let_go, editor.Dragged(row: 0, visible: "a", at_end: False))
+  assert sync == editor.InSync
+}
+
 pub fn a_drag_from_a_box_on_the_idle_page_takes_the_focus_test() {
   let Outcome(editor: idle, ..) =
     editor.update(live(live_note), editor.FocusChanged(False))

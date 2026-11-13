@@ -69,3 +69,18 @@ pub fn replace_backwards_test() {
 
   assert buffer.text(replaced) == "hello there"
 }
+
+pub fn a_word_is_a_run_of_letters_spaces_or_marks_test() {
+  let note = buffer.from_text("say **hi**, you\n")
+  let word = fn(col) { buffer.word_at(note, Position(row: 0, col:)) }
+
+  assert word(1) == #(Position(0, 0), Position(0, 3))
+  assert word(3) == #(Position(0, 0), Position(0, 3))
+  assert word(4) == #(Position(0, 4), Position(0, 6))
+  assert word(6) == #(Position(0, 6), Position(0, 8))
+  assert word(8) == #(Position(0, 6), Position(0, 8))
+  assert word(11) == #(Position(0, 11), Position(0, 12))
+  assert word(13) == #(Position(0, 12), Position(0, 15))
+  assert buffer.word_at(note, Position(row: 1, col: 0))
+    == #(Position(1, 0), Position(1, 0))
+}

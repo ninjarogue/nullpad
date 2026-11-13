@@ -124,3 +124,60 @@ fn in_order(a: Position, b: Position) -> #(Position, Position) {
     order.Lt | order.Eq -> #(a, b)
   }
 }
+
+pub fn compare(a: Position, b: Position) -> order.Order {
+  order.break_tie(int.compare(a.row, b.row), int.compare(a.col, b.col))
+}
+
+/// The word around a place, from its start to its end, as a double click
+/// selects it: a run of letters, of spaces, or of marks. A place just after
+/// a word is in that word.
+pub fn word_at(buffer: Buffer, position: Position) -> #(Position, Position) {
+  let Position(row:, col:) = clamp(buffer.lines, position)
+  let #(before, after) =
+    string.to_graphemes(line(buffer.lines, row)) |> list.split(col)
+  let before = list.reverse(before)
+  let run = case
+    list.first(before) |> result.map(run_of),
+    list.first(after) |> result.map(run_of)
+  {
+    Ok(Letters), _ -> Letters
+    Ok(Spaces), Ok(run) | Ok(Marks), Ok(run) | Error(Nil), Ok(run) -> run
+    Ok(run), Error(Nil) -> run
+    Error(Nil), Error(Nil) -> Spaces
+  }
+  #(
+    Position(row:, col: col - run_length(before, run, 0)),
+    Position(row:, col: col + run_length(after, run, 0)),
+  )
+}
+
+type Run {
+  Letters
+  Spaces
+  Marks
+}
+
+fn run_of(grapheme: String) -> Run {
+  case grapheme {
+    " " | "\t" -> Spaces
+    _ ->
+      case string.contains(marks, grapheme) {
+        True -> Marks
+        False -> Letters
+      }
+  }
+}
+
+const marks = "!\"#$%&'()*+,-./:;<=>?@[\\]^`{|}~"
+
+fn run_length(graphemes: List(String), run: Run, count: Int) -> Int {
+  case graphemes {
+    [grapheme, ..rest] ->
+      case run_of(grapheme) == run {
+        True -> run_length(rest, run, count + 1)
+        False -> count
+      }
+    [] -> count
+  }
+}
