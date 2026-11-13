@@ -1606,3 +1606,25 @@ for (const [what, typed, below] of [
     }
   });
 }
+
+test('a press whose hand moves up to four pixels each way selects nothing, and five pixels sideways selects', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nThe flight is booked and the hotel is not.\n\nlast');
+  for (const [dx, dy] of [[3, 3], [4, 1], [4, 4], [5, 0]] as const) {
+    await browser.keyboard.press('Escape');
+    await expect(page.preview).toBeVisible();
+    const hotel = await page.pointAt('otel');
+    await browser.mouse.move(hotel.x, hotel.y);
+    await browser.mouse.down();
+    await page.nextFrame();
+    await browser.mouse.move(hotel.x + dx, hotel.y + dy);
+    await page.nextFrame();
+    await browser.mouse.up();
+    await page.nextFrame();
+    expect({ dx, dy, selected: (await page.selection()).selected !== '' }).toEqual({ dx, dy, selected: dx > 4 });
+  }
+});
