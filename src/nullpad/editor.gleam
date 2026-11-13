@@ -385,6 +385,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       let to = Position(row: cursor.row + 1, col: 0)
       #(buffer.replace(base, from:, to:, with: ""), None)
     }
+    Up if live && anchor != cursor -> #(buffer.move_to(base, start), None)
+    Down if live && anchor != cursor -> #(buffer.move_to(base, end), None)
     SelectUp if row_above -> #(
       buffer.select(base, anchor:, head: end_of_row(cursor.row - 1)),
       Some(LastLine),

@@ -277,6 +277,24 @@ pub fn an_arrow_with_no_row_to_go_to_leaves_the_caret_where_it_is_test() {
   assert sync == editor.InSync
 }
 
+pub fn an_arrow_with_no_row_to_go_to_ends_a_selection_at_the_start_or_end_test() {
+  let held =
+    selected(
+      "abc def",
+      from: Position(row: 0, col: 7),
+      to: Position(row: 0, col: 4),
+    )
+  let Outcome(sync:, ..) =
+    live("abc def")
+    |> editor.update(editor.EdgePressed(editor.Up, x: 30.0, shown: held))
+  assert sync == editor.Write(caret("abc def", 0, 0))
+
+  let Outcome(sync:, ..) =
+    live("abc def")
+    |> editor.update(editor.EdgePressed(editor.Down, x: 30.0, shown: held))
+  assert sync == editor.Write(caret("abc def", 0, 7))
+}
+
 pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
   let note = "first\n\nsecond"
   let Outcome(editor: ed, ..) =
