@@ -859,17 +859,18 @@ fn undo_key_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
+  use code <- decode.field("code", decode.string)
   use shift <- decode.field("shiftKey", decode.bool)
   use ctrl <- decode.field("ctrlKey", decode.bool)
   use meta <- decode.field("metaKey", decode.bool)
   use alt <- decode.field("altKey", decode.bool)
   use composing <- decode.field("isComposing", decode.bool)
   let command = { ctrl || meta } && !alt && !composing
-  let kind = case string.lowercase(name) {
-    "z" if command && shift -> "historyRedo"
-    "z" if command -> "historyUndo"
-    "y" if command && ctrl && !meta && !shift -> "historyRedo"
-    _ -> ""
+  let kind = case command, is_key(name, code, "z"), is_key(name, code, "y") {
+    True, True, _ if shift -> "historyRedo"
+    True, True, _ -> "historyUndo"
+    True, False, True if ctrl && !meta && !shift -> "historyRedo"
+    _, _, _ -> ""
   }
   history_step(kind, on_event)
 }
