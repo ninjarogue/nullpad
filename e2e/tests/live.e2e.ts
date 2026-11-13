@@ -540,6 +540,12 @@ test('composing with an IME on a blank row keeps the blocks around it drawn', as
     field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
     return null;
   });
+  await page.nextFrame();
+  await expect(page.text).toHaveValue('wo');
+  await expect(page.above).toHaveText('first paragraph');
+  await expect(page.below).toHaveText('second paragraph');
+
+  await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('first paragraph\nwo\nsecond paragraph');
 });
 

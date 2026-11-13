@@ -407,6 +407,7 @@ button[aria-pressed="true"] {
 
 .editor.part.mono > * {
   font: 0.875rem/1.5 var(--text-font);
+  font-variant-ligatures: none;
 }
 
 /* An item's marker sits in the list's gutter when drawn. In the field the

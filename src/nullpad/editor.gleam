@@ -23,10 +23,28 @@ type Focus {
 
 type Field {
   Whole
-  /// Invariants: the rows exist in `buffer`, and `blocks` is the text of
-  /// `buffer` parsed. While `composing`, `blocks` is the text from before
-  /// the composition, which differs only inside `rows`.
-  Part(rows: Region, blocks: List(Block), composing: Bool)
+  /// The note drawn as a page, with `rows` of it in the text field.
+  ///
+  /// `parsed` is the text of `buffer` parsed. While `composing` it is the
+  /// text from before the composition, which differs only inside `rows`.
+  ///
+  /// `drawn` is the page as it was laid out: `parsed` as it was when the
+  /// rows of the selection last changed, the number of rows changed, a row
+  /// outside `rows` changed, or the field lost focus. So it differs from
+  /// `parsed` only inside `rows`, and typing on a row moves nothing outside
+  /// the field. The page around the field and the field's rows come from
+  /// `drawn`: `rows` is `drawn` revealed around the selection, except while
+  /// a composition that added or took rows keeps them as the field shows
+  /// them.
+  Part(rows: Region, drawn: List(Block), parsed: List(Block), composing: Bool)
+}
+
+/// What an edit changed, by the rows the field holds.
+type Change {
+  Unchanged
+  Inside
+  /// The number of rows, or a row the field does not hold.
+  Outside
 }
 
 type Keys {
@@ -98,7 +116,7 @@ pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
     buffer:,
     keys: fresh_keys(vim_enabled),
     field: case live {
-      True -> Part(Region(0, 0), parse(buffer), composing: False)
+      True -> laid_out(buffer)
       False -> Whole
     },
     focus: Away,
@@ -114,10 +132,19 @@ fn fresh_keys(vim_enabled: Bool) -> Keys {
 
 pub fn open(editor: Editor, text: String) -> Outcome {
   let keys = fresh_keys(editor.keys != PlainKeys)
-  Editor(..editor, keys:)
-  |> edit(buffer.from_text(text))
+  let buffer = buffer.from_text(text)
+  let field = case editor.field {
+    Whole -> Whole
+    Part(..) -> laid_out(buffer)
+  }
+  Editor(..editor, keys:, buffer:, field:)
   |> realign
   |> write_and_focus
+}
+
+fn laid_out(buffer: Buffer) -> Field {
+  let blocks = parse(buffer)
+  Part(rows: Region(0, 0), drawn: blocks, parsed: blocks, composing: False)
 }
 
 fn write_and_focus(editor: Editor) -> Outcome {
@@ -130,12 +157,7 @@ fn write(editor: Editor) -> Outcome {
 
 pub fn set_live(editor: Editor, on: Bool) -> Outcome {
   let editor = case on {
-    True ->
-      Editor(
-        ..editor,
-        field: Part(Region(0, 0), parse(editor.buffer), composing: False),
-      )
-      |> realign
+    True -> Editor(..editor, field: laid_out(editor.buffer)) |> realign
     False -> Editor(..editor, field: Whole)
   }
   write_and_focus(editor)
@@ -160,7 +182,10 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       case outcome.editor.field {
         Whole -> outcome
         Part(..) -> {
-          let editor = Editor(..outcome.editor, focus: Away)
+          let editor =
+            Editor(..outcome.editor, focus: Away)
+            |> edit(outcome.editor.buffer)
+            |> realign
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
         }
       }
@@ -202,7 +227,12 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         True, Pressing -> Pressing
         True, Away | True, Focused -> Focused
       }
-      Outcome(editor: Editor(..editor, focus:), sync: InSync, requests: [])
+      let changed = Editor(..editor, focus:) |> edit(editor.buffer) |> realign
+      let sync = case field_buffer(changed) == field_buffer(editor) {
+        True -> InSync
+        False -> Release(field_buffer(changed))
+      }
+      Outcome(editor: changed, sync:, requests: [])
     }
   }
 }
@@ -252,8 +282,8 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
     list.length(buffer.lines(composed))
     == list.length(buffer.lines(editor.buffer))
   case editor.field, rows_kept {
-    Part(rows:, blocks:, ..), True -> {
-      let field = Part(rows:, blocks:, composing: True)
+    Part(rows:, drawn:, parsed:, ..), True -> {
+      let field = Part(rows:, drawn:, parsed:, composing: True)
       Outcome(
         editor: Editor(..editor, buffer: composed, field:),
         sync: InSync,
@@ -393,39 +423,67 @@ pub fn field_buffer(editor: Editor) -> Buffer {
 fn edit(editor: Editor, buffer: Buffer) -> Editor {
   let field = case editor.field {
     Whole -> Whole
-    Part(rows:, blocks:, composing:) -> {
-      let parsed =
-        !composing
-        && same_lines(buffer.lines(buffer), buffer.lines(editor.buffer))
-      case parsed {
-        True -> Part(rows:, blocks:, composing: False)
-        False -> Part(rows:, blocks: parse(buffer), composing: False)
+    Part(rows:, drawn:, parsed:, composing:) -> {
+      let change =
+        change(
+          buffer.lines(editor.buffer),
+          buffer.lines(buffer),
+          rows,
+          0,
+          Unchanged,
+        )
+      let parsed = case change, composing {
+        Unchanged, False -> parsed
+        Unchanged, True | Inside, _ | Outside, _ -> parse(buffer)
       }
+      let kept =
+        change != Outside
+        && editor.focus != Away
+        && selected_rows(editor.buffer) == selected_rows(buffer)
+      let drawn = case kept {
+        True -> drawn
+        False -> parsed
+      }
+      Part(rows:, drawn:, parsed:, composing: False)
     }
   }
   Editor(..editor, buffer:, field:)
+}
+
+fn selected_rows(buffer: Buffer) -> #(Int, Int) {
+  let #(anchor, head) = buffer.selection(buffer)
+  #(anchor.row, head.row)
 }
 
 fn parse(buffer: Buffer) -> List(Block) {
   markdown.parse(buffer.text(buffer))
 }
 
-fn same_lines(lines: List(String), others: List(String)) -> Bool {
+fn change(
+  lines: List(String),
+  others: List(String),
+  rows: Region,
+  row: Int,
+  found: Change,
+) -> Change {
   case lines, others {
-    [], [] -> True
+    [], [] -> found
     [line, ..lines], [other, ..others] if line == other ->
-      same_lines(lines, others)
-    _, _ -> False
+      change(lines, others, rows, row + 1, found)
+    [_, ..lines], [_, ..others]
+      if row >= rows.first_row && row <= rows.last_row
+    -> change(lines, others, rows, row + 1, Inside)
+    _, _ -> Outside
   }
 }
 
 fn realign(editor: Editor) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(blocks:, composing:, ..) -> {
+    Part(drawn:, parsed:, composing:, ..) -> {
       let #(anchor, head) = buffer.selection(editor.buffer)
-      let rows = live.reveal(blocks, from: anchor.row, to: head.row)
-      Editor(..editor, field: Part(rows:, blocks:, composing:))
+      let rows = live.reveal(drawn, from: anchor.row, to: head.row)
+      Editor(..editor, field: Part(rows:, drawn:, parsed:, composing:))
     }
   }
 }
@@ -433,10 +491,10 @@ fn realign(editor: Editor) -> Editor {
 fn hold_rows(editor: Editor, shown: Buffer) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(rows: Region(first_row:, ..), blocks:, composing:) -> {
+    Part(rows: Region(first_row:, ..), drawn:, parsed:, composing:) -> {
       let count = list.length(buffer.lines(shown))
       let rows = Region(first_row:, last_row: first_row + count - 1)
-      Editor(..editor, field: Part(rows:, blocks:, composing:))
+      Editor(..editor, field: Part(rows:, drawn:, parsed:, composing:))
     }
   }
 }
@@ -454,7 +512,7 @@ pub fn replace_line(editor: Editor, row: Int, with line: String) -> Outcome {
         )
         |> with_selection_of(editor.buffer)
       let before = field_buffer(editor)
-      let editor = edit(editor, buffer)
+      let editor = edit(editor, buffer) |> realign
       let sync = case field_buffer(editor) == before {
         True -> InSync
         False -> WriteQuietly(field_buffer(editor))
@@ -485,20 +543,34 @@ pub fn region(editor: Editor) -> Option(Region) {
   }
 }
 
-/// How the field is set. None while it holds the whole note.
+/// How the field is set: like its blocks as drawn, so that typing changes
+/// no row but the one typed on. A field that holds only the caret's row is
+/// set as typed, at once: like the blocks typed there, or as body text when
+/// that row joins a block outside the field. None while the field holds
+/// the whole note.
 pub fn kind(editor: Editor) -> Option(live.Kind) {
   case editor.field {
     Whole -> None
-    Part(rows:, blocks:, ..) ->
-      Some(live.kind(blocks, field: rows, lines: buffer.lines(editor.buffer)))
+    Part(rows:, drawn:, parsed:, ..) -> {
+      let lines = buffer.lines(editor.buffer)
+      let row = buffer.cursor(editor.buffer).row
+      let alone = rows == Region(row, row)
+      let own = live.reveal(parsed, from: row, to: row) == rows
+      Some(case alone, own {
+        True, True -> live.kind(parsed, field: rows, lines:)
+        True, False -> live.Body
+        False, _ -> live.kind(drawn, field: rows, lines:)
+      })
+    }
   }
 }
 
-/// Empty while the control holds the note.
+/// The page as laid out, drawn around the field. Empty while the field
+/// holds the whole note.
 pub fn blocks(editor: Editor) -> List(Block) {
   case editor.field {
     Whole -> []
-    Part(blocks:, ..) -> blocks
+    Part(drawn:, ..) -> drawn
   }
 }
 
