@@ -1183,6 +1183,33 @@ test('a press on a text field that runs off the window does not scroll the page'
   expect((await page.caret()).startsWith('```js\n')).toBe(true);
 });
 
+test('a click on a line of a scrolled page leaves the page where it was', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = Array.from({ length: 50 }, (_, i) => `Line ${i} some text`).join('\n\n');
+  await openLive({ app, disk, page }, note);
+  await browser.evaluate(() => {
+    document.querySelector('.page')!.scrollTop = 600;
+    return null;
+  });
+  await page.nextFrame();
+  const scrolled = await page.scrolled();
+  expect(scrolled).toBe(600);
+
+  for (const line of ['Line 14 ', 'Line 18 ', 'Line 16 ']) {
+    const point = await page.pointAt(line);
+    await browser.mouse.move(point.x, point.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect(page.text).toHaveValue(`${line}some text`);
+    await page.nextFrame();
+    expect(await page.scrolled()).toBe(scrolled);
+  }
+});
+
 test('a click past the end of a wrapped line puts the caret at the end of that line', async ({
   app,
   browser,
