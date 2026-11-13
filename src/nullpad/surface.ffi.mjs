@@ -47,7 +47,7 @@ export function placeCaret(id, x, y) {
 }
 
 // Follows the pointer of a press on the page until it is let go. Once it
-// has moved `distance` away from where it was pressed, each move, and each
+// has moved more than `distance` across or down, each move, and each
 // scroll of the page under it, names the place it is over. Held near the
 // top or bottom of the page, it scrolls the page. A place the page has not
 // yet drawn, such as the rows a press has just put in the field, is named
@@ -73,7 +73,7 @@ export function follow(id, liveClass, rowMark, x, y, distance, moved, released) 
     if (letGo) return;
     if ((event.buttons & 1) === 0) return stop();
     pointer = { x: event.clientX, y: event.clientY };
-    dragging ||= Math.hypot(pointer.x - x, pointer.y - y) > distance;
+    dragging ||= Math.abs(pointer.x - x) > distance || Math.abs(pointer.y - y) > distance;
     if (dragging) report();
   };
   const scrolled = () => {

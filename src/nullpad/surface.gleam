@@ -311,7 +311,8 @@ pub fn sync(
   }
 }
 
-/// How far the pointer of a press moves before it drags, in pixels.
+/// How far the pointer of a press moves across or down, more than which it
+/// drags, in pixels.
 const drag_distance = 4.0
 
 pub fn focus() -> Effect(msg) {
