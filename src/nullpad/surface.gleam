@@ -138,65 +138,35 @@ pub fn page(
 ) -> List(attribute.Attribute(msg)) {
   case editor.region(editor) {
     None -> [attribute.class("page")]
-    Some(_) -> [
-      attribute.class("page " <> live_class),
-      on_point(on_event),
-      on_drag(on_event),
-      event.on("mouseup", {
-        use button <- decode.field("button", decode.int)
-        case button {
-          0 -> decode.success(on_event(editor.Released))
-          _ ->
-            decode.failure(
-              on_event(editor.Released),
-              expected: "the left button",
-            )
-        }
-      }),
-    ]
+    Some(_) -> [attribute.class("page " <> live_class), on_point(on_event)]
   }
 }
 
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
     use shift <- decode.field("shiftKey", decode.bool)
+    use x <- decode.field("clientX", decode.float)
+    use y <- decode.field("clientY", decode.float)
     use press <- decode.then(decode.dynamic)
     let shown = decode.run(find_control(control_id), control_decoder())
+    let taken = fn(event) {
+      on_event(event)
+      |> event.handler(prevent_default: True, stop_propagation: False)
+      |> decode.success
+    }
     case locate(press, live.row_mark), shift, shown {
-      #(row, visible, at_end), False, _ if row >= 0 ->
-        on_event(editor.Pointed(row:, visible:, at_end:))
-        |> event.handler(prevent_default: True, stop_propagation: False)
-        |> decode.success
-      #(row, visible, at_end), True, Ok(shown) if row >= 0 ->
-        on_event(editor.ShiftPointed(row:, visible:, at_end:, shown:))
-        |> event.handler(prevent_default: True, stop_propagation: False)
-        |> decode.success
+      #(row, visible, at_end, True), False, _ if row >= 0 ->
+        taken(editor.Grabbed(row:, visible:, at_end:, x:, y:))
+      #(row, visible, at_end, False), False, _ if row >= 0 ->
+        taken(editor.Pointed(row:, visible:, at_end:, x:, y:))
+      #(row, visible, at_end, False), True, Ok(shown) if row >= 0 ->
+        taken(editor.ShiftPointed(row:, visible:, at_end:, shown:, x:, y:))
       // A press the browser keeps also ends a press the editor took, whose
       // release the page does not hear when it happens off the page.
       _, _, _ ->
         on_event(editor.Released)
         |> event.handler(prevent_default: False, stop_propagation: False)
         |> decode.success
-    }
-  })
-}
-
-fn on_drag(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
-  event.on("mousemove", {
-    use buttons <- decode.field("buttons", decode.int)
-    use move <- decode.then(decode.dynamic)
-    let place = case int.bitwise_and(buttons, 1) {
-      1 -> locate(move, live.row_mark)
-      _ -> #(-1, "", False)
-    }
-    case place {
-      #(row, visible, at_end) if row >= 0 ->
-        decode.success(on_event(editor.Dragged(row:, visible:, at_end:)))
-      _ ->
-        decode.failure(
-          on_event(editor.Released),
-          expected: "a move with the left button held",
-        )
     }
   })
 }
@@ -245,8 +215,42 @@ pub fn sync(
         effect.from(fn(_) { blur_control(control_id) }),
         effect.before_paint(fn(_, _) { blur_control(control_id) }),
       ])
+    editor.Press(write: written, x:, y:) -> {
+      let placed = case written {
+        Some(buffer) -> {
+          let #(text, start, end, backward) = to_control(buffer)
+          effect.batch([
+            effect.from(fn(_) {
+              write_control(control_id, text, start, end, backward)
+              place_caret(control_id, x, y)
+            }),
+            effect.before_paint(fn(_, _) { focus_in_place(control_id) }),
+          ])
+        }
+        None -> effect.none()
+      }
+      let followed =
+        effect.from(fn(dispatch) {
+          follow(
+            control_id,
+            live_class,
+            live.row_mark,
+            x,
+            y,
+            drag_distance,
+            fn(row, visible, at_end) {
+              dispatch(on_event(editor.Dragged(row:, visible:, at_end:)))
+            },
+            fn() { dispatch(on_event(editor.Released)) },
+          )
+        })
+      effect.batch([placed, followed])
+    }
   }
 }
+
+/// How far the pointer of a press moves before it drags, in pixels.
+const drag_distance = 4.0
 
 pub fn focus() -> Effect(msg) {
   // A pane that was hidden cannot take focus until the next render puts it
@@ -477,7 +481,25 @@ fn aim_control(
 fn find_control(id: String) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "locate")
-fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool)
+fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "placeCaret")
+fn place_caret(id: String, x: Float, y: Float) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "focusInPlace")
+fn focus_in_place(id: String) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "follow")
+fn follow(
+  id: String,
+  live_class: String,
+  row_mark: String,
+  x: Float,
+  y: Float,
+  distance: Float,
+  moved: fn(Int, String, Bool) -> Nil,
+  released: fn() -> Nil,
+) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "utf16Split")
 fn utf16_split(text: String, offset: Int) -> #(String, String)

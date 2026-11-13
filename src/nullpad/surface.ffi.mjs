@@ -23,6 +23,90 @@ export function focusControl(id) {
   control?.scrollIntoView({ block: "nearest" });
 }
 
+export function focusInPlace(id) {
+  document.getElementById(id)?.focus({ preventScroll: true });
+}
+
+// A textarea cannot be told that its caret sits at the end of a wrapped
+// line rather than at the start of the next, which share an offset. Moving
+// to the line's end does tell it.
+export function placeCaret(id, x, y) {
+  const control = document.getElementById(id);
+  if (!control || document.activeElement !== control) return;
+  const offset = control.selectionStart;
+  if (offset !== control.selectionEnd || offset === 0 || control.value[offset - 1] === "\n") return;
+  const box = control.getBoundingClientRect();
+  if (x < box.left || x > box.right || y < box.top || y > box.bottom) return;
+  const place = measure(control);
+  const line = place(offset).top - place(0).top;
+  const pressed = y - box.top - parseFloat(getComputedStyle(control).paddingTop) + control.scrollTop;
+  if (place(offset - 1).top === place(offset).top || pressed >= line) return;
+  control.setSelectionRange(offset - 1, offset - 1);
+  getSelection().modify("move", "forward", "lineboundary");
+  if (control.selectionStart !== offset) control.setSelectionRange(offset, offset);
+}
+
+// Follows the pointer of a press on the page until it is let go. Once it
+// has moved `distance` away from where it was pressed, each move, and each
+// scroll of the page under it, names the place it is over. Held near the
+// top or bottom of the page, it scrolls the page.
+let following = false;
+
+export function follow(id, liveClass, rowMark, x, y, distance, moved, released) {
+  const page = document.getElementById(id)?.closest("." + liveClass);
+  if (!page || following) return;
+  following = true;
+  let pointer = { x, y };
+  let dragging = false;
+  let frame = 0;
+  const report = () => {
+    if (!page.isConnected) return;
+    const [row, visible, atEnd] = placeAt(page, pointer.x, pointer.y, rowMark);
+    if (row >= 0) moved(row, visible, atEnd);
+  };
+  const move = (event) => {
+    if ((event.buttons & 1) === 0) return stop();
+    pointer = { x: event.clientX, y: event.clientY };
+    dragging ||= Math.hypot(pointer.x - x, pointer.y - y) > distance;
+    if (dragging) report();
+  };
+  const scrolled = () => {
+    if (dragging) report();
+  };
+  const up = (event) => {
+    if (event.button === 0) stop();
+  };
+  const step = () => {
+    frame = requestAnimationFrame(step);
+    if (!dragging || !page.isConnected) return;
+    const box = page.getBoundingClientRect();
+    const by = edgeSpeed(pointer.y, Math.max(box.top, 0), Math.min(box.bottom, innerHeight));
+    if (by !== 0) page.scrollTop += by;
+  };
+  function stop() {
+    removeEventListener("mousemove", move, true);
+    removeEventListener("mouseup", up, true);
+    page.removeEventListener("scroll", scrolled);
+    cancelAnimationFrame(frame);
+    following = false;
+    released();
+  }
+  addEventListener("mousemove", move, true);
+  addEventListener("mouseup", up, true);
+  page.addEventListener("scroll", scrolled);
+  frame = requestAnimationFrame(step);
+}
+
+const EDGE = 24;
+
+function edgeSpeed(y, top, bottom) {
+  const up = top + EDGE - y;
+  const down = y - (bottom - EDGE);
+  if (up <= 0 && down <= 0) return 0;
+  const speed = (into) => Math.min(Math.ceil(into / 2), 40);
+  return up > down ? -speed(up) : speed(down);
+}
+
 export function blurControl(id) {
   document.getElementById(id)?.blur();
 }
@@ -128,41 +212,58 @@ export function aimControl(id, text, start, end, backward, x, lastLine) {
 }
 
 export function locate(press, rowMark) {
-  const none = [-1, "", false];
+  const none = [-1, "", false, false];
   const target = press.target;
   const page = press.currentTarget;
-  const marked = `[data-${rowMark}]`;
   if (press.button !== 0 || !(target instanceof Element)) return none;
-  if (target.closest("a, input, button")) return none;
   // The page's own scrollbar.
   if (target === page && press.offsetX >= target.clientWidth) return none;
+  const [row, visible, atEnd] = placeOn(page, target, press.clientX, press.clientY, rowMark, press);
+  return [row, visible, atEnd, target.closest("a, input, button") !== null];
+}
+
+// A point outside the page, as a drag can reach, is taken to the nearest
+// place on the page that the window shows.
+function placeAt(page, x, y, rowMark) {
+  const box = page.getBoundingClientRect();
+  const top = Math.max(box.top, 0);
+  const bottom = Math.min(box.bottom, innerHeight);
+  const inX = Math.min(Math.max(x, box.left + 1), box.left + page.clientWidth - 1);
+  const inY = Math.min(Math.max(y, top + 1), bottom - 1);
+  const hit = document.elementFromPoint(inX, inY);
+  const target = hit && page.contains(hit) ? hit : page;
+  return placeOn(page, target, inX, inY, rowMark, null);
+}
+
+function placeOn(page, target, x, y, rowMark, press) {
+  const none = [-1, "", false];
+  const marked = `[data-${rowMark}]`;
   const field = page.querySelector(`textarea${marked}`);
   const band = field?.getBoundingClientRect();
-  if (band && press.clientY >= band.top && press.clientY < band.bottom) {
-    return inField(press, field, band, rowMark);
+  if (band && y >= band.top && y < band.bottom) {
+    return inField(press, x, y, field, band, rowMark);
   }
   // A press in the gap between two blocks is on neither, but the browser
   // still names the nearest text, at its start.
-  const placed = target.closest(marked) && drawnAt(press.clientX, press.clientY, rowMark);
+  const placed = target.closest(marked) && drawnAt(x, y, rowMark);
   if (placed) return placed;
   let nearest = null;
   let gap = Infinity;
   let above = false;
   for (const element of page.querySelectorAll(marked)) {
     const box = element.getBoundingClientRect();
-    const away = Math.max(box.top - press.clientY, press.clientY - box.bottom, 0);
+    const away = Math.max(box.top - y, y - box.bottom, 0);
     if (away <= gap) {
       gap = away;
       nearest = element;
-      above = press.clientY < box.top;
+      above = y < box.top;
     }
   }
   if (!nearest) return none;
   if (gap === 0) {
     // Beside a block, level with one of its lines, is on that line.
     const box = nearest.getBoundingClientRect();
-    const x = Math.min(Math.max(press.clientX, box.left + 1), box.right - 1);
-    const beside = drawnAt(x, press.clientY, rowMark);
+    const beside = drawnAt(Math.min(Math.max(x, box.left + 1), box.right - 1), y, rowMark);
     if (beside) return beside;
   }
   if (above) return [Number(nearest.dataset[rowMark]), "", false];
@@ -186,16 +287,17 @@ function drawnAt(x, y, rowMark) {
 // The browser keeps a second click, a touch, and a press on text selected
 // within one row, so that a drag can move that text. A field the page has not
 // drawn since its text changed may not start at the row it is marked with.
-function inField(press, field, band, rowMark) {
+function inField(press, x, y, field, band, rowMark) {
   const none = [-1, "", false];
-  const x = Math.min(Math.max(press.clientX, band.left), band.right - 1);
-  const point = caretAt(x, press.clientY);
+  const point = caretAt(Math.min(Math.max(x, band.left), band.right - 1), y);
   if (point?.node !== field || field.value !== field.defaultValue) return none;
   const { selectionStart: start, selectionEnd: end, value } = field;
   const onSelected =
     start < point.offset && point.offset < end && !value.slice(start, end).includes("\n");
-  const kept = press.detail > 1 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey);
-  if (press.type === "mousedown" && kept) return none;
+  const kept =
+    press !== null &&
+    (press.detail > 1 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
+  if (kept) return none;
   return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false];
 }
 

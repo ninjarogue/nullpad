@@ -11,14 +11,20 @@ import nullpad/vim.{Step}
 
 /// Every change to `buffer` goes through `edit` or `compose`.
 pub opaque type Editor {
-  Editor(buffer: Buffer, keys: Keys, field: Field, focus: Focus)
+  /// `press` is where a mouse press the editor took is held: a drag selects
+  /// from there.
+  Editor(
+    buffer: Buffer,
+    keys: Keys,
+    field: Field,
+    focus: Focus,
+    press: Option(Position),
+  )
 }
 
 type Focus {
   Away
   Focused
-  /// Focused, and a mouse press the editor took is held: moves select.
-  Pressing
 }
 
 type Field {
@@ -68,10 +74,22 @@ pub type Event {
   KeyPressed(key: vim.Key, shown: Buffer)
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
   EscapePressed(shown: Buffer)
-  Pointed(row: Int, visible: String, at_end: Bool)
+  /// A press at a place on the page, at `x`, `y` in the window.
+  Pointed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
   /// Shift and a press: the head moves there and the anchor stays where
   /// `shown`, the field as it is now, has it.
-  ShiftPointed(row: Int, visible: String, at_end: Bool, shown: Buffer)
+  ShiftPointed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    shown: Buffer,
+    x: Float,
+    y: Float,
+  )
+  /// A press on a link or a box, which keeps its click: the caret stays
+  /// where it is unless the pointer drags from there.
+  Grabbed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
+  /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool)
   Released
   FocusChanged(focused: Bool)
@@ -101,6 +119,10 @@ pub type Sync {
   /// line of its row. A selection keeps its anchor.
   WriteAndAim(Buffer, x: Float, line: Line)
   Release(Buffer)
+  /// A press at `x`, `y` in the window: the field is written, when there is
+  /// a write, and focused where it is, and the pointer is followed until it
+  /// is let go.
+  Press(write: Option(Buffer), x: Float, y: Float)
 }
 
 pub type Line {
@@ -122,6 +144,7 @@ pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
       False -> Whole
     },
     focus: Away,
+    press: None,
   )
 }
 
@@ -193,47 +216,67 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
       }
     }
-    Pointed(row:, visible:, at_end:) -> {
-      let lines = buffer.lines(editor.buffer)
-      let position = live.position(lines, row:, visible:, at_end:)
-      Editor(..editor, focus: Pressing)
-      |> edit(buffer.move_to(editor.buffer, position))
-      |> realign
-      |> write
+    Pointed(row:, visible:, at_end:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:)
+      let editor =
+        Editor(..editor, focus: Focused, press: Some(at))
+        |> edit(buffer.move_to(editor.buffer, at))
+        |> realign
+      Outcome(
+        editor:,
+        sync: Press(Some(field_buffer(editor)), x:, y:),
+        requests: [],
+      )
     }
-    ShiftPointed(row:, visible:, at_end:, shown:) ->
-      Editor(..editor, focus: Pressing)
-      |> reach(base(editor, shown), row:, visible:, at_end:)
-      |> write
+    ShiftPointed(row:, visible:, at_end:, shown:, x:, y:) -> {
+      let from = base(editor, shown)
+      let #(anchor, _) = buffer.selection(from)
+      let editor =
+        Editor(..editor, focus: Focused, press: Some(anchor))
+        |> reach(from, anchor, row:, visible:, at_end:)
+      Outcome(
+        editor:,
+        sync: Press(Some(field_buffer(editor)), x:, y:),
+        requests: [],
+      )
+    }
+    Grabbed(row:, visible:, at_end:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:)
+      Outcome(
+        editor: Editor(..editor, press: Some(at)),
+        sync: Press(None, x:, y:),
+        requests: [],
+      )
+    }
     Dragged(row:, visible:, at_end:) ->
-      case editor.focus {
-        Pressing -> {
-          let dragged = reach(editor, editor.buffer, row:, visible:, at_end:)
-          let sync = case field_buffer(dragged) == field_buffer(editor) {
-            True -> InSync
-            False -> WriteQuietly(field_buffer(dragged))
+      case editor.press {
+        Some(from) -> {
+          let dragged =
+            Editor(..editor, focus: Focused)
+            |> reach(editor.buffer, from, row:, visible:, at_end:)
+          let sync = case
+            editor.focus,
+            field_buffer(dragged) == field_buffer(editor)
+          {
+            Away, _ -> Write(field_buffer(dragged))
+            Focused, True -> InSync
+            Focused, False -> WriteQuietly(field_buffer(dragged))
           }
           Outcome(editor: dragged, sync:, requests: [])
         }
-        Away | Focused -> Outcome(editor:, sync: InSync, requests: [])
+        None -> Outcome(editor:, sync: InSync, requests: [])
       }
-    Released -> {
-      let focus = case editor.focus {
-        Pressing | Focused -> Focused
-        Away -> Away
-      }
-      Outcome(editor: Editor(..editor, focus:), sync: InSync, requests: [])
-    }
+    Released ->
+      Outcome(editor: Editor(..editor, press: None), sync: InSync, requests: [])
     FocusChanged(focused:) -> {
-      let focus = case focused, editor.focus {
-        False, Away | False, Focused | False, Pressing -> Away
-        True, Pressing -> Pressing
-        True, Away | True, Focused -> Focused
+      let #(focus, press) = case focused {
+        True -> #(Focused, editor.press)
+        False -> #(Away, None)
       }
-      let changed = Editor(..editor, focus:) |> edit(editor.buffer)
+      let changed = Editor(..editor, focus:, press:) |> edit(editor.buffer)
       let changed = case focus {
         Away -> changed
-        Focused | Pressing -> realign(changed)
+        Focused -> realign(changed)
       }
       let sync = case field_buffer(changed) == field_buffer(editor) {
         True -> InSync
@@ -244,18 +287,26 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
   }
 }
 
-/// Moves the head of `from`'s selection to a place on the drawn page, and
-/// keeps its anchor.
+/// Selects `from` from `anchor` to a place on the drawn page.
 fn reach(
   editor: Editor,
   from: Buffer,
+  anchor: Position,
   row row: Int,
   visible visible: String,
   at_end at_end: Bool,
 ) -> Editor {
-  let head = live.position(buffer.lines(from), row:, visible:, at_end:)
-  let #(anchor, _) = buffer.selection(from)
+  let head = place(from, row:, visible:, at_end:)
   edit(editor, buffer.select(from, anchor:, head:)) |> realign
+}
+
+fn place(
+  in: Buffer,
+  row row: Int,
+  visible visible: String,
+  at_end at_end: Bool,
+) -> Position {
+  live.position(buffer.lines(in), row:, visible:, at_end:)
 }
 
 fn typed(

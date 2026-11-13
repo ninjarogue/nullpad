@@ -99,7 +99,7 @@ function opened(text) {
   );
   const [pointed] = app.update(
     ready,
-    new app.EditorSent(new editor.Pointed(paragraph, "", true)),
+    new app.EditorSent(new editor.Pointed(paragraph, "", true, 0, 0)),
   );
   return pointed;
 }
@@ -231,12 +231,16 @@ const events = {
   ],
   EscapePressed: [["", (field) => new editor.EscapePressed(field)]],
   Pointed: [
-    ["a row above", (_, row) => new editor.Pointed(Math.max(0, row - 9), "", true)],
-    ["a row below", (_, row) => new editor.Pointed(row + 9, "", false)],
+    ["a row above", (_, row) => new editor.Pointed(Math.max(0, row - 9), "", true, 0, 0)],
+    ["a row below", (_, row) => new editor.Pointed(row + 9, "", false, 0, 0)],
   ],
   ShiftPointed: [
-    ["a row above", (field, row) => new editor.ShiftPointed(Math.max(0, row - 9), "", true, field)],
-    ["a row below", (field, row) => new editor.ShiftPointed(row + 9, "", false, field)],
+    ["a row above", (field, row) => new editor.ShiftPointed(Math.max(0, row - 9), "", true, field, 0, 0)],
+    ["a row below", (field, row) => new editor.ShiftPointed(row + 9, "", false, field, 0, 0)],
+  ],
+  Grabbed: [
+    ["a row above", (_, row) => new editor.Grabbed(Math.max(0, row - 9), "", true, 0, 0)],
+    ["a row below", (_, row) => new editor.Grabbed(row + 9, "", false, 0, 0)],
   ],
   Dragged: [
     ["a row above", (_, row) => new editor.Dragged(Math.max(0, row - 9), "", true)],
