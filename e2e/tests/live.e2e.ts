@@ -1518,3 +1518,33 @@ test('an arrow past the first or last row of the note with a selection held goes
   await browser.keyboard.type('Y');
   await expect(page.text).toHaveValue('last oneY');
 });
+
+test('a drag with one move, let go before the page redraws, selects to where it was let go', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Title\n\nPara one\n\n> one quote\n\nlast');
+  await expect(page.text).toHaveValue('# Title');
+  const quote = await page.pointAt('quote');
+  const field = await page.fieldBox();
+  const besideTitle = await browser.evaluate(() => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.right - 10, y: box.top + box.height / 2 };
+  });
+  expect(field.top).toBeLessThan(besideTitle.y);
+
+  await page.beforeRedraw(async () => {
+    await browser.mouse.move(quote.x, quote.y);
+    await browser.mouse.down();
+    await browser.mouse.move(besideTitle.x, besideTitle.y);
+    await browser.mouse.up();
+  });
+  await page.nextFrame();
+  expect(await page.selection()).toEqual({
+    text: '# Title\n\nPara one\n\n> one quote',
+    selected: '\n\nPara one\n\n> one ',
+    backward: true,
+  });
+});

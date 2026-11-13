@@ -318,6 +318,13 @@ class Page {
    * device too busy to draw between two key presses. Then lets it draw.
    */
   async pressBeforeRedraw(...keys: string[]) {
+    await this.beforeRedraw(async () => {
+      for (const key of keys) await this.browser.keyboard.press(key);
+    });
+  }
+
+  /** Does `act` while the page draws nothing, as on a device too busy to draw. Then lets it draw. */
+  async beforeRedraw(act: () => Promise<void>) {
     await this.nextFrame();
     await this.browser.evaluate(() => {
       const real = window.requestAnimationFrame;
@@ -329,7 +336,7 @@ class Page {
       };
       return null;
     });
-    for (const key of keys) await this.browser.keyboard.press(key);
+    await act();
     await this.browser.evaluate(() => {
       (globalThis as { redraw?: () => void }).redraw!();
       return null;
