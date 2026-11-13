@@ -359,6 +359,7 @@ fn edge_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
+  use code <- decode.field("code", decode.string)
   use shift <- decode.field("shiftKey", decode.bool)
   use ctrl <- decode.field("ctrlKey", decode.bool)
   use meta <- decode.field("metaKey", decode.bool)
@@ -372,6 +373,7 @@ fn edge_decoder(
   let plain = alone && !{ shift || ctrl || meta } && anchor == head
   let shifted = alone && shift && !{ ctrl || meta }
   let command = alone && { ctrl || meta }
+  let select_all = is_key(name, code, "a")
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
@@ -381,7 +383,7 @@ fn edge_decoder(
     "ArrowDown" if shifted && head.row == end.row -> Ok(editor.SelectDown)
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
     "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
-    "a" | "A" if command && !shift -> Ok(editor.SelectAll)
+    _ if command && !shift && select_all -> Ok(editor.SelectAll)
     "Home" if command && shift -> Ok(editor.SelectToStart)
     "End" if command && shift -> Ok(editor.SelectToEnd)
     "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToStart)
@@ -437,6 +439,16 @@ fn escape_decoder(
     _, _ -> decode.failure(handler, expected: "Escape")
   }
 }
+
+/// A shortcut letter on a keyboard laid out for another alphabet is named
+/// by where the key sits.
+fn is_key(name: String, code: String, letter: String) -> Bool {
+  let typed = string.lowercase(name)
+  let latin = string.length(typed) == 1 && string.contains(letters, typed)
+  typed == letter || { !latin && code == "Key" <> string.uppercase(letter) }
+}
+
+const letters = "abcdefghijklmnopqrstuvwxyz"
 
 fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
   case ignore, name, string.length(name) {
