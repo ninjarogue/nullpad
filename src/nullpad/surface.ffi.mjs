@@ -348,12 +348,13 @@ export function textWidth(text) {
 }
 
 // A selection across blocks is painted over the drawn page with the CSS
-// Custom Highlight API, which draws no box for an empty line: a blank line
-// inside the selection takes a class instead.
+// Custom Highlight API, which draws no box for a line break: an element
+// whose last line break is selected takes a class instead.
 const SELECTION = "nullpad-selection";
 const HEAD = "nullpad-head";
 const SELECTED = "selected";
-let selectedBlanks = [];
+const BREAK_SELECTED = "break-selected";
+let selectedBreaks = [];
 
 function drawnMarks(id, liveClass, rowMark) {
   const page = document.getElementById(id)?.closest("." + liveClass);
@@ -397,9 +398,9 @@ function pointIn(holder, offset) {
 }
 
 export function paintSelection(
-  id, liveClass, rowMark, anchorRow, anchorOffset, headRow, headOffset, firstBlank, lastBlank,
+  id, liveClass, rowMark, anchorRow, anchorOffset, headRow, headOffset, firstBreak, lastBreak,
 ) {
-  clearBlanks();
+  clearBreaks();
   const marks = drawnMarks(id, liveClass, rowMark);
   const holder = (row) => marks[lastAtOrBefore(marks, row, rowMark)];
   const anchorHolder = holder(anchorRow);
@@ -416,23 +417,22 @@ export function paintSelection(
   head.setStart(headNode, headAt);
   CSS.highlights.set(SELECTION, new Highlight(range));
   CSS.highlights.set(HEAD, new Highlight(head));
-  for (let at = Math.max(lastAtOrBefore(marks, firstBlank - 1, rowMark) + 1, 0); at < marks.length; at++) {
-    const mark = marks[at];
-    if (Number(mark.dataset[rowMark]) > lastBlank) break;
-    if (mark.classList.contains("blank")) {
-      mark.classList.add(SELECTED);
-      selectedBlanks.push(mark);
-    }
+  for (let row = firstBreak; row <= lastBreak; row++) {
+    const here = holder(row);
+    if (!here || here === holder(row + 1)) continue;
+    const blank = here.classList.contains("blank");
+    here.classList.add(blank ? SELECTED : BREAK_SELECTED);
+    selectedBreaks.push(here);
   }
 }
 
-function clearBlanks() {
-  for (const blank of selectedBlanks) blank.classList.remove(SELECTED);
-  selectedBlanks = [];
+function clearBreaks() {
+  for (const mark of selectedBreaks) mark.classList.remove(SELECTED, BREAK_SELECTED);
+  selectedBreaks = [];
 }
 
 export function clearPaint() {
-  clearBlanks();
+  clearBreaks();
   globalThis.CSS?.highlights?.delete(SELECTION);
   globalThis.CSS?.highlights?.delete(HEAD);
 }

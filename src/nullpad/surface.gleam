@@ -334,8 +334,9 @@ pub fn sync(
   }
 }
 
-/// The selection is painted from where each of its ends is drawn, and a
-/// blank line counts as selected when its line break is.
+/// The selection is painted from where each of its ends is drawn, and the
+/// line break of each row from its start to the row before its end is
+/// painted too, where it ends a drawn element.
 fn paint(editor: Editor) -> Nil {
   case editor.is_painted(editor) {
     False -> clear_paint()
@@ -354,10 +355,6 @@ fn paint(editor: Editor) -> Nil {
         True -> #(anchor, head)
         False -> #(head, anchor)
       }
-      let first_blank = case start.col {
-        0 -> start.row
-        _ -> start.row + 1
-      }
       let #(anchor_row, anchor_offset) = place(anchor)
       let #(head_row, head_offset) = place(head)
       paint_selection(
@@ -368,7 +365,7 @@ fn paint(editor: Editor) -> Nil {
         anchor_offset,
         head_row,
         head_offset,
-        first_blank,
+        start.row,
         end.row - 1,
       )
     }
@@ -685,8 +682,8 @@ fn paint_selection(
   anchor_offset: Int,
   head_row: Int,
   head_offset: Int,
-  first_blank: Int,
-  last_blank: Int,
+  first_break: Int,
+  last_break: Int,
 ) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "clearPaint")
