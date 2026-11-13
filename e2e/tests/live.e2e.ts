@@ -1777,3 +1777,45 @@ test('a box ticked while a row is typed under a line keeps that line drawn as it
   await page.showMarkdown();
   await expect(page.text).toHaveValue('- [x] box\n\ntext\n-');
 });
+
+test('at the end of a wrapped line the arrows move from that line, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ');
+  await openLive({ app, disk, page }, `first\n\n${long}\n\nlast para`);
+  await page.drawn('p').last().tap();
+  await expect(page.text).toHaveValue('last para');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue(long);
+  await page.nextFrame();
+  const lines = await browser.evaluate(() => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    return field.getBoundingClientRect().height / parseFloat(getComputedStyle(field).lineHeight);
+  });
+  expect(lines).toBeGreaterThanOrEqual(3);
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await page.nextFrame();
+  const down = await page.selection();
+  expect(down.text).toBe(long);
+  expect(long.endsWith(down.selected) && down.selected.length > 0).toBe(true);
+
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('ArrowDown');
+  await page.nextFrame();
+  expect(await page.caret()).toBe(`${long}|`);
+
+  await browser.keyboard.press('Control+Home');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await page.nextFrame();
+  const up = await page.selection();
+  expect(up.selected).toMatch(/^\nword0 word1 /);
+  expect(up.selected).not.toContain('word39');
+});
