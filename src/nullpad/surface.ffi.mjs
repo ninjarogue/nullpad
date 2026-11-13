@@ -550,19 +550,38 @@ const SELECTED = "selected";
 const BREAK_SELECTED = "break-selected";
 let selectedBreaks = [];
 
+// The elements drawn from rows, in the order of the page, and their rows,
+// which never go down. They are found again only once the page outside the
+// field has changed, so that a step over a long note does not read them all.
+let knownMarks = null;
+
 function drawnMarks(id, liveClass, rowMark) {
-  const page = document.getElementById(id)?.closest("." + liveClass);
-  return page ? [...page.querySelectorAll(`[data-${rowMark}]:not(textarea)`)] : [];
+  const control = document.getElementById(id);
+  const page = control?.closest("." + liveClass);
+  if (!page) return { marks: [], rows: [] };
+  const outside = (records) => records.some((record) => !control.parentElement?.contains(record.target));
+  const known = knownMarks;
+  if (known?.page === page && known.rowMark === rowMark && !known.stale && !outside(known.watch.takeRecords())) {
+    return known;
+  }
+  known?.watch.disconnect();
+  const marks = [...page.querySelectorAll(`[data-${rowMark}]:not(textarea)`)];
+  const watch = new MutationObserver((records) => {
+    if (outside(records)) entry.stale = true;
+  });
+  watch.observe(page, { childList: true, subtree: true, attributes: true, attributeFilter: [`data-${rowMark}`] });
+  const entry = { page, rowMark, marks, rows: marks.map((mark) => Number(mark.dataset[rowMark])), watch, stale: false };
+  knownMarks = entry;
+  return entry;
 }
 
-// The marks are in the order of the page, and their rows never go down.
-function lastAtOrBefore(marks, row, rowMark) {
+function lastAtOrBefore(rows, row) {
   let low = 0;
-  let high = marks.length - 1;
+  let high = rows.length - 1;
   let found = -1;
   while (low <= high) {
     const middle = (low + high) >> 1;
-    if (Number(marks[middle].dataset[rowMark]) <= row) {
+    if (rows[middle] <= row) {
       found = middle;
       low = middle + 1;
     } else {
@@ -574,9 +593,9 @@ function lastAtOrBefore(marks, row, rowMark) {
 
 // The innermost element drawn from `row` or a row above it.
 export function holderText(id, liveClass, rowMark, row) {
-  const marks = drawnMarks(id, liveClass, rowMark);
-  const holder = marks[lastAtOrBefore(marks, row, rowMark)];
-  return holder ? [Number(holder.dataset[rowMark]), holder.textContent] : [row, ""];
+  const { marks, rows } = drawnMarks(id, liveClass, rowMark);
+  const at = lastAtOrBefore(rows, row);
+  return at >= 0 ? [rows[at], marks[at].textContent] : [row, ""];
 }
 
 // At the boundary of two pieces of text, the end of the first, unless the
@@ -597,8 +616,8 @@ export function paintSelection(
   id, liveClass, rowMark, anchorRow, anchorOffset, anchorOnward, headRow, headOffset, headOnward,
   firstBreak, lastBreak,
 ) {
-  const marks = drawnMarks(id, liveClass, rowMark);
-  const holder = (row) => marks[lastAtOrBefore(marks, row, rowMark)];
+  const known = drawnMarks(id, liveClass, rowMark);
+  const holder = (row) => known.marks[lastAtOrBefore(known.rows, row)];
   const anchorHolder = holder(anchorRow);
   const headHolder = holder(headRow);
   if (!anchorHolder || !headHolder || typeof Highlight !== "function") return clearBreaks();
@@ -614,7 +633,7 @@ export function paintSelection(
   CSS.highlights.set(SELECTION, new Highlight(range));
   CSS.highlights.set(HEAD, new Highlight(head));
   underStart(document.getElementById(id), range);
-  paintBreaks(marks, rowMark, firstBreak, lastBreak);
+  paintBreaks(known, rowMark, firstBreak, lastBreak);
   paintCode(document.getElementById(id).closest("." + liveClass), range);
 }
 
@@ -622,30 +641,36 @@ export function paintSelection(
 // a class that paints its line break. An element with rows of its own
 // drawn inside it, such as a list item with a list in it, is told where
 // its own text ends.
-function paintBreaks(marks, rowMark, first, last) {
-  const rowAt = (index) => Number(marks[index].dataset[rowMark]);
-  const ends = new Set();
-  let index = lastAtOrBefore(marks, first, rowMark);
-  for (let row = first; row <= last; ) {
-    while (index + 1 < marks.length && rowAt(index + 1) <= row) index++;
-    const following = index + 1 < marks.length ? rowAt(index + 1) : Infinity;
-    if (index >= 0 && following - 1 <= last) ends.add(index);
-    row = following;
-  }
-  const kept = new Set();
-  for (const index of ends) {
-    const mark = marks[index];
-    kept.add(mark);
-    const blank = mark.classList.contains("blank");
-    if (!mark.classList.contains(blank ? SELECTED : BREAK_SELECTED)) {
-      mark.classList.add(blank ? SELECTED : BREAK_SELECTED);
+let paintedBreaks = null;
+
+function paintBreaks(known, rowMark, first, last) {
+  const { marks, rows } = known;
+  const same = paintedBreaks?.known === known && paintedBreaks.first === first && paintedBreaks.last === last;
+  if (!same) {
+    const kept = new Set();
+    const nested = [];
+    let index = lastAtOrBefore(rows, first);
+    for (let row = first; row <= last; ) {
+      while (index + 1 < rows.length && rows[index + 1] <= row) index++;
+      const following = index + 1 < rows.length ? rows[index + 1] : Infinity;
+      if (index >= 0 && following - 1 <= last) {
+        const mark = marks[index];
+        kept.add(mark);
+        const blank = mark.classList.contains("blank");
+        if (!mark.classList.contains(blank ? SELECTED : BREAK_SELECTED)) {
+          mark.classList.add(blank ? SELECTED : BREAK_SELECTED);
+        }
+        if (index + 1 < marks.length && mark.contains(marks[index + 1])) nested.push(mark);
+      }
+      row = following;
     }
-    if (index + 1 < marks.length && mark.contains(marks[index + 1])) ownEnd(mark, rowMark);
+    for (const mark of selectedBreaks) {
+      if (!kept.has(mark)) unpaintBreak(mark);
+    }
+    selectedBreaks = [...kept];
+    paintedBreaks = { known, first, last, nested };
   }
-  for (const mark of selectedBreaks) {
-    if (!kept.has(mark)) unpaintBreak(mark);
-  }
-  selectedBreaks = [...kept];
+  for (const mark of paintedBreaks.nested) ownEnd(mark, rowMark);
 }
 
 function ownEnd(mark, rowMark) {
@@ -714,6 +739,7 @@ function clearCode() {
 function clearBreaks() {
   for (const mark of selectedBreaks) unpaintBreak(mark);
   selectedBreaks = [];
+  paintedBreaks = null;
   clearCode();
 }
 
@@ -843,7 +869,7 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, gr
     getSelection().modify("extend", forward ? "forward" : "backward", granularity);
     return answer(-4);
   }
-  const marks = drawnMarks(id, liveClass, rowMark);
+  const { marks, rows } = drawnMarks(id, liveClass, rowMark);
   const selection = getSelection();
   const { selectionStart, selectionEnd, selectionDirection } = control;
   try {
@@ -855,7 +881,7 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, gr
       }
       landed = beside(marks, part, forward);
     } else {
-      const holder = marks[lastAtOrBefore(marks, headRow, rowMark)];
+      const holder = marks[lastAtOrBefore(rows, headRow)];
       if (!holder) return answer(-1);
       const [node, offset] = pointIn(holder, headOffset, onward);
       if (x < 0) x = caretBox(node, offset).left - columnLeft(page);
