@@ -314,6 +314,8 @@ fn typed(
 
 /// An IME redraws its own text in the control, so the control is not
 /// written to, and the blocks around the field stay as they were drawn.
+/// Its keys are not steps of the history: the event that ends it records the
+/// whole composition as one.
 fn compose(editor: Editor, shown: Buffer) -> Outcome {
   let composed = base(editor, shown)
   let rows_kept =
