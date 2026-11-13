@@ -1164,3 +1164,24 @@ test('without the Highlight API Shift+ArrowDown on the last row keeps the select
     await page.markdown.tap();
   }
 });
+
+test('a Shift and arrow step over a long note painted whole draws within a moment', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, Array.from({ length: 8000 }, (_, i) => `para ${i}`).join('\n\n'));
+  for (const key of ['Shift+ArrowLeft', 'Shift+ArrowDown']) {
+    await browser.keyboard.press('ControlOrMeta+a');
+    await page.nextFrame();
+    const times = [];
+    for (let press = 0; press < 3; press++) {
+      const pressed = performance.now();
+      await browser.keyboard.press(key);
+      await page.nextFrame();
+      times.push(performance.now() - pressed);
+    }
+    expect({ key, fastest: Math.min(...times) < 1500 }).toEqual({ key, fastest: true });
+  }
+});
