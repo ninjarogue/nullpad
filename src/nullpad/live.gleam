@@ -215,15 +215,17 @@ pub fn follows_hidden(
 }
 
 /// Where `at` lands when it is among or beside marks the page hides between
-/// two drawn characters, which all draw at one place: where `position` puts
-/// a click there, as for `nudge`, so that a selection painted from there
-/// holds both marks of a pair or neither. The marks a row starts with keep
-/// every place among them. `row` and `visible` are as for `drawn`.
+/// two drawn characters, which all draw at one place: the place among them
+/// nearest `at` where the line, cut there and at `other` when it is on the
+/// same row, draws what it draws whole. A selection between the two then
+/// holds both marks of a pair or neither, as the parser pairs them. With no
+/// such place, `at` stays. `row` and `visible` are as for `drawn`.
 pub fn settle(
   lines: List(String),
   row row: Int,
   visible visible: String,
   at at: Position,
+  other other: Position,
 ) -> Position {
   let line = lines |> list.drop(at.row) |> list.first
   let here = case at.row >= row {
@@ -237,17 +239,61 @@ pub fn settle(
         shown(typed, string.to_graphemes(here), []) |> list.split(at.col)
       let start = at.col - hidden_run(list.reverse(before), 0)
       let end = at.col + hidden_run(after, 0)
-      case start > 0 && start < end {
-        True -> {
-          let next =
-            typed |> list.drop(end) |> list.first |> result.unwrap("\n")
-          let place = drawn(lines, row:, visible:, at: Position(at.row, start))
-          position(lines, row:, visible: place, at_end: False, next:)
-        }
+      let whole = markdown.inline_text(line)
+      let cuts = case other.row == at.row {
+        True -> [other.col]
+        False -> []
+      }
+      let whole_at = fn(col) {
+        cut(typed, list.sort([col, ..cuts], int.compare), 0, [])
+        |> list.map(markdown.inline_text)
+        |> string.concat
+        == whole
+      }
+      case start < end {
+        True -> Position(..at, col: nearest(at.col, 0, start, end, whole_at))
         False -> at
       }
     }
     _, _ -> at
+  }
+}
+
+/// The pieces of `typed` between the columns `at`, in order.
+fn cut(
+  typed: List(String),
+  at: List(Int),
+  col: Int,
+  pieces: List(String),
+) -> List(String) {
+  case at {
+    [] -> list.reverse([string.concat(typed), ..pieces])
+    [next, ..rest] -> {
+      let #(piece, typed) = list.split(typed, int.max(next - col, 0))
+      cut(typed, rest, int.max(next, col), [string.concat(piece), ..pieces])
+    }
+  }
+}
+
+/// The column from `start` to `end` nearest `from` that is `fine`, the one
+/// before it first, or `from` when none is.
+fn nearest(
+  from: Int,
+  away: Int,
+  start: Int,
+  end: Int,
+  fine: fn(Int) -> Bool,
+) -> Int {
+  let before = from - away
+  let after = from + away
+  case before < start && after > end {
+    True -> from
+    False ->
+      case before >= start && fine(before), after <= end && fine(after) {
+        True, _ -> before
+        False, True -> after
+        False, False -> nearest(from, away + 1, start, end, fine)
+      }
   }
 }
 

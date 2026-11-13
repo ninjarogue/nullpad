@@ -721,41 +721,54 @@ export function headLine(id, liveClass, paintedClass) {
 
 // The head steps over the drawn page as the browser moves a caret over it,
 // so tables, the lines of code and wrapped lines are stepped as they are
-// drawn. It is stepped from where it is drawn, from the edge of the field
+// drawn. It is stepped from where it is drawn, or from the edge of the field
 // when it is in the field, and a step of a line then goes to the place on
-// that line nearest `x` from the left of the text. The browser's selection
-// is put back in the field after. A step returns the place it reaches, -1
-// for no page, -2 for nothing past the head, and -3 when the page must be
-// drawn first: the field holds rows the page does not draw, and has moved
-// since it was drawn.
+// that line nearest `x` from the left of the text, or nearest where the head
+// is drawn when `x` is below 0. The browser's selection is put back in the
+// field after. A step returns the place it reaches and the `x` it aimed at,
+// or a row of -1 for no page, -2 for nothing past the head, -3 when the
+// page must be drawn first, as the field holds rows the page does not draw
+// and has moved since it was drawn, and -4 when the head was in the field
+// and the field took the step.
 export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, granularity, forward, x) {
+  const answer = (row, place = ["", false, ""]) => [row, ...place, x];
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
-  if (!page) return [-1, "", false, ""];
+  if (!page) return answer(-1);
   const part = control.parentElement;
   const first = control.dataset[rowMark];
   const count = part.querySelector(".mirror")?.textContent.split("\n").length ?? 0;
   const held = first === undefined ? null : [Number(first), Number(first) + count - 1];
   const inField = held !== null && headRow >= held[0] && headRow <= held[1];
-  if (inField && (!drawn || granularity !== "line")) return [drawn ? -1 : -3, "", false, ""];
+  if (inField && !drawn) return answer(-3);
+  if (inField && granularity !== "line") {
+    getSelection().modify("extend", forward ? "forward" : "backward", granularity);
+    return answer(-4);
+  }
   const marks = drawnMarks(id, liveClass, rowMark);
   const selection = getSelection();
   const { selectionStart, selectionEnd, selectionDirection } = control;
   try {
     let landed;
     if (inField) {
+      if (x < 0) {
+        const place = measure(control);
+        x = control.getBoundingClientRect().left + headCaret(control, place).x - columnLeft(page);
+      }
       landed = beside(marks, part, forward);
     } else {
       const holder = marks[lastAtOrBefore(marks, headRow, rowMark)];
-      if (!holder) return [-1, "", false, ""];
+      if (!holder) return answer(-1);
       const [node, offset] = pointIn(holder, headOffset, onward);
+      if (x < 0) x = caretBox(node, offset).left - columnLeft(page);
       selection.collapse(node, offset);
       landed = step(selection, page, rowMark, granularity, forward);
-      if (landed && held && !drawn && crosses(part, { node, offset }, landed)) return [-3, "", false, ""];
+      if (landed && held && !drawn && crosses(part, { node, offset }, landed)) return answer(-3);
     }
-    if (!landed) return [-2, "", false, ""];
+    if (!landed) return answer(-2);
     if (granularity === "line") landed = toward(selection, landed, columnLeft(page) + x, rowMark);
-    return placeOfPoint(landed, rowMark) ?? [-1, "", false, ""];
+    const place = placeOfPoint(landed, rowMark);
+    return place ? [...place, x] : answer(-1);
   } finally {
     control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
   }

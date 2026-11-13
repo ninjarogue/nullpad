@@ -441,12 +441,20 @@ pub fn sync(
             x,
           )
         case place {
-          #(-3, _, _, _) -> False
-          #(-2, _, _, _) -> {
+          #(-3, _, _, _, _) -> False
+          #(-2, _, _, _, _) -> {
             dispatch(on_event(editor.SteppedPast))
             True
           }
-          #(row, visible, at_end, next) if row >= 0 -> {
+          #(-4, _, _, _, _) -> {
+            case decode.run(find_control(control_id), control_decoder()) {
+              Ok(shown) -> dispatch(on_event(editor.ControlChanged(shown:)))
+              Error(_) -> Nil
+            }
+            dispatch(on_event(editor.Unstepped(x:)))
+            True
+          }
+          #(row, visible, at_end, next, x) if row >= 0 -> {
             dispatch(
               on_event(editor.Stepped(row:, visible:, at_end:, next:, x:)),
             )
@@ -588,9 +596,9 @@ fn paint(
       let holder = fn(at: Position) {
         holder_text(control_id, live_class, live.row_mark, at.row)
       }
-      let settle = fn(at: Position) {
+      let settle = fn(at: Position, other: Position) {
         let #(row, visible) = holder(at)
-        live.settle(lines, row:, visible:, at:)
+        live.settle(lines, row:, visible:, at:, other:)
       }
       let place = fn(at: Position) {
         let #(row, visible) = holder(at)
@@ -621,7 +629,7 @@ fn paint(
         start.row,
         end.row - 1,
       )
-      let to = #(settle(anchor), settle(head))
+      let to = #(settle(anchor, head), settle(head, anchor))
       case to == #(anchor, head) {
         True -> Nil
         False -> settled(#(anchor, head), to)
@@ -912,7 +920,7 @@ fn step_head(
   granularity: String,
   forward: Bool,
   x: Float,
-) -> #(Int, String, Bool, String)
+) -> #(Int, String, Bool, String, Float)
 
 @external(javascript, "./surface.ffi.mjs", "holdStep")
 fn hold_step(held: Bool) -> Nil

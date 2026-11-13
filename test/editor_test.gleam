@@ -757,7 +757,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
     == editor.WriteAndStep(
       caret("# Trip", 0, 3),
       move: editor.LineDown,
-      x: 12.5,
+      x: -1.0,
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 3), Position(row: 0, col: 3))
@@ -773,7 +773,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       ),
     )
   assert sync
-    == editor.WriteAndStep(caret("- one", 0, 4), move: editor.LineUp, x: 7.0)
+    == editor.WriteAndStep(caret("- one", 0, 4), move: editor.LineUp, x: -1.0)
 }
 
 pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
@@ -833,13 +833,13 @@ pub fn the_keys_that_step_a_painted_head_ask_the_page_for_the_step_test() {
     editor.update(ed, editor.EdgePressed(edge, x: 3.0, shown:)).sync
   }
   assert asks(editor.SelectRight)
-    == editor.WriteAndStep(shown, move: editor.LetterOn, x: 3.0)
+    == editor.WriteAndStep(shown, move: editor.LetterOn, x: -1.0)
   assert asks(editor.SelectLeft)
-    == editor.WriteAndStep(shown, move: editor.LetterBack, x: 3.0)
+    == editor.WriteAndStep(shown, move: editor.LetterBack, x: -1.0)
   assert asks(editor.SelectLineStart)
-    == editor.WriteAndStep(shown, move: editor.LineStart, x: 3.0)
+    == editor.WriteAndStep(shown, move: editor.LineStart, x: -1.0)
   assert asks(editor.SelectLineEnd)
-    == editor.WriteAndStep(shown, move: editor.LineEnd, x: 3.0)
+    == editor.WriteAndStep(shown, move: editor.LineEnd, x: -1.0)
 }
 
 pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
@@ -934,7 +934,7 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
   assert sync == editor.Write(shown)
   let Outcome(sync:, ..) =
     editor.update(ed, editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
-  assert sync == editor.WriteAndStep(shown, move: editor.LineDown, x: 9.0)
+  assert sync == editor.WriteAndStep(shown, move: editor.LineDown, x: -1.0)
 }
 
 fn step_to(
@@ -986,7 +986,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_test() {
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndStep(_, move: editor.LineUp, x: 3.0) = sync
+  let assert editor.WriteAndStep(_, move: editor.LineUp, x: -1.0) = sync
 }
 
 pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {

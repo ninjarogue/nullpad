@@ -227,8 +227,8 @@ pub type Sync {
   /// line of its row. A selection keeps its anchor.
   WriteAndAim(Buffer, x: Float, line: Line)
   /// Then the head takes `move` over the drawn page, a step of a line to the
-  /// place nearest `x` from the left of the text. A selection keeps its
-  /// anchor.
+  /// place nearest `x` from the left of the text, or below where the head is
+  /// drawn when `x` is below 0. A selection keeps its anchor.
   WriteAndStep(Buffer, move: Move, x: Float)
   Release(Buffer)
   /// A press at `x`, `y` in the window: the field is written, when there is
@@ -713,7 +713,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let reach = fn(head) { #(buffer.select(base, anchor:, head:), Done) }
   let goal = case editor.goal {
     Some(Goal(head: aimed, x: kept)) if aimed == head -> kept
-    Some(_) | None -> x
+    Some(_) | None -> -1.0
   }
   let start = Position(row: 0, col: 0)
   let end = end_of_row(list.length(lines) - 1)
