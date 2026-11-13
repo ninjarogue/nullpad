@@ -34,7 +34,10 @@ pub type Content {
   /// `start` is the first item's number. Later numbers are not kept.
   OrderedList(start: Int, spacing: Spacing, items: List(Item))
   Quote(blocks: List(Block))
-  CodeBlock(language: Option(String), code: String)
+  /// `code_row` is the row of the code's first line: the row below the fence
+  /// of a fenced block, the block's own first row for indented code. A fenced
+  /// block with no code lines has none, and names its opening fence.
+  CodeBlock(language: Option(String), code: String, code_row: Int)
   Rule
   /// A GFM pipe table. Every row has one cell for each column: the parser
   /// pads a short row with empty cells and drops the cells past the last
@@ -808,15 +811,24 @@ fn close_leaf(open: Open, fence_end: Int) -> Open {
         closed,
         Block(first_row, last_row, Paragraph(inlines(paragraph_text(lines)))),
       )
-    FencedLeaf(first_row:, language:, lines:, ..) ->
+    FencedLeaf(first_row:, language:, lines:, ..) -> {
+      let code_row = case lines {
+        [] -> first_row
+        _ -> first_row + 1
+      }
       push_block(
         closed,
-        Block(first_row, fence_end, CodeBlock(language, code_text(lines))),
+        Block(
+          first_row,
+          fence_end,
+          CodeBlock(language, code_text(lines), code_row),
+        ),
       )
+    }
     IndentedLeaf(first_row:, last_row:, lines:, ..) ->
       push_block(
         closed,
-        Block(first_row, last_row, CodeBlock(None, code_text(lines))),
+        Block(first_row, last_row, CodeBlock(None, code_text(lines), first_row)),
       )
     TableLeaf(first_row:, last_row:, columns:, rows:, ..) ->
       push_block(

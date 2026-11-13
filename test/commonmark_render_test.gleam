@@ -112,9 +112,9 @@ fn item(row: Int, text: String) -> markdown.Item {
 }
 
 pub fn code_is_escaped_inside_pre_and_code_test() {
-  assert render.html([Block(0, 0, CodeBlock(None, "<a> & \"b\"\n"))])
+  assert render.html([Block(0, 0, CodeBlock(None, "<a> & \"b\"\n", 0))])
     == "<pre><code>&lt;a&gt; &amp; &quot;b&quot;\n</code></pre>\n"
-  assert render.html([Block(0, 0, CodeBlock(Some("a&b"), ""))])
+  assert render.html([Block(0, 0, CodeBlock(Some("a&b"), "", 0))])
     == "<pre><code class=\"language-a&amp;b\"></code></pre>\n"
 }
 

@@ -50,6 +50,17 @@ test('a click on drawn text opens that block with the caret at the word clicked'
   await expect(page.below.getByRole('listitem')).toHaveText(['Passport', 'Shoes']);
 });
 
+test('a click on a fence with no code opens that fence and no other row', async ({ app, disk, page }) => {
+  await openLive({ app, disk, page }, 'top\n\n> ```\n\n- ```\n- last');
+
+  await page.drawn('blockquote pre').tap();
+  await expect(page.text).toHaveValue('> ```');
+  await expect(page.text).toBeFocused();
+
+  await page.drawn('li pre').tap();
+  await expect(page.text).toHaveValue('- ```');
+});
+
 test('typing in the field changes only its rows of the saved note', async ({
   app,
   browser,

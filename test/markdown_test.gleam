@@ -425,46 +425,49 @@ pub fn set_task_keeps_the_rest_of_the_line_as_typed_test() {
 pub fn a_fence_keeps_its_lines_as_typed_test() {
   assert markdown.parse("```gleam\nlet x = *1*\n\n  <b>\n```\nafter")
     == [
-      Block(0, 4, CodeBlock(Some("gleam"), "let x = *1*\n\n  <b>\n")),
+      Block(0, 4, CodeBlock(Some("gleam"), "let x = *1*\n\n  <b>\n", 1)),
       para(5, "after"),
     ]
 }
 
 pub fn a_fence_closes_only_with_as_long_a_run_of_its_mark_test() {
   assert markdown.parse("````\n```\n~~~~\n`````  ")
-    == [Block(0, 3, CodeBlock(None, "```\n~~~~\n"))]
+    == [Block(0, 3, CodeBlock(None, "```\n~~~~\n", 1))]
   assert markdown.parse("~~~\n``` a\n~~~~")
-    == [Block(0, 2, CodeBlock(None, "``` a\n"))]
+    == [Block(0, 2, CodeBlock(None, "``` a\n", 1))]
 }
 
 pub fn an_unclosed_fence_ends_with_its_container_test() {
-  assert markdown.parse("```\na\n") == [Block(0, 1, CodeBlock(None, "a\n"))]
+  assert markdown.parse("```\na\n") == [Block(0, 1, CodeBlock(None, "a\n", 1))]
   assert markdown.parse("> ```\n> a\nb")
-    == [Block(0, 1, Quote([Block(0, 1, CodeBlock(None, "a\n"))])), para(2, "b")]
+    == [
+      Block(0, 1, Quote([Block(0, 1, CodeBlock(None, "a\n", 1))])),
+      para(2, "b"),
+    ]
 }
 
 pub fn fenced_lines_lose_as_much_indent_as_the_fence_has_test() {
   assert markdown.parse("  ```\n    a\n b\nc\n  ```")
-    == [Block(0, 4, CodeBlock(None, "  a\nb\nc\n"))]
+    == [Block(0, 4, CodeBlock(None, "  a\nb\nc\n", 1))]
 }
 
 pub fn the_first_word_after_the_fence_names_the_language_test() {
   assert markdown.parse("``` ruby startline=3\n```")
-    == [Block(0, 1, CodeBlock(Some("ruby"), ""))]
+    == [Block(0, 1, CodeBlock(Some("ruby"), "", 0))]
   assert markdown.parse("~~~ a\\_b`c\n~~~")
-    == [Block(0, 1, CodeBlock(Some("a_b`c"), ""))]
+    == [Block(0, 1, CodeBlock(Some("a_b`c"), "", 0))]
   assert markdown.parse("``` a`b\nc")
     == [Block(0, 1, Paragraph([Text("``` a`b\nc")]))]
 }
 
 pub fn four_spaces_of_indent_make_a_code_block_test() {
   assert markdown.parse("    # too far")
-    == [Block(0, 0, CodeBlock(None, "# too far\n"))]
+    == [Block(0, 0, CodeBlock(None, "# too far\n", 0))]
 }
 
 pub fn indented_code_keeps_blank_lines_only_between_its_lines_test() {
   assert markdown.parse("    a\n\n      b\n      \n    c\n  \n\nd")
-    == [Block(0, 4, CodeBlock(None, "a\n\n  b\n  \nc\n")), para(7, "d")]
+    == [Block(0, 4, CodeBlock(None, "a\n\n  b\n  \nc\n", 0)), para(7, "d")]
 }
 
 pub fn indented_code_cannot_interrupt_a_paragraph_test() {
@@ -472,10 +475,58 @@ pub fn indented_code_cannot_interrupt_a_paragraph_test() {
 }
 
 pub fn a_tab_reaches_the_next_multiple_of_four_columns_test() {
-  let code = Block(0, 0, CodeBlock(None, "  foo\n"))
+  let code = Block(0, 0, CodeBlock(None, "  foo\n", 0))
   assert markdown.parse("-\t\tfoo")
     == [Block(0, 0, BulletList(Tight, [item(0, [code])]))]
   assert markdown.parse(">\t\tfoo") == [Block(0, 0, Quote([code]))]
+}
+
+pub fn a_code_block_names_the_row_its_code_starts_on_test() {
+  assert markdown.parse("p\n\n```\na\nb\n```")
+    == [para(0, "p"), Block(2, 5, CodeBlock(None, "a\nb\n", 3))]
+  assert markdown.parse("p\n\n    a\n\n    b")
+    == [para(0, "p"), Block(2, 4, CodeBlock(None, "a\n\nb\n", 2))]
+  assert markdown.parse("```\n\n```") == [Block(0, 2, CodeBlock(None, "\n", 1))]
+}
+
+pub fn a_fence_with_no_code_names_its_opening_fence_test() {
+  assert markdown.parse("```\n```") == [Block(0, 1, CodeBlock(None, "", 0))]
+  assert markdown.parse("p\n\n~~~ a\n~~~")
+    == [para(0, "p"), Block(2, 3, CodeBlock(Some("a"), "", 2))]
+  assert markdown.parse("p\n\n```")
+    == [para(0, "p"), Block(2, 2, CodeBlock(None, "", 2))]
+}
+
+pub fn a_fence_in_a_container_names_the_row_its_code_starts_on_test() {
+  assert markdown.parse("- a\n- ```\n  x\n  ```")
+    == [
+      Block(
+        0,
+        3,
+        BulletList(Tight, [
+          item(0, [para(0, "a")]),
+          item(1, [Block(1, 3, CodeBlock(None, "x\n", 2))]),
+        ]),
+      ),
+    ]
+  assert markdown.parse("> ```\n> x\n> ```")
+    == [Block(0, 2, Quote([Block(0, 2, CodeBlock(None, "x\n", 1))]))]
+  assert markdown.parse("> ```\n\nb")
+    == [
+      Block(0, 0, Quote([Block(0, 0, CodeBlock(None, "", 0))])),
+      para(2, "b"),
+    ]
+  assert markdown.parse("- ```\n- b")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [
+          item(0, [Block(0, 0, CodeBlock(None, "", 0))]),
+          item(1, [para(1, "b")]),
+        ]),
+      ),
+    ]
 }
 
 pub fn code_inside_an_item_is_indented_past_the_item_test() {
@@ -485,7 +536,7 @@ pub fn code_inside_an_item_is_indented_past_the_item_test() {
         0,
         2,
         OrderedList(1, Loose, [
-          item(0, [para(0, "a"), Block(2, 2, CodeBlock(None, "code\n"))]),
+          item(0, [para(0, "a"), Block(2, 2, CodeBlock(None, "code\n", 2))]),
         ]),
       ),
     ]
@@ -763,7 +814,7 @@ pub fn a_long_run_of_one_mark_is_one_text_test() {
   assert markdown.parse(ticks) == paragraph([Text(ticks)])
   assert markdown.parse(string.repeat("*", 20_000)) == [Block(0, 0, Rule)]
   assert markdown.parse(string.repeat("`", 20_000))
-    == [Block(0, 0, CodeBlock(None, ""))]
+    == [Block(0, 0, CodeBlock(None, "", 0))]
 }
 
 pub fn a_backtick_that_never_closes_stays_text_test() {
@@ -1086,11 +1137,11 @@ pub fn another_block_ends_a_table_test() {
   assert markdown.parse("a|b\n-|-\n# h")
     == [table, Block(2, 2, Heading(H1, [Text("h")]))]
   assert markdown.parse("a|b\n-|-\n```\nc")
-    == [table, Block(2, 3, CodeBlock(None, "c\n"))]
+    == [table, Block(2, 3, CodeBlock(None, "c\n", 3))]
   assert markdown.parse("a|b\n-|-\n***") == [table, Block(2, 2, Rule)]
   assert markdown.parse("a|b\n-|-\n---") == [table, Block(2, 2, Rule)]
   assert markdown.parse("a|b\n-|-\n    code")
-    == [table, Block(2, 2, CodeBlock(None, "code\n"))]
+    == [table, Block(2, 2, CodeBlock(None, "code\n", 2))]
   assert markdown.parse("a|b\n-|-\n- i")
     == [table, Block(2, 2, BulletList(Tight, [item(2, [para(2, "i")])]))]
   assert markdown.parse("a|b\n-|-\n2. i")

@@ -9,7 +9,7 @@ The note is always drawn as a page while you write it, unless Markdown is on. Th
 - `live-type` typing changes only those rows of the note. A blank line and then text starts a new block: the field moves to it and the block before is drawn. Text typed on a blank row between two paragraphs joins them, and the field then holds all three rows.
 - `live-arrows` ArrowUp on the field's first drawn line moves to the row above, ArrowDown on its last drawn line to the row below. Inside a wrapped paragraph the arrows move by drawn line first.
 - `live-join` Backspace at the start of the field joins it to the row above. Delete at its end joins the row below to it.
-- `live-click` a click on drawn text puts the field on that block with the caret at the word clicked. A click beside or between blocks goes to the end of the nearest one.
+- `live-click` a click on drawn text puts the field on that block with the caret at the word clicked. A click on the box of a fence with no code puts the field on that fence. A click beside or between blocks goes to the end of the nearest one.
 - `live-idle` Escape, or focus anywhere else, draws the whole note in one element, `[data-test-id=preview]`, with no field and no `live-above`. A click on the page brings the field back.
 - `live-tasks` a drawn box ticks its line without opening its block. A link opens in a new tab.
 - `live-font` the field is set like its block: heading sizes for a heading, the code font for a code block or table, an indent for a list item.

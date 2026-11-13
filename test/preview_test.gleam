@@ -293,14 +293,14 @@ pub fn a_checkbox_is_named_after_the_words_of_the_first_paragraph_test() {
 
 pub fn code_renders_as_pre_and_code_as_typed_test() {
   assert string.contains(
-    render(CodeBlock(None, "  a <b> &c\n\nd\n")),
+    render(CodeBlock(None, "  a <b> &c\n\nd\n", 0)),
     "<pre><code>  a &lt;b&gt; &amp;c\n\nd\n</code></pre>",
   )
 }
 
 pub fn code_names_its_language_in_a_class_test() {
   assert string.contains(
-    render(CodeBlock(Some("gleam"), "x\n")),
+    render(CodeBlock(Some("gleam"), "x\n", 0)),
     "<pre><code class=\"language-gleam\">x\n</code></pre>",
   )
 }
@@ -479,4 +479,86 @@ pub fn the_whole_page_draws_no_blank_rows_test() {
     |> element.to_string
 
   assert !string.contains(html, "blank")
+}
+
+fn marked(source: String) -> String {
+  markdown.parse(source)
+  |> preview.part(
+    rows: list.length(string.split(source, "\n")),
+    first_row: 0,
+    test_id: "live-below",
+    on_task: fn(task, _) { task },
+  )
+  |> element.to_string
+}
+
+fn pre_rows(source: String) -> List(String) {
+  marked(source) |> marks("<pre data-row=\"")
+}
+
+fn tr_rows(source: String) -> List(String) {
+  marked(source) |> marks("<tr data-row=\"")
+}
+
+fn marks(html: String, opening: String) -> List(String) {
+  case string.split(html, opening) {
+    [_, ..after] ->
+      list.map(after, fn(rest) {
+        let assert [row, ..] = string.split(rest, "\"")
+        row
+      })
+    [] -> []
+  }
+}
+
+pub fn a_fenced_block_is_marked_with_the_row_of_its_first_line_of_code_test() {
+  assert pre_rows("```\nfirst\nsecond\n```") == ["1"]
+  assert pre_rows("p\n\n~~~ru\nx\n~~~") == ["3"]
+  assert pre_rows("```\nx\n\n```") == ["1"]
+}
+
+pub fn an_indented_block_is_marked_with_its_own_first_row_test() {
+  assert pre_rows("    a") == ["0"]
+  assert pre_rows("p\n\n    a\n\n    b") == ["2"]
+}
+
+pub fn code_in_a_list_item_is_marked_with_its_row_in_the_note_test() {
+  assert pre_rows("- a\n- ```\n  x\n  ```") == ["2"]
+  assert pre_rows("- a\n\n      x") == ["2"]
+  assert pre_rows("1. ```\n   x\n   ```\n2. b") == ["1"]
+}
+
+pub fn code_in_a_quote_is_marked_with_its_row_in_the_note_test() {
+  assert pre_rows("p\n\n> ```\n> x\n> ```") == ["3"]
+  assert pre_rows("> a\n>\n>     x") == ["2"]
+  assert pre_rows("> ```\n> x\nb") == ["1"]
+}
+
+pub fn an_empty_fenced_block_is_marked_with_its_opening_fence_test() {
+  assert pre_rows("```\n```") == ["0"]
+  assert pre_rows("p\n\n~~~ a\n~~~\n\nq") == ["2"]
+}
+
+pub fn an_unclosed_empty_fence_is_marked_inside_its_block_test() {
+  assert pre_rows("```") == ["0"]
+  assert pre_rows("p\n\n```") == ["2"]
+  assert pre_rows("> ```\n\nb") == ["0"]
+  assert pre_rows("- ```\n- b") == ["0"]
+}
+
+pub fn the_body_rows_of_a_table_are_marked_below_its_delimiter_row_test() {
+  assert tr_rows("| a |\n|---|\n| 1 |\n| 2 |") == ["0", "2", "3"]
+  assert tr_rows("p\n| a |\n|---|\n| 1 |") == ["1", "3"]
+  assert tr_rows("a|b\n-|-\n1\n1|2|3\n\nx") == ["0", "2", "3"]
+}
+
+pub fn the_rows_of_a_table_in_a_quote_are_marked_with_their_rows_in_the_note_test() {
+  assert tr_rows("> | a |\n> |---|\n> | 1 |\n> | 2 |") == ["0", "2", "3"]
+  assert tr_rows("> p\n>\n> | a |\n> |---|\n> | 1 |") == ["2", "4"]
+}
+
+pub fn the_rows_of_a_table_in_a_list_item_are_marked_with_their_rows_in_the_note_test() {
+  assert tr_rows("- | a |\n  |---|\n  | 1 |\n  | 2 |") == ["0", "2", "3"]
+  assert tr_rows("- x\n\n  | a |\n  |---|\n  | 1 |\n  | 2 |") == ["2", "4", "5"]
+  assert tr_rows("- > | a |\n  > |---|\n  > | 1 |") == ["0", "2"]
 }
