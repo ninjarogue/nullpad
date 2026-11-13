@@ -1748,6 +1748,11 @@ fn flatten(ropes: List(Rope), done: List(Inline)) -> List(Inline) {
   }
 }
 
+/// What `source` draws as one line of inline markdown, its marks dropped.
+pub fn inline_text(source: String) -> String {
+  source |> string.to_graphemes |> inlines |> words
+}
+
 pub fn plain_text(inlines: List(Inline)) -> String {
   inlines |> words |> string.replace("\n", " ")
 }

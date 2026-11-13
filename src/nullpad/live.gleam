@@ -189,6 +189,135 @@ pub fn drawn(
   }
 }
 
+/// Whether the page hides the character before `at`, which is then drawn at
+/// the start of the drawn text after it, such as the start of a table cell,
+/// rather than the end of the text before it. `row` and `visible` are as
+/// for `drawn`.
+pub fn follows_hidden(
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
+) -> Bool {
+  let line = lines |> list.drop(at.row) |> list.first
+  let here = case at.row >= row && at.col > 0 {
+    True -> string.split(visible, "\n") |> list.drop(at.row - row) |> list.first
+    False -> Error(Nil)
+  }
+  case line, here {
+    Ok(line), Ok(here) ->
+      shown(string.to_graphemes(line), string.to_graphemes(here), [])
+      |> list.drop(at.col - 1)
+      |> list.first
+      == Ok(False)
+    _, _ -> False
+  }
+}
+
+/// Where `at` lands when it is among or beside marks the page hides between
+/// two drawn characters, which all draw at one place: the place among them
+/// nearest `at` where the line, cut there and at `other` when it is on the
+/// same row, draws what it draws whole. A selection between the two then
+/// holds both marks of a pair or neither, as the parser pairs them. With no
+/// such place, `at` stays. `row` and `visible` are as for `drawn`.
+pub fn settle(
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
+  other other: Position,
+) -> Position {
+  let line = lines |> list.drop(at.row) |> list.first
+  let here = case at.row >= row {
+    True -> string.split(visible, "\n") |> list.drop(at.row - row) |> list.first
+    False -> Error(Nil)
+  }
+  case line, here {
+    Ok(line), Ok(here) -> {
+      let typed = string.to_graphemes(line)
+      let #(before, after) =
+        shown(typed, string.to_graphemes(here), []) |> list.split(at.col)
+      let start = at.col - hidden_run(list.reverse(before), 0)
+      let end = at.col + hidden_run(after, 0)
+      let whole = markdown.inline_text(line)
+      let cuts = case other.row == at.row {
+        True -> [other.col]
+        False -> []
+      }
+      let whole_at = fn(col) {
+        cut(typed, list.sort([col, ..cuts], int.compare), 0, [])
+        |> list.map(markdown.inline_text)
+        |> string.concat
+        == whole
+      }
+      case start < end {
+        True -> Position(..at, col: nearest(at.col, 0, start, end, whole_at))
+        False -> at
+      }
+    }
+    _, _ -> at
+  }
+}
+
+/// The pieces of `typed` between the columns `at`, in order.
+fn cut(
+  typed: List(String),
+  at: List(Int),
+  col: Int,
+  pieces: List(String),
+) -> List(String) {
+  case at {
+    [] -> list.reverse([string.concat(typed), ..pieces])
+    [next, ..rest] -> {
+      let #(piece, typed) = list.split(typed, int.max(next - col, 0))
+      cut(typed, rest, int.max(next, col), [string.concat(piece), ..pieces])
+    }
+  }
+}
+
+/// The column from `start` to `end` nearest `from` that is `fine`, the one
+/// before it first, or `from` when none is.
+fn nearest(
+  from: Int,
+  away: Int,
+  start: Int,
+  end: Int,
+  fine: fn(Int) -> Bool,
+) -> Int {
+  let before = from - away
+  let after = from + away
+  case before < start && after > end {
+    True -> from
+    False ->
+      case before >= start && fine(before), after <= end && fine(after) {
+        True, _ -> before
+        False, True -> after
+        False, False -> nearest(from, away + 1, start, end, fine)
+      }
+  }
+}
+
+/// Whether each character of `line` is drawn, matched as `drawn` matches.
+fn shown(
+  line: List(String),
+  visible: List(String),
+  taken: List(Bool),
+) -> List(Bool) {
+  case line, visible {
+    [], _ -> list.reverse(taken)
+    [typed, ..line], [drawn, ..rest] if typed == drawn ->
+      shown(line, rest, [True, ..taken])
+    [_, ..line], _ -> shown(line, visible, [False, ..taken])
+  }
+}
+
+fn hidden_run(shown: List(Bool), count: Int) -> Int {
+  case shown {
+    [False, ..shown] -> hidden_run(shown, count + 1)
+    _ -> count
+  }
+}
+
 fn unmatch(
   line: List(String),
   visible: List(String),
@@ -204,80 +333,6 @@ fn unmatch(
   }
 }
 
-/// One character drawn on the page from `at`, along its row, past the marks
-/// the page does not draw: forward to just after the next drawn character,
-/// back to just before the last. Marks between two drawn characters go with
-/// the one before them when they close what it is in, and with the one after
-/// them when they open what it is in, so a selection that ends there holds
-/// both marks of a pair or neither. Past the end or the start of the row, to
-/// the row beyond. `row` and `visible` are as for `drawn`, for the element
-/// `at` is drawn in.
-pub fn nudge(
-  lines: List(String),
-  row row: Int,
-  visible visible: String,
-  at at: Position,
-  forward forward: Bool,
-) -> Position {
-  let line = fn(at_row) {
-    case at_row >= 0 {
-      True -> lines |> list.drop(at_row) |> list.first
-      False -> Error(Nil)
-    }
-  }
-  let index = at.row - row
-  let here = case index >= 0 {
-    True -> string.split(visible, "\n") |> list.drop(index) |> list.first
-    False -> Error(Nil)
-  }
-  let typed = line(at.row) |> result.unwrap("") |> string.to_graphemes
-  let length = list.length(typed)
-  let drawn = here |> result.unwrap("") |> string.to_graphemes
-  case forward, line(at.row + 1), line(at.row - 1) {
-    True, Ok(_), _ if at.col >= length -> Position(row: at.row + 1, col: 0)
-    False, _, Ok(above) if at.col <= 0 ->
-      Position(row: at.row - 1, col: string.length(above))
-    True, _, _ -> {
-      let #(typed, drawn) = walk(typed, drawn, 0, at.col)
-      Position(..at, col: next_drawn(typed, drawn, int.max(at.col, 0)))
-    }
-    False, _, _ ->
-      Position(..at, col: last_drawn(typed, drawn, 0, at.col, None, None))
-  }
-}
-
-fn walk(
-  typed: List(String),
-  drawn: List(String),
-  col: Int,
-  until: Int,
-) -> #(List(String), List(String)) {
-  case typed, drawn {
-    _, _ if col >= until -> #(typed, drawn)
-    [], _ -> #(typed, drawn)
-    [one, ..typed], [next, ..rest] if one == next ->
-      walk(typed, rest, col + 1, until)
-    [_, ..typed], _ -> walk(typed, drawn, col + 1, until)
-  }
-}
-
-fn next_drawn(typed: List(String), drawn: List(String), col: Int) -> Int {
-  case typed, drawn {
-    [one, ..typed], [next, ..drawn] if one == next ->
-      case drawn {
-        [] -> col + 1 + list.length(typed)
-        [after, ..] ->
-          case closes(Some(one), after) {
-            True -> skip_to(typed, after, col + 1)
-            False -> col + 1
-          }
-      }
-    [_, ..typed], [_, ..] -> next_drawn(typed, drawn, col + 1)
-    [], _ -> col
-    _, [] -> col + list.length(typed)
-  }
-}
-
 /// The column of the next `drawn` in `typed`, or `col` when there is none.
 fn skip_to(typed: List(String), drawn: String, col: Int) -> Int {
   skip(typed, drawn, col, col)
@@ -288,34 +343,6 @@ fn skip(typed: List(String), drawn: String, col: Int, from: Int) -> Int {
     [one, ..] if one == drawn -> col
     [_, ..typed] -> skip(typed, drawn, col + 1, from)
     [] -> from
-  }
-}
-
-/// `last` and `before` are the last two drawn characters passed, with their
-/// columns.
-fn last_drawn(
-  typed: List(String),
-  drawn: List(String),
-  col: Int,
-  until: Int,
-  last: Option(#(Int, String)),
-  before: Option(#(Int, String)),
-) -> Int {
-  case typed, drawn {
-    [one, ..typed], [next, ..drawn] if one == next && col < until ->
-      last_drawn(typed, drawn, col + 1, until, Some(#(col, one)), last)
-    [_, ..typed], _ if col < until ->
-      last_drawn(typed, drawn, col + 1, until, last, before)
-    _, _ ->
-      case last, before {
-        None, _ -> 0
-        Some(#(at, _)), None -> at
-        Some(#(at, one)), Some(#(left, previous)) ->
-          case closes(Some(previous), one) {
-            True -> at
-            False -> left + 1
-          }
-      }
   }
 }
 

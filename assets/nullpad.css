@@ -437,13 +437,27 @@ button[aria-pressed="true"] {
   width: 0.5em;
 }
 
-.page.live .break-selected::after {
+/* The bar takes no room: after a code block's last line break it would start
+   a line, and in a table row it would be a cell. */
+.page.live .break-selected {
+  position: relative;
+}
+
+.page.live .break-selected:not(tr)::after,
+.page.live tr.break-selected > :last-child::after {
   background: Highlight;
   content: "";
   display: inline-block;
   height: 1em;
-  vertical-align: -0.15em;
+  margin-top: calc((1lh - 1em) / 2);
+  position: absolute;
   width: 0.5em;
+}
+
+/* An element with rows drawn inside it is told where its own text ends. */
+.page.live .break-selected:not(tr)::after {
+  left: var(--break-left, auto);
+  top: var(--break-top, auto);
 }
 
 .editor.part.mono > * {

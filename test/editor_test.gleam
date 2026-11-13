@@ -760,9 +760,8 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
   assert sync
     == editor.WriteAndStep(
       caret("# Trip", 0, 3),
-      x: 12.5,
-      up: False,
-      queued: False,
+      move: editor.LineDown,
+      x: -1.0,
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 3), Position(row: 0, col: 3))
@@ -778,12 +777,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       ),
     )
   assert sync
-    == editor.WriteAndStep(
-      caret("- one", 0, 4),
-      x: 7.0,
-      up: True,
-      queued: False,
-    )
+    == editor.WriteAndStep(caret("- one", 0, 4), move: editor.LineUp, x: -1.0)
 }
 
 pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
@@ -803,9 +797,8 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
   assert sync
     == editor.WriteAndStep(
       selected("# Trip\n", from: Position(0, 3), to: Position(1, 0)),
+      move: editor.LineUp,
       x: 12.5,
-      up: True,
-      queued: True,
     )
 
   let Outcome(editor: ed, sync:, ..) =
@@ -830,7 +823,7 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
   let assert editor.WriteAndStep(..) = sync
 }
 
-pub fn shift_and_an_arrow_left_or_right_on_a_painted_selection_skip_hidden_marks_test() {
+pub fn the_keys_that_step_a_painted_head_ask_the_page_for_the_step_test() {
   let ed = pressed(live_note, 0, "Tr")
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -839,39 +832,74 @@ pub fn shift_and_an_arrow_left_or_right_on_a_painted_selection_skip_hidden_marks
     )
   let ed = editor.update(ed, editor.Released).editor
   assert editor.is_painted(ed)
+  let shown = editor.field_buffer(ed)
+  let asks = fn(edge) {
+    editor.update(ed, editor.EdgePressed(edge, x: 3.0, shown:)).sync
+  }
+  assert asks(editor.SelectRight)
+    == editor.WriteAndStep(shown, move: editor.LetterOn, x: -1.0)
+  assert asks(editor.SelectLeft)
+    == editor.WriteAndStep(shown, move: editor.LetterBack, x: -1.0)
+  assert asks(editor.SelectLineStart)
+    == editor.WriteAndStep(shown, move: editor.LineStart, x: -1.0)
+  assert asks(editor.SelectLineEnd)
+    == editor.WriteAndStep(shown, move: editor.LineEnd, x: -1.0)
+}
 
-  let Outcome(editor: ed, sync:, ..) =
+pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
+  let shown = caret("# Trip", 0, 3)
+  let past = fn(edge) {
+    let Outcome(editor: ed, ..) =
+      live(live_note)
+      |> editor.update(editor.EdgePressed(edge, x: 9.0, shown:))
+    let Outcome(editor: ed, ..) = editor.update(ed, editor.SteppedPast)
+    buffer.selection(editor.buffer(ed))
+  }
+  assert past(editor.SelectDown) == #(Position(0, 3), buffer.end_of(live_note))
+  assert past(editor.SelectUp) == #(Position(0, 3), Position(0, 0))
+}
+
+pub fn a_change_the_editor_did_not_write_ends_the_waiting_steps_test() {
+  let shown = caret("# Trip", 0, 3)
+  let Outcome(editor: ed, ..) =
+    live(live_note)
+    |> editor.update(editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(caret("# TXrip", 0, 4), at: 0))
+  let Outcome(editor: late, sync:, ..) =
     editor.update(
       ed,
-      editor.Nudged(
-        forward: True,
-        row: 2,
-        visible: "Flights are booked.",
-        shown: editor.field_buffer(ed),
-      ),
+      editor.Stepped(row: 2, visible: "Fli", at_end: False, next: "", x: 9.0),
     )
-  assert sync
-    == editor.Write(selected(
-      "# Trip\n\nFlights are **booked**.",
-      from: Position(0, 4),
-      to: Position(2, 15),
-    ))
+  assert sync == editor.InSync
+  assert late == ed
+}
 
-  let Outcome(editor: ed, sync:, ..) =
+pub fn a_painted_selection_settles_where_the_page_painted_it_test() {
+  let ed = pressed(live_note, 0, "Tr")
+  let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Nudged(
-        forward: False,
-        row: 2,
-        visible: "Flights are booked.",
-        shown: editor.field_buffer(ed),
-      ),
+      editor.Dragged(row: 2, visible: "Flights are ", at_end: False, next: ""),
     )
+  assert editor.is_painted(ed)
+  let from = #(Position(0, 4), Position(2, 12))
+  let to = #(Position(0, 4), Position(2, 14))
+
+  let Outcome(editor: stale, sync:, ..) =
+    editor.update(ed, editor.Settled(from: #(Position(0, 3), from.1), to:))
+  assert sync == editor.InSync
+  assert stale == ed
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Settled(from:, to:))
   assert sync
-    == editor.Write(selected(
+    == editor.WriteQuietly(selected(
       "# Trip\n\nFlights are **booked**.",
-      from: Position(0, 4),
-      to: Position(2, 12),
+      from: to.0,
+      to: to.1,
     ))
   assert editor.text(ed) == live_note
 }
@@ -910,19 +938,25 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
   assert sync == editor.Write(shown)
   let Outcome(sync:, ..) =
     editor.update(ed, editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
-  assert sync == editor.WriteAndStep(shown, x: 9.0, up: False, queued: False)
+  assert sync == editor.WriteAndStep(shown, move: editor.LineDown, x: -1.0)
+}
+
+fn step_to(
+  ed: editor.Editor,
+  row row: Int,
+  visible visible: String,
+  at_end at_end: Bool,
+  x x: Float,
+) -> Outcome {
+  let shown = editor.field_buffer(ed)
+  editor.update(ed, editor.EdgePressed(editor.SelectDown, x:, shown:)).editor
+  |> editor.update(editor.Stepped(row:, visible:, at_end:, next: "", x:))
 }
 
 pub fn the_next_step_aims_where_the_last_step_aimed_test() {
   let ed =
     live(live_note)
-    |> editor.update(editor.Stepped(
-      row: 1,
-      visible: "",
-      at_end: True,
-      next: "",
-      x: 40.0,
-    ))
+    |> step_to(row: 1, visible: "", at_end: True, x: 40.0)
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed.editor,
@@ -932,7 +966,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_test() {
         shown: editor.field_buffer(ed.editor),
       ),
     )
-  let assert editor.WriteAndStep(_, x: 40.0, up: False, queued: False) = sync
+  let assert editor.WriteAndStep(_, move: editor.LineDown, x: 40.0) = sync
 
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -956,7 +990,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_test() {
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndStep(_, x: 3.0, up: True, queued: False) = sync
+  let assert editor.WriteAndStep(_, move: editor.LineUp, x: -1.0) = sync
 }
 
 pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
@@ -1050,10 +1084,7 @@ pub fn typing_over_a_selection_across_blocks_replaces_it_test() {
     live(live_note)
     |> editor.update(editor.ControlChanged(shown: caret("# Trip", 0, 3), at: 0))
   let Outcome(editor: ed, ..) =
-    editor.update(
-      ed,
-      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: 0.0),
-    )
+    step_to(ed, row: 2, visible: "", at_end: False, x: 0.0)
 
   let typed = caret("# TXFlights are **booked**.", 0, 4)
   let Outcome(editor: ed, sync:, ..) =

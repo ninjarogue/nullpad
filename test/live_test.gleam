@@ -376,117 +376,6 @@ pub fn a_row_in_an_element_further_down_is_drawn_from_its_own_start_test() {
     == "one\n"
 }
 
-fn nudge(
-  lines: List(String),
-  visible: String,
-  row: Int,
-  col: Int,
-  forward: Bool,
-) {
-  live.nudge(lines, row: 0, visible:, at: Position(row:, col:), forward:)
-}
-
-pub fn a_nudge_crosses_the_marks_the_page_does_not_draw_test() {
-  let lines = ["Flights are **booked** and"]
-  let visible = "Flights are booked and"
-  assert nudge(lines, visible, 0, 12, True) == Position(0, 15)
-  assert nudge(lines, visible, 0, 19, True) == Position(0, 22)
-  assert nudge(lines, visible, 0, 20, True) == Position(0, 23)
-  assert nudge(lines, visible, 0, 23, False) == Position(0, 22)
-  assert nudge(lines, visible, 0, 22, False) == Position(0, 19)
-  assert nudge(lines, visible, 0, 15, False) == Position(0, 12)
-  assert nudge(lines, visible, 0, 14, False) == Position(0, 11)
-}
-
-/// Between two drawn letters, marks that close what the letter before
-/// opened go with it, and marks that open what follows go with the letter
-/// after, so that a selection ending there holds both marks of a pair or
-/// neither.
-pub fn a_nudge_takes_closing_marks_with_the_letter_before_them_test() {
-  let lines = ["**bold** and *it*. ok"]
-  let visible = "bold and it. ok"
-  assert nudge(lines, visible, 0, 5, True) == Position(0, 8)
-  assert nudge(lines, visible, 0, 15, True) == Position(0, 17)
-  assert nudge(lines, visible, 0, 12, True) == Position(0, 13)
-  assert nudge(lines, visible, 0, 15, False) == Position(0, 13)
-  assert nudge(lines, visible, 0, 3, False) == Position(0, 2)
-}
-
-/// A nudge that stays on its row draws one character more or less, or
-/// reaches the end of the row it was on when nothing more is drawn there.
-pub fn every_nudge_draws_one_character_more_or_less_test() {
-  let wrong = {
-    use Drawn(lines:, visible:) <- list.flat_map(corpus)
-    use #(line, row) <- list.flat_map(
-      list.index_map(lines, fn(line, row) { #(line, row) }),
-    )
-    let drawn_here = list.length(string.split(visible, "\n")) > row
-    let end = string.length(line)
-    let last = list.length(lines) - 1
-    let length = fn(col) {
-      string.length(live.drawn(
-        lines,
-        row: 0,
-        visible:,
-        at: Position(row:, col:),
-      ))
-    }
-    use col <- list.filter_map(through(end))
-    let at = Position(row:, col:)
-    let forward = live.nudge(lines, row: 0, visible:, at:, forward: True)
-    let back = live.nudge(lines, row: 0, visible:, at:, forward: False)
-    let forward_ok = case forward.row == row {
-      False -> col == end
-      True ->
-        forward == at
-        && col == end
-        && row == last
-        || forward.col > col
-        && {
-          length(forward.col) - length(col) == 1
-          || length(forward.col) == length(col)
-          && forward.col == end
-        }
-    }
-    let back_ok = case back.row == row {
-      False -> col == 0
-      True ->
-        back == at
-        && col == 0
-        && row == 0
-        || back.col < col
-        && {
-          length(col) - length(back.col) == 1
-          || length(back.col) == length(col)
-          && back.col == 0
-        }
-    }
-    case drawn_here && !{ forward_ok && back_ok } {
-      True -> Ok(line <> " at " <> int.to_string(col))
-      False -> Error(Nil)
-    }
-  }
-  assert wrong == []
-}
-
-pub fn a_nudge_skips_the_marks_that_start_a_row_test() {
-  let lines = ["- [ ] task box"]
-  assert nudge(lines, "task box", 0, 0, True) == Position(0, 7)
-  assert nudge(lines, "task box", 0, 6, False) == Position(0, 0)
-  assert nudge(["**bold**"], "bold", 0, 6, True) == Position(0, 8)
-}
-
-pub fn a_nudge_past_the_end_of_a_row_goes_to_the_next_row_test() {
-  let lines = ["> quoted **q**", "> more", ""]
-  let visible = "quoted q\nmore"
-  assert nudge(lines, visible, 0, 14, True) == Position(1, 0)
-  assert nudge(lines, visible, 1, 0, True) == Position(1, 3)
-  assert nudge(lines, visible, 1, 0, False) == Position(0, 14)
-  assert nudge(lines, visible, 1, 6, True) == Position(2, 0)
-  assert nudge(lines, visible, 2, 0, True) == Position(2, 0)
-  assert nudge(lines, visible, 0, 0, False) == Position(0, 0)
-}
-
 pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_test() {
   let at = fn(line, visible, next) {
     live.position([line], row: 0, visible:, at_end: False, next:).col
@@ -497,4 +386,97 @@ pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_t
   assert at("1 | 2", "", "1") == 0
   assert at("a **b**", "a ", "b") == 2
   assert at("a \\| b", "a ", "|") == 2
+}
+
+fn settle(lines: List(String), visible: String, row: Int, col: Int) -> Int {
+  let other = Position(row: row + 1, col: 0)
+  live.settle(lines, row: 0, visible:, at: Position(row:, col:), other:).col
+}
+
+/// Marks between two drawn letters all draw at one place, so a place among
+/// or beside them goes where a click there lands: before marks that open
+/// what follows, past marks that close what came before.
+pub fn a_place_among_hidden_marks_settles_where_a_click_there_lands_test() {
+  let lines = ["Flights are **booked** and *not*."]
+  let visible = "Flights are booked and not."
+  assert list.map([12, 13, 14], settle(lines, visible, 0, _)) == [12, 12, 12]
+  assert list.map([20, 21, 22], settle(lines, visible, 0, _)) == [22, 22, 22]
+  assert list.map([27, 28], settle(lines, visible, 0, _)) == [27, 27]
+  assert list.map([31, 32], settle(lines, visible, 0, _)) == [32, 32]
+  assert settle(lines, visible, 0, 16) == 16
+  assert settle(lines, visible, 0, 33) == 33
+}
+
+pub fn the_marks_a_row_starts_with_keep_every_place_among_them_test() {
+  assert list.map([0, 1, 2], settle(["# Trip"], "Trip", 0, _)) == [0, 1, 2]
+  assert list.map([0, 3, 6], settle(["- [ ] Passport"], "Passport", 0, _))
+    == [0, 3, 6]
+}
+
+/// The marks between two cells are no pair, so a place among them stays.
+pub fn a_place_among_the_marks_between_two_cells_stays_test() {
+  let lines = ["| a | b |", "|---|---|"]
+  assert list.map([3, 4, 5, 6], settle(lines, "ab", 0, _)) == [3, 4, 5, 6]
+  assert list.map([7, 8, 9], settle(lines, "ab", 0, _)) == [7, 8, 9]
+  assert settle(lines, "ab", 1, 2) == 2
+  assert settle(["| **a** | b |"], "ab", 0, 5) == 7
+}
+
+/// A place settles where the line cut there draws what it drew whole, so a
+/// selection from it holds both marks of a pair or neither, as the parser
+/// pairs them: whatever letter follows the marks.
+pub fn a_place_settles_where_no_pair_of_marks_is_cut_test() {
+  assert settle(["今日は**重要**です。"], "今日は重要です。", 0, 7) == 9
+  assert settle(["今日は**重要**です。"], "今日は重要です。", 0, 5) == 3
+  assert settle(["**foo**bar"], "foobar", 0, 5) == 7
+  assert list.map([4, 5, 7], settle(["**b1***e1*"], "b1e1", 0, _)) == [6, 6, 6]
+}
+
+pub fn a_place_among_the_marks_a_row_starts_with_cuts_no_pair_test() {
+  assert settle(["**bold** text"], "bold text", 0, 2) == 0
+  assert settle(["- **bold** item"], "bold item", 0, 4) == 2
+  assert settle(["> *em*"], "em", 0, 3) == 2
+  assert settle(["# `code`"], "code", 0, 3) == 2
+  assert settle(["[link](#)"], "link", 0, 1) == 0
+}
+
+/// With both ends on one row, the line is cut at both.
+pub fn a_place_settles_with_the_other_end_on_its_row_test() {
+  let lines = ["**bold** text", "next"]
+  let at = fn(col, other) {
+    live.settle(
+      lines,
+      row: 0,
+      visible: "bold text\nnext",
+      at: Position(0, col),
+      other: Position(0, other),
+    ).col
+  }
+  assert at(2, 13) == 0
+  assert at(6, 0) == 8
+  assert at(2, 4) == 2
+}
+
+/// Settling never changes where a place is drawn, and a settled place stays.
+pub fn a_settled_place_is_drawn_where_it_was_and_settles_no_further_test() {
+  let wrong = {
+    use Drawn(lines:, visible:) <- list.flat_map(corpus)
+    use #(line, row) <- list.flat_map(
+      list.index_map(lines, fn(line, row) { #(line, row) }),
+    )
+    use col <- list.filter_map(through(string.length(line)))
+    let at = Position(row:, col:)
+    let other = Position(row: row + 1, col: 0)
+    let settled = live.settle(lines, row: 0, visible:, at:, other:)
+    let drawn = fn(at) { live.drawn(lines, row: 0, visible:, at:) }
+    case
+      settled.row == row
+      && drawn(settled) == drawn(at)
+      && live.settle(lines, row: 0, visible:, at: settled, other:) == settled
+    {
+      True -> Error(Nil)
+      False -> Ok(line <> " at " <> int.to_string(col))
+    }
+  }
+  assert wrong == []
 }

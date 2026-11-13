@@ -406,11 +406,14 @@ export class Page {
     );
   }
 
-  /** The first row of each drawn element whose last line break shows the selection colour after its text. */
+  /** The first row of each drawn element whose last line break shows the selection colour after its text, or after a table row's last cell. */
   paintedBreaks() {
     return this.browser.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>('.page.live .part [data-row]:not(.blank)')]
-        .filter((element) => getComputedStyle(element, '::after').backgroundColor !== 'rgba(0, 0, 0, 0)')
+        .filter((element) => {
+          const end = element instanceof HTMLTableRowElement ? element.lastElementChild! : element;
+          return getComputedStyle(end, '::after').backgroundColor !== 'rgba(0, 0, 0, 0)';
+        })
         .map((element) => Number(element.dataset.row)),
     );
   }

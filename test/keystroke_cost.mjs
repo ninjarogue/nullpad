@@ -104,6 +104,9 @@ function opened(text) {
   return pointed;
 }
 
+// A step the page takes is first asked for.
+const asked = (field) => new editor.EdgePressed(new editor.SelectDown(), 40, field);
+
 const typed = (field) => {
   const caret = buffer.cursor(field);
   return buffer.replace(field, caret, caret, "x");
@@ -230,6 +233,10 @@ const events = {
     ["SelectDown", (field) => new editor.EdgePressed(new editor.SelectDown(), 0, field)],
     ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), 0, field)],
     ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), 0, field)],
+    ["SelectLeft", (field) => new editor.EdgePressed(new editor.SelectLeft(), 0, field)],
+    ["SelectRight", (field) => new editor.EdgePressed(new editor.SelectRight(), 0, field)],
+    ["SelectLineStart", (field) => new editor.EdgePressed(new editor.SelectLineStart(), 0, field)],
+    ["SelectLineEnd", (field) => new editor.EdgePressed(new editor.SelectLineEnd(), 0, field)],
     ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToStart(), 0, field)],
     ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToEnd(), 0, field)],
     ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
@@ -265,13 +272,20 @@ const events = {
     ["in place", (_, row) => new editor.Dragged(row, "", true, "")],
   ],
   Stepped: [
-    ["a row above", (_, row) => new editor.Stepped(Math.max(0, row - 9), "", true, "", 40)],
-    ["a row below", (_, row) => new editor.Stepped(row + 9, "", false, "", 40)],
+    ["a row above", (field, row) => [asked(field), new editor.Stepped(Math.max(0, row - 9), "", true, "", 40)]],
+    ["a row below", (field, row) => [asked(field), new editor.Stepped(row + 9, "", false, "", 40)]],
   ],
-  Unstepped: [["", () => new editor.Unstepped(40)]],
-  Nudged: [
-    ["forward", (field, row) => new editor.Nudged(true, row, "", field)],
-    ["back", (field, row) => new editor.Nudged(false, row, "", field)],
+  Unstepped: [["", (field) => [asked(field), new editor.Unstepped(40)]]],
+  SteppedPast: [["", (field) => [asked(field), new editor.SteppedPast()]]],
+  Settled: [
+    [
+      "",
+      (_, row) =>
+        new editor.Settled(
+          [new buffer.Position(row, 0), new buffer.Position(row + 9, 0)],
+          [new buffer.Position(row, 1), new buffer.Position(row + 9, 0)],
+        ),
+    ],
   ],
   Released: [["", () => new editor.Released()]],
   DragStarted: [["", () => new editor.DragStarted()]],
@@ -332,12 +346,14 @@ for (const withVim of [false, true]) {
       const row = editor.region(model.editor)[0]?.first_row ?? 0;
       const made = [make(field, row)].flat();
       let next;
-      let text;
-      let count;
       try {
-        for (const event of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(event));
-        text = editor.text(model.editor);
-        count = globalThis.parses;
+        for (const setup of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(setup));
+      } catch (error) {
+        if (error.gleam_error !== "todo") throw error;
+      }
+      const text = editor.text(model.editor);
+      const count = globalThis.parses;
+      try {
         [next] = app.update(model, new app.EditorSent(made.at(-1)));
         app.view(next);
       } catch (error) {
