@@ -311,6 +311,8 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
       #(row, visible, at_end, next, False), False, _
         if row >= 0 && clicks == 2
       -> taken(editor.WordPointed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, False), False, _ if row >= 0 && clicks > 2 ->
+        taken(editor.LinePointed(row:, visible:, at_end:, next:, x:, y:))
       #(row, visible, at_end, next, False), False, _ if row >= 0 ->
         taken(editor.Pointed(row:, visible:, at_end:, next:, x:, y:))
       #(row, visible, at_end, next, _), True, Ok(shown) if row >= 0 ->

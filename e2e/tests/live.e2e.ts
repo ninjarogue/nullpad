@@ -2129,7 +2129,7 @@ test('a tap in the text field is left to the browser, as in a text field', async
   expect(await page.caret()).toBe('some words here|');
 });
 
-test('a third click beside the text field puts the caret there and keeps no word selected', async ({
+test('a third click beside the text field selects the line level with it, as a third click in the field does', async ({
   app,
   browser,
   disk,
@@ -2155,7 +2155,7 @@ test('a third click beside the text field puts the caret there and keeps no word
   await click(2);
   await expect.poll(async () => (await page.selection()).selected).toBe('some');
   await click(3);
-  await expect.poll(() => page.caret()).toBe('|some words here');
+  await expect.poll(async () => (await page.selection()).selected).toBe('some words here');
 });
 
 test('switching to the page with the caret on a row below the window scrolls only until that row shows, as a text field does', async ({

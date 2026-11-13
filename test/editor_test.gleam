@@ -1189,6 +1189,41 @@ pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
   assert sync == editor.InSync
 }
 
+pub fn a_triple_click_selects_a_line_and_its_drag_selects_whole_lines_test() {
+  let ed = live("alpha beta\n\n- one\n- two\n\nlast")
+  let line = fn(row, visible) {
+    let Outcome(editor: ed, sync:, ..) =
+      editor.update(
+        ed,
+        editor.LinePointed(
+          row:,
+          visible:,
+          at_end: False,
+          next: "",
+          x: 1.0,
+          y: 2.0,
+        ),
+      )
+    assert sync == editor.Press(Some(editor.field_buffer(ed)), x: 1.0, y: 2.0)
+    ed
+  }
+  let selected = fn(ed) { buffer.selection(editor.buffer(ed)) }
+  assert selected(line(0, "alpha b")) == #(Position(0, 0), Position(0, 10))
+  assert selected(line(5, "la")) == #(Position(5, 0), Position(5, 4))
+
+  let item = line(2, "on")
+  assert selected(item) == #(Position(2, 0), Position(2, 5))
+
+  let drag = fn(row, visible) {
+    editor.update(item, editor.Dragged(row:, visible:, at_end: False, next: "")).editor
+    |> editor.buffer
+    |> buffer.selection
+  }
+  assert drag(0, "alp") == #(Position(2, 5), Position(0, 0))
+  assert drag(2, "o") == #(Position(2, 0), Position(2, 5))
+  assert drag(5, "l") == #(Position(2, 0), Position(5, 4))
+}
+
 pub fn a_drag_from_a_box_on_the_idle_page_takes_the_focus_test() {
   let Outcome(editor: idle, ..) =
     editor.update(live(live_note), editor.FocusChanged(False))
