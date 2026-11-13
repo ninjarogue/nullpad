@@ -362,3 +362,16 @@ test('without the Highlight API a selection across blocks is shown in the field 
   await expect(page.drawn('h1')).toHaveCount(0);
   expect(await page.painted()).toBeNull();
 });
+
+test('a step the page could not place lets the next Shift+ArrowDown step', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+  await page.pressBeforeRedraw('Shift+ArrowDown', 'Shift+ArrowDown', 'ControlOrMeta+e');
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
+  await browser.keyboard.press('ControlOrMeta+e');
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
+  await page.nextFrame();
+  const before = await page.selection();
+
+  await browser.keyboard.press('Shift+ArrowDown');
+  await expect.poll(() => page.selection()).not.toEqual(before);
+});
