@@ -1,6 +1,7 @@
 //// Examples for live view's pure rules: which rows the text field holds, and
 //// where a click on the drawn page lands in the source.
 
+import gleam/int
 import gleam/list
 import gleam/string
 import nullpad/buffer.{Position}
@@ -193,19 +194,295 @@ pub fn each_drawn_line_break_is_one_row_down_test() {
       row: 2,
       visible: "Flights are booked\nand the hotel is n",
       at_end: False,
+      next: "",
     )
     == Position(row: 3, col: 19)
-  assert live.position(lines, row: 0, visible: "Tr", at_end: False)
+  assert live.position(lines, row: 0, visible: "Tr", at_end: False, next: "")
     == Position(row: 0, col: 4)
+}
+
+/// A place before the first drawn letter of a row is past the marks the row
+/// starts with, unless the browser named no letter after it, as in the
+/// gutter of a list item, where its marker is drawn.
+pub fn the_start_of_a_rows_text_is_past_the_marks_it_starts_with_test() {
+  let lines = ["# Trip", "", "- [ ] Passport", "- Shoes"]
+  assert live.position(lines, row: 0, visible: "", at_end: False, next: "T")
+    == Position(row: 0, col: 2)
+  assert live.position(lines, row: 2, visible: "", at_end: False, next: "P")
+    == Position(row: 2, col: 6)
+  assert live.position(
+      lines,
+      row: 2,
+      visible: "Passport\n",
+      at_end: False,
+      next: "S",
+    )
+    == Position(row: 3, col: 2)
+  assert live.position(lines, row: 3, visible: "", at_end: False, next: "")
+    == Position(row: 3, col: 0)
+}
+
+/// Between two drawn letters a place is past the marks that close what the
+/// letter before it is in, and before the marks that open what follows.
+pub fn a_place_between_letters_takes_closing_marks_with_the_letter_before_test() {
+  let lines = ["Flights are **booked** and *not*."]
+  let place = fn(visible, next) {
+    live.position(lines, row: 0, visible:, at_end: False, next:)
+  }
+  assert place("Flights are booked", " ") == Position(0, 22)
+  assert place("Flights are ", "b") == Position(0, 12)
+  assert place("Flights are booked and not", ".") == Position(0, 32)
+  assert place("Flights are booked and not.", "\n") == Position(0, 33)
+  assert place("Flights are boo", "k") == Position(0, 17)
 }
 
 pub fn a_click_beside_a_block_lands_at_the_end_of_its_last_row_test() {
   let lines = ["one **two**", "three"]
-  assert live.position(lines, row: 0, visible: "one two\nthree", at_end: True)
+  assert live.position(
+      lines,
+      row: 0,
+      visible: "one two\nthree",
+      at_end: True,
+      next: "",
+    )
     == Position(row: 1, col: 5)
 }
 
 pub fn a_click_past_the_last_row_lands_at_the_end_of_the_note_test() {
-  assert live.position(["one", "two"], row: 5, visible: "", at_end: False)
+  assert live.position(
+      ["one", "two"],
+      row: 5,
+      visible: "",
+      at_end: False,
+      next: "",
+    )
     == Position(row: 1, col: 3)
+}
+
+/// An element drawn on the page: the rows of the note it is drawn from,
+/// numbered from 0, and the text it draws, as the browser reads it.
+type Drawn {
+  Drawn(lines: List(String), visible: String)
+}
+
+/// One of each mark. Each element starts at row 0 of its lines.
+const corpus = [
+  Drawn(["# Heading **one**"], "Heading one"),
+  Drawn(["## Packing"], "Packing"),
+  Drawn(["Setext", "======"], "Setext"),
+  Drawn(
+    [
+      "A **bold** _it_ *em* ~~gone~~ `co*de` [link](http://x.y \"t\") \\*esc\\* &amp; tail",
+      "soft wrapped second row",
+    ],
+    "A bold it em gone co*de link *esc* & tail\nsoft wrapped second row",
+  ),
+  Drawn(["***both*** and __strong__"], "both and strong"),
+  Drawn(["- [ ] task box"], "task box"),
+  Drawn(["- [x] done **b**"], "done b"),
+  Drawn(["  - nested *i*"], "nested i"),
+  Drawn(["12. twelve"], "twelve"),
+  Drawn(["> quoted **q**", "> more"], "quoted q\nmore"),
+  Drawn(["| A | **B** |", "| - | ----- |"], "AB"),
+  Drawn(["| `x` | y |"], "xy"),
+  Drawn(["let a = 1", "```"], "let a = 1\n"),
+]
+
+/// 0 to `last`, both included.
+fn through(last: Int) -> List(Int) {
+  int.range(from: last, to: -1, with: [], run: list.prepend)
+}
+
+/// Every place in the drawn text, taken to the note by `position` and drawn
+/// again, is the same place.
+fn round_trip(drawn: Drawn) -> List(String) {
+  let Drawn(lines:, visible:) = drawn
+  let drawn_rows = string.split(visible, "\n")
+  use #(segment, index) <- list.flat_map(
+    list.index_map(drawn_rows, fn(segment, index) { #(segment, index) }),
+  )
+  let above = list.take(drawn_rows, index)
+  use length <- list.filter_map(through(string.length(segment)))
+  let place =
+    string.join(list.append(above, [string.slice(segment, 0, length)]), "\n")
+  let at = live.position(lines, row: 0, visible: place, at_end: False, next: "")
+  case live.drawn(lines, row: 0, visible:, at:) {
+    back if back == place -> Error(Nil)
+    back -> Ok(place <> " -> " <> back)
+  }
+}
+
+pub fn every_drawn_place_survives_the_trip_to_the_note_and_back_test() {
+  assert list.flat_map(corpus, round_trip) == []
+}
+
+pub fn a_place_further_along_a_row_is_never_drawn_earlier_test() {
+  let backwards = {
+    use Drawn(lines:, visible:) <- list.flat_map(corpus)
+    use #(line, row) <- list.flat_map(
+      list.index_map(lines, fn(line, row) { #(line, row) }),
+    )
+    let lengths =
+      list.map(through(string.length(line)), fn(col) {
+        string.length(live.drawn(
+          lines,
+          row: 0,
+          visible:,
+          at: Position(row:, col:),
+        ))
+      })
+    let pairs = list.zip(lengths, list.drop(lengths, 1))
+    case list.any(pairs, fn(pair) { pair.1 < pair.0 }) {
+      True -> [line]
+      False -> []
+    }
+  }
+  assert backwards == []
+}
+
+pub fn the_marks_before_a_place_are_not_drawn_test() {
+  let lines = ["## Packing **light**"]
+  let visible = "Packing light"
+  let at = fn(col) {
+    live.drawn(lines, row: 0, visible:, at: Position(row: 0, col:))
+  }
+  assert at(0) == ""
+  assert at(3) == ""
+  assert at(4) == "P"
+  assert at(11) == "Packing "
+  assert at(13) == "Packing "
+  assert at(14) == "Packing l"
+  assert at(20) == "Packing light"
+}
+
+pub fn a_row_the_element_does_not_draw_is_drawn_at_its_end_test() {
+  let lines = ["| A | B |", "| - | - |"]
+  assert live.drawn(lines, row: 0, visible: "AB", at: Position(row: 1, col: 4))
+    == "AB"
+  assert live.drawn(
+      ["Setext", "==="],
+      row: 0,
+      visible: "Setext",
+      at: Position(1, 0),
+    )
+    == "Setext"
+}
+
+pub fn a_row_in_an_element_further_down_is_drawn_from_its_own_start_test() {
+  let lines = ["- one", "  more **b**"]
+  assert live.drawn(lines, row: 0, visible: "one\nmore b", at: Position(1, 10))
+    == "one\nmore b"
+  assert live.drawn(lines, row: 0, visible: "one\nmore b", at: Position(1, 2))
+    == "one\n"
+}
+
+fn nudge(
+  lines: List(String),
+  visible: String,
+  row: Int,
+  col: Int,
+  forward: Bool,
+) {
+  live.nudge(lines, row: 0, visible:, at: Position(row:, col:), forward:)
+}
+
+pub fn a_nudge_crosses_the_marks_the_page_does_not_draw_test() {
+  let lines = ["Flights are **booked** and"]
+  let visible = "Flights are booked and"
+  assert nudge(lines, visible, 0, 12, True) == Position(0, 15)
+  assert nudge(lines, visible, 0, 19, True) == Position(0, 22)
+  assert nudge(lines, visible, 0, 20, True) == Position(0, 23)
+  assert nudge(lines, visible, 0, 23, False) == Position(0, 22)
+  assert nudge(lines, visible, 0, 22, False) == Position(0, 19)
+  assert nudge(lines, visible, 0, 15, False) == Position(0, 12)
+  assert nudge(lines, visible, 0, 14, False) == Position(0, 11)
+}
+
+/// Between two drawn letters, marks that close what the letter before
+/// opened go with it, and marks that open what follows go with the letter
+/// after, so that a selection ending there holds both marks of a pair or
+/// neither.
+pub fn a_nudge_takes_closing_marks_with_the_letter_before_them_test() {
+  let lines = ["**bold** and *it*. ok"]
+  let visible = "bold and it. ok"
+  assert nudge(lines, visible, 0, 5, True) == Position(0, 8)
+  assert nudge(lines, visible, 0, 15, True) == Position(0, 17)
+  assert nudge(lines, visible, 0, 12, True) == Position(0, 13)
+  assert nudge(lines, visible, 0, 15, False) == Position(0, 13)
+  assert nudge(lines, visible, 0, 3, False) == Position(0, 2)
+}
+
+/// A nudge that stays on its row draws one character more or less, or
+/// reaches the end of the row it was on when nothing more is drawn there.
+pub fn every_nudge_draws_one_character_more_or_less_test() {
+  let wrong = {
+    use Drawn(lines:, visible:) <- list.flat_map(corpus)
+    use #(line, row) <- list.flat_map(
+      list.index_map(lines, fn(line, row) { #(line, row) }),
+    )
+    let drawn_here = list.length(string.split(visible, "\n")) > row
+    let end = string.length(line)
+    let last = list.length(lines) - 1
+    let length = fn(col) {
+      string.length(live.drawn(
+        lines,
+        row: 0,
+        visible:,
+        at: Position(row:, col:),
+      ))
+    }
+    use col <- list.filter_map(through(end))
+    let at = Position(row:, col:)
+    let forward = live.nudge(lines, row: 0, visible:, at:, forward: True)
+    let back = live.nudge(lines, row: 0, visible:, at:, forward: False)
+    let forward_ok = case forward.row == row {
+      False -> col == end
+      True ->
+        forward == at
+        && col == end
+        && row == last
+        || forward.col > col
+        && {
+          length(forward.col) - length(col) == 1
+          || length(forward.col) == length(col)
+          && forward.col == end
+        }
+    }
+    let back_ok = case back.row == row {
+      False -> col == 0
+      True ->
+        back == at
+        && col == 0
+        && row == 0
+        || back.col < col
+        && {
+          length(col) - length(back.col) == 1
+          || length(back.col) == length(col)
+          && back.col == 0
+        }
+    }
+    case drawn_here && !{ forward_ok && back_ok } {
+      True -> Ok(line <> " at " <> int.to_string(col))
+      False -> Error(Nil)
+    }
+  }
+  assert wrong == []
+}
+
+pub fn a_nudge_skips_the_marks_that_start_a_row_test() {
+  let lines = ["- [ ] task box"]
+  assert nudge(lines, "task box", 0, 0, True) == Position(0, 7)
+  assert nudge(lines, "task box", 0, 6, False) == Position(0, 0)
+  assert nudge(["**bold**"], "bold", 0, 6, True) == Position(0, 8)
+}
+
+pub fn a_nudge_past_the_end_of_a_row_goes_to_the_next_row_test() {
+  let lines = ["> quoted **q**", "> more", ""]
+  let visible = "quoted q\nmore"
+  assert nudge(lines, visible, 0, 14, True) == Position(1, 0)
+  assert nudge(lines, visible, 1, 0, True) == Position(1, 3)
+  assert nudge(lines, visible, 1, 0, False) == Position(0, 14)
+  assert nudge(lines, visible, 1, 6, True) == Position(2, 0)
+  assert nudge(lines, visible, 2, 0, True) == Position(2, 0)
+  assert nudge(lines, visible, 0, 0, False) == Position(0, 0)
 }

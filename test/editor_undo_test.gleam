@@ -11,12 +11,13 @@ import nullpad/editor.{type Editor, Outcome}
 import nullpad/live.{Region}
 
 fn live(text: String) -> Editor {
-  let opened = editor.new(vim: False, live: False) |> editor.open(text)
+  let opened =
+    editor.new(vim: False, live: False, paint: True) |> editor.open(text)
   editor.set_live(opened.editor, True).editor
 }
 
 fn whole(text: String) -> Editor {
-  editor.open(editor.new(vim: False, live: False), text).editor
+  editor.open(editor.new(vim: False, live: False, paint: True), text).editor
 }
 
 fn caret(text: String, row: Int, col: Int) -> Buffer {
@@ -33,7 +34,10 @@ fn type_in(ed: Editor, text: String) -> Editor {
 }
 
 fn point(ed: Editor, row: Int, at_end: Bool) -> Editor {
-  editor.update(ed, editor.Pointed(row:, visible: "", at_end:)).editor
+  editor.update(
+    ed,
+    editor.Pointed(row:, visible: "", at_end:, next: "", x: 0.0, y: 0.0),
+  ).editor
 }
 
 fn undo(ed: Editor) -> Editor {
