@@ -1701,3 +1701,23 @@ test('the end of a selection that the keys move stays in the window as the field
     expect({ step, ...(await head()) }).toEqual({ step, row: expect.any(String), inView: true });
   }
 });
+
+test('Shift and a click on a link or a box select to it, and neither opens the link nor ticks the box', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsee the [long link text](https://example.com/x) tail\n\n- [ ] box item');
+  await page.drawn('a').tap({ modifiers: ['Shift'] });
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^alpha beta gamma\n\nsee the \[long l/);
+  await expect(page.text).toBeFocused();
+
+  await page.drawn('input').tap({ modifiers: ['Shift'] });
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^alpha beta gamma\n\n[^]*\n\n- \[ \] $/);
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.press('Escape');
+  await expect(page.box('box item')).not.toBeChecked();
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('alpha beta gamma\n\nsee the [long link text](https://example.com/x) tail\n\n- [ ] box item');
+});
