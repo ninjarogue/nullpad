@@ -3,13 +3,14 @@
 //
 //   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3]
 //   node typist/run.mjs --script '["a","Enter","ArrowLeft"]'     replay one script
+//   node typist/run.mjs --scripts '[["a"],["b"]]'               compare several scripts, no shrinking
 //   node typist/run.mjs --no-known                                ignore known.mjs
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { keyEvents, makeScripts } from './keys.mjs';
-import { known } from './known.mjs';
+import { known, sanitize } from './known.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] === undefined ? '1' : all[i + 1]] : [])).filter((e) => e.length),
@@ -173,25 +174,23 @@ async function main() {
       const [a, b] = await Promise.all([pair.plain(keys), pair.nullpad(keys)]);
       return { a, b, why: differ(a, b) };
     };
-    const matched = (keys) => (useKnown ? known.find((k) => k.matches(keys)) : undefined);
-    // A new bug is a difference no known entry explains.
-    const isNew = async (pair, keys) => {
-      const r = await compare(pair, keys);
-      return r.why !== null && !matched(keys);
-    };
 
-    const scripts = args.script ? [JSON.parse(args.script)] : makeScripts(count, length, seed);
+    if (args.scripts) {
+      for (const keys of JSON.parse(args.scripts)) {
+        const { a, b, why } = await compare(pairs[0], keys);
+        console.log(`${why ? 'DIFFERS' : 'same   '} ${show(keys)}${why ? `\n    textarea ${show(a.state)}\n    nullpad  ${show(b.state)}` : ''}`);
+      }
+      return;
+    }
+    const scripts = args.script ? [JSON.parse(args.script)] : makeScripts(count, length, seed).map((s) => (useKnown ? sanitize(s) : s));
     const ready = performance.now();
     const failed = [];
-    const explained = new Map();
-    await Promise.all(
+        await Promise.all(
       pairs.map(async (pair, w) => {
         for (let i = w; i < scripts.length; i += workers) {
           const r = await compare(pair, scripts[i]);
           if (r.why === null) continue;
-          const entry = matched(scripts[i]);
-          if (entry) explained.set(entry.id, (explained.get(entry.id) ?? 0) + 1);
-          else failed.push({ i, why: r.why });
+          failed.push({ i, why: r.why });
         }
       }),
     );
@@ -200,16 +199,15 @@ async function main() {
     // Open bugs must still fail, and intended differences must still be there.
     const stale = [];
     if (useKnown && !args.script)
-      for (const k of known) if (!(await compare(pairs[0], k.repro)).why) stale.push(k);
+      for (const k of known) if (k.repro && !(await compare(pairs[0], k.repro)).why) stale.push(k);
 
     console.log(`typist: ${scripts.length} scripts of ${length} keys, seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min)`);
-    for (const [id, n] of explained) console.log(`  known ${id}: ${n} script(s) differ as expected`);
     for (const e of [...new Set(errors)]) console.log(`  page error: ${e}`);
 
     failed.sort((x, y) => x.i - y.i);
     const seen = new Set();
     for (const f of failed.slice(0, Number(args.shrink ?? 8))) {
-      const keys = await shrink(scripts[f.i], (c) => isNew(pairs[0], c));
+      const keys = await shrink(scripts[f.i], async (c) => (await compare(pairs[0], c)).why !== null);
       const text = show(keys);
       if (seen.has(text)) continue;
       seen.add(text);
@@ -225,7 +223,7 @@ async function main() {
       console.log(`\nSTALE known difference "${k.id}" (${k.kind}): its repro ${show(k.repro)} no longer differs. Delete it from e2e/typist/known.mjs.`);
     }
     if (failed.length || stale.length || errors.length) exit = 1;
-    else console.log('typist: no unexplained differences');
+    else console.log('typist: no differences');
   } finally {
     await browser?.close();
     server.stop();

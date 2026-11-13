@@ -43,7 +43,9 @@ node test/keystroke_cost.mjs
 cd e2e && npx tsc && npm test
 ```
 
-`.githooks/pre-push` runs all of them.
+`.githooks/pre-push` runs all of them, then the short robot typist run.
+
+The robot typist (`e2e/typist/`) types random key scripts into a plain textarea and into nullpad in Chromium and compares text, cursor and selection. `cd e2e && npm run typist` is the short run (120 scripts); `npm run typist:long -- --count 3000 --seed 7` is the long one. A failure prints the seed, the shrunk script and a replay command. `e2e/typist/known.mjs` is the one list of known differences, each with its reason; an open bug's keys are left out until its repro stops differing, and then the run fails until the entry is deleted. `--no-known` types everything.
 
 ## Code
 
