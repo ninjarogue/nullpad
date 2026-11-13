@@ -1563,3 +1563,47 @@ test('a right-click on the drawn page leaves the caret and the focus where they 
   await browser.keyboard.type('X');
   await expect(page.text).toHaveValue('firstX');
 });
+
+for (const [what, typed, below] of [
+  ['a dash', '- x', 'below words'],
+  ['indented code', '    c', 'below words'],
+  ['a heading', '# T', 'below words'],
+  ['a task', '- [ ] t', 'below words'],
+  ['a number above a list', '1. n', '3. alpha\n4. beta'],
+] as const) {
+  test(`${what} typed on an empty row moves nothing around it and keeps the row's height`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `top line\n\n\n\n${below}`);
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    const word = below.startsWith('3.') ? 'alpha' : 'below';
+    const measure = async () => ({
+      top: (await page.placeOf('top'))!.top,
+      below: (await page.placeOf(word))!.top,
+      height: (await page.fieldBox()).height,
+    });
+    await page.nextFrame();
+    const still = await measure();
+
+    let sofar = '';
+    for (const key of typed) {
+      await browser.keyboard.type(key);
+      sofar += key;
+      await expect(page.text).toHaveValue(sofar);
+      await page.nextFrame();
+      const now = await measure();
+      const moved = (side: keyof typeof now) => Math.abs(now[side] - still[side]) >= 0.5;
+      expect({ sofar, top: moved('top'), below: moved('below'), height: moved('height') }).toEqual({
+        sofar,
+        top: false,
+        below: false,
+        height: false,
+      });
+    }
+  });
+}
