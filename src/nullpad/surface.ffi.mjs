@@ -347,9 +347,14 @@ function drawnAt(x, y, rowMark) {
   range.setStart(holder, 0);
   range.setEnd(point.node, point.offset);
   const before = range.toString();
+  // A table row draws its cells with nothing between them, so the end of
+  // one cell and the start of the next are told apart by the cell.
+  const cell = inside.closest("td, th") ?? holder;
+  range.setStart(point.node, point.offset);
+  range.setEnd(cell, cell.childNodes.length);
   // An element that draws no text, such as a fence with no code, has no
   // place before its text: the press lands at the end of its row.
-  return [Number(holder.dataset[rowMark]), before, holder.textContent === "", charAfter(holder.textContent, before.length)];
+  return [Number(holder.dataset[rowMark]), before, holder.textContent === "", charAfter(range.toString(), 0)];
 }
 
 // A point level with a line of the field, even beside it, is on that line.
