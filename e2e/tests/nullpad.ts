@@ -317,16 +317,9 @@ export class Page {
   }
 
   /**
-   * Presses `keys` one after another while the page draws nothing, as on a
-   * device too busy to draw between two key presses. Then lets it draw.
+   * Runs `act` while the page draws nothing, as on a device too busy to draw
+   * between two events. Then lets it draw. `act` must not wait for a frame.
    */
-  async pressBeforeRedraw(...keys: string[]) {
-    await this.beforeRedraw(async () => {
-      for (const key of keys) await this.browser.keyboard.press(key);
-    });
-  }
-
-  /** Does what `act` does while the page draws nothing, as on a busy device. Then lets it draw. */
   async beforeRedraw(act: () => Promise<void>) {
     await this.nextFrame();
     await this.browser.evaluate(() => {
@@ -345,6 +338,24 @@ export class Page {
       return null;
     });
     await this.nextFrame();
+  }
+
+  /** Presses `keys` one after another while the page draws nothing. */
+  pressBeforeRedraw(...keys: string[]) {
+    return this.beforeRedraw(async () => {
+      for (const key of keys) await this.browser.keyboard.press(key);
+    });
+  }
+
+  /** The middle of the note's row in the list, in the window. */
+  rowCentre(title: string) {
+    return this.browser.evaluate((title: string) => {
+      const row = [...document.querySelectorAll('[data-test-id="note-list"] [data-test-id^="note-"]')].find(
+        (row) => row.textContent === title,
+      )!;
+      const box = row.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    }, title);
   }
 
   /** Waits until the page has drawn a frame and run what it does before painting. */
