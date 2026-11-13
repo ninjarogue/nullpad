@@ -928,7 +928,7 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
     == editor.WriteAndStep(shown, x: 9.0, up: False, page: False, queued: False)
 }
 
-pub fn the_next_step_aims_where_the_last_step_aimed_test() {
+pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() {
   let ed =
     live(live_note)
     |> editor.update(editor.Stepped(
@@ -952,7 +952,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_test() {
     x: 40.0,
     up: False,
     page: False,
-    queued: False,
+    queued: True,
   ) = sync
 
   let Outcome(editor: ed, ..) =

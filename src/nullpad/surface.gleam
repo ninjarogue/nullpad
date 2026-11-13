@@ -298,20 +298,23 @@ pub fn sync(
         }),
       ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
-    // Stepped at once when the page shows where the step starts, so that a
-    // key pressed before the next paint replaces what the step selected.
+    // Stepped at once when the page shows where the step starts, or the
+    // step before it landed on the page as it is still drawn, so that a key
+    // pressed before the next paint replaces what the steps selected.
     editor.WriteAndStep(buffer, x:, up:, page:, queued:) -> {
-      let step = fn(dispatch) {
-        let place =
-          step_head(
-            control_id,
-            live_class,
-            live.row_mark,
-            painted_class,
-            x,
-            up,
-            page,
-          )
+      let measure = fn(from_landing) {
+        step_head(
+          control_id,
+          live_class,
+          live.row_mark,
+          painted_class,
+          x,
+          up,
+          page,
+          from_landing,
+        )
+      }
+      let stepped = fn(dispatch, place) {
         case place {
           #(row, visible, at_end, next) if row >= 0 ->
             dispatch(
@@ -320,8 +323,9 @@ pub fn sync(
           _ -> dispatch(on_event(editor.Unstepped(x:)))
         }
       }
-      case !queued && is_drawn() {
-        True ->
+      let step = fn(dispatch) { stepped(dispatch, measure(False)) }
+      case queued && has_landing(), is_drawn() {
+        False, True ->
           effect.batch([
             effect.from(fn(dispatch) {
               write_now(buffer)
@@ -329,7 +333,16 @@ pub fn sync(
             }),
             painted,
           ])
-        False ->
+        True, _ ->
+          effect.batch([
+            effect.from(fn(dispatch) {
+              let place = measure(True)
+              write_now(buffer)
+              stepped(dispatch, place)
+            }),
+            painted,
+          ])
+        False, False ->
           effect.batch([
             write(buffer),
             undrawn,
@@ -876,7 +889,11 @@ fn step_head(
   x: Float,
   up: Bool,
   page: Bool,
+  from_landing: Bool,
 ) -> #(Int, String, Bool, String)
+
+@external(javascript, "./surface.ffi.mjs", "hasLanding")
+fn has_landing() -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "revealCaret")
 fn reveal_caret(id: String, live_class: String, painted_class: String) -> Nil

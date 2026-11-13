@@ -127,6 +127,7 @@ export function isDrawn() {
 
 export function setDrawn(value) {
   drawn = value;
+  if (value) landing = null;
 }
 
 export function blurControl(id) {
@@ -573,14 +574,27 @@ export function headLine(id, liveClass, paintedClass) {
 // above or below the head, or the head's own place when there is no line
 // there. The head is first kept two lines inside the page, because the
 // browser names no place off the screen. A `page` step scrolls the page by a
-// window and takes the place that is then where the head was.
-export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page) {
+// window and takes the place that is then where the head was. A step taken
+// before the page has drawn the step before it starts where that step
+// landed, on the page as it is still drawn.
+let landing = null;
+
+export function hasLanding() {
+  return landing !== null;
+}
+
+export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page, fromLanding) {
   const none = [-1, "", false, ""];
   const control = document.getElementById(id);
   const scroller = control?.closest("." + liveClass);
   if (!scroller) return none;
   const painted = control.closest("." + paintedClass) !== null;
-  const head = () => (painted ? headPlace() : fieldCaret(control));
+  const last = fromLanding && landing?.scroller === scroller ? landing : null;
+  const landed = () => {
+    const y = last.y - (scroller.scrollTop - last.scrollTop);
+    return { box: new DOMRect(0, y - last.line / 2, 0, last.line), line: last.line };
+  };
+  const head = last ? landed : () => (painted ? headPlace() : fieldCaret(control));
   const before = head();
   if (!before) return none;
   const view = scroller.getBoundingClientRect();
@@ -596,6 +610,10 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page) {
     return placeOn(scroller, scroller.contains(target) ? target : scroller, left, y, rowMark, null);
   };
   const middle = box.top + box.height / 2;
+  const land = (place, y) => {
+    landing = place[0] >= 0 ? { scroller, y, scrollTop: scroller.scrollTop, line } : null;
+    return place;
+  };
   if (page) {
     const top = Math.max(view.top, 0);
     const bottom = Math.min(view.bottom, innerHeight);
@@ -604,16 +622,20 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page) {
     scroller.scrollTop += up ? -distance : distance;
     const y = middle + (up ? -distance : distance) - (scroller.scrollTop - was);
     const rows = [...scroller.querySelectorAll(`[data-${rowMark}]`)].map((row) => row.getBoundingClientRect());
-    if (up ? y < Math.min(...rows.map((row) => row.top)) : y > Math.max(...rows.map((row) => row.bottom))) return none;
-    const there = at(Math.min(Math.max(y, top + line / 2), bottom - line / 2));
-    return there[0] >= 0 ? there : at(middle);
+    if (up ? y < Math.min(...rows.map((row) => row.top)) : y > Math.max(...rows.map((row) => row.bottom))) {
+      return land(none, y);
+    }
+    const aim = Math.min(Math.max(y, top + line / 2), bottom - line / 2);
+    const there = at(aim);
+    return there[0] >= 0 ? land(there, aim) : land(at(middle), middle);
   }
   const here = at(middle);
   for (const reach of [1, 1.5, 2, 3, 4]) {
-    const there = at(middle + (up ? -reach : reach) * line);
-    if (there[0] >= 0 && there.join("\n") !== here.join("\n")) return there;
+    const y = middle + (up ? -reach : reach) * line;
+    const there = at(y);
+    if (there[0] >= 0 && there.join("\n") !== here.join("\n")) return land(there, y);
   }
-  return here;
+  return land(here, middle);
 }
 
 // A task runs after the browser's own action for the event being handled.

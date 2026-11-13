@@ -42,9 +42,9 @@ type Move {
 
 /// Where a run of steps up or down aims on the drawn page: `x` from the left
 /// of the text, for as long as the head stays at `head`, where the last step
-/// put it.
+/// put it. `landed` when that was a step on the drawn page.
 type Goal {
-  Goal(head: Position, x: Float)
+  Goal(head: Position, x: Float, landed: Bool)
 }
 
 type Focus {
@@ -197,8 +197,9 @@ pub type Sync {
   WriteAndAim(Buffer, x: Float, line: Line)
   /// Then the head moves to the place on the drawn page nearest `x`, from
   /// the left of the text, one drawn line above or below where it is drawn.
-  /// A selection keeps its anchor. A `queued` step waited for the page to
-  /// draw the step before it. A `page` step goes a window, not a line.
+  /// A selection keeps its anchor. A `queued` step starts where the step
+  /// before it landed, which the page may not show yet. A `page` step goes a
+  /// window, not a line.
   WriteAndStep(Buffer, x: Float, up: Bool, page: Bool, queued: Bool)
   /// Then the browser acts on the key, and the field is read once it has.
   WriteAndRead(Buffer)
@@ -405,7 +406,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       let stepped =
         edit(editor, buffer.select(editor.buffer, anchor:, head: placed))
         |> realign
-      let goal = Some(Goal(head: buffer.cursor(stepped.buffer), x:))
+      let goal =
+        Some(Goal(head: buffer.cursor(stepped.buffer), x:, landed: True))
       next_step(Editor(..stepped, goal:), x)
     }
     Unstepped(x:) ->
@@ -430,7 +432,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
     Aimed(shown:, x:) -> {
       let outcome = typed(editor, shown, None, realign)
       let head = buffer.cursor(outcome.editor.buffer)
-      let editor = Editor(..outcome.editor, goal: Some(Goal(head:, x:)))
+      let goal = Some(Goal(head:, x:, landed: False))
+      let editor = Editor(..outcome.editor, goal:)
       Outcome(..outcome, editor:)
     }
     Nudged(forward:, row:, visible:, shown:) -> {
@@ -604,9 +607,9 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let row_below = live && cursor.row < list.length(lines) - 1
   let #(anchor, head) = buffer.selection(base)
   let reach = fn(head) { #(buffer.select(base, anchor:, head:), Done) }
-  let goal = case editor.goal {
-    Some(Goal(head: aimed, x: kept)) if aimed == head -> kept
-    Some(_) | None -> x
+  let #(goal, landed) = case editor.goal {
+    Some(Goal(head: aimed, x: kept, landed:)) if aimed == head -> #(kept, landed)
+    Some(_) | None -> #(x, False)
   }
   let start = Position(row: 0, col: 0)
   let end = end_of_row(list.length(lines) - 1)
@@ -690,7 +693,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     Aim(line), _ -> WriteAndAim(wanted_shown, x: goal, line:)
     ByLine(up:), _ -> WriteAndMove(wanted_shown, up:)
     StepTo(Move(up:, page:, ..)), _ if first ->
-      WriteAndStep(wanted_shown, x: goal, up:, page:, queued: False)
+      WriteAndStep(wanted_shown, x: goal, up:, page:, queued: landed)
     StepTo(_), True | Done, True -> InSync
     StepTo(_), False | Done, False -> Write(wanted_shown)
   }
