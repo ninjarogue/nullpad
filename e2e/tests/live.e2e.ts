@@ -2188,3 +2188,72 @@ test('switching to the page with the caret on a row below the window scrolls onl
   await expect.poll(gapBelow).toBeGreaterThanOrEqual(-1);
   expect(await gapBelow()).toBeLessThan(8);
 });
+
+test('selected text across rows dragged onto another block moves there, as in a text field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'Alpha para one.\n\n- item x\n- item y\n\nDelta para.';
+  const glide = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    for (let step = 1; step <= 10; step++) {
+      await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.nextFrame();
+    }
+    await browser.mouse.up();
+  };
+
+  await openLive({ app, disk, page }, note);
+  await page.drawn('li').first().tap();
+  await expect(page.text).toHaveValue('- item x');
+  await browser.keyboard.press('Home');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Shift+End');
+  await expect.poll(() => page.selection()).toEqual({
+    text: '- item x\n- item y',
+    selected: '- item x\n- item y',
+    backward: false,
+  });
+
+  await glide(await page.pointAt('tem x'), await page.pointAt('para.'));
+  await expect.poll(async () => (await page.selection()).selected).toBe('- item x\n- item y');
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('Alpha para one.\n\n\n\nDelta - item x\n- item ypara.');
+});
+
+test('text selected by a drag across blocks dragged onto another block moves there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'Alpha para one.\n\n- item x\n- item y\n\nDelta para.';
+  const glide = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    for (let step = 1; step <= 10; step++) {
+      await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.nextFrame();
+    }
+    await browser.mouse.up();
+  };
+
+  await openLive({ app, disk, page }, note);
+  await page.drawn('p').last().tap();
+  await expect(page.text).toHaveValue('Delta para.');
+  await glide(await page.pointAt('para one'), await page.pointAt('tem x'));
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^para one\.\n\n- i/);
+  const moved = (await page.selection()).selected;
+
+  await glide(await page.pointAt('ra one'), await page.pointAt('para.'));
+  await expect.poll(async () => (await page.selection()).selected).toBe(moved);
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  const left = note.replace(moved, '');
+  const at = left.lastIndexOf('para.');
+  await expect(page.text).toHaveValue(left.slice(0, at) + moved + left.slice(at));
+});
