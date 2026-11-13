@@ -1750,3 +1750,30 @@ test('a middle click on the drawn page puts the caret where it clicked, where Li
   await page.nextFrame();
   expect(await page.caret()).toBe('sX|econd paragraph');
 });
+
+test('a box ticked while a row is typed under a line keeps that line drawn as it was', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '- [ ] box\n\ntext');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('text');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('-');
+  await expect(page.text).toHaveValue('-');
+  await expect(page.drawn('p')).toHaveText('text');
+
+  await page.drawn('input').tap();
+  await expect(page.drawn('input')).toBeChecked();
+  await page.nextFrame();
+  await expect(page.text).toHaveValue('-');
+  await expect(page.drawn('p')).toHaveText('text');
+  await expect(page.drawn('h2')).toHaveCount(0);
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('- [x] box\n\ntext\n-');
+});
