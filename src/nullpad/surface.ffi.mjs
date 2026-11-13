@@ -739,6 +739,7 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up) {
   const { box, line } = head();
   const left = columnLeft(page) + x;
   const at = (y) => {
+    if (!onLine(left, y)) return none;
     const target = document.elementFromPoint(left, y);
     return placeOn(page, page.contains(target) ? target : page, left, y, rowMark, null);
   };
@@ -749,6 +750,19 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up) {
     if (there[0] >= 0 && there.join("\n") !== here.join("\n")) return there;
   }
   return here;
+}
+
+// The browser names the nearest letter for a point in a block's padding,
+// such as a code block's fence rows, which may be on the line a step starts
+// from. The field is drawn where it is.
+function onLine(x, y) {
+  const point = caretAt(x, y);
+  if (!point || point.node instanceof HTMLTextAreaElement) return true;
+  const caret = document.createRange();
+  caret.setStart(point.node, point.offset);
+  const box = caretBox(caret);
+  const element = point.node instanceof Element ? point.node : point.node.parentElement;
+  return Math.abs(y - (box.top + box.height / 2)) <= lineHeight(element) / 2 + 1;
 }
 
 // Where text dropped on the page lands, the text, and whether the drop
