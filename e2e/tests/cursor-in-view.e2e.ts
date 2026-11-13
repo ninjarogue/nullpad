@@ -127,5 +127,7 @@ test('the check sees a cursor that has no text field to be in', async (fixtures)
   const editor = new Editing(fixtures);
   await editor.open(note);
   await editor.press('Escape');
-  expect(await cursorProblem(browser, 'Escape')).toContain('no focus');
+  const problem = await cursorProblem(browser, 'Escape');
+  expect(problem).toContain('after Escape');
+  expect(problem).toMatch(/no size|no focus/);
 });
