@@ -243,6 +243,10 @@ const events = {
     ["a row above", (_, row) => new editor.WordPointed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.WordPointed(row + 9, "", false, "", 0, 0)],
   ],
+  LinePointed: [
+    ["a row above", (_, row) => new editor.LinePointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.LinePointed(row + 9, "", false, "", 0, 0)],
+  ],
   ShiftPointed: [
     ["a row above", (field, row) => new editor.ShiftPointed(Math.max(0, row - 9), "", true, "", field, 0, 0)],
     ["a row below", (field, row) => new editor.ShiftPointed(row + 9, "", false, "", field, 0, 0)],

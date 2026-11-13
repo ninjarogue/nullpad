@@ -676,6 +676,58 @@ test('a middle click inside a painted selection puts the caret where it clicked,
   await expect(page.text).toBeFocused();
 });
 
+test('a triple click inside a painted selection selects the line clicked, and a drag from there paints whole lines', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\n- [ ] Passport\n- Shoes\n\nlast line');
+  const tripleClick = (point: { x: number; y: number }, release = true) =>
+    browser.evaluate(
+      (at: { x: number; y: number; release: boolean }) => {
+        for (const detail of [1, 2, 3]) {
+          const target = document.elementFromPoint(at.x, at.y)!;
+          const press = { bubbles: true, cancelable: true, detail, clientX: at.x, clientY: at.y };
+          target.dispatchEvent(new MouseEvent('mousedown', { ...press, buttons: 1 }));
+          if (detail < 3 || at.release) target.dispatchEvent(new MouseEvent('mouseup', press));
+        }
+        return null;
+      },
+      { ...point, release },
+    );
+  for (const [word, line] of [
+    ['words', 'some words here'],
+    ['Shoes', '- Shoes'],
+  ]) {
+    await browser.keyboard.press('ControlOrMeta+a');
+    await expect.poll(() => page.painted()).not.toBeNull();
+    await tripleClick(await page.pointAt(word));
+    await expect.poll(async () => (await page.selection()).selected).toBe(line);
+    await expect.poll(() => page.painted()).toBeNull();
+  }
+
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.painted()).not.toBeNull();
+  await tripleClick(await page.pointAt('words'), false);
+  const last = await page.pointAt('last');
+  const send = (type: string, buttons: number) =>
+    browser.evaluate(
+      (at: { x: number; y: number; type: string; buttons: number }) => {
+        const target = document.elementFromPoint(at.x, at.y)!;
+        const init = { bubbles: true, cancelable: true, detail: 3, clientX: at.x, clientY: at.y, buttons: at.buttons };
+        target.dispatchEvent(new MouseEvent(at.type, init));
+        return null;
+      },
+      { ...last, type, buttons },
+    );
+  await send('mousemove', 1);
+  await page.nextFrame();
+  await send('mouseup', 0);
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^some words here\n[^]*last line$/);
+  await expect.poll(() => page.painted()).toBe('some words herePassportShoeslast line');
+});
+
 test('Ctrl+Z after typing over a painted selection gives the text back, painted again, and Ctrl+Shift+Z types it again', async ({
   app,
   browser,
