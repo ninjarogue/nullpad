@@ -352,9 +352,8 @@ function drawnAt(x, y, rowMark) {
 }
 
 // A point level with a line of the field, even beside it, is on that line.
-// The browser keeps a third click, a touch, and a press on text selected
-// within one row, so that a drag can move that text, when they are on the
-// field itself: beside it the browser would only take the focus from it. A
+// The browser keeps a third click, a touch, and a press on selected text,
+// so that a drag can move that text, when they are on the field itself: beside it the browser would only take the focus from it. A
 // field the page has not drawn since its text changed may not start at the
 // row it is marked with.
 function inField(press, x, y, field, band, rowMark) {
@@ -362,13 +361,22 @@ function inField(press, x, y, field, band, rowMark) {
   const point = caretAt(Math.min(Math.max(x, band.left), band.right - 1), y);
   if (point?.node !== field || field.value !== field.defaultValue) return none;
   const { selectionStart: start, selectionEnd: end, value } = field;
-  const onSelected =
-    start < point.offset && point.offset < end && !value.slice(start, end).includes("\n");
+  const onSelected = start < point.offset && point.offset < end;
   const kept =
     press?.target === field &&
     (press.detail > 2 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
   if (kept) return none;
   return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false];
+}
+
+// The offset in the field where a plain release lands on its selection, or -1.
+export function releasedOnSelection(release) {
+  const field = release.currentTarget;
+  if (release.detail !== 1 || release.button !== 0 || release.shiftKey) return -1;
+  const point = caretAt(release.clientX, release.clientY);
+  if (point?.node !== field) return -1;
+  const { selectionStart: start, selectionEnd: end } = field;
+  return start < point.offset && point.offset < end ? point.offset : -1;
 }
 
 function caretAt(x, y) {

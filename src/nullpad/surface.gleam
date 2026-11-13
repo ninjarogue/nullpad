@@ -86,7 +86,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.on("pointerup", changed),
         // A touch sends `pointerup` before the mouse press that moves the
         // caret.
-        event.on("mouseup", changed),
+        event.advanced("mouseup", released_decoder(on_event)),
         event.on("keyup", moved),
         event.on("dragstart", decode.success(on_event(editor.DragStarted))),
         event.on("dragend", decode.success(on_event(editor.Released))),
@@ -112,6 +112,31 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       [element.text(buffer.text(editor.field_buffer(editor)))],
     ),
   ])
+}
+
+/// The browser keeps a press on text the field has selected, so that a drag
+/// can move it. Let go there, the browser puts the caret where it was let go
+/// only after the release, with no event, so the editor puts it there.
+fn released_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use release <- decode.then(decode.dynamic)
+  use shown <- decode.map(shown_decoder())
+  case released_on_selection(release) {
+    -1 ->
+      on_event(editor.ControlChanged(shown:))
+      |> event.handler(prevent_default: False, stop_propagation: False)
+    offset ->
+      on_event(
+        editor.ControlChanged(shown: from_control(
+          buffer.text(shown),
+          offset,
+          offset,
+          False,
+        )),
+      )
+      |> event.handler(prevent_default: True, stop_propagation: False)
+  }
 }
 
 fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
@@ -621,6 +646,9 @@ fn dropped(
   drop: Dynamic,
   row_mark: String,
 ) -> #(Int, String, Bool, String, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "releasedOnSelection")
+fn released_on_selection(release: Dynamic) -> Int
 
 @external(javascript, "./surface.ffi.mjs", "placeCaret")
 fn place_caret(id: String, x: Float, y: Float) -> Nil
