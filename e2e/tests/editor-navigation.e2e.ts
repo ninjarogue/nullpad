@@ -289,7 +289,7 @@ test('Ctrl+Home scrolls back to the start of the note', async (fixtures) => {
   await openAtTheEnd(editor);
   await editor.press(ctrl('Home'));
 
-  expect(await fixtures.page.scrolled()).toBe(0);
+  await expect.poll(() => fixtures.page.scrolled(), { message: 'how far the page is scrolled' }).toBe(0);
   expect(await editor.caret(long)).toMatchObject({ row: 0, col: 0 });
 });
 
