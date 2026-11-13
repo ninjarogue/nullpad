@@ -409,6 +409,12 @@ button[aria-pressed="true"] {
   overflow: hidden;
 }
 
+/* A key can reach the field before the page is drawn again, and in a field
+   with no height the browser moves and deletes by words wrongly. */
+.editor.part.idle textarea {
+  height: 1.7rem;
+}
+
 /* A selection across blocks is painted over the drawn page. The field keeps
    the focus and the selected rows out of sight, one line tall: a field with
    no height copies only line breaks and loses what an IME composes. */
