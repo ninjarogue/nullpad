@@ -1714,7 +1714,7 @@ test('Shift and a click on a link or a box select to it, and neither opens the l
   await expect(page.text).toBeFocused();
 
   await page.drawn('input').tap({ modifiers: ['Shift'] });
-  await expect.poll(async () => (await page.selection()).selected).toMatch(/^alpha beta gamma\n\n[^]*\n\n- \[ \] $/);
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^alpha beta gamma\n\n[^]* tail\n\n$/);
   await expect(page.text).toBeFocused();
   await browser.keyboard.press('Escape');
   await expect(page.box('box item')).not.toBeChecked();

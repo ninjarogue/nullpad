@@ -179,8 +179,29 @@ pub fn page(
 ) -> List(attribute.Attribute(msg)) {
   case editor.region(editor) {
     None -> [attribute.class("page")]
-    Some(_) -> [attribute.class("page " <> live_class), on_point(on_event)]
+    Some(_) -> [
+      attribute.class("page " <> live_class),
+      on_point(on_event),
+      on_shift_click(on_event),
+    ]
   }
+}
+
+/// Shift and a press on a link or a box select to it, so its click neither
+/// follows the link nor ticks the box.
+fn on_shift_click(
+  on_event: fn(editor.Event) -> msg,
+) -> attribute.Attribute(msg) {
+  event.advanced("click", {
+    use shift <- decode.field("shiftKey", decode.bool)
+    let handler =
+      on_event(editor.Released)
+      |> event.handler(prevent_default: True, stop_propagation: False)
+    case shift {
+      True -> decode.success(handler)
+      False -> decode.failure(handler, expected: "a click with Shift")
+    }
+  })
 }
 
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
@@ -206,7 +227,7 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
         taken(editor.Grabbed(row:, visible:, at_end:, x:, y:))
       #(row, visible, at_end, False), False, _ if row >= 0 ->
         taken(editor.Pointed(row:, visible:, at_end:, x:, y:))
-      #(row, visible, at_end, False), True, Ok(shown) if row >= 0 ->
+      #(row, visible, at_end, _), True, Ok(shown) if row >= 0 ->
         taken(editor.ShiftPointed(row:, visible:, at_end:, shown:, x:, y:))
       // A press the browser keeps also ends a press the editor took, whose
       // release the page does not hear when it happens off the page. A
