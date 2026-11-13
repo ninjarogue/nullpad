@@ -232,7 +232,7 @@ pub fn backspace_at_the_start_of_the_field_joins_the_row_above_test() {
     editor.update(ed, editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:))
 
   assert editor.text(ed) == "one\ntwo\nthree"
-  assert sync == editor.Write(caret("three", 0, 0))
+  assert sync == editor.InSync
   assert editor.region(ed) == Some(Region(2, 2))
 }
 
@@ -243,7 +243,8 @@ pub fn delete_at_the_end_of_the_field_joins_the_row_below_test() {
     |> editor.update(editor.EdgePressed(editor.JoinAfter, x: 0.0, shown:))
 
   assert editor.text(ed) == "one\ntwo"
-  assert sync == editor.Write(caret("one", 0, 3))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(0, 0))
 }
 
 pub fn an_edge_key_with_no_row_to_go_to_changes_nothing_test() {
@@ -502,7 +503,7 @@ pub fn leaving_live_view_puts_the_whole_note_back_test() {
   assert editor.region(ed) == None
 }
 
-pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_on_a_row_test() {
+pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_composing_or_joining_on_a_row_test() {
   let parsed = fn(ed: Editor) {
     editor.blocks(ed) == markdown.parse(editor.text(ed))
   }
@@ -515,7 +516,8 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_on_a_row_te
   let composed = caret("# Trips\n\n> a", 2, 3)
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.Composing(shown: composed))
-  assert parsed(ed)
+  assert editor.region(ed) == Some(Region(0, 2))
+  assert !parsed(ed)
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(shown: composed))
   assert editor.region(ed) == Some(Region(2, 2))
@@ -526,7 +528,7 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_on_a_row_te
     )
   assert editor.text(ed)
     == "# Trips\n> a\n\nFlights are **booked**.\n\n- one\n- two"
-  assert parsed(ed)
+  assert !parsed(ed)
   let Outcome(editor: ed, ..) = editor.replace_line(ed, 5, with: "- [x] one")
   assert editor.text(ed)
     == "# Trips\n> a\n\nFlights are **booked**.\n\n- [x] one\n- two"

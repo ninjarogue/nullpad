@@ -1,6 +1,7 @@
 //// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`,
 //// `live`, `markdown`.
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -45,14 +46,6 @@ type Field {
   /// browser can give it the focus back, and an IME owns the field it
   /// composes in.
   Part(rows: Region, drawn: List(Block), parsed: List(Block), composing: Bool)
-}
-
-/// What an edit changed, by the rows the field holds.
-type Change {
-  Unchanged
-  Inside
-  /// The number of rows, or a row the field does not hold.
-  Outside
 }
 
 type Keys {
@@ -348,8 +341,13 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
         requests: [],
       )
     }
-    Part(..), False | Whole, _ ->
-      typed(editor, shown, None, hold_rows(_, shown))
+    Part(rows:, drawn:, ..), False -> {
+      let count = list.length(buffer.lines(shown))
+      let held = Region(rows.first_row, rows.first_row + count - 1)
+      let drawn = live.shift(drawn, from: rows, to: held)
+      typed(editor, shown, None, hold(_, held, drawn))
+    }
+    Whole, _ -> typed(editor, shown, None, fn(editor) { editor })
   }
 }
 
@@ -482,25 +480,16 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
   let field = case editor.field {
     Whole -> Whole
     Part(rows:, drawn:, parsed:, composing:) -> {
-      let change =
-        change(
-          buffer.lines(editor.buffer),
-          buffer.lines(buffer),
-          rows,
-          0,
-          Unchanged,
-        )
-      let parsed = case change, composing {
-        Unchanged, False -> parsed
-        Unchanged, True | Inside, _ | Outside, _ -> parse(buffer)
+      let before = buffer.lines(editor.buffer)
+      let after = buffer.lines(buffer)
+      let parsed = case before == after && !composing {
+        True -> parsed
+        False -> parse(buffer)
       }
-      let kept =
-        change != Outside
-        && editor.focus != Away
-        && selected_rows(editor.buffer) == selected_rows(buffer)
-      let drawn = case kept {
-        True -> drawn
-        False -> parsed
+      let drawn = case editor.focus, typed_on(editor.buffer, buffer) {
+        Focused, Ok(#(from, to)) if from == to -> drawn
+        Focused, Ok(#(from, to)) -> live.shift(drawn, from:, to:)
+        Focused, Error(Nil) | Away, _ -> parsed
       }
       Part(rows:, drawn:, parsed:, composing: False)
     }
@@ -508,31 +497,64 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
   Editor(..editor, buffer:, field:)
 }
 
-fn selected_rows(buffer: Buffer) -> #(Int, Int) {
-  let #(anchor, head) = buffer.selection(buffer)
-  #(anchor.row, head.row)
+/// The page keeps how it was laid out through an edit that leaves the
+/// caret on its row: typing on that row, or joining it to the row above
+/// or below. Every other edit, and every move to another row, lays it out
+/// again. On a join the rows below move up as they are. This gives the
+/// rows the edit took and the rows that took their place, which the page
+/// shifts by.
+fn typed_on(old: Buffer, new: Buffer) -> Result(#(Region, Region), Nil) {
+  let #(old_anchor, old_head) = buffer.selection(old)
+  let #(new_anchor, new_head) = buffer.selection(new)
+  let before = buffer.lines(old)
+  let after = buffer.lines(new)
+  let old_count = list.length(before)
+  let new_count = list.length(after)
+  let same = common(before, after, 0, int.min(old_head.row, new_head.row))
+  let tail =
+    common(
+      list.reverse(before),
+      list.reverse(after),
+      0,
+      int.min(old_count - old_head.row, new_count - new_head.row) - 1,
+    )
+  let from = Region(same, old_count - tail - 1)
+  let to = Region(same, new_count - tail - 1)
+  let one_row = from.last_row == same && to.last_row == same
+  let joined = case from.last_row == same + 1 && to.last_row == same {
+    True ->
+      case list.drop(before, same), list.drop(after, same) {
+        [upper, lower, ..], [line, ..] -> line == upper <> lower
+        _, _ -> False
+      }
+    False -> False
+  }
+  case
+    old_anchor.row == old_head.row
+    && new_anchor.row == new_head.row
+    && { one_row || joined }
+  {
+    True -> Ok(#(from, to))
+    False -> Error(Nil)
+  }
+}
+
+/// How many of the first lines of both are the same, up to `limit`.
+fn common(
+  lines: List(String),
+  others: List(String),
+  count: Int,
+  limit: Int,
+) -> Int {
+  case lines, others {
+    [line, ..lines], [other, ..others] if line == other && count < limit ->
+      common(lines, others, count + 1, limit)
+    _, _ -> count
+  }
 }
 
 fn parse(buffer: Buffer) -> List(Block) {
   markdown.parse(buffer.text(buffer))
-}
-
-fn change(
-  lines: List(String),
-  others: List(String),
-  rows: Region,
-  row: Int,
-  found: Change,
-) -> Change {
-  case lines, others {
-    [], [] -> found
-    [line, ..lines], [other, ..others] if line == other ->
-      change(lines, others, rows, row + 1, found)
-    [_, ..lines], [_, ..others]
-      if row >= rows.first_row && row <= rows.last_row
-    -> change(lines, others, rows, row + 1, Inside)
-    _, _ -> Outside
-  }
 }
 
 fn realign(editor: Editor) -> Editor {
@@ -546,14 +568,13 @@ fn realign(editor: Editor) -> Editor {
   }
 }
 
-fn hold_rows(editor: Editor, shown: Buffer) -> Editor {
+/// An IME owns the field it composes in, so the field keeps the rows it
+/// shows, and the page around it stays as it was drawn.
+fn hold(editor: Editor, rows: Region, drawn: List(Block)) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(rows: Region(first_row:, ..), drawn:, parsed:, composing:) -> {
-      let count = list.length(buffer.lines(shown))
-      let rows = Region(first_row:, last_row: first_row + count - 1)
+    Part(parsed:, composing:, ..) ->
       Editor(..editor, field: Part(rows:, drawn:, parsed:, composing:))
-    }
   }
 }
 

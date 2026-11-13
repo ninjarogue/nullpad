@@ -7,8 +7,8 @@ import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
 import nullpad/markdown.{
-  type Block, type Item, type Level, Block, BulletList, CodeBlock, Heading,
-  OrderedList, Table,
+  type Block, type Item, type Level, Block, BulletList, CodeBlock, Heading, Item,
+  OrderedList, Paragraph, Quote, Rule, Table, Task,
 }
 
 pub const row_mark = "row"
@@ -129,4 +129,48 @@ fn match(line: List(String), visible: List(String), col: Int) -> Int {
       match(line, visible, col + 1)
     [_, ..line], _ -> match(line, visible, col + 1)
   }
+}
+
+/// The blocks as drawn, after the rows `from` became the rows `to`, which
+/// start at the same row: the rows below move with them, and the rows that
+/// went are taken to the last row of `to`.
+pub fn shift(
+  blocks: List(Block),
+  from from: Region,
+  to to: Region,
+) -> List(Block) {
+  let move = fn(row) {
+    case row > from.last_row {
+      True -> row + to.last_row - from.last_row
+      False -> int.min(row, to.last_row)
+    }
+  }
+  list.map(blocks, shift_block(_, move))
+}
+
+fn shift_block(block: Block, move: fn(Int) -> Int) -> Block {
+  let content = case block.content {
+    BulletList(spacing:, items:) ->
+      BulletList(spacing:, items: list.map(items, shift_item(_, move)))
+    OrderedList(start:, spacing:, items:) ->
+      OrderedList(start:, spacing:, items: list.map(items, shift_item(_, move)))
+    Quote(blocks:) -> Quote(list.map(blocks, shift_block(_, move)))
+    CodeBlock(language:, code:, code_row:) ->
+      CodeBlock(language:, code:, code_row: move(code_row))
+    Heading(..) | Paragraph(..) | Rule | Table(..) -> block.content
+  }
+  Block(
+    first_row: move(block.first_row),
+    last_row: move(block.last_row),
+    content:,
+  )
+}
+
+fn shift_item(item: Item, move: fn(Int) -> Int) -> Item {
+  Item(
+    ..item,
+    row: move(item.row),
+    task: option.map(item.task, fn(task) { Task(..task, row: move(task.row)) }),
+    blocks: list.map(item.blocks, shift_block(_, move)),
+  )
 }
