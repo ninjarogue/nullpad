@@ -1164,7 +1164,7 @@ test('a step still waiting for the page to draw is dropped once the field loses 
   await browser.keyboard.press('End');
 
   await page.beforeRedraw(async () => {
-    await browser.keyboard.type('X');
+    await browser.keyboard.press('Enter');
     await browser.keyboard.press('Shift+ArrowDown');
     await browser.evaluate(() => {
       document.querySelector<HTMLElement>('[aria-label="Title"]')!.focus();
@@ -1174,7 +1174,7 @@ test('a step still waiting for the page to draw is dropped once the field loses 
   await expect(page.title).toBeFocused();
   expect(await page.painted()).toBeNull();
   await page.markdown.tap();
-  await expect(page.text).toHaveValue(body.replace('# Trip', '# TripX'));
+  await expect(page.text).toHaveValue(body.replace('# Trip', '# Trip\n'));
   expect((await page.selection()).selected).toBe('');
 });
 
