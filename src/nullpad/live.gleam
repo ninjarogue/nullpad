@@ -1,5 +1,6 @@
 //// Imported by: `editor`, `surface`, tests. Imports: `markdown`, `buffer`.
 
+import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option
@@ -8,7 +9,7 @@ import gleam/string
 import nullpad/buffer.{type Position, Position}
 import nullpad/markdown.{
   type Block, type Item, type Level, Block, BulletList, CodeBlock, Heading,
-  OrderedList, Table,
+  OrderedList, Paragraph, Quote, Rule, Table,
 }
 
 pub const row_mark = "row"
@@ -56,18 +57,24 @@ pub type Kind {
   ListItem(task: Bool, marker: String)
 }
 
+/// While the caret is on the row that makes a block a setext heading or a
+/// table, the field is set as body text, so the rows above it do not change
+/// size while that row is typed.
 pub fn kind(
   blocks: List(Block),
   field field: Region,
-  caret_row _caret_row: Int,
+  caret_row caret_row: Int,
   lines lines: List(String),
 ) -> Kind {
   let held = fn(first_row, last_row) {
     first_row <= field.last_row && last_row >= field.first_row
   }
-  case
+  let held_blocks =
     list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
-  {
+  let typing_deciding_row =
+    list.map(held_blocks, deciding_row) == [Ok(caret_row)]
+  use <- bool.guard(when: typing_deciding_row, return: Body)
+  case held_blocks {
     [Block(content: Heading(level:, ..), ..)] -> Title(level)
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
@@ -82,6 +89,20 @@ pub fn kind(
         Error(Nil) -> Body
       }
     _ -> Body
+  }
+}
+
+fn deciding_row(block: Block) -> Result(Int, Nil) {
+  case block.content {
+    Heading(..) if block.last_row > block.first_row -> Ok(block.last_row)
+    Table(..) -> Ok(block.first_row + 1)
+    Heading(..)
+    | Paragraph(..)
+    | BulletList(..)
+    | OrderedList(..)
+    | Quote(..)
+    | CodeBlock(..)
+    | Rule -> Error(Nil)
   }
 }
 
