@@ -247,3 +247,36 @@ for (const { name, note: body, before, at, keys: pressed } of stepsAfterClick) {
     await expect(page.text).toHaveValue(expected);
   });
 }
+
+/**
+ * Typing changes the field before the page is drawn again, so a step after
+ * it in the same frame starts from text the page does not show yet. The
+ * keys after the step act where the step took the caret, in that frame or
+ * once it is drawn.
+ */
+const afterTyping: { name: string; note: string; keys: string[]; typed: string }[] = [
+  { name: 'a letter, PageUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'PageUp', 'y'], typed: '' },
+  { name: 'a letter, Shift+ArrowUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+ArrowUp', 'y'], typed: '' },
+  { name: 'Enter, PageUp and a letter', note: 'aaaa\n\nbbb', keys: ['Enter', 'PageUp', 'y'], typed: '' },
+  { name: 'a letter, PageUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'PageUp', ctrl('z')], typed: 'Y' },
+  { name: 'a letter, Shift+PageUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+PageUp', ctrl('z')], typed: 'Y' },
+  { name: 'a letter, Shift+ArrowUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+ArrowUp', ctrl('z')], typed: 'Y' },
+];
+
+for (const { name, note: body, keys: pressed, typed: letters } of afterTyping) {
+  test(`${name}, in one frame, act as in a plain field`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    const at = { word: 'bbb', at: 3 };
+    await editor.seed(body);
+    const expected = await editor.plainField(body, offsetOf(body, at), pressed, letters);
+    await editor.show(body);
+    await editor.click(at);
+    await page.nextFrame();
+    await page.pressBeforeRedraw(...pressed);
+    await browser.keyboard.type(letters);
+    await page.markdown.tap();
+
+    await expect(page.text).toHaveValue(expected);
+  });
+}
