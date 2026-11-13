@@ -1065,3 +1065,33 @@ test('code typed after an open fence at the end of the note is set as code from 
     expect({ typed, steps: await page.placeOf('Steps') }).toEqual({ typed, steps });
   }
 });
+
+test('a field that loses focus while its row is typed is still where typing goes when focus comes back', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('Hello\n-');
+  await expect(page.text).toHaveValue('-');
+
+  // Leaving the window blurs the field but keeps it the page's active
+  // element, so the browser gives it the focus back on return.
+  await browser.evaluate(() => {
+    document.querySelector('[data-test-id="editor"]')!.dispatchEvent(new FocusEvent('blur'));
+    return null;
+  });
+  await page.nextFrame();
+  await expect(page.preview.getByRole('heading')).toHaveText('Hello');
+  expect(await browser.evaluate(() => document.activeElement?.getAttribute('data-test-id') ?? null)).toBe('editor');
+
+  await browser.evaluate(() => {
+    document.querySelector('[data-test-id="editor"]')!.dispatchEvent(new FocusEvent('focus'));
+    return null;
+  });
+  await expect(page.text).toHaveValue('Hello\n-');
+  await browser.keyboard.type('-');
+  await expect(page.text).toHaveValue('Hello\n--');
+  await expect.poll(() => sizeOf(page)).toBe('24px');
+});
