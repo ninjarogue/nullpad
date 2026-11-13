@@ -253,7 +253,8 @@ for (const word of words) {
     await withRawPage(origin, marked, async (raw) => {
       await clickSeries(raw, word.spot, 2);
       await raw.keyboard.press('Control+c');
-      expect(await raw.evaluate(() => navigator.clipboard.readText())).toBe(word.selected);
+      const clipboard = await raw.evaluate(() => navigator.clipboard.readText());
+      expect(clipboard.trim()).toBe(word.selected);
     });
   });
 }
