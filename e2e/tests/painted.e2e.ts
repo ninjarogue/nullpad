@@ -1100,3 +1100,67 @@ test('the line break of a list item with a list inside is painted after its own 
   expect(Math.abs(bar.left)).toBeLessThan(2);
   expect(bar).toMatchObject({ top: true, bottom: true });
 });
+
+test('keys pressed before the page draws act on the selection the keys before them made', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'one\n\ntwo\n\nthree\n\nfour\n\nfive\n\nsix';
+  const typedAfter = async (keys: string[], held: boolean) => {
+    await openLive({ app, disk, page }, note);
+    await page.stopEditing();
+    const two = await page.pointAt('two');
+    await browser.mouse.move(two.x + 6, two.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await page.nextFrame();
+    const press = async () => {
+      for (const key of keys) {
+        if (key.length === 1) await browser.keyboard.type(key);
+        else await browser.keyboard.press(key);
+        if (!held) await page.nextFrame();
+      }
+    };
+    if (held) await page.beforeRedraw(press);
+    else await press();
+    await page.nextFrame();
+    await page.markdown.tap();
+    return page.text.inputValue();
+  };
+  for (const keys of [
+    ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown', 'X', 'Y'],
+    ['Shift+ArrowDown', 'Shift+ArrowUp', 'Shift+ArrowDown', 'Shift+ArrowDown', 'X'],
+    ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowRight', 'X'],
+  ]) {
+    const slow = await typedAfter(keys, false);
+    expect({ keys, held: await typedAfter(keys, true) }).toEqual({ keys, held: slow });
+  }
+  expect(await typedAfter(['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown', 'X', 'Y'], true)).toBe(
+    'one\n\ntXY\nfour\n\nfive\n\nsix',
+  );
+});
+
+test('without the Highlight API Shift+ArrowDown on the last row keeps the selection', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await browser.addInitScript(() => {
+    (globalThis as { Highlight?: unknown }).Highlight = undefined;
+  });
+  for (const note of ['alpha\n\nomega\n', 'alpha\n\nomega\n\n', 'alpha\n\n- item\n']) {
+    await openLive({ app, disk, page }, note);
+    await browser.keyboard.press('Home');
+    await browser.keyboard.press('ControlOrMeta+Shift+End');
+    await expect.poll(async () => (await page.selection()).selected).toBe(note);
+    for (const press of [1, 2]) {
+      await browser.keyboard.press('Shift+ArrowDown');
+      await page.nextFrame();
+      expect({ note, press, selected: (await page.selection()).selected }).toEqual({ note, press, selected: note });
+    }
+    await page.markdown.tap();
+  }
+});
