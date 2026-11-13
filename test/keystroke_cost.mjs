@@ -376,4 +376,46 @@ for (const withVim of [false, true]) {
   }
 }
 console.table(every);
+
+// What the undo history keeps for a step. Each step types a character on
+// another row of a 100 KB note, read back whole from the field as `surface`
+// reads it, after a pause, so that no two steps join. Exits 1 when a step
+// keeps more than `STEP_BYTES` on the heap: one copy of the note is 100 KB.
+const STEP_BYTES = 16 * 1024;
+const { setFlagsFromString } = await import("node:v8");
+const { runInNewContext } = await import("node:vm");
+setFlagsFromString("--expose-gc");
+const gc = runInNewContext("gc");
+const heap = () => {
+  gc();
+  gc();
+  return process.memoryUsage().heapUsed;
+};
+let kept = editor.open(editor.new$(false, false, false), note(100)).editor;
+kept = editor.update(kept, new editor.FocusChanged(true)).editor;
+const rowCount = editor.text(kept).split("\n").length;
+let heapAt;
+for (let step = 1; step <= 600; step++) {
+  const lines = editor.text(kept).split("\n");
+  const row = (step * 37) % rowCount;
+  lines[row] = "x" + lines[row];
+  const shown = buffer.move_to(buffer.from_text(lines.join("\n")), new buffer.Position(row, 1));
+  kept = editor.update(kept, new editor.ControlChanged(shown, step * 60000)).editor;
+  if (step === 100) heapAt = heap();
+}
+const perStep = (heap() - heapAt) / 500;
+let undone = 0;
+while (undone < 600 && editor.text(editor.update(kept, new editor.UndoAsked()).editor) !== editor.text(kept)) {
+  kept = editor.update(kept, new editor.UndoAsked()).editor;
+  undone++;
+}
+console.log(`undo history: ${(perStep / 1024).toFixed(1)} KB a step over 500 steps on a 100 KB note, ${undone} steps to undo`);
+if (undone !== 600) {
+  console.error(`undo history: ${undone} of 600 steps could be undone.`);
+  failed = true;
+}
+if (perStep > STEP_BYTES) {
+  console.error(`undo history: a step keeps ${(perStep / 1024).toFixed(1)} KB, over ${STEP_BYTES / 1024} KB.`);
+  failed = true;
+}
 process.exit(failed ? 1 : 0);
