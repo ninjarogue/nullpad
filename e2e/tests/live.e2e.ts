@@ -836,3 +836,200 @@ test('a drag let go off the page leaves no press held', async ({ app, browser, d
   await page.nextFrame();
   await expect(page.text).toHaveValue(paragraph);
 });
+
+const sizeOf = async (page: { fieldFont(): Promise<{ size: string }> }) => (await page.fieldFont()).size;
+
+test('a dash typed under a line leaves that line drawn as it was', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('~~wow cool this feels great~~\n');
+  await expect(page.text).toHaveValue('');
+  await expect(page.drawnIn('live-above', 'p del')).toHaveText('wow cool this feels great');
+  const body = await page.fieldFont();
+  const line = await page.placeOf('wow');
+
+  let typed = '';
+  for (const key of '- item') {
+    await browser.keyboard.type(key);
+    typed += key;
+    await expect(page.text).toHaveValue(typed);
+    expect({ typed, font: await page.fieldFont() }).toEqual({ typed, font: body });
+    await expect(page.drawnIn('live-above', 'p del')).toHaveText('wow cool this feels great');
+    expect({ typed, line: await page.placeOf('wow') }).toEqual({ typed, line });
+  }
+});
+
+test('the caret moving between a heading and its underline keeps the heading as it is', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('Hello\n-');
+  await expect(page.text).toHaveValue('-');
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue('Hello\n-');
+  await expect.poll(() => sizeOf(page)).toBe('24px');
+  const heading = await page.fieldFont();
+  const words = await page.placeOf('Hello');
+
+  for (const key of ['ArrowDown', 'End', 'ArrowUp', 'Home', 'ArrowDown']) {
+    await browser.keyboard.press(key);
+    await expect(page.text).toHaveValue('Hello\n-');
+    expect({ key, font: await page.fieldFont() }).toEqual({ key, font: heading });
+    expect({ key, words: await page.placeOf('Hello') }).toEqual({ key, words });
+  }
+});
+
+test('a line typed between a line and its underline stays on its own row', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('Hello\n--');
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue('Hello\n--');
+  await expect.poll(() => sizeOf(page)).toBe('24px');
+
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Enter');
+  await expect(page.text).toHaveValue('');
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+  await expect(page.drawnIn('live-below', 'p')).toHaveText('--');
+  const body = await page.fieldFont();
+  const above = await page.placeOf('Hello');
+  const below = await page.placeOf('--');
+
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('X');
+  expect(await page.fieldFont()).toEqual(body);
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+  await expect(page.drawnIn('live-below', 'p')).toHaveText('--');
+  expect(await page.placeOf('Hello')).toEqual(above);
+  expect(await page.placeOf('--')).toEqual(below);
+});
+
+test('a list item typed under a line leaves that line where it was', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('Hello\n');
+  await expect(page.text).toHaveValue('');
+  await page.nextFrame();
+  const line = await page.placeOf('Hello');
+
+  let typed = '';
+  for (const key of '- i') {
+    await browser.keyboard.type(key);
+    typed += key;
+    await expect(page.text).toHaveValue(typed);
+    await page.nextFrame();
+    await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+    expect({ typed, line: await page.placeOf('Hello') }).toEqual({ typed, line });
+  }
+});
+
+test('a row typed under a table leaves the table drawn and the field set as body text', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('| a | b |\n|-|-|\n');
+  await expect(page.text).toHaveValue('');
+  await expect(page.drawnIn('live-above', 'th')).toHaveText(['a', 'b']);
+  const body = await page.fieldFont();
+  const top = (await page.fieldBox()).top;
+
+  let typed = '';
+  for (const key of '| 1 | 2 |') {
+    await browser.keyboard.type(key);
+    typed += key;
+    await expect(page.text).toHaveValue(typed);
+    expect({ typed, font: await page.fieldFont() }).toEqual({ typed, font: body });
+    expect({ typed, top: (await page.fieldBox()).top }).toEqual({ typed, top });
+    await expect(page.drawnIn('live-above', 'th')).toHaveText(['a', 'b']);
+  }
+
+  await browser.keyboard.press('Enter');
+  await expect(page.drawnIn('live-above', 'td')).toHaveText(['1', '2']);
+});
+
+for (const header of ['| a | b |', '|-|-|']) {
+  test(`${header} typed above a delimiter row leaves the rows below drawn as they were`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    const rest = '|-|-|\n| 1 | 2 |';
+    await openLive({ app, disk, page }, `\n${rest}`);
+    await expect(page.text).toHaveValue('');
+    await page.nextFrame();
+    const body = await page.fieldFont();
+    const below = await page.placeOf('| 1');
+
+    let typed = '';
+    for (const key of header) {
+      await browser.keyboard.type(key);
+      typed += key;
+      await expect(page.text).toHaveValue(typed);
+      expect({ typed, font: await page.fieldFont() }).toEqual({ typed, font: body });
+      expect({ typed, below: await page.placeOf('| 1') }).toEqual({ typed, below });
+      await expect(page.drawn('table')).toHaveCount(0);
+    }
+
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue(`${header}\n${rest}`);
+    await expect.poll(() => sizeOf(page)).toBe('14px');
+  });
+}
+
+test('the caret moving onto a delimiter row keeps the table as it is', async ({ app, browser, disk, page }) => {
+  const table = '| a | b |\n|-|-|\n| 1 | 2 |';
+  await openLive({ app, disk, page }, `top\n\n${table}\n\nend`);
+
+  await page.drawnIn('live-below', 'td').first().tap();
+  await expect(page.text).toHaveValue(table);
+  await expect.poll(() => sizeOf(page)).toBe('14px');
+  const mono = await page.fieldFont();
+  const top = (await page.fieldBox()).top;
+  const still = async (step: string) => {
+    await expect(page.text).toHaveValue(table);
+    expect({ step, font: await page.fieldFont() }).toEqual({ step, font: mono });
+    expect({ step, top: (await page.fieldBox()).top }).toEqual({ step, top });
+  };
+
+  for (const key of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown']) {
+    await browser.keyboard.press(key);
+    await still(key);
+  }
+  const delimiter = await page.pointAt('|-|-|');
+  await browser.mouse.move(delimiter.x + 10, delimiter.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  expect(await page.caret()).toMatch(/^\| a \| b \|\n\|-?\|?-?\|?-?\|?.*\n\| 1 \| 2 \|$/);
+  await still('a click on the delimiter row');
+
+  await page.drawnIn('live-below', 'p').tap();
+  await expect(page.text).toHaveValue('end');
+  for (const step of ['', table, table]) {
+    await browser.keyboard.press('ArrowUp');
+    await expect(page.text).toHaveValue(step);
+  }
+  await still('ArrowUp onto the delimiter row');
+});
+
+test('a table or code in the text field is set with no ligatures', async ({ app, disk, page }) => {
+  await openLive({ app, disk, page }, '| a | b |\n|-|-|\n\n```\n|-|-| -> !=\n```');
+  await expect(page.text).toHaveValue('| a | b |\n|-|-|');
+  await expect.poll(() => sizeOf(page)).toBe('14px');
+  expect((await page.fieldFont()).ligatures).toBe('none');
+
+  await page.drawnIn('live-below', 'pre').tap();
+  await expect(page.text).toHaveValue('```\n|-|-| -> !=\n```');
+  expect((await page.fieldFont()).ligatures).toBe('none');
+});

@@ -386,6 +386,20 @@ class Page {
     });
   }
 
+  /** How the text field sets its text, once the page has drawn. */
+  async fieldFont() {
+    await this.nextFrame();
+    return this.browser.evaluate(() => {
+      const style = getComputedStyle(document.querySelector('[data-test-id="editor"]')!);
+      return {
+        size: style.fontSize,
+        family: style.fontFamily,
+        weight: style.fontWeight,
+        ligatures: style.fontVariantLigatures,
+      };
+    });
+  }
+
   /** The text field's text with `|` where the caret is. */
   caret() {
     return this.browser.evaluate(() => {

@@ -155,7 +155,7 @@ pub fn the_field_is_left_alone_during_a_composition_test() {
   assert sync == editor.Write(caret("New", 0, 3))
 }
 
-pub fn text_that_joins_two_blocks_brings_both_into_the_field_test() {
+pub fn text_that_joins_two_blocks_brings_both_into_the_field_once_the_caret_leaves_its_row_test() {
   let Outcome(editor: ed, ..) =
     live("one\n\ntwo")
     |> editor.update(editor.Pointed(row: 1, visible: "", at_end: False))
@@ -163,7 +163,20 @@ pub fn text_that_joins_two_blocks_brings_both_into_the_field_test() {
 
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret("x", 0, 1)))
-  assert sync == editor.Write(caret("one\nx\ntwo", 1, 1))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(1, 1))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Up, x: 0.0, shown: caret("x", 0, 1)),
+    )
+  assert sync
+    == editor.WriteAndAim(
+      caret("one\nx\ntwo", 0, 3),
+      x: 0.0,
+      line: editor.LastLine,
+    )
   assert editor.region(ed) == Some(Region(0, 2))
 }
 
@@ -259,8 +272,13 @@ pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
   assert editor.region(ed) == Some(Region(1, 1))
   assert editor.blocks(ed) == around
 
-  let Outcome(editor: ed, ..) =
+  let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.ControlChanged(shown: composed))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(1, 1))
+  assert editor.blocks(ed) == around
+
+  let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(False))
   assert editor.region(ed) == Some(Region(0, 2))
   assert editor.blocks(ed) == markdown.parse("first\nwo\nsecond")
 }
@@ -413,7 +431,7 @@ pub fn leaving_live_view_puts_the_whole_note_back_test() {
   assert editor.region(ed) == None
 }
 
-pub fn live_view_keeps_the_blocks_of_the_text_after_every_change_test() {
+pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_on_a_row_test() {
   let parsed = fn(ed: Editor) {
     editor.blocks(ed) == markdown.parse(editor.text(ed))
   }
@@ -422,7 +440,7 @@ pub fn live_view_keeps_the_blocks_of_the_text_after_every_change_test() {
 
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret("# Trips", 0, 7)))
-  assert parsed(ed)
+  assert editor.blocks(ed) == markdown.parse(live_note)
   let composed = caret("# Trips\n\n> a", 2, 3)
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.Composing(shown: composed))
@@ -785,4 +803,138 @@ pub fn selection_keys_never_cross_with_the_whole_note_in_the_field_test() {
   let Outcome(sync:, ..) =
     editor.update(whole, editor.EdgePressed(edge, x: 0.0, shown:))
   assert sync == editor.InSync
+}
+
+fn show(ed: Editor, shown: buffer.Buffer) -> Editor {
+  editor.update(ed, editor.ControlChanged(shown:)).editor
+}
+
+fn point(ed: Editor, row: Int) -> Editor {
+  editor.update(ed, editor.Pointed(row:, visible: "", at_end: False)).editor
+}
+
+pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_test() {
+  let ed = live("~~wow~~") |> show(caret("~~wow~~\n", 1, 0))
+  assert editor.region(ed) == Some(Region(1, 1))
+  let drawn = editor.blocks(ed)
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("-", 0, 1)))
+  assert sync == editor.InSync
+  assert editor.text(ed) == "~~wow~~\n-"
+  assert editor.region(ed) == Some(Region(1, 1))
+  assert editor.blocks(ed) == drawn
+  assert editor.kind(ed) == Some(live.Body)
+
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Up, x: 0.0, shown: caret("-", 0, 1)),
+    )
+  assert editor.region(ed) == Some(Region(0, 1))
+  assert editor.blocks(ed) == markdown.parse("~~wow~~\n-")
+  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+}
+
+pub fn moving_inside_a_block_never_changes_how_the_field_is_set_test() {
+  let heading = "Hello\n-"
+  let ed = live(heading)
+  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+
+  let ed = show(ed, caret(heading, 1, 1))
+  assert editor.region(ed) == Some(Region(0, 1))
+  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+  let ed = show(ed, caret(heading, 0, 2))
+  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+
+  let table = "| a | b |\n|-|-|\n| 1 | 2 |"
+  let ed = live(table)
+  assert editor.kind(ed) == Some(live.Mono)
+  let ed = show(ed, caret(table, 1, 2))
+  assert editor.kind(ed) == Some(live.Mono)
+  let ed = show(ed, caret(table, 2, 0))
+  assert editor.kind(ed) == Some(live.Mono)
+}
+
+pub fn a_row_typed_under_a_table_keeps_the_table_drawn_test() {
+  let ed = live("| a | b |\n|-|-|\n") |> point(2)
+  assert editor.region(ed) == Some(Region(2, 2))
+  let drawn = editor.blocks(ed)
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("| 1", 0, 3)))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(2, 2))
+  assert editor.blocks(ed) == drawn
+  assert editor.kind(ed) == Some(live.Body)
+}
+
+pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
+  let ed = live("top\n\n") |> point(2)
+
+  assert editor.kind(show(ed, caret("# T", 0, 3)))
+    == Some(live.Title(markdown.H1))
+  assert editor.kind(show(ed, caret("- item", 0, 6)))
+    == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.kind(show(ed, caret("```", 0, 3))) == Some(live.Mono)
+}
+
+pub fn a_row_that_joins_a_block_beyond_the_field_is_set_as_body_text_test() {
+  let ed = live("# Title\ntext")
+  assert editor.kind(ed) == Some(live.Title(markdown.H1))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("Title", 0, 0)))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(0, 0))
+  assert editor.blocks(ed) == markdown.parse("# Title\ntext")
+  assert editor.kind(ed) == Some(live.Body)
+}
+
+pub fn typing_in_a_field_of_several_rows_keeps_how_it_is_set_test() {
+  let table = "| a | b |\n|-|-|\n| 1 | 2 |"
+  let broken = "| a | b |\n|x-|-|\n| 1 | 2 |"
+  let ed = live(table) |> show(caret(table, 1, 1))
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret(broken, 1, 2)))
+  assert sync == editor.InSync
+  assert editor.kind(ed) == Some(live.Mono)
+  assert editor.blocks(ed) == markdown.parse(table)
+
+  let ed = show(ed, caret(broken, 0, 0))
+  assert editor.kind(ed) == Some(live.Body)
+  assert editor.blocks(ed) == markdown.parse(broken)
+
+  let ed = live("Hello\nworld") |> show(caret("Hello\nworld", 1, 5))
+  assert editor.kind(show(ed, caret("Hello\n-", 1, 1))) == Some(live.Body)
+}
+
+pub fn leaving_the_field_draws_the_page_from_the_text_test() {
+  let ed =
+    live("Hello")
+    |> show(caret("Hello\n", 1, 0))
+    |> show(caret("-", 0, 1))
+  assert editor.region(ed) == Some(Region(1, 1))
+
+  let Outcome(editor: blurred, sync:, ..) =
+    editor.update(ed, editor.FocusChanged(False))
+  assert sync == editor.WriteQuietly(caret("Hello\n-", 1, 1))
+  assert editor.region(blurred) == Some(Region(0, 1))
+  assert editor.blocks(blurred) == markdown.parse("Hello\n-")
+  assert editor.is_idle(blurred)
+
+  let Outcome(editor: escaped, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: caret("-", 0, 1)))
+  assert sync == editor.Release(caret("Hello\n-", 1, 1))
+  assert editor.blocks(escaped) == markdown.parse("Hello\n-")
+}
+
+pub fn a_tick_on_a_drawn_task_draws_the_page_from_the_text_test() {
+  let ed = live("- [ ] one\n\ntop") |> point(2) |> show(caret("top!", 0, 4))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.replace_line(ed, 0, with: "- [x] one")
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(2, 2))
+  assert editor.blocks(ed) == markdown.parse("- [x] one\n\ntop!")
 }
