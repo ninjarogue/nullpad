@@ -477,6 +477,26 @@ pub fn a_part_draws_the_blank_rows_inside_a_list_test() {
   assert list.length(string.split(html, "class=\"blank\"")) == 5
 }
 
+pub fn a_part_draws_the_rows_of_a_quote_with_nothing_after_the_mark_as_blank_rows_test() {
+  let draw = fn(source) {
+    markdown.parse(source)
+    |> preview.part(
+      rows: 5,
+      first_row: 0,
+      test_id: "live-below",
+      on_task: fn(task, _) { task },
+    )
+    |> element.to_string
+  }
+
+  assert draw(">\n\nnext")
+    == "<div class=\"preview part\" data-test-id=\"live-below\"><blockquote data-row=\"0\"><div class=\"blank\" data-row=\"0\"></div></blockquote><div class=\"blank\" data-row=\"1\"></div><p data-row=\"2\">next</p><div class=\"blank\" data-row=\"3\"></div><div class=\"blank\" data-row=\"4\"></div></div>"
+  assert string.contains(
+    draw("> a\n>\n> > b"),
+    "<blockquote data-row=\"0\"><p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">b</p></blockquote></blockquote>",
+  )
+}
+
 pub fn the_whole_page_draws_no_blank_rows_test() {
   let html =
     markdown.parse("- one\n\n- two")
