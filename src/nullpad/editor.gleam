@@ -485,6 +485,15 @@ pub fn region(editor: Editor) -> Option(Region) {
   }
 }
 
+/// How the field is set. None while it holds the whole note.
+pub fn kind(editor: Editor) -> Option(live.Kind) {
+  case editor.field {
+    Whole -> None
+    Part(rows:, blocks:, ..) ->
+      Some(live.kind(blocks, field: rows, lines: buffer.lines(editor.buffer)))
+  }
+}
+
 /// Empty while the control holds the note.
 pub fn blocks(editor: Editor) -> List(Block) {
   case editor.field {

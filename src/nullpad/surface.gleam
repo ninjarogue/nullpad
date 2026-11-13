@@ -64,11 +64,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
-  let kind = {
-    use field <- option.map(editor.region(editor))
-    let lines = buffer.lines(editor.buffer(editor))
-    live.kind(editor.blocks(editor), field:, lines:)
-  }
+  let kind = editor.kind(editor)
   let first_row = case editor.region(editor), editor.is_idle(editor) {
     Some(live.Region(first_row:, ..)), False ->
       attribute.data(live.row_mark, int.to_string(first_row))
