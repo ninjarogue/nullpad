@@ -33,7 +33,7 @@ const with_javascript = ["surface", "platform", "markdown"]
 const measures = [
   "drawnInPage", "holdsFocus", "caretLine", "locate", "findControl", "textWidth",
   "utf16Split", "utf16Length", "below", "hasHardwareKeyboard", "readVimSetting",
-  "readMarkdownSetting", "dropped", "releasedOnSelection",
+  "readMarkdownSetting", "dropped", "releasedOnSelection", "focusStayed",
 ]
 
 /// How many state parameters each of these decoders still takes.
