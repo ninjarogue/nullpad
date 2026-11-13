@@ -436,7 +436,8 @@ function placeOn(page, target, x, y, rowMark, press) {
     if (beside) return beside;
   }
   if (above) return [Number(nearest.dataset[rowMark]), "", false, characterAt(nearest.textContent, 0)];
-  return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true, "\n"];
+  const drawn = nearest.textContent;
+  return [Number(nearest.dataset[rowMark]), drawn.endsWith("\n") ? drawn.slice(0, -1) : drawn, true, "\n"];
 }
 
 // Left of a list item's text, where its marker is drawn, no character is
