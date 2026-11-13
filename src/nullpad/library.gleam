@@ -1,12 +1,3 @@
-//// The notes as the user meets them: which exist, which one is open,
-//// whether its text is saved, and which note is being deleted or can still
-//// be brought back. Pure Gleam.
-////
-//// `update` does nothing itself. It returns `Command`s, plain data that the
-//// app shell turns into storage calls, timers and editor changes, and each
-//// answer comes back in as an `Event`. The editor holds the text, so the
-//// shell passes it in.
-////
 //// Imported by: the app shell, tests. Imports: `storage`, for notes and
 //// their ids.
 
@@ -14,12 +5,10 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import nullpad/storage.{type Failure, type Note, type NoteId, type Summary, Note}
 
-/// How long after the last edit the note is saved.
 const autosave_ms = 800
 
 const retry_save_ms = 5000
 
-/// How long a deleted note can be brought back.
 const undo_ms = 5000
 
 pub opaque type Library {
@@ -28,12 +17,10 @@ pub opaque type Library {
     open: Option(Open),
     edits: Int,
     leaving_for: Option(Destination),
-    /// Any note can be deleted, open or not, one at a time. While storage
-    /// has the request for the open note nothing is saved, or the save would
-    /// bring the note back.
+    /// While storage has the request to delete the open note nothing is
+    /// saved, or the save would bring the note back.
     deleting: Option(NoteId),
     undo: Option(Undo),
-    /// Counts deletes, so an old timer cannot clear a newer undo.
     deletes: Int,
     problem: Option(Failure),
   )
@@ -61,20 +48,17 @@ type Destination {
   NewNote
 }
 
-/// A delete is not asked about. It can be undone for a few seconds instead.
 type Undo {
   Undo(note: Note, was_open: Bool)
 }
 
 pub type Event {
-  /// The editor's text changed.
   TextEdited
   UserRenamedNote(title: String)
   UserPickedNote(NoteId)
   UserAskedForNewNote
   UserDeletedNote(NoteId)
   UserUndidDelete
-  /// Save now if anything is unsaved: the page was hidden, or vim's `:w`.
   SaveDue
   AutosaveDue(edits: Int)
   UndoExpired(deletes: Int)
@@ -82,7 +66,6 @@ pub type Event {
   StorageLoaded(Result(Note, Failure))
   StorageCreated(Result(Note, Failure))
   StorageSaved(id: NoteId, edits: Int, result: Result(Nil, Failure))
-  /// The body of a note that is not open, read so its delete can be undone.
   StorageFoundDoomed(Result(Note, Failure))
   StorageDeleted(note: Note, result: Result(Nil, Failure))
   StorageRestored(note: Note, was_open: Bool, result: Result(Nil, Failure))
@@ -109,7 +92,6 @@ pub type Command {
   OpenInEditor(text: String)
 }
 
-/// Nothing is open until the notes are listed.
 pub fn start() -> #(Library, List(Command)) {
   let library =
     Library(
@@ -145,17 +127,14 @@ pub fn deleting(library: Library) -> Option(NoteId) {
   library.deleting
 }
 
-/// The note deleted last, while it can still be brought back.
 pub fn undoable(library: Library) -> Option(Note) {
   option.map(library.undo, fn(undo) { undo.note })
 }
 
-/// The last storage failure, until a save works or a note opens.
 pub fn problem(library: Library) -> Option(Failure) {
   library.problem
 }
 
-/// `text` is the editor's text now, the body a save stores.
 pub fn update(
   library: Library,
   event: Event,

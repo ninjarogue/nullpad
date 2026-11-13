@@ -1,4 +1,3 @@
-//// Turns the markdown tree into Lustre elements: the rendered page.
 //// Imported by: the app shell. Imports: `markdown`.
 
 import gleam/int
@@ -21,13 +20,6 @@ import nullpad/markdown.{
 /// Safe by construction: all text goes through `element.text` (escaped) and
 /// this module never uses `element.unsafe_raw_html`. A link is clickable only
 /// for http, https, mailto and relative paths.
-///
-/// A task item is `li.task` and starts with a checkbox. Ticking it sends
-/// `on_task(task, checked)`, and the shell rewrites the task's line. The page
-/// never edits text itself.
-///
-/// The whole note with no row marks, for the M6 HTML export:
-/// `element.to_string(preview.view(blocks, ..))`. The app draws `part`.
 pub fn view(
   blocks: List(Block),
   on_task: fn(Task, Bool) -> msg,
@@ -38,15 +30,9 @@ pub fn view(
   )
 }
 
-/// A run of `rows` rows of the note drawn as a page, beside the text field,
-/// from the whole note's `blocks`. `first_row` is where the run starts in the
-/// note. Each element carries the note row it starts on as `data-row`, which
-/// is how a click finds its place in the source (`surface.on_point`).
-///
 /// A list the run cuts shows the items inside the run, spaced and numbered
 /// as in the whole list. Any other block the run cuts is left out and its
-/// rows are blank: the field's rows cut a block only while a composition
-/// holds them.
+/// rows are blank.
 ///
 /// A row outside every block is blank, and is drawn as one empty line
 /// (`div.blank`), so every row of the note has a place on the page.
@@ -107,8 +93,6 @@ fn last_row(item: Item) -> Int {
   }
 }
 
-/// `blocks` drawn in order, with one empty line for each blank row before,
-/// between and after them, from row `from` up to row `to`.
 fn spaced(
   blocks: List(Block),
   from from: Int,
@@ -125,8 +109,6 @@ fn spaced(
   |> list.append(blanks(html.div, rows, from: next, to:))
 }
 
-/// Only a marked run draws its blank rows: `view` sets blocks apart with
-/// margins.
 fn blanks(
   tag: fn(List(attribute.Attribute(msg)), List(Element(msg))) -> Element(msg),
   rows: Rows,
@@ -200,9 +182,7 @@ fn block(
   }
 }
 
-/// A table wider than the page scrolls inside its own box, so the page does
-/// not. The box takes the keyboard, since a scrolled box nobody can focus
-/// cannot be scrolled without a pointer.
+/// A scrolled box cannot be scrolled from the keyboard unless it can be focused.
 fn table(
   first_row: Int,
   marks: Rows,
@@ -271,9 +251,6 @@ fn aligned(
   tag(attributes, inlines(cell))
 }
 
-/// The items of a list that ends before row `end`. A blank row inside an
-/// item is drawn in it, and the blank rows after an item are drawn between
-/// it and the next, as items that are not counted or announced.
 fn items(
   listed: List(Item),
   spacing: Spacing,
@@ -373,8 +350,6 @@ fn inline(inline: Inline) -> List(Element(msg)) {
   }
 }
 
-/// The parser never builds a link that is not safe to follow. A tree from
-/// anywhere else is checked again here, where the address becomes an `href`.
 fn link(
   label: List(Inline),
   url: String,
