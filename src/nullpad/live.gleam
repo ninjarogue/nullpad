@@ -123,7 +123,11 @@ pub fn position(
       let rest = string.to_graphemes(line) |> list.drop(col)
       let col = case next {
         "" -> col
-        "\n" -> col + list.length(rest)
+        "\n" ->
+          case list.filter(rest, fn(character) { character != " " }) {
+            ["|"] -> col
+            _ -> col + list.length(rest)
+          }
         _ ->
           case closes(before, next) {
             True -> skip_to(rest, next, col)
