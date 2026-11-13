@@ -624,7 +624,7 @@ fn paint(editor: Editor) -> Nil {
     Some(_), Some(frame), False -> rows_of(frame)
     None, _, _ | _, None, _ | _, _, True -> ""
   }
-  drawn_control(control_id, classes(editor, kind), rows, marker_width(kind))
+  drawn_control(rows)
   case editor.is_painted(editor) {
     False -> clear_paint()
     True -> {
@@ -1040,12 +1040,7 @@ fn hold_control(
 ) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "drawnControl")
-fn drawn_control(
-  id: String,
-  classes: String,
-  rows: String,
-  marker: String,
-) -> Nil
+fn drawn_control(rows: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "writeControl")
 fn write_control(

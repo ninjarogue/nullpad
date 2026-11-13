@@ -14,26 +14,37 @@ export function writeControl(id, text, start, end, backward) {
 // A key pressed before the next render acts on the field as it is laid out.
 // Written with other rows, it takes their type at once, and keeps the line
 // height and margins of the rows it was drawn with, as a row typed as another
-// kind of block does, so nothing around it moves until the render.
+// kind of block does, so nothing around it moves until the render. The
+// render sets the classes only when they changed since the last one, so
+// held classes it did not replace go back to the ones it drew.
 let drawnRows = "";
+let held = null;
 
 export function holdControl(id, classes, rows, marker) {
   const holder = document.getElementById(id)?.parentElement;
-  if (!holder) return;
-  const held = drawnRows !== "" && drawnRows !== rows ? ` held framed-${drawnRows}` : "";
-  setHolder(holder, classes + held, marker);
+  if (!holder || drawnRows === "") return;
+  if (!held) {
+    held = { holder, drawn: holder.className, drawnMarker: holder.style.getPropertyValue("--marker") };
+    requestAnimationFrame(releaseControl);
+  }
+  held.classes = `${classes}${drawnRows === rows ? "" : ` held framed-${drawnRows}`} holding`;
+  holder.className = held.classes;
+  setMarker(holder, marker);
 }
 
-// Lustre sets only what changed since its last render, not what was held.
-export function drawnControl(id, classes, rows, marker) {
-  const holder = document.getElementById(id)?.parentElement;
-  if (!holder) return;
-  setHolder(holder, classes, marker);
+function releaseControl() {
+  if (held?.holder.className === held?.classes) {
+    held.holder.className = held.drawn;
+    setMarker(held.holder, held.drawnMarker);
+  }
+  held = null;
+}
+
+export function drawnControl(rows) {
   drawnRows = rows;
 }
 
-function setHolder(holder, classes, marker) {
-  if (holder.className !== classes) holder.className = classes;
+function setMarker(holder, marker) {
   if (marker === "") holder.style.removeProperty("--marker");
   else holder.style.setProperty("--marker", marker);
 }
