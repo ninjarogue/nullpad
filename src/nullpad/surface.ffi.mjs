@@ -535,7 +535,7 @@ function drawnAt(x, y, rowMark, pointer = x) {
 
 // The place a point on the drawn page names, or null outside every element
 // that draws a row.
-function placeOfPoint(point, rowMark, pointer = Infinity) {
+function placeOfPoint(point, rowMark, pointer = Infinity, fromRowStart = false) {
   const inside = point.node instanceof Element ? point.node : point.node.parentElement;
   const holder = inside?.closest(`[data-${rowMark}]`);
   if (!holder || holder instanceof HTMLTextAreaElement) return null;
@@ -551,14 +551,21 @@ function placeOfPoint(point, rowMark, pointer = Infinity) {
   after.setEnd(cell, cell.childNodes.length);
   const rest = after.toString();
   let next = rest !== "" ? characterAt(rest, 0) : cell === holder ? "\n" : "";
+  // At the start of a row, a pointer left of its text is on a list item's
+  // marker, and a step from the start of a row that lands no further right
+  // stays before the marks the page hides, as in a text field. A table row
+  // starts in its first cell.
   const rowStart = visible === "" || visible.endsWith("\n");
-  if (rowStart && holder.closest("li")) {
+  const margin = fromRowStart && cell === holder ? 1 : holder.closest("li") ? -1 : null;
+  let before = false;
+  if (rowStart && margin !== null) {
     const box = letterAfter(holder, point.node, point.offset);
-    if (box && pointer < box.left - 1) next = "";
+    before = box ? pointer < box.left + margin : fromRowStart;
   }
-  // An element that draws no text, such as a fence with no code, has no
-  // place before its text: the press lands at the end of its row.
-  return [Number(holder.dataset[rowMark]), visible, holder.textContent === "", next];
+  if (before) next = "";
+  // Otherwise an element that draws no text, such as a fence with no code,
+  // has no place before its text: the press lands at the end of its row.
+  return [Number(holder.dataset[rowMark]), visible, holder.textContent === "" && !before, next];
 }
 
 // The box of the first letter drawn in `holder` from a point on.
@@ -984,7 +991,7 @@ function undrawn(control) {
 // boundary, or of a line from any line of the field but the last it steps
 // past. A `page` step scrolls the page by a window and takes the place that
 // is then where the head was.
-export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, granularity, forward, select, x) {
+export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x) {
   const answer = (row, place = ["", false, ""]) => [row, ...place, x];
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
@@ -1038,7 +1045,7 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, gr
     if (!landed) return answer(-2);
     const line = granularity === "line";
     if (line) landed = toward(selection, landed, columnLeft(page) + x, rowMark);
-    const place = placeOfPoint(landed, rowMark, line ? columnLeft(page) + x : Infinity);
+    const place = placeOfPoint(landed, rowMark, line ? columnLeft(page) + x : Infinity, line && rowStart);
     return place ? [...place, x] : answer(-1);
   } finally {
     control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);

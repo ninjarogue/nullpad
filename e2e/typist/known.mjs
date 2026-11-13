@@ -35,13 +35,6 @@ export const known = [
       'Up and Down keep the caret\'s place across the drawn page. nullpad draws proportional type, larger headings and list markers in the gutter, and the textarea is monospace, so the column they land on differs. In a script that makes a second line the vertical keys are left out; on one line they go to the start or end in both, and are compared.',
     sanitize: (script) => (makesLines(script) ? without(script, vertical) : script),
   },
-  {
-    id: 'shift-up-under-empty-quote',
-    kind: 'open',
-    reason: 'Shift+ArrowUp from the row below a quote with no text selects nothing.',
-    repro: ['>', 'Enter', 'Shift+ArrowUp'],
-    sanitize: (script) => script,
-  },
 ];
 
 export const sanitize = (script) => known.reduce((s, entry) => entry.sanitize(s), script);
