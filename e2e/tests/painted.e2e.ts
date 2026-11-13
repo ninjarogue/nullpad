@@ -402,6 +402,33 @@ test('without the Highlight API a selection across blocks is shown in the field 
   expect(await page.painted()).toBeNull();
 });
 
+test('Shift+ArrowDown and Shift+ArrowUp step over each line of a code block and past it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'Intro para\n\n```\ncode one\nline two\n```\n\nAfter text';
+  const stepOut = async (key: string, reached: string) => {
+    let selected = '';
+    for (let press = 0; press < 8 && !selected.includes(reached); press++) {
+      await browser.keyboard.press(key);
+      const before = selected.length;
+      await expect.poll(async () => (await page.selection()).selected.length).toBeGreaterThan(before);
+      selected = (await page.selection()).selected;
+    }
+    expect(selected).toContain(reached);
+  };
+
+  await openLive({ app, disk, page }, note);
+  await browser.keyboard.press('End');
+  await stepOut('Shift+ArrowDown', 'After');
+
+  await page.drag(await page.pointAt('After'), await page.pointAt('After'));
+  await browser.keyboard.press('Home');
+  await stepOut('Shift+ArrowUp', 'Intro');
+});
+
 test('a step the page could not place lets the next Shift+ArrowDown step', async ({ app, browser, disk, page }) => {
   await openLive({ app, disk, page }, body);
   await page.pressBeforeRedraw('Shift+ArrowDown', 'Shift+ArrowDown', 'ControlOrMeta+e');
