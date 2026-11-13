@@ -95,6 +95,43 @@ pub fn replace(
   Buffer(lines:, anchor: end, head: end)
 }
 
+/// Takes the selected text to `to` and selects it there, as a text field
+/// moves text dragged onto it. A place inside the selection changes nothing.
+pub fn move_selection(buffer: Buffer, to to: Position) -> Buffer {
+  let #(start, end) = in_order(buffer.anchor, buffer.head)
+  let to = clamp(buffer.lines, to)
+  case compare(to, start), compare(to, end) {
+    order.Lt, _ -> moved(buffer, start, end, to)
+    _, order.Gt -> {
+      let to = case to.row == end.row {
+        True -> Position(row: start.row, col: start.col + to.col - end.col)
+        False -> Position(..to, row: to.row - end.row + start.row)
+      }
+      moved(buffer, start, end, to)
+    }
+    order.Eq, _ | order.Gt, order.Lt | order.Gt, order.Eq -> buffer
+  }
+}
+
+/// `to` is where the text goes once it is taken out.
+fn moved(
+  buffer: Buffer,
+  start: Position,
+  end: Position,
+  to: Position,
+) -> Buffer {
+  let text =
+    list.drop(buffer.lines, start.row)
+    |> list.take(end.row - start.row + 1)
+    |> string.join("\n")
+    |> string.drop_start(start.col)
+  let text =
+    string.drop_end(text, string.length(line(buffer.lines, end.row)) - end.col)
+  let taken = replace(buffer, from: start, to: end, with: "")
+  let put = replace(taken, from: to, to: to, with: text)
+  Buffer(..put, anchor: to)
+}
+
 pub fn end_of(text: String) -> Position {
   let lines = to_lines(text)
   Position(
@@ -123,6 +160,10 @@ fn in_order(a: Position, b: Position) -> #(Position, Position) {
     order.Gt -> #(b, a)
     order.Lt | order.Eq -> #(a, b)
   }
+}
+
+pub fn compare(a: Position, b: Position) -> order.Order {
+  order.break_tie(int.compare(a.row, b.row), int.compare(a.col, b.col))
 }
 
 /// The word around a place, from its start to its end, as a double click

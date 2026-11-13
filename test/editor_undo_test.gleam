@@ -309,3 +309,63 @@ pub fn a_pause_between_two_typed_characters_is_two_undo_steps_test() {
   assert editor.text(undo(ed)) == "ab"
   assert editor.text(undo(undo(ed))) == ""
 }
+
+/// The browser moves text dragged inside the field in two changes, the text
+/// taken out and the text put in, both before the drag ends.
+pub fn undo_takes_back_a_drag_inside_the_field_in_one_step_test() {
+  let text = "alpha beta gamma"
+  let selected =
+    buffer.from_text(text)
+    |> buffer.select(anchor: Position(0, 0), head: Position(0, 5))
+  let ed =
+    whole(text)
+    |> editor.update(editor.ControlChanged(shown: selected, at: 0))
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+  let taken = caret(" beta gamma", 0, 0)
+  let put =
+    buffer.from_text(" beta gammaalpha")
+    |> buffer.select(anchor: Position(0, 11), head: Position(0, 16))
+  let dragged =
+    ed
+    |> editor.update(editor.DragStarted)
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+    |> editor.update(editor.ControlChanged(shown: taken, at: 10))
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+    |> editor.update(editor.ControlChanged(shown: put, at: 20))
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+    |> editor.update(editor.Released)
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+  assert editor.text(dragged) == " beta gammaalpha"
+
+  let back = undo(dragged)
+  assert editor.text(back) == text
+  assert buffer.selection(editor.buffer(back))
+    == #(Position(0, 0), Position(0, 5))
+  assert editor.text(redo(back)) == " beta gammaalpha"
+}
+
+pub fn undo_takes_back_a_drop_on_the_page_in_one_step_test() {
+  let shown =
+    buffer.from_text("alpha beta gamma")
+    |> buffer.select(anchor: Position(0, 0), head: Position(0, 5))
+  let ed =
+    live("alpha beta gamma\n\nsecond para here")
+    |> editor.update(editor.ControlChanged(shown:, at: 0))
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+    |> editor.update(editor.DragStarted)
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+    |> editor.update(editor.Dropped(
+      row: 2,
+      visible: "second ",
+      at_end: False,
+      next: "",
+      text: "alpha",
+      copy: False,
+      shown:,
+    ))
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+    |> editor.update(editor.Released)
+    |> fn(outcome: editor.Outcome) { outcome.editor }
+  assert editor.text(ed) == " beta gamma\n\nsecond alphapara here"
+  assert editor.text(undo(ed)) == "alpha beta gamma\n\nsecond para here"
+}

@@ -489,6 +489,245 @@ test('the hidden field keeps its caret where a painted selection starts, so an I
   expect(Math.abs(places.caret.y - places.start.y)).toBeLessThan(4);
 });
 
+/** Where the head of a painted selection is drawn, and whether that is inside the window. */
+const paintedHeadInView = (browser: { evaluate<T>(run: () => T): Promise<T> }) =>
+  browser.evaluate(() => {
+    const head = [...(CSS.highlights.get('nullpad-head') ?? [])][0] as Range | undefined;
+    if (!head) return null;
+    const node = head.startContainer;
+    const letter = document.createRange();
+    const text = node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
+    let box: DOMRect;
+    if (text && head.startOffset < text.length) {
+      letter.setStart(text, head.startOffset);
+      letter.setEnd(text, head.startOffset + 1);
+      box = letter.getClientRects()[0] ?? letter.getBoundingClientRect();
+    } else if (text && head.startOffset > 0) {
+      letter.setStart(text, head.startOffset - 1);
+      letter.setEnd(text, head.startOffset);
+      box = [...letter.getClientRects()].pop() ?? letter.getBoundingClientRect();
+    } else {
+      box = (node instanceof Element ? node : node.parentElement!).getBoundingClientRect();
+    }
+    const sheet = document.querySelector('.page')!.getBoundingClientRect();
+    return box.top >= Math.max(sheet.top, 0) - 1 && box.bottom <= Math.min(sheet.bottom, innerHeight) + 1;
+  });
+
+test('the head of a painted selection that the keys move stays in the window', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, Array.from({ length: 60 }, (_, i) => `para ${i}`).join('\n\n'));
+  for (let step = 0; step < 30; step++) await browser.keyboard.press('ArrowDown');
+  for (const key of ['Shift+ArrowDown', 'Control+Shift+Home', 'Control+Shift+End', 'Control+Shift+Home']) {
+    await browser.keyboard.press(key);
+    await page.nextFrame();
+    await expect.poll(() => page.painted()).not.toBeNull();
+    expect({ key, inView: await paintedHeadInView(browser) }).toEqual({ key, inView: true });
+  }
+  for (let step = 1; step <= 12; step++) {
+    await browser.keyboard.press('Shift+ArrowRight');
+    await page.nextFrame();
+    expect({ step, inView: await paintedHeadInView(browser) }).toEqual({ step, inView: true });
+  }
+  await browser.keyboard.press('Control+Shift+End');
+  for (let step = 1; step <= 12; step++) {
+    await browser.keyboard.press('Shift+ArrowLeft');
+    await page.nextFrame();
+    expect({ step, inView: await paintedHeadInView(browser) }).toEqual({ step, inView: true });
+  }
+});
+
+const threeParas = 'Alpha para one.\n\nBeta para two.\n\nDelta para.';
+
+async function glide(
+  browser: {
+    mouse: { move(x: number, y: number): Promise<unknown>; down(): Promise<unknown>; up(): Promise<unknown> };
+  },
+  page: { nextFrame(): Promise<unknown> },
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  for (let step = 1; step <= 10; step++) {
+    await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+}
+
+test('a painted selection dragged onto another block moves there, as in a text field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, threeParas);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+
+  await glide(browser, page, await page.pointAt('ra one'), await page.pointAt('para.'));
+  await expect.poll(async () => (await page.selection()).selected).toBe('para one.\n\nBeta ');
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.press('Escape');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('Alpha para two.\n\nDelta para one.\n\nBeta para.');
+});
+
+test('a painted selection dragged onto another block with the copy key held is copied there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, threeParas);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+  const copyKey = await browser.evaluate(() => (/Mac/.test(navigator.platform) ? 'Alt' : 'Control'));
+
+  const from = await page.pointAt('ra one');
+  const to = await page.pointAt('para.');
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  await browser.keyboard.down(copyKey);
+  for (let step = 1; step <= 10; step++) {
+    await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await browser.keyboard.up(copyKey);
+  await expect.poll(async () => (await page.selection()).selected).toBe('para one.\n\nBeta ');
+  await browser.keyboard.press('Escape');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('Alpha para one.\n\nBeta para two.\n\nDelta para one.\n\nBeta para.');
+});
+
+test('a click inside a painted selection puts the caret where it clicked', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, threeParas);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+
+  const inside = await page.pointAt('ra one');
+  await browser.mouse.move(inside.x, inside.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+  await browser.mouse.up();
+  await expect.poll(() => page.caret()).toBe('Alpha pa|ra one.');
+  await expect.poll(() => page.painted()).toBeNull();
+  await expect(page.text).toBeFocused();
+});
+
+test('Shift and a press inside a painted selection select from its anchor, and a drag from there reaches below', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, threeParas);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+
+  const inside = await page.pointAt('ra one');
+  const delta = await page.pointAt('lta');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(inside.x, inside.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  for (let step = 1; step <= 6; step++) {
+    await browser.mouse.move(inside.x + ((delta.x - inside.x) * step) / 6, inside.y + ((delta.y - inside.y) * step) / 6);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(() => page.painted()).toBe('para one.Beta para two.De');
+  expect((await page.selection()).backward).toBe(false);
+});
+
+test('a middle click inside a painted selection puts the caret where it clicked, where Linux pastes', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, threeParas);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+
+  const point = await page.pointAt('ra one');
+  await browser.evaluate((at: { x: number; y: number }) => {
+    const target = document.elementFromPoint(at.x, at.y)!;
+    const press = { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 1 };
+    target.dispatchEvent(new MouseEvent('mousedown', { ...press, buttons: 4 }));
+    target.dispatchEvent(new MouseEvent('mouseup', press));
+    target.dispatchEvent(new MouseEvent('auxclick', press));
+    return null;
+  }, point);
+  await expect.poll(() => page.caret()).toBe('Alpha pa|ra one.');
+  await expect.poll(() => page.painted()).toBeNull();
+  await expect(page.text).toBeFocused();
+});
+
+test('a triple click inside a painted selection selects the line clicked, and a drag from there paints whole lines', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\n- [ ] Passport\n- Shoes\n\nlast line');
+  const tripleClick = (point: { x: number; y: number }, release = true) =>
+    browser.evaluate(
+      (at: { x: number; y: number; release: boolean }) => {
+        for (const detail of [1, 2, 3]) {
+          const target = document.elementFromPoint(at.x, at.y)!;
+          const press = { bubbles: true, cancelable: true, detail, clientX: at.x, clientY: at.y };
+          target.dispatchEvent(new MouseEvent('mousedown', { ...press, buttons: 1 }));
+          if (detail < 3 || at.release) target.dispatchEvent(new MouseEvent('mouseup', press));
+        }
+        return null;
+      },
+      { ...point, release },
+    );
+  for (const [word, line] of [
+    ['words', 'some words here'],
+    ['Shoes', '- Shoes'],
+  ]) {
+    await browser.keyboard.press('ControlOrMeta+a');
+    await expect.poll(() => page.painted()).not.toBeNull();
+    await tripleClick(await page.pointAt(word));
+    await expect.poll(async () => (await page.selection()).selected).toBe(line);
+    await expect.poll(() => page.painted()).toBeNull();
+  }
+
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.painted()).not.toBeNull();
+  await tripleClick(await page.pointAt('words'), false);
+  const last = await page.pointAt('last');
+  const send = (type: string, buttons: number) =>
+    browser.evaluate(
+      (at: { x: number; y: number; type: string; buttons: number }) => {
+        const target = document.elementFromPoint(at.x, at.y)!;
+        const init = { bubbles: true, cancelable: true, detail: 3, clientX: at.x, clientY: at.y, buttons: at.buttons };
+        target.dispatchEvent(new MouseEvent(at.type, init));
+        return null;
+      },
+      { ...last, type, buttons },
+    );
+  await send('mousemove', 1);
+  await page.nextFrame();
+  await send('mouseup', 0);
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^some words here\n[^]*last line$/);
+  await expect.poll(() => page.painted()).toBe('some words herePassportShoeslast line');
+});
+
 test('Ctrl+Z after typing over a painted selection gives the text back, painted again, and Ctrl+Shift+Z types it again', async ({
   app,
   browser,

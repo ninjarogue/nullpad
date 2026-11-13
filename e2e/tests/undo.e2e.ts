@@ -316,3 +316,77 @@ test('a pause while typing ends an undo step, and typing without a pause is undo
   await editor.press(ctrl('z'));
   expect(await editor.shown()).toBe('');
 });
+
+async function glide(fixtures: Fixtures, from: { x: number; y: number }, to: { x: number; y: number }, held?: string) {
+  const { browser, page } = fixtures;
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  if (held) await browser.keyboard.down(held);
+  for (let step = 1; step <= 10; step++) {
+    await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  if (held) await browser.keyboard.up(held);
+  await page.nextFrame();
+}
+
+const inField = (fixtures: Fixtures, x: number) =>
+  fixtures.browser.evaluate((x: number) => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.left + x, y: box.top + 12 };
+  }, x);
+
+test('undo takes back selected text dragged onto another block in one step, and redo moves it again', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const start = 'alpha beta gamma\n\nsecond para here';
+  const moved = ' beta gamma\n\nsecond alphapara here';
+  await editor.open(start);
+  await editor.press(...Array.from({ length: 5 }, () => 'Shift+ArrowRight'));
+  await glide(fixtures, await inField(fixtures, 15), await fixtures.page.pointAt('para here'));
+  await editor.expectSaved(moved);
+
+  await editor.press(ctrl('z'));
+  await editor.expectSaved(start);
+  await editor.press(ctrl('Shift+z'));
+  await editor.expectSaved(moved);
+});
+
+test('undo takes back selected text dragged along its own row in one step', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const start = 'alpha beta gamma\n\nsecond para here';
+  await editor.open(start);
+  await editor.press(...Array.from({ length: 5 }, () => 'Shift+ArrowRight'));
+  const end = await editor.point({ word: 'gamma', at: 5 });
+  await glide(fixtures, await inField(fixtures, 15), end);
+  await expect.poll(() => editor.saved()).not.toBe(start);
+  expect(await editor.saved()).toMatch(/alpha\n\nsecond para here$/);
+
+  await editor.press(ctrl('z'));
+  await editor.expectSaved(start);
+});
+
+test('undo takes back a painted selection dragged onto another block in one step, and a copy too', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const { page } = fixtures;
+  const start = 'Alpha para one.\n\nBeta para two.\n\nDelta para.';
+  await editor.open(start);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+  await glide(fixtures, await page.pointAt('ra one'), await page.pointAt('para.'));
+  await editor.expectSaved('Alpha para two.\n\nDelta para one.\n\nBeta para.');
+
+  await editor.press(ctrl('z'));
+  await editor.expectSaved(start);
+
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+  const copyKey = await fixtures.browser.evaluate(() => (/Mac/.test(navigator.platform) ? 'Alt' : 'Control'));
+  await glide(fixtures, await page.pointAt('ra one'), await page.pointAt('para.'), copyKey);
+  await editor.expectSaved('Alpha para one.\n\nBeta para two.\n\nDelta para one.\n\nBeta para.');
+
+  await editor.press(ctrl('z'));
+  await editor.expectSaved(start);
+});
