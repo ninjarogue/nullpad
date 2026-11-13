@@ -163,6 +163,12 @@ pub fn page(
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
     use shift <- decode.field("shiftKey", decode.bool)
+    use button <- decode.field("button", decode.int)
+    use target <- decode.then(decode.optionally_at(
+      ["target", "id"],
+      "",
+      decode.string,
+    ))
     use x <- decode.field("clientX", decode.float)
     use y <- decode.field("clientY", decode.float)
     use press <- decode.then(decode.dynamic)
@@ -180,10 +186,15 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
       #(row, visible, at_end, False), True, Ok(shown) if row >= 0 ->
         taken(editor.ShiftPointed(row:, visible:, at_end:, shown:, x:, y:))
       // A press the browser keeps also ends a press the editor took, whose
-      // release the page does not hear when it happens off the page.
+      // release the page does not hear when it happens off the page. A
+      // press of another button would take the focus to the page, but
+      // still opens its menu.
       _, _, _ ->
         on_event(editor.Released)
-        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> event.handler(
+          prevent_default: button != 0 && target != control_id,
+          stop_propagation: False,
+        )
         |> decode.success
     }
   })
