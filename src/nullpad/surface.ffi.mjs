@@ -169,7 +169,7 @@ function measure(control) {
     range.setStart(ruler.firstChild, offset);
     range.setEnd(ruler.firstChild, offset + 1);
     const box = range.getClientRects()[0] ?? range.getBoundingClientRect();
-    return { top: Math.round(box.top), x: box.left - left };
+    return { top: Math.round(box.top), x: box.left - left, right: box.right - left };
   };
 }
 
@@ -194,12 +194,33 @@ export function caretLine(id) {
   if (!control) return [false, false, 0];
   const place = measure(control);
   const backward = control.selectionDirection === "backward";
-  const caret = place(backward ? control.selectionStart : control.selectionEnd);
+  const head = backward ? control.selectionStart : control.selectionEnd;
+  const caret = atLineEnd(control, head, place)
+    ? { top: place(head - 1).top, x: place(head - 1).right }
+    : place(head);
   return [
     caret.top === place(0).top,
     caret.top === place(control.value.length).top,
     caret.x,
   ];
+}
+
+// Where a line wraps, the end of that line and the start of the next share
+// an offset, and the caret may be drawn at either. Only a move to the line's
+// start tells which, and the selection is put back as it was.
+function atLineEnd(control, head, place) {
+  const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = control;
+  if (head === 0 || control.value[head - 1] === "\n" || document.activeElement !== control) return false;
+  if (place(head - 1).top === place(head).top) return false;
+  const anchor = direction === "backward" ? end : start;
+  getSelection().modify("extend", "backward", "lineboundary");
+  const moved = (control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd) !== head;
+  if (moved) {
+    const from = head - 1;
+    control.setSelectionRange(Math.min(anchor, from), Math.max(anchor, from), from < anchor ? "backward" : "forward");
+    getSelection().modify(anchor === head ? "move" : "extend", "forward", "lineboundary");
+  }
+  return moved;
 }
 
 // The field as the last aim left it, so that aiming again can tell
