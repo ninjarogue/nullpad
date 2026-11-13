@@ -53,7 +53,9 @@ pub fn part(
   )
 }
 
-fn inside(blocks: List(Block), from from: Int, to to: Int) -> List(Block) {
+/// The blocks that `part` draws for the rows `from` up to `to`: the blocks
+/// wholly inside, and the items of a list inside.
+pub fn inside(blocks: List(Block), from from: Int, to to: Int) -> List(Block) {
   let within = fn(first_row, last_row) { first_row >= from && last_row < to }
   use shown <- list.filter_map(blocks)
   let cut = fn(items: List(Item), content: fn(Int, List(Item)) -> Content) {
