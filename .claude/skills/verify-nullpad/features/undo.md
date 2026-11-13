@@ -5,7 +5,7 @@ A person takes back what they wrote and puts it back, in the page view and with 
 ## Sub-features
 
 - `undo-keys` Ctrl+Z (Cmd+Z) undoes; Ctrl+Shift+Z (Cmd+Shift+Z) and Ctrl+Y redo.
-- `undo-steps` a run of typing is one step until the caret moves some other way; a space after a word starts a new step; a line break, a join, a paste and a cut are a step each.
+- `undo-steps` a run of typing is one step until the caret moves some other way; a space after a word starts a new step; a pause of more than a second since the last character typed or erased starts one too (the browser's `timeStamp` comes in with the event); a line break, a join, a paste and a cut are a step each.
 - `undo-caret` undo puts the caret where the step began, redo where it ended, and the page is laid out around it.
 - `undo-blocks` an undo after the caret left a block takes back what was typed there.
 - `undo-redo-cleared` an edit after an undo ends what can be redone.

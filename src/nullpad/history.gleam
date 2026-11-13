@@ -4,7 +4,8 @@
 //// A step is one change, except that a run of typed characters, or of
 //// characters erased one at a time, is one step until the caret moves some
 //// other way. A space typed after a word starts a new step, so undo takes
-//// back about a word at a time.
+//// back about a word at a time. A pause of more than `pause` milliseconds
+//// since the last character typed or erased also starts a new step.
 ////
 //// Imported by: `editor`. Imports: `buffer`.
 
@@ -13,6 +14,13 @@ import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
 
 const most_steps = 1000
+
+/// Longer than the gaps inside a burst of typing, which are a fraction of a
+/// second even for a slow typist, and shorter than the time it takes to stop
+/// and think. CodeMirror and ProseMirror split at 500 ms, Lexical at 300 ms
+/// and Quill at 1000 ms. Half a second splits the words of a slow typist, so
+/// this takes Quill's.
+pub const pause = 1000
 
 /// `present` is the note as last recorded, with its selection. `past` holds
 /// the steps that can be undone, newest first, and `future` the steps undone,
@@ -31,8 +39,8 @@ type Step {
 /// What the newest step is doing, so that the next change can join it.
 type Run {
   Closed
-  Typing(last: String)
-  Erasing(direction: Direction)
+  Typing(last: String, at: Int)
+  Erasing(direction: Direction, at: Int)
 }
 
 type Direction {
@@ -51,10 +59,12 @@ pub fn new(buffer: Buffer) -> History {
 }
 
 /// The note as it is now. A change to its text clears what can be redone.
-/// A change to its selection alone ends a run of typing.
+/// A change to its selection alone ends a run of typing. `at` is when the
+/// change was made, in milliseconds on any clock that only goes forward: a
+/// run of typing is cut where two of its characters are more than `pause`
+/// apart.
 pub fn record(history: History, buffer: Buffer, at at: Int) -> History {
   let History(past:, present:, run:, ..) = history
-  let _ = at
   let same_text = buffer.lines(buffer) == buffer.lines(present)
   let same_selection = buffer.selection(buffer) == buffer.selection(present)
   case same_text, same_selection {
@@ -62,7 +72,7 @@ pub fn record(history: History, buffer: Buffer, at at: Int) -> History {
     True, False -> History(..history, present: buffer, run: Closed)
     False, _ -> {
       let change = change(present, buffer)
-      let past = case joins(run, change), past {
+      let past = case joins(run, change, at), past {
         True, [Step(before:, ..), ..past] -> [
           Step(before:, after: buffer),
           ..past
@@ -70,7 +80,7 @@ pub fn record(history: History, buffer: Buffer, at at: Int) -> History {
         True, [] | False, _ ->
           list.take([Step(before: present, after: buffer), ..past], most_steps)
       }
-      History(past:, present: buffer, future: [], run: run_of(change))
+      History(past:, present: buffer, future: [], run: run_of(change, at))
     }
   }
 }
@@ -105,25 +115,27 @@ pub fn present(history: History) -> Buffer {
   history.present
 }
 
-fn joins(run: Run, change: Change) -> Bool {
+fn joins(run: Run, change: Change, now: Int) -> Bool {
   case run, change {
-    Typing(last:), Typed(typed) -> !{ is_space(typed) && !is_space(last) }
-    Erasing(direction:), Erased(erased) -> direction == erased
+    Typing(last:, at:), Typed(typed) ->
+      now - at <= pause && !{ is_space(typed) && !is_space(last) }
+    Erasing(direction:, at:), Erased(erased) ->
+      now - at <= pause && direction == erased
     Closed, Typed(_)
     | Closed, Erased(_)
     | Closed, Replaced
-    | Typing(_), Erased(_)
-    | Typing(_), Replaced
-    | Erasing(_), Typed(_)
-    | Erasing(_), Replaced
+    | Typing(..), Erased(_)
+    | Typing(..), Replaced
+    | Erasing(..), Typed(_)
+    | Erasing(..), Replaced
     -> False
   }
 }
 
-fn run_of(change: Change) -> Run {
+fn run_of(change: Change, at: Int) -> Run {
   case change {
-    Typed(typed) -> Typing(last: typed)
-    Erased(direction) -> Erasing(direction:)
+    Typed(typed) -> Typing(last: typed, at:)
+    Erased(direction) -> Erasing(direction:, at:)
     Replaced -> Closed
   }
 }
