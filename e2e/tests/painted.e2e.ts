@@ -340,3 +340,25 @@ test('Ctrl+A pressed right after a click, before the page draws again, paints th
   await expect.poll(() => page.painted()).toBe(everything);
   await expect.poll(() => page.selection()).toEqual({ text: body, selected: body, backward: false });
 });
+
+test('without the Highlight API a selection across blocks is shown in the field as markdown', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await browser.addInitScript(() => {
+    (globalThis as { Highlight?: unknown }).Highlight = undefined;
+  });
+  await openLive({ app, disk, page }, body);
+  await page.stopEditing();
+
+  await page.drag(await page.pointAt('Trip'), await page.pointAt('hotel'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: `# Trip\n\n${paragraph}`,
+    selected: '# Trip\n\nFlights are **booked** and the ',
+    backward: false,
+  });
+  await expect(page.drawn('h1')).toHaveCount(0);
+  expect(await page.painted()).toBeNull();
+});
