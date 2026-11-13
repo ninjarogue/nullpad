@@ -26,22 +26,33 @@ const spots = [
 
 const keys = ['Backspace', 'Delete', 'Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Shift+ArrowRight', ctrl('Backspace'), ctrl('Delete')];
 
-for (const { name, spot } of spots) {
-  for (const key of keys) {
-    test(`${key} pressed in the same frame as a click ${name} acts where the click put the caret`, async (fixtures) => {
-      const { browser, page } = fixtures;
-      const editor = new Editing(fixtures);
-      await editor.seed(note);
-      const expected = await editor.plainField(note, offsetOf(note, spot), [key], 'X');
-      await editor.show(note);
-      await page.beforeRedraw(async () => {
-        await editor.clickNow(spot);
-        await browser.keyboard.press(key);
-      });
-      await editor.type('X');
+const starts = [
+  { name: 'with a block open', drawn: false },
+  { name: 'with the whole note drawn', drawn: true },
+];
 
-      await editor.expectNote(expected);
-    });
+for (const { name, spot } of spots) {
+  for (const start of starts) {
+    for (const key of keys) {
+      test(`${key} pressed in the same frame as a click ${name}, ${start.name}, acts where the click put the caret`, async (fixtures) => {
+        const { browser, page } = fixtures;
+        const editor = new Editing(fixtures);
+        await editor.seed(note);
+        const expected = await editor.plainField(note, offsetOf(note, spot), [key], 'X');
+        await editor.show(note);
+        if (start.drawn) {
+          await editor.press('Escape');
+          await page.nextFrame();
+        }
+        await page.beforeRedraw(async () => {
+          await editor.clickNow(spot);
+          await browser.keyboard.press(key);
+        });
+        await editor.type('X');
+
+        await editor.expectNote(expected);
+      });
+    }
   }
 }
 

@@ -376,13 +376,13 @@ export async function withRawPage(origin: string, body: string, run: (page: RawP
   }
 }
 
-/** A quick series of clicks on one spot: what a double or triple click is. */
+/** A quick series of clicks on one spot: what a double or triple click is. A hand takes some time between two clicks, so the fast mode keeps that wait. */
 export async function clickSeries(page: RawPage, spot: Spot, count: number) {
   const at = await page.evaluate(centreOf, spot);
   if (!at) throw new Error(`"${spot.word}" is not drawn on the page`);
   for (let click = 1; click <= count; click++) {
     await page.mouse.click(at.x, at.y, { clickCount: click });
-    if (!fast) await page.waitForTimeout(70);
+    if (!fast || click < count) await page.waitForTimeout(70);
   }
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 }
