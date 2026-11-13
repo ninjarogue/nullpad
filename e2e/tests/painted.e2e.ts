@@ -871,28 +871,6 @@ test('a drag from between the hidden marks of a bold word to another block holds
   await expect(page.text).toHaveValue('Some Xitem one');
 });
 
-const paintedHeadBox = (browser: { evaluate<T>(run: () => T): Promise<T> }) =>
-  browser.evaluate(() => {
-    const head = [...(CSS.highlights.get('nullpad-head') ?? [])][0] as Range | undefined;
-    if (!head) return null;
-    const node = head.startContainer;
-    const text = node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
-    const letter = document.createRange();
-    const at = (from: number) => {
-      letter.setStart(text!, from);
-      letter.setEnd(text!, from + 1);
-      return [...letter.getClientRects()];
-    };
-    let box: { left: number; top: number } | undefined;
-    if (text && head.startOffset < text.length) box = at(head.startOffset)[0];
-    if (!box && text && head.startOffset > 0) {
-      const before = at(head.startOffset - 1).pop();
-      if (before) box = { left: before.right, top: before.top };
-    }
-    box ??= (node instanceof Element ? node : node.parentElement!).getBoundingClientRect();
-    return `${Math.round(box.left)},${Math.round(box.top)}`;
-  });
-
 async function stepsSelect(
   browser: { keyboard: { press(key: string): Promise<unknown> } },
   page: { selection(): Promise<{ selected: string }> },
@@ -1010,7 +988,7 @@ test('Shift+End and Shift+Home move a painted head along the line it is drawn on
   await expect.poll(() => page.painted()).toBe(long.slice(0, lines[0]));
 });
 
-test('each Shift and arrow left or right moves a painted head to another drawn place, over every kind of block', async ({
+test('each Shift and arrow left or right changes what is painted, over every kind of block', async ({
   app,
   browser,
   disk,
@@ -1020,16 +998,24 @@ test('each Shift and arrow left or right moves a painted head to another drawn p
   await openLive({ app, disk, page }, note);
   await browser.keyboard.press('End');
   await browser.keyboard.press('Shift+ArrowRight');
-  await expect.poll(() => paintedHeadBox(browser)).not.toBeNull();
+  await expect.poll(() => page.painted()).not.toBeNull();
+  const seen = async () =>
+    JSON.stringify([
+      await page.painted(),
+      await page.paintedBreaks(),
+      await page.paintedBlanks(),
+      await paintedCodeBreaks(browser),
+    ]);
   const walk = async (key: string, done: (selected: string) => boolean) => {
-    let last = await paintedHeadBox(browser);
+    let last = await seen();
     for (let press = 0; press < 60; press++) {
       const before = (await page.selection()).selected;
       if (done(before)) return;
       await browser.keyboard.press(key);
       await expect.poll(async () => (await page.selection()).selected).not.toBe(before);
       await page.nextFrame();
-      const now = await paintedHeadBox(browser);
+      await page.nextFrame();
+      const now = await seen();
       expect({ press, key, selected: (await page.selection()).selected, moved: now !== last }).toMatchObject({
         moved: true,
       });
@@ -1039,4 +1025,78 @@ test('each Shift and arrow left or right moves a painted head to another drawn p
   };
   await walk('Shift+ArrowRight', (selected) => selected.endsWith('end'));
   await walk('Shift+ArrowLeft', (selected) => selected.length <= 2);
+});
+
+/** The lines of the code block whose line break shows the selection colour, counted from 0, but for its last. */
+const paintedCodeBreaks = (browser: { evaluate<T>(run: () => T): Promise<T> }) =>
+  browser.evaluate(() => {
+    const pre = document.querySelector<HTMLElement>('.page.live pre')!;
+    const style = getComputedStyle(pre);
+    const pairs = (list: string) => list.split(',').map((pair) => pair.trim().split(/\s+/).map(parseFloat));
+    const images = style.backgroundImage.split('linear-gradient').length - 1;
+    const at = pairs(style.backgroundPosition).slice(0, images);
+    const size = pairs(style.backgroundSize).slice(0, images);
+    const box = pre.getBoundingClientRect();
+    const bars = at.map(([x, y], index) => ({
+      top: box.top + pre.clientTop - pre.scrollTop + y,
+      bottom: box.top + pre.clientTop - pre.scrollTop + y + size[index][1],
+      width: size[index][0],
+    }));
+    const text = pre.querySelector('code')?.firstChild as Text;
+    const letter = document.createRange();
+    const lines: number[] = [];
+    let line = 0;
+    for (let index = 0; index < text.length - 1; index++) {
+      if (text.data[index] !== '\n') continue;
+      letter.setStart(text, index);
+      letter.setEnd(text, index + 1);
+      const end = letter.getClientRects()[0];
+      const middle = end.top + end.height / 2;
+      if (bars.some((bar) => bar.width > 0 && bar.top <= middle && middle <= bar.bottom)) lines.push(line);
+      line++;
+    }
+    return lines;
+  });
+
+test('a painted selection paints each line break inside a code block, a blank line too', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'Intro\n\n```\none\n\nthree\nfour\n```\n\nLast');
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.painted()).toBe('Introone\n\nthree\nfour\nLast');
+  await expect.poll(() => paintedCodeBreaks(browser)).toEqual([0, 1, 2]);
+  expect(await page.paintedBreaks()).toEqual([0, 3]);
+
+  await browser.keyboard.press('Escape');
+  await expect.poll(() => page.painted()).toBeNull();
+  expect(await paintedCodeBreaks(browser)).toEqual([]);
+});
+
+test('the line break of a list item with a list inside is painted after its own text', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'Intro\n\n- item one\n  - nested two\n- item three\n\nend');
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.paintedBreaks()).toContain(2);
+  const bar = await browser.evaluate(() => {
+    const item = document.querySelector('.page.live li[data-row="2"]')!;
+    const style = getComputedStyle(item, '::after');
+    const box = item.getBoundingClientRect();
+    const words = document.createRange();
+    words.selectNodeContents(item.firstChild!);
+    const own = words.getBoundingClientRect();
+    return {
+      left: Math.round(box.left + parseFloat(style.left) - own.right),
+      top: box.top + parseFloat(style.top) + parseFloat(style.marginTop) >= own.top - 1,
+      bottom: box.top + parseFloat(style.top) + parseFloat(style.marginTop) < own.bottom,
+    };
+  });
+  expect(Math.abs(bar.left)).toBeLessThan(2);
+  expect(bar).toMatchObject({ top: true, bottom: true });
 });
