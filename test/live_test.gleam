@@ -486,3 +486,25 @@ pub fn a_nudge_past_the_end_of_a_row_goes_to_the_next_row_test() {
   assert nudge(lines, visible, 2, 0, True) == Position(2, 0)
   assert nudge(lines, visible, 0, 0, False) == Position(0, 0)
 }
+
+/// The end of the text of a table's last cell is inside the cell, before
+/// the pipe that closes it, as it is for every other cell.
+pub fn the_end_of_a_last_cell_is_before_its_pipe_test() {
+  let lines = ["| name | qty |", "|------|-----|", "Some **bold**"]
+  assert live.position(
+      lines,
+      row: 0,
+      visible: "nameqty",
+      at_end: False,
+      next: "\n",
+    )
+    == Position(row: 0, col: 12)
+  assert live.position(
+      lines,
+      row: 2,
+      visible: "Some bold",
+      at_end: False,
+      next: "\n",
+    )
+    == Position(row: 2, col: 13)
+}
