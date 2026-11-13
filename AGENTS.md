@@ -45,6 +45,8 @@ cd e2e && npx tsc && npm test
 
 `.githooks/pre-push` runs all of them.
 
+A bug fix lands with its failing test in an earlier commit, written from the goal before the fix.
+
 ## Code
 
 - Few comments. Keep one only for behaviour forced by the browser, Lustre or a spec, or for a public contract.
