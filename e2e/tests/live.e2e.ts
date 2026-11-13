@@ -1017,7 +1017,11 @@ test('the caret moving onto a delimiter row keeps the table as it is', async ({ 
   await browser.mouse.move(delimiter.x + 10, delimiter.y);
   await browser.mouse.down();
   await browser.mouse.up();
-  expect(await page.caret()).toMatch(/^\| a \| b \|\n\|-?\|?-?\|?-?\|?.*\n\| 1 \| 2 \|$/);
+  const caretRow = await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    return field.value.slice(0, field.selectionStart).split('\n').length - 1;
+  });
+  expect(caretRow).toBe(1);
   await still('a click on the delimiter row');
 
   await page.drawnIn('live-below', 'p').tap();

@@ -30,13 +30,14 @@ type Field {
   ///
   /// `drawn` is the page as it was laid out: `parsed` as it was when the
   /// rows of the selection last changed, the number of rows changed, a row
-  /// outside `rows` changed, or the field lost focus. So it differs from
-  /// `parsed` only inside `rows`, and typing on a row moves nothing outside
-  /// the field. The page around the field and the field's rows come from
-  /// `drawn`: `rows` is `drawn` revealed around the selection. Out of focus,
-  /// and while a composition that added or took rows, `rows` stay the rows
-  /// the field shows: a blurred field is left as it is, so the browser can
-  /// give it the focus back, and an IME owns the field it composes in.
+  /// outside `rows` changed, or the field was out of focus. So it differs
+  /// from `parsed` only inside `rows`, and typing on a row moves nothing
+  /// outside the field. The page around the field and the field's rows come
+  /// from `drawn`: `rows` is `drawn` revealed around the selection. Out of
+  /// focus, and while a composition that added or took rows, `rows` stay
+  /// the rows the field shows: a blurred field is left as it is, so the
+  /// browser can give it the focus back, and an IME owns the field it
+  /// composes in.
   Part(rows: Region, drawn: List(Block), parsed: List(Block), composing: Bool)
 }
 
