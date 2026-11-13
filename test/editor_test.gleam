@@ -232,7 +232,8 @@ pub fn backspace_at_the_start_of_the_field_joins_the_row_above_test() {
     editor.update(ed, editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:))
 
   assert editor.text(ed) == "one\ntwo\nthree"
-  assert sync == editor.Write(caret("one\ntwo\nthree", 2, 0))
+  assert sync == editor.Write(caret("three", 0, 0))
+  assert editor.region(ed) == Some(Region(2, 2))
 }
 
 pub fn delete_at_the_end_of_the_field_joins_the_row_below_test() {
@@ -242,7 +243,7 @@ pub fn delete_at_the_end_of_the_field_joins_the_row_below_test() {
     |> editor.update(editor.EdgePressed(editor.JoinAfter, x: 0.0, shown:))
 
   assert editor.text(ed) == "one\ntwo"
-  assert sync == editor.Write(caret("one\ntwo", 0, 3))
+  assert sync == editor.Write(caret("one", 0, 3))
 }
 
 pub fn an_edge_key_with_no_row_to_go_to_changes_nothing_test() {
@@ -1087,4 +1088,83 @@ pub fn a_drag_from_a_box_on_the_idle_page_takes_the_focus_test() {
       from: Position(0, 0),
       to: Position(1, 3),
     ))
+}
+
+fn rows_of(ed: Editor) -> List(#(Int, Int)) {
+  list.map(editor.blocks(ed), fn(block) { #(block.first_row, block.last_row) })
+}
+
+pub fn joining_two_rows_keeps_the_page_and_moves_the_rows_below_up_test() {
+  let ed = live("text\n\n-\n\nafter") |> point(1)
+  let Outcome(editor: deleted, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.JoinAfter, x: 0.0, shown: caret("", 0, 0)),
+    )
+  assert editor.text(deleted) == "text\n-\n\nafter"
+  assert editor.region(deleted) == Some(Region(1, 1))
+  assert editor.kind(deleted) == Some(live.Body)
+  assert rows_of(deleted) == [#(0, 0), #(1, 1), #(3, 3)]
+  let assert [markdown.Block(content: markdown.Paragraph(..), ..), ..] =
+    editor.blocks(deleted)
+
+  let ed = live("text\n\n-\n\nafter") |> point(2)
+  let Outcome(editor: backspaced, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.JoinBefore, x: 0.0, shown: caret("-", 0, 0)),
+    )
+  assert editor.text(backspaced) == "text\n-\n\nafter"
+  assert editor.region(backspaced) == Some(Region(1, 1))
+  assert editor.blocks(backspaced) == editor.blocks(deleted)
+
+  let Outcome(editor: left, ..) =
+    editor.update(backspaced, editor.ControlChanged(shown: caret("-", 0, 1)))
+  assert editor.blocks(left) == editor.blocks(deleted)
+  let left = point(left, 3)
+  assert editor.blocks(left) == markdown.parse("text\n-\n\nafter")
+}
+
+pub fn a_row_joined_inside_the_field_keeps_the_rows_below_drawn_test() {
+  let ed =
+    live("```\ncode\n```\n\nafter words")
+    |> show(caret("```\ncode\n```", 1, 4))
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("```\ncode```", 1, 4)))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(0, 1))
+  assert rows_of(ed) == [#(0, 1), #(3, 3)]
+  let assert [_, markdown.Block(content: markdown.Paragraph(..), ..)] =
+    editor.blocks(ed)
+}
+
+pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_test() {
+  let note = "para one\n\n# Head\ntext under head\n\nend"
+  let ed = live(note)
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectDown,
+        x: 0.0,
+        shown: caret("para one", 0, 8),
+      ),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectDown,
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert editor.region(ed) == Some(Region(0, 2))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Composing(shown: caret("para oneか# Head", 0, 9)))
+  assert sync == editor.InSync
+  assert editor.text(ed) == "para oneか# Head\ntext under head\n\nend"
+  assert editor.region(ed) == Some(Region(0, 0))
+  assert list.contains(rows_of(ed), #(1, 1))
 }

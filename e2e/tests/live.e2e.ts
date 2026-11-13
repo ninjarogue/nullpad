@@ -245,8 +245,8 @@ test('Backspace at the start of the field joins it to the row above', async ({
   await expect(page.text).toHaveValue('two');
   await browser.keyboard.press('Home');
   await browser.keyboard.press('Backspace');
-  await expect(page.text).toHaveValue('one\ntwo');
-  expect(await page.caret()).toBe('one\n|two');
+  await expect.poll(() => page.caret()).toBe('|two');
+  await expect(page.above).toHaveText('one');
   await expect(page.saveState).toHaveText('Unsaved');
   await expect(page.saveState).toHaveText('Saved');
   expect(await disk.notes()).toEqual([stored('one\ntwo')]);
@@ -1333,4 +1333,67 @@ test('a tap in the text field that moves the caret to another row is seen before
   await expect(page.text).toHaveValue('| a | b |\n|-|-|x\n| 1 | 2 |');
   expect((await page.fieldFont()).size).toBe('14px');
   await expect(page.drawnIn('live-below', 'p')).toHaveText('after');
+});
+
+test('a row joined by Delete or Backspace leaves the rows around it drawn while the caret stays on it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'text\n\n-\n\nafter');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('');
+  await browser.keyboard.press('Delete');
+  await expect(page.text).toHaveValue('-');
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('text');
+  expect((await page.fieldFont()).size).toBe('16px');
+
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.drawn('h2')).toHaveText('text');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('text\n-\n\nafter');
+});
+
+test('Delete at the end of a code line leaves the paragraph below drawn while the caret stays on the line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '```\ncode\n```\n\nafter words');
+  await expect(page.text).toHaveValue('```\ncode\n```');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('End');
+  await expect.poll(() => page.caret()).toBe('```\ncode|\n```');
+
+  await browser.keyboard.press('Delete');
+  await expect.poll(() => page.caret()).toContain('code|```');
+  await page.nextFrame();
+  await expect(page.drawnIn('live-below', 'p')).toHaveText('after words');
+});
+
+test('composing with an IME over a selection across blocks keeps the rows after it drawn', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'para one\n\n# Head\ntext under head\n\nend');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await expect(page.text).toHaveValue('para one\n\n# Head');
+
+  await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    const value = field.value;
+    field.value = value.slice(0, field.selectionStart) + 'か' + value.slice(field.selectionEnd);
+    field.setSelectionRange(9, 9);
+    field.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+    return null;
+  });
+  await page.nextFrame();
+  await expect(page.below).toContainText('text under head');
 });
