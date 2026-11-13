@@ -139,6 +139,16 @@ pub fn a_setext_heading_is_set_as_a_heading_once_the_caret_leaves_its_underline_
   assert kind_at("## Packing", 0) == live.Title(markdown.H2)
 }
 
+pub fn a_table_is_set_as_body_text_while_the_caret_is_on_its_delimiter_row_test() {
+  assert kind_at("| a | b |\n|-|-|", 1) == live.Body
+  assert kind_at("| a | b |\n|-|-|\n| 1 | 2 |", 1) == live.Body
+}
+
+pub fn a_table_is_set_as_code_once_the_caret_leaves_its_delimiter_row_test() {
+  assert kind_at("| a | b |\n|-|-|", 0) == live.Mono
+  assert kind_at("| a | b |\n|-|-|\n| 1 | 2 |", 2) == live.Mono
+}
+
 fn marker(field_text: String) -> String {
   case kind_of(field_text) {
     live.ListItem(marker:, ..) -> marker

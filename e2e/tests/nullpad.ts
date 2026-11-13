@@ -347,6 +347,14 @@ class Page {
     );
   }
 
+  /** The text field's font size, once the page has drawn. */
+  async fieldFontSize() {
+    await this.nextFrame();
+    return this.browser.evaluate(
+      () => getComputedStyle(document.querySelector('[data-test-id="editor"]')!).fontSize,
+    );
+  }
+
   /** The text field's text with `|` where the caret is. */
   caret() {
     return this.browser.evaluate(() => {

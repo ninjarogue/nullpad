@@ -565,35 +565,60 @@ test('a dash typed under a paragraph keeps its size until the caret leaves that 
   page,
 }) => {
   const words = '~~wow cool this feels great~~';
-  const fontSize = async () => {
-    await page.nextFrame();
-    return browser.evaluate(
-      () => getComputedStyle(document.querySelector('[data-test-id="editor"]')!).fontSize,
-    );
-  };
   await openLive({ app, disk, page }, '');
 
   await browser.keyboard.type(words);
   await expect(page.text).toHaveValue(words);
-  const body = await fontSize();
+  const body = await page.fieldFontSize();
 
   await browser.keyboard.type('\n-');
   await expect(page.text).toHaveValue(`${words}\n-`);
-  expect(await fontSize()).toBe(body);
+  expect(await page.fieldFontSize()).toBe(body);
 
   await browser.keyboard.press('ArrowUp');
-  await expect.poll(fontSize).toBe('24px');
+  await expect.poll(() => page.fieldFontSize()).toBe('24px');
 
   await browser.keyboard.press('ArrowDown');
   await browser.keyboard.press('End');
   expect(await page.caret()).toBe(`${words}\n-|`);
-  expect(await fontSize()).toBe(body);
+  await expect.poll(() => page.fieldFontSize()).toBe(body);
 
   await browser.keyboard.type(' ');
   await expect(page.text).toHaveValue(`${words}\n- `);
-  expect(await fontSize()).toBe(body);
+  expect(await page.fieldFontSize()).toBe(body);
 
   await browser.keyboard.type('item');
   await expect(page.text).toHaveValue('- item');
-  expect(await fontSize()).toBe(body);
+  expect(await page.fieldFontSize()).toBe(body);
+});
+
+test('a table keeps its size while its delimiter row is typed, until the caret leaves that row', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const header = '| a | b |';
+  await openLive({ app, disk, page }, '');
+
+  await browser.keyboard.type(header);
+  await expect(page.text).toHaveValue(header);
+  const body = await page.fieldFontSize();
+
+  await browser.keyboard.press('Enter');
+  let typed = `${header}\n`;
+  for (const key of '|-|-|') {
+    await browser.keyboard.type(key);
+    typed += key;
+    await expect(page.text).toHaveValue(typed);
+    expect(await page.fieldFontSize()).toBe(body);
+  }
+
+  await browser.keyboard.press('ArrowUp');
+  await expect.poll(() => page.fieldFontSize()).toBe('14px');
+
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('End');
+  expect(await page.caret()).toBe(`${header}\n|-|-||`);
+  await expect.poll(() => page.fieldFontSize()).toBe(body);
 });
