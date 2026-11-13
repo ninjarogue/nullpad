@@ -153,6 +153,45 @@ test('Ctrl+A paints the whole note and moves nothing', async ({ app, browser, di
   expect(await copied(browser)).toBe(body);
 });
 
+test('Ctrl+A over a code block paints its closing line break and moves nothing', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'Intro\n\n```\ncode one\nline two\n```\n\nLast para.';
+  await openLive({ app, disk, page }, note);
+  const before = await page.layout();
+
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.painted()).toBe('Introcode one\nline two\nLast para.');
+  expect(await page.paintedBreaks()).toEqual([0, 3]);
+  expectSameLayout(await page.layout(), before);
+});
+
+test('Ctrl+A over a table paints the line break of each row inside the table and keeps it as wide', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nlast');
+  const table = () =>
+    browser.evaluate(() => {
+      const table = document.querySelector('.page.live table')!.getBoundingClientRect();
+      const scroll = document.querySelector('.page.live .table-scroll')!;
+      return { width: table.width, scrollWidth: scroll.scrollWidth };
+    });
+  const before = await page.layout();
+  const wide = await table();
+
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.painted()).toBe('Introab12last');
+  expectSameLayout(await page.layout(), before);
+  expect(await table()).toEqual(wide);
+  expect(await page.paintedBreaks()).toEqual([0, 2, 4]);
+});
+
 test('the blank lines inside a painted selection are painted, and none outside it', async ({
   app,
   browser,
