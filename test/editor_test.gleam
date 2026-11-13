@@ -161,7 +161,13 @@ pub fn the_field_is_left_alone_during_a_composition_test() {
 pub fn text_that_joins_two_blocks_brings_both_into_the_field_once_the_caret_leaves_its_row_test() {
   let Outcome(editor: ed, ..) =
     live("one\n\ntwo")
-    |> editor.update(editor.Pointed(row: 1, visible: "", at_end: False))
+    |> editor.update(editor.Pointed(
+      row: 1,
+      visible: "",
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   assert editor.region(ed) == Some(Region(1, 1))
 
   let Outcome(editor: ed, sync:, ..) =
@@ -186,7 +192,13 @@ pub fn text_that_joins_two_blocks_brings_both_into_the_field_once_the_caret_leav
 pub fn arrow_up_at_the_top_of_the_field_moves_to_the_row_above_test() {
   let Outcome(editor: ed, ..) =
     live(live_note)
-    |> editor.update(editor.Pointed(row: 2, visible: "Fli", at_end: False))
+    |> editor.update(editor.Pointed(
+      row: 2,
+      visible: "Fli",
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   assert editor.region(ed) == Some(Region(2, 2))
 
   let shown = editor.field_buffer(ed)
@@ -211,13 +223,20 @@ pub fn arrow_down_at_the_bottom_of_the_field_moves_to_the_row_below_test() {
 pub fn backspace_at_the_start_of_the_field_joins_the_row_above_test() {
   let Outcome(editor: ed, ..) =
     live("one\ntwo\n\nthree")
-    |> editor.update(editor.Pointed(row: 3, visible: "", at_end: False))
+    |> editor.update(editor.Pointed(
+      row: 3,
+      visible: "",
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   let shown = editor.field_buffer(ed)
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:))
 
   assert editor.text(ed) == "one\ntwo\nthree"
-  assert sync == editor.Write(caret("one\ntwo\nthree", 2, 0))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(2, 2))
 }
 
 pub fn delete_at_the_end_of_the_field_joins_the_row_below_test() {
@@ -227,7 +246,8 @@ pub fn delete_at_the_end_of_the_field_joins_the_row_below_test() {
     |> editor.update(editor.EdgePressed(editor.JoinAfter, x: 0.0, shown:))
 
   assert editor.text(ed) == "one\ntwo"
-  assert sync == editor.Write(caret("one\ntwo", 0, 3))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(0, 0))
 }
 
 pub fn an_edge_key_with_no_row_to_go_to_changes_nothing_test() {
@@ -264,7 +284,13 @@ pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
   let note = "first\n\nsecond"
   let Outcome(editor: ed, ..) =
     live(note)
-    |> editor.update(editor.Pointed(row: 1, visible: "", at_end: False))
+    |> editor.update(editor.Pointed(
+      row: 1,
+      visible: "",
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   let around = editor.blocks(ed)
 
   let composed = caret("wo", 0, 2)
@@ -290,7 +316,13 @@ pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
 pub fn blocks_kept_through_a_composition_are_parsed_again_by_any_later_change_test() {
   let Outcome(editor: ed, ..) =
     live("first\n\nsecond")
-    |> editor.update(editor.Pointed(row: 1, visible: "", at_end: False))
+    |> editor.update(editor.Pointed(
+      row: 1,
+      visible: "",
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.Composing(shown: caret("wo", 0, 2)))
 
@@ -358,9 +390,16 @@ pub fn a_click_on_the_drawn_page_moves_the_field_there_test() {
       row: 2,
       visible: "Flights are boo",
       at_end: False,
+      x: 0.0,
+      y: 0.0,
     ))
 
-  assert sync == editor.Write(caret("Flights are **booked**.", 0, 17))
+  assert sync
+    == editor.Press(
+      Some(caret("Flights are **booked**.", 0, 17)),
+      x: 0.0,
+      y: 0.0,
+    )
   assert editor.region(ed) == Some(Region(2, 2))
 }
 
@@ -393,6 +432,26 @@ pub fn escape_releases_the_field_in_live_view_test() {
   assert editor.text(ed) == live_note
 }
 
+pub fn escape_collapses_a_selection_across_blocks_to_its_head_test() {
+  let ed = pressed(live_note, 2, "Fli")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectToEnd,
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: editor.field_buffer(ed)))
+
+  let end = Position(row: 5, col: 5)
+  assert buffer.selection(editor.buffer(ed)) == #(end, end)
+  assert sync == editor.Release(caret("- two", 0, 5))
+  assert editor.is_idle(ed)
+}
+
 pub fn escape_right_after_live_view_comes_on_releases_the_field_test() {
   let Outcome(editor: markdown, ..) =
     editor.new(vim: False, live: False, paint: True) |> editor.open(live_note)
@@ -421,21 +480,33 @@ pub fn a_write_counts_as_focus_before_the_browser_says_so_test() {
   let Outcome(editor: ed, ..) =
     editor.update(live(live_note), editor.FocusChanged(False))
     |> fn(outcome: Outcome) { outcome.editor }
-    |> editor.update(editor.Pointed(row: 4, visible: "on", at_end: False))
+    |> editor.update(editor.Pointed(
+      row: 4,
+      visible: "on",
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   assert !editor.is_idle(ed)
 }
 
 pub fn leaving_live_view_puts_the_whole_note_back_test() {
   let Outcome(editor: ed, ..) =
     live(live_note)
-    |> editor.update(editor.Pointed(row: 4, visible: "on", at_end: False))
+    |> editor.update(editor.Pointed(
+      row: 4,
+      visible: "on",
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   let Outcome(editor: ed, sync:, ..) = editor.set_live(ed, False)
 
   assert sync == editor.Write(caret(live_note, 4, 4))
   assert editor.region(ed) == None
 }
 
-pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_on_a_row_test() {
+pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_composing_or_joining_on_a_row_test() {
   let parsed = fn(ed: Editor) {
     editor.blocks(ed) == markdown.parse(editor.text(ed))
   }
@@ -448,7 +519,8 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_on_a_row_te
   let composed = caret("# Trips\n\n> a", 2, 3)
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.Composing(shown: composed))
-  assert parsed(ed)
+  assert editor.region(ed) == Some(Region(0, 2))
+  assert !parsed(ed)
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(shown: composed))
   assert editor.region(ed) == Some(Region(2, 2))
@@ -459,7 +531,7 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_on_a_row_te
     )
   assert editor.text(ed)
     == "# Trips\n> a\n\nFlights are **booked**.\n\n- one\n- two"
-  assert parsed(ed)
+  assert !parsed(ed)
   let Outcome(editor: ed, ..) = editor.replace_line(ed, 5, with: "- [x] one")
   assert editor.text(ed)
     == "# Trips\n> a\n\nFlights are **booked**.\n\n- [x] one\n- two"
@@ -501,7 +573,13 @@ fn selected(
 fn pressed(text: String, row: Int, visible: String) -> Editor {
   let Outcome(editor: ed, ..) =
     live(text)
-    |> editor.update(editor.Pointed(row:, visible:, at_end: False))
+    |> editor.update(editor.Pointed(
+      row:,
+      visible:,
+      at_end: False,
+      x: 0.0,
+      y: 0.0,
+    ))
   ed
 }
 
@@ -583,14 +661,20 @@ pub fn shift_and_a_press_extend_the_selection_the_field_shows_test() {
       visible: "o",
       at_end: False,
       shown:,
+      x: 0.0,
+      y: 0.0,
     ))
   assert editor.region(ed) == Some(Region(2, 4))
   assert sync
-    == editor.Write(selected(
-      "Flights are **booked**.\n\n- one",
-      from: Position(0, 23),
-      to: Position(2, 3),
-    ))
+    == editor.Press(
+      Some(selected(
+        "Flights are **booked**.\n\n- one",
+        from: Position(0, 23),
+        to: Position(2, 3),
+      )),
+      x: 0.0,
+      y: 0.0,
+    )
 
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.Dragged(row: 5, visible: "t", at_end: False))
@@ -607,7 +691,13 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       x: 12.5,
       shown: caret("# Trip", 0, 3),
     ))
-  assert sync == editor.WriteAndStep(caret("# Trip", 0, 3), x: 12.5, up: False)
+  assert sync
+    == editor.WriteAndStep(
+      caret("# Trip", 0, 3),
+      x: 12.5,
+      up: False,
+      queued: False,
+    )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 3), Position(row: 0, col: 3))
 
@@ -621,7 +711,13 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
         shown: editor.field_buffer(ed),
       ),
     )
-  assert sync == editor.WriteAndStep(caret("- one", 0, 4), x: 7.0, up: True)
+  assert sync
+    == editor.WriteAndStep(
+      caret("- one", 0, 4),
+      x: 7.0,
+      up: True,
+      queued: False,
+    )
 }
 
 pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
@@ -643,6 +739,7 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
       selected("# Trip\n", from: Position(0, 3), to: Position(1, 0)),
       x: 12.5,
       up: True,
+      queued: True,
     )
 
   let Outcome(editor: ed, sync:, ..) =
@@ -750,7 +847,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_test() {
         shown: editor.field_buffer(ed.editor),
       ),
     )
-  let assert editor.WriteAndStep(_, x: 40.0, up: False) = sync
+  let assert editor.WriteAndStep(_, x: 40.0, up: False, queued: False) = sync
 
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -760,6 +857,8 @@ pub fn the_next_step_aims_where_the_last_step_aimed_test() {
         visible: "Fli",
         at_end: False,
         shown: editor.field_buffer(ed),
+        x: 0.0,
+        y: 0.0,
       ),
     )
   let Outcome(sync:, ..) =
@@ -771,7 +870,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_test() {
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndStep(_, x: 3.0, up: True) = sync
+  let assert editor.WriteAndStep(_, x: 3.0, up: True, queued: False) = sync
 }
 
 pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
@@ -791,7 +890,13 @@ pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
 
   let Outcome(editor: ed, ..) =
     live(live_note)
-    |> editor.update(editor.Pointed(row: 2, visible: "", at_end: True))
+    |> editor.update(editor.Pointed(
+      row: 2,
+      visible: "",
+      at_end: True,
+      x: 0.0,
+      y: 0.0,
+    ))
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
@@ -882,11 +987,22 @@ pub fn a_press_after_a_selection_across_blocks_puts_one_block_back_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Pointed(row: 0, visible: "# Trip\n\nFli", at_end: False),
+      editor.Pointed(
+        row: 0,
+        visible: "# Trip\n\nFli",
+        at_end: False,
+        x: 0.0,
+        y: 0.0,
+      ),
     )
 
   assert editor.region(ed) == Some(Region(2, 2))
-  assert sync == editor.Write(caret("Flights are **booked**.", 0, 3))
+  assert sync
+    == editor.Press(
+      Some(caret("Flights are **booked**.", 0, 3)),
+      x: 0.0,
+      y: 0.0,
+    )
 }
 
 pub fn selection_keys_never_cross_with_the_whole_note_in_the_field_test() {
@@ -978,7 +1094,10 @@ pub fn a_click_takes_the_paint_off_test() {
       shown: caret("# Trip", 0, 2),
     ))
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.Pointed(row: 4, visible: "o", at_end: False))
+    editor.update(
+      ed,
+      editor.Pointed(row: 4, visible: "o", at_end: False, x: 0.0, y: 0.0),
+    )
   assert !editor.is_painted(ed)
 }
 
@@ -987,7 +1106,10 @@ fn show(ed: Editor, shown: buffer.Buffer) -> Editor {
 }
 
 fn point(ed: Editor, row: Int) -> Editor {
-  editor.update(ed, editor.Pointed(row:, visible: "", at_end: False)).editor
+  editor.update(
+    ed,
+    editor.Pointed(row:, visible: "", at_end: False, x: 0.0, y: 0.0),
+  ).editor
 }
 
 pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_test() {
@@ -1120,4 +1242,121 @@ pub fn a_tick_on_a_drawn_task_draws_the_page_from_the_text_test() {
   assert sync == editor.InSync
   assert editor.region(ed) == Some(Region(2, 2))
   assert editor.blocks(ed) == markdown.parse("- [x] one\n\ntop!")
+}
+
+pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
+  let ed = live(live_note)
+  let Outcome(editor: grabbed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Grabbed(row: 2, visible: "Fli", at_end: False, x: 5.0, y: 6.0),
+    )
+  assert sync == editor.Press(None, x: 5.0, y: 6.0)
+  assert editor.field_buffer(grabbed) == editor.field_buffer(ed)
+
+  let Outcome(editor: let_go, ..) = editor.update(grabbed, editor.Released)
+  let Outcome(sync:, ..) =
+    editor.update(let_go, editor.Dragged(row: 4, visible: "o", at_end: False))
+  assert sync == editor.InSync
+
+  let Outcome(editor: dragged, ..) =
+    editor.update(grabbed, editor.Dragged(row: 4, visible: "o", at_end: False))
+  assert buffer.selection(editor.buffer(dragged))
+    == #(Position(row: 2, col: 3), Position(row: 4, col: 3))
+}
+
+pub fn a_drag_from_a_box_on_the_idle_page_takes_the_focus_test() {
+  let Outcome(editor: idle, ..) =
+    editor.update(live(live_note), editor.FocusChanged(False))
+  let Outcome(editor: grabbed, ..) =
+    editor.update(
+      idle,
+      editor.Grabbed(row: 4, visible: "", at_end: False, x: 0.0, y: 0.0),
+    )
+  assert editor.is_idle(grabbed)
+
+  let Outcome(editor: dragged, sync:, ..) =
+    editor.update(grabbed, editor.Dragged(row: 5, visible: "t", at_end: False))
+  assert !editor.is_idle(dragged)
+  assert sync
+    == editor.Write(selected(
+      "- one\n- two",
+      from: Position(0, 0),
+      to: Position(1, 3),
+    ))
+}
+
+fn rows_of(ed: Editor) -> List(#(Int, Int)) {
+  list.map(editor.blocks(ed), fn(block) { #(block.first_row, block.last_row) })
+}
+
+pub fn joining_two_rows_keeps_the_page_and_moves_the_rows_below_up_test() {
+  let ed = live("text\n\n-\n\nafter") |> point(1)
+  let Outcome(editor: deleted, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.JoinAfter, x: 0.0, shown: caret("", 0, 0)),
+    )
+  assert editor.text(deleted) == "text\n-\n\nafter"
+  assert editor.region(deleted) == Some(Region(1, 1))
+  assert editor.kind(deleted) == Some(live.Body)
+  assert rows_of(deleted) == [#(0, 0), #(1, 1), #(3, 3)]
+  let assert [markdown.Block(content: markdown.Paragraph(..), ..), ..] =
+    editor.blocks(deleted)
+
+  let ed = live("text\n\n-\n\nafter") |> point(2)
+  let Outcome(editor: backspaced, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.JoinBefore, x: 0.0, shown: caret("-", 0, 0)),
+    )
+  assert editor.text(backspaced) == "text\n-\n\nafter"
+  assert editor.region(backspaced) == Some(Region(1, 1))
+  assert editor.blocks(backspaced) == editor.blocks(deleted)
+
+  let Outcome(editor: left, ..) =
+    editor.update(backspaced, editor.ControlChanged(shown: caret("-", 0, 1)))
+  assert editor.blocks(left) == editor.blocks(deleted)
+  let left = point(left, 3)
+  assert editor.blocks(left) == markdown.parse("text\n-\n\nafter")
+}
+
+pub fn a_row_joined_inside_the_field_keeps_the_rows_below_drawn_test() {
+  let ed =
+    live("```\ncode\n```\n\nafter words")
+    |> show(caret("```\ncode\n```", 1, 4))
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("```\ncode```", 1, 4)))
+  assert sync == editor.InSync
+  assert editor.region(ed) == Some(Region(0, 1))
+  assert rows_of(ed) == [#(0, 1), #(3, 3)]
+  let assert [_, markdown.Block(content: markdown.Paragraph(..), ..)] =
+    editor.blocks(ed)
+}
+
+pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_test() {
+  let note = "para one\n\n# Head\ntext under head\n\nend"
+  let ed = live(note)
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectDown,
+        x: 0.0,
+        shown: caret("para one", 0, 8),
+      ),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Stepped(row: 2, visible: "", at_end: False, x: 0.0),
+    )
+  assert editor.region(ed) == Some(Region(0, 2))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Composing(shown: caret("para oneか# Head", 0, 9)))
+  assert sync == editor.InSync
+  assert editor.text(ed) == "para oneか# Head\ntext under head\n\nend"
+  assert editor.region(ed) == Some(Region(0, 0))
+  assert list.contains(rows_of(ed), #(1, 1))
 }

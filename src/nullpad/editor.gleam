@@ -1,6 +1,7 @@
 //// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`,
 //// `live`, `markdown`.
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -15,11 +16,14 @@ import nullpad/vim.{Step}
 /// has not placed yet, True for up. Only the first is asked for, so each
 /// step is measured on a page that shows the step before it.
 pub opaque type Editor {
+  /// `press` is where a mouse press the editor took is held: a drag selects
+  /// from there.
   Editor(
     buffer: Buffer,
     keys: Keys,
     field: Field,
     focus: Focus,
+    press: Option(Position),
     paints: Bool,
     goal: Option(Goal),
     waiting: List(Bool),
@@ -36,8 +40,6 @@ type Goal {
 type Focus {
   Away
   Focused
-  /// Focused, and a mouse press the editor took is held: moves select.
-  Pressing
 }
 
 type Field {
@@ -67,14 +69,6 @@ type Then {
   StepLine(up: Bool)
 }
 
-/// What an edit changed, by the rows the field holds.
-type Change {
-  Unchanged
-  Inside
-  /// The number of rows, or a row the field does not hold.
-  Outside
-}
-
 type Keys {
   PlainKeys
   VimKeys(vim.State)
@@ -94,10 +88,22 @@ pub type Event {
   KeyPressed(key: vim.Key, shown: Buffer)
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
   EscapePressed(shown: Buffer)
-  Pointed(row: Int, visible: String, at_end: Bool)
+  /// A press at a place on the page, at `x`, `y` in the window.
+  Pointed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
   /// Shift and a press: the head moves there and the anchor stays where
   /// `shown`, the field as it is now, has it.
-  ShiftPointed(row: Int, visible: String, at_end: Bool, shown: Buffer)
+  ShiftPointed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    shown: Buffer,
+    x: Float,
+    y: Float,
+  )
+  /// A press on a link or a box, which keeps its click: the caret stays
+  /// where it is unless the pointer drags from there.
+  Grabbed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
+  /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool)
   /// Shift and an arrow up or down, taken by the surface: the head moves to
   /// the place on the drawn page found `x` from the left of the text, one
@@ -136,9 +142,14 @@ pub type Sync {
   WriteAndAim(Buffer, x: Float, line: Line)
   /// Then the head moves to the place on the drawn page nearest `x`, from
   /// the left of the text, one drawn line above or below where it is drawn.
-  /// A selection keeps its anchor.
-  WriteAndStep(Buffer, x: Float, up: Bool)
+  /// A selection keeps its anchor. A `queued` step waited for the page to
+  /// draw the step before it.
+  WriteAndStep(Buffer, x: Float, up: Bool, queued: Bool)
   Release(Buffer)
+  /// A press at `x`, `y` in the window: the field is written, when there is
+  /// a write, and focused where it is, and the pointer is followed until it
+  /// is let go.
+  Press(write: Option(Buffer), x: Float, y: Float)
 }
 
 pub type Line {
@@ -166,6 +177,7 @@ pub fn new(
       False -> Whole
     },
     focus: Away,
+    press: None,
     paints:,
     goal: None,
     waiting: [],
@@ -231,47 +243,76 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       case outcome.editor.field {
         Whole -> outcome
         Part(..) -> {
+          let left = outcome.editor.buffer
           let editor =
             Editor(..outcome.editor, focus: Away, waiting: [])
-            |> edit(outcome.editor.buffer)
+            |> edit(buffer.move_to(left, buffer.cursor(left)))
             |> realign
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
         }
       }
     }
-    Pointed(row:, visible:, at_end:) -> {
-      let lines = buffer.lines(editor.buffer)
-      let position = live.position(lines, row:, visible:, at_end:)
-      Editor(..editor, focus: Pressing, waiting: [])
-      |> edit(buffer.move_to(editor.buffer, position))
-      |> realign
-      |> write
+    Pointed(row:, visible:, at_end:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:)
+      let editor =
+        Editor(..editor, focus: Focused, press: Some(at), waiting: [])
+        |> edit(buffer.move_to(editor.buffer, at))
+        |> realign
+      Outcome(
+        editor:,
+        sync: Press(Some(field_buffer(editor)), x:, y:),
+        requests: [],
+      )
     }
-    ShiftPointed(row:, visible:, at_end:, shown:) ->
-      Editor(..editor, focus: Pressing, waiting: [])
-      |> reach(base(editor, shown), row:, visible:, at_end:)
-      |> write
+    ShiftPointed(row:, visible:, at_end:, shown:, x:, y:) -> {
+      let from = base(editor, shown)
+      let #(anchor, _) = buffer.selection(from)
+      let editor =
+        Editor(..editor, focus: Focused, press: Some(anchor), waiting: [])
+        |> reach(from, anchor, row:, visible:, at_end:)
+      Outcome(
+        editor:,
+        sync: Press(Some(field_buffer(editor)), x:, y:),
+        requests: [],
+      )
+    }
+    Grabbed(row:, visible:, at_end:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:)
+      Outcome(
+        editor: Editor(..editor, press: Some(at)),
+        sync: Press(None, x:, y:),
+        requests: [],
+      )
+    }
     Dragged(row:, visible:, at_end:) ->
-      case editor.focus {
-        Pressing -> {
-          let dragged = reach(editor, editor.buffer, row:, visible:, at_end:)
-          let sync = case field_buffer(dragged) == field_buffer(editor) {
-            True -> InSync
-            False -> WriteQuietly(field_buffer(dragged))
+      case editor.press {
+        Some(from) -> {
+          let dragged =
+            Editor(..editor, focus: Focused)
+            |> reach(editor.buffer, from, row:, visible:, at_end:)
+          let sync = case
+            editor.focus,
+            field_buffer(dragged) == field_buffer(editor)
+          {
+            Away, _ -> Write(field_buffer(dragged))
+            Focused, True -> InSync
+            Focused, False -> WriteQuietly(field_buffer(dragged))
           }
           Outcome(editor: dragged, sync:, requests: [])
         }
-        Away | Focused -> Outcome(editor:, sync: InSync, requests: [])
+        None -> Outcome(editor:, sync: InSync, requests: [])
       }
     Stepped(row:, visible:, at_end:, x:) -> {
-      let stepped = reach(editor, editor.buffer, row:, visible:, at_end:)
+      let #(anchor, _) = buffer.selection(editor.buffer)
+      let stepped =
+        reach(editor, editor.buffer, anchor, row:, visible:, at_end:)
       let goal = Some(Goal(head: buffer.cursor(stepped.buffer), x:))
       let waiting = list.drop(editor.waiting, 1)
       let stepped = Editor(..stepped, goal:, waiting:)
       case waiting {
         [] -> write(stepped)
         [up, ..] -> {
-          let sync = WriteAndStep(field_buffer(stepped), x:, up:)
+          let sync = WriteAndStep(field_buffer(stepped), x:, up:, queued: True)
           Outcome(editor: stepped, sync:, requests: [])
         }
       }
@@ -288,23 +329,17 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
       Outcome(editor:, sync:, requests: [])
     }
-    Released -> {
-      let focus = case editor.focus {
-        Pressing | Focused -> Focused
-        Away -> Away
-      }
-      Outcome(editor: Editor(..editor, focus:), sync: InSync, requests: [])
-    }
+    Released ->
+      Outcome(editor: Editor(..editor, press: None), sync: InSync, requests: [])
     FocusChanged(focused:) -> {
-      let focus = case focused, editor.focus {
-        False, Away | False, Focused | False, Pressing -> Away
-        True, Pressing -> Pressing
-        True, Away | True, Focused -> Focused
+      let #(focus, press) = case focused {
+        True -> #(Focused, editor.press)
+        False -> #(Away, None)
       }
-      let changed = Editor(..editor, focus:) |> edit(editor.buffer)
+      let changed = Editor(..editor, focus:, press:) |> edit(editor.buffer)
       let changed = case focus {
         Away -> changed
-        Focused | Pressing -> realign(changed)
+        Focused -> realign(changed)
       }
       let sync = case field_buffer(changed) == field_buffer(editor) {
         True -> InSync
@@ -315,18 +350,26 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
   }
 }
 
-/// Moves the head of `from`'s selection to a place on the drawn page, and
-/// keeps its anchor.
+/// Selects `from` from `anchor` to a place on the drawn page.
 fn reach(
   editor: Editor,
   from: Buffer,
+  anchor: Position,
   row row: Int,
   visible visible: String,
   at_end at_end: Bool,
 ) -> Editor {
-  let head = live.position(buffer.lines(from), row:, visible:, at_end:)
-  let #(anchor, _) = buffer.selection(from)
+  let head = place(from, row:, visible:, at_end:)
   edit(editor, buffer.select(from, anchor:, head:)) |> realign
+}
+
+fn place(
+  in: Buffer,
+  row row: Int,
+  visible visible: String,
+  at_end at_end: Bool,
+) -> Position {
+  live.position(buffer.lines(in), row:, visible:, at_end:)
 }
 
 fn typed(
@@ -368,8 +411,13 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
         requests: [],
       )
     }
-    Part(..), False | Whole, _ ->
-      typed(editor, shown, None, hold_rows(_, shown))
+    Part(rows:, drawn:, ..), False -> {
+      let count = list.length(buffer.lines(shown))
+      let held = Region(rows.first_row, rows.first_row + count - 1)
+      let drawn = live.shift(drawn, from: rows, to: held)
+      typed(editor, shown, None, hold(_, held, drawn))
+    }
+    Whole, _ -> typed(editor, shown, None, fn(editor) { editor })
   }
 }
 
@@ -436,7 +484,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let wanted_shown = field_buffer(editor)
   let sync = case then, wanted_shown == shown {
     Aim(line), _ -> WriteAndAim(wanted_shown, x:, line:)
-    StepLine(up:), _ if first -> WriteAndStep(wanted_shown, x: goal, up:)
+    StepLine(up:), _ if first ->
+      WriteAndStep(wanted_shown, x: goal, up:, queued: False)
     StepLine(_), True | Done, True -> InSync
     StepLine(_), False | Done, False -> Write(wanted_shown)
   }
@@ -504,25 +553,16 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
   let field = case editor.field {
     Whole -> Whole
     Part(rows:, drawn:, parsed:, composing:) -> {
-      let change =
-        change(
-          buffer.lines(editor.buffer),
-          buffer.lines(buffer),
-          rows,
-          0,
-          Unchanged,
-        )
-      let parsed = case change, composing {
-        Unchanged, False -> parsed
-        Unchanged, True | Inside, _ | Outside, _ -> parse(buffer)
+      let before = buffer.lines(editor.buffer)
+      let after = buffer.lines(buffer)
+      let parsed = case before == after && !composing {
+        True -> parsed
+        False -> parse(buffer)
       }
-      let kept =
-        change != Outside
-        && editor.focus != Away
-        && selected_rows(editor.buffer) == selected_rows(buffer)
-      let drawn = case kept {
-        True -> drawn
-        False -> parsed
+      let drawn = case editor.focus, typed_on(editor.buffer, buffer) {
+        Focused, Ok(#(from, to)) if from == to -> drawn
+        Focused, Ok(#(from, to)) -> live.shift(drawn, from:, to:)
+        Focused, Error(Nil) | Away, _ -> parsed
       }
       Part(rows:, drawn:, parsed:, composing: False)
     }
@@ -530,31 +570,64 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
   Editor(..editor, buffer:, field:)
 }
 
-fn selected_rows(buffer: Buffer) -> #(Int, Int) {
-  let #(anchor, head) = buffer.selection(buffer)
-  #(anchor.row, head.row)
+/// The page keeps how it was laid out through an edit that leaves the
+/// caret on its row: typing on that row, or joining it to the row above
+/// or below. Every other edit, and every move to another row, lays it out
+/// again. On a join the rows below move up as they are. This gives the
+/// rows the edit took and the rows that took their place, which the page
+/// shifts by.
+fn typed_on(old: Buffer, new: Buffer) -> Result(#(Region, Region), Nil) {
+  let #(old_anchor, old_head) = buffer.selection(old)
+  let #(new_anchor, new_head) = buffer.selection(new)
+  let before = buffer.lines(old)
+  let after = buffer.lines(new)
+  let old_count = list.length(before)
+  let new_count = list.length(after)
+  let same = common(before, after, 0, int.min(old_head.row, new_head.row))
+  let tail =
+    common(
+      list.reverse(before),
+      list.reverse(after),
+      0,
+      int.min(old_count - old_head.row, new_count - new_head.row) - 1,
+    )
+  let from = Region(same, old_count - tail - 1)
+  let to = Region(same, new_count - tail - 1)
+  let one_row = from.last_row == same && to.last_row == same
+  let joined = case from.last_row == same + 1 && to.last_row == same {
+    True ->
+      case list.drop(before, same), list.drop(after, same) {
+        [upper, lower, ..], [line, ..] -> line == upper <> lower
+        _, _ -> False
+      }
+    False -> False
+  }
+  case
+    old_anchor.row == old_head.row
+    && new_anchor.row == new_head.row
+    && { one_row || joined }
+  {
+    True -> Ok(#(from, to))
+    False -> Error(Nil)
+  }
+}
+
+/// How many of the first lines of both are the same, up to `limit`.
+fn common(
+  lines: List(String),
+  others: List(String),
+  count: Int,
+  limit: Int,
+) -> Int {
+  case lines, others {
+    [line, ..lines], [other, ..others] if line == other && count < limit ->
+      common(lines, others, count + 1, limit)
+    _, _ -> count
+  }
 }
 
 fn parse(buffer: Buffer) -> List(Block) {
   markdown.parse(buffer.text(buffer))
-}
-
-fn change(
-  lines: List(String),
-  others: List(String),
-  rows: Region,
-  row: Int,
-  found: Change,
-) -> Change {
-  case lines, others {
-    [], [] -> found
-    [line, ..lines], [other, ..others] if line == other ->
-      change(lines, others, rows, row + 1, found)
-    [_, ..lines], [_, ..others]
-      if row >= rows.first_row && row <= rows.last_row
-    -> change(lines, others, rows, row + 1, Inside)
-    _, _ -> Outside
-  }
 }
 
 fn realign(editor: Editor) -> Editor {
@@ -568,14 +641,13 @@ fn realign(editor: Editor) -> Editor {
   }
 }
 
-fn hold_rows(editor: Editor, shown: Buffer) -> Editor {
+/// An IME owns the field it composes in, so the field keeps the rows it
+/// shows, and the page around it stays as it was drawn.
+fn hold(editor: Editor, rows: Region, drawn: List(Block)) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(rows: Region(first_row:, ..), drawn:, parsed:, composing:) -> {
-      let count = list.length(buffer.lines(shown))
-      let rows = Region(first_row:, last_row: first_row + count - 1)
+    Part(parsed:, composing:, ..) ->
       Editor(..editor, field: Part(rows:, drawn:, parsed:, composing:))
-    }
   }
 }
 
@@ -660,9 +732,7 @@ pub fn blocks(editor: Editor) -> List(Block) {
 pub fn is_painted(editor: Editor) -> Bool {
   let #(anchor, head) = buffer.selection(editor.buffer)
   case editor.paints, editor.field, editor.focus {
-    True, Part(rows:, drawn:, ..), Focused
-    | True, Part(rows:, drawn:, ..), Pressing
-    ->
+    True, Part(rows:, drawn:, ..), Focused ->
       anchor != head && rows != live.reveal(drawn, from: head.row, to: head.row)
     True, Part(..), Away | True, Whole, _ | False, _, _ -> False
   }
