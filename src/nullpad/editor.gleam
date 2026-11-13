@@ -13,7 +13,9 @@ import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
 /// Every change to `buffer` goes through `edit` or `compose`. `edit`
-/// records it in `history`.
+/// records it in `history`, except while a drag is under way: the browser
+/// moves dragged text in two changes, and the drag's end records both as
+/// one step.
 ///
 /// `waiting` holds the steps of Shift and an arrow up or down that the page
 /// has not placed yet, True for up. Only the first is asked for, so each
@@ -458,7 +460,15 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         | Some(PressedAt(_)), _
         | Some(PressedOnWord(..)), _
         | None, _
-        -> Outcome(editor: let_go, sync: InSync, requests: [])
+        -> {
+          let history =
+            history.record(let_go.history, let_go.buffer, at: let_go.clock)
+          Outcome(
+            editor: Editor(..let_go, history:),
+            sync: InSync,
+            requests: [],
+          )
+        }
       }
     }
     DragStarted ->
@@ -778,12 +788,11 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
       Part(rows:, drawn:, parsed:, composing: False)
     }
   }
-  Editor(
-    ..editor,
-    buffer:,
-    field:,
-    history: history.record(editor.history, buffer, at: editor.clock),
-  )
+  let history = case editor.dragging {
+    True -> editor.history
+    False -> history.record(editor.history, buffer, at: editor.clock)
+  }
+  Editor(..editor, buffer:, field:, history:)
 }
 
 /// The page keeps how it was laid out through an edit that leaves the
