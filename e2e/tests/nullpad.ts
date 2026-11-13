@@ -358,7 +358,7 @@ class Page {
         range.setStart(text, at);
         range.setEnd(text, at + 1);
         const box = range.getBoundingClientRect();
-        return { x: box.left + 2, y: box.top + box.height / 2 };
+        return { x: box.left + box.width / 4, y: box.top + box.height / 2 };
       }
       throw new Error(`"${word}" is not on the page`);
     }, word);

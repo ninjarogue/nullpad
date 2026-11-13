@@ -1,6 +1,7 @@
 //// Imported by: the app shell only. Imports: `editor`, `buffer`, `live`,
 //// `vim` (for `Key`), `markdown`.
 
+import gleam/bool
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/float
@@ -49,6 +50,11 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
     let lines = buffer.lines(editor.buffer(editor))
     live.kind(editor.blocks(editor), field:, lines:)
   }
+  let first_row = case editor.region(editor), editor.is_idle(editor) {
+    Some(live.Region(first_row:, ..)), False ->
+      attribute.data(live.row_mark, int.to_string(first_row))
+    Some(_), True | None, _ -> attribute.none()
+  }
   html.div([attribute.class(classes(editor, kind)), marker(kind)], [
     mirror(editor),
     element.element(
@@ -56,6 +62,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       [
         attribute.id(control_id),
         attribute.data("test-id", "editor"),
+        first_row,
         attribute.aria_label("Note text"),
         attribute.readonly(editor.mode(editor) == editor.Normal),
         event.on("input", typed),
@@ -115,22 +122,63 @@ pub fn page(
 ) -> List(attribute.Attribute(msg)) {
   case editor.region(editor) {
     None -> [attribute.class("page")]
-    Some(_) -> [attribute.class("page " <> live_class), on_point(on_event)]
+    Some(_) -> [
+      attribute.class("page " <> live_class),
+      on_point(on_event),
+      on_drag(on_event),
+      event.on("mouseup", {
+        use button <- decode.field("button", decode.int)
+        case button {
+          0 -> decode.success(on_event(editor.Released))
+          _ ->
+            decode.failure(
+              on_event(editor.Released),
+              expected: "the left button",
+            )
+        }
+      }),
+    ]
   }
 }
 
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
+    use shift <- decode.field("shiftKey", decode.bool)
     use press <- decode.then(decode.dynamic)
-    case locate(press, live.row_mark) {
-      #(row, visible, at_end) if row >= 0 ->
+    let shown = decode.run(find_control(control_id), control_decoder())
+    case locate(press, live.row_mark), shift, shown {
+      #(row, visible, at_end), False, _ if row >= 0 ->
         on_event(editor.Pointed(row:, visible:, at_end:))
         |> event.handler(prevent_default: True, stop_propagation: False)
         |> decode.success
-      _ ->
+      #(row, visible, at_end), True, Ok(shown) if row >= 0 ->
+        on_event(editor.ShiftPointed(row:, visible:, at_end:, shown:))
+        |> event.handler(prevent_default: True, stop_propagation: False)
+        |> decode.success
+      _, _, _ ->
         on_event(editor.FocusChanged(False))
         |> event.handler(prevent_default: False, stop_propagation: False)
         |> decode.failure(expected: "a place on the drawn page")
+    }
+  })
+}
+
+fn on_drag(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
+  event.on("mousemove", {
+    use buttons <- decode.field("buttons", decode.int)
+    use move <- decode.then(decode.dynamic)
+    let place = case int.bitwise_and(buttons, 1) {
+      1 -> locate(move, live.row_mark)
+      _ -> #(-1, "", False)
+    }
+    case place {
+      #(row, visible, at_end) if row >= 0 ->
+        decode.success(on_event(editor.Dragged(row:, visible:, at_end:)))
+      _ ->
+        decode.failure(
+          on_event(editor.Released),
+          expected: "a move with the left button held",
+        )
     }
   })
 }
@@ -140,8 +188,8 @@ pub fn sync(
   on_event: fn(editor.Event) -> msg,
 ) -> Effect(msg) {
   let write = fn(buffer) {
-    let #(text, start, end) = to_control(buffer)
-    effect.from(fn(_) { write_control(control_id, text, start, end) })
+    let #(text, start, end, backward) = to_control(buffer)
+    effect.from(fn(_) { write_control(control_id, text, start, end, backward) })
   }
   case sync {
     editor.InSync -> effect.none()
@@ -152,7 +200,7 @@ pub fn sync(
         write(buffer),
         effect.before_paint(fn(dispatch, _) {
           focus_control(control_id)
-          let #(text, start, end) = to_control(buffer)
+          let #(text, start, end, _) = to_control(buffer)
           let #(text, start, end) =
             aim_control(
               control_id,
@@ -163,7 +211,9 @@ pub fn sync(
               line == editor.LastLine,
             )
           dispatch(
-            on_event(editor.ControlChanged(from_control(text, start, end))),
+            on_event(
+              editor.ControlChanged(from_control(text, start, end, False)),
+            ),
           )
         }),
       ])
@@ -185,10 +235,15 @@ pub fn focus() -> Effect(msg) {
   effect.before_paint(fn(_, _) { focus_control(control_id) })
 }
 
-/// `selectionStart` and `selectionEnd` are UTF-16 offsets.
-fn from_control(text: String, start: Int, end: Int) -> Buffer {
+/// `selectionStart` and `selectionEnd` are UTF-16 offsets, and the head is
+/// at the start of a selection made backwards.
+fn from_control(text: String, start: Int, end: Int, backward: Bool) -> Buffer {
+  let #(anchor, head) = case backward {
+    True -> #(end, start)
+    False -> #(start, end)
+  }
   buffer.from_text(text)
-  |> buffer.select(anchor: position(text, start), head: position(text, end))
+  |> buffer.select(anchor: position(text, anchor), head: position(text, head))
 }
 
 fn position(text: String, offset: Int) -> Position {
@@ -196,13 +251,18 @@ fn position(text: String, offset: Int) -> Position {
   buffer.end_of(before)
 }
 
-fn to_control(buffer: Buffer) -> #(String, Int, Int) {
+fn to_control(buffer: Buffer) -> #(String, Int, Int, Bool) {
   let #(anchor, head) = buffer.selection(buffer)
   let lines = buffer.lines(buffer)
   let anchor = offset(lines, anchor)
   let head = offset(lines, head)
   // The control always reports start <= end, whichever way it was selected.
-  #(buffer.text(buffer), int.min(anchor, head), int.max(anchor, head))
+  #(
+    buffer.text(buffer),
+    int.min(anchor, head),
+    int.max(anchor, head),
+    head < anchor,
+  )
 }
 
 fn offset(lines: List(String), position: Position) -> Int {
@@ -218,10 +278,15 @@ fn offset(lines: List(String), position: Position) -> Int {
 }
 
 fn shown_decoder() -> Decoder(Buffer) {
-  use text <- decode.subfield(["target", "value"], decode.string)
-  use start <- decode.subfield(["target", "selectionStart"], decode.int)
-  use end <- decode.subfield(["target", "selectionEnd"], decode.int)
-  decode.success(from_control(text, start, end))
+  decode.at(["target"], control_decoder())
+}
+
+fn control_decoder() -> Decoder(Buffer) {
+  use text <- decode.field("value", decode.string)
+  use start <- decode.field("selectionStart", decode.int)
+  use end <- decode.field("selectionEnd", decode.int)
+  use direction <- decode.field("selectionDirection", decode.string)
+  decode.success(from_control(text, start, end, direction == "backward"))
 }
 
 fn key_decoder(
@@ -260,33 +325,50 @@ fn edge_decoder(
   use composing <- decode.field("isComposing", decode.bool)
   use shown <- decode.then(shown_decoder())
   let #(anchor, head) = buffer.selection(shown)
-  let plain = !{ shift || ctrl || meta || alt || composing } && anchor == head
+  let start = buffer.Position(row: 0, col: 0)
   let end = buffer.end_of(buffer.text(shown))
-  let in_edge_row = case name {
-    "Backspace" -> head == buffer.Position(row: 0, col: 0)
-    "Delete" -> head == end
-    "ArrowUp" -> head.row == 0
-    "ArrowDown" -> head.row == end.row
-    _ -> False
+  let alone = !{ alt || composing }
+  let plain = alone && !{ shift || ctrl || meta } && anchor == head
+  let shifted = alone && shift && !{ ctrl || meta }
+  let command = alone && { ctrl || meta }
+  let wanted = case name {
+    "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
+    "Delete" if plain && head == end -> Ok(editor.JoinAfter)
+    "ArrowUp" if plain && head.row == 0 -> Ok(editor.Up)
+    "ArrowDown" if plain && head.row == end.row -> Ok(editor.Down)
+    "ArrowUp" if shifted && head.row == 0 -> Ok(editor.SelectUp)
+    "ArrowDown" if shifted && head.row == end.row -> Ok(editor.SelectDown)
+    "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
+    "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
+    "a" if command && !shift -> Ok(editor.SelectAll)
+    "Home" if command && shift -> Ok(editor.SelectToStart)
+    "End" if command && shift -> Ok(editor.SelectToEnd)
+    "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToStart)
+    "ArrowDown" if meta && shift && alone -> Ok(editor.SelectToEnd)
+    _ -> Error(Nil)
   }
-  let edge = case
-    plain && in_edge_row && drawn_in_page(control_id, live_class),
-    name
-  {
-    False, _ -> Error(Nil)
-    True, "Backspace" -> Ok(#(editor.JoinBefore, 0.0))
-    True, "Delete" -> Ok(#(editor.JoinAfter, 0.0))
-    True, "ArrowUp" ->
-      case caret_line(control_id) {
-        #(True, _, x) -> Ok(#(editor.Up, x))
-        _ -> Error(Nil)
-      }
-    True, "ArrowDown" ->
-      case caret_line(control_id) {
-        #(_, True, x) -> Ok(#(editor.Down, x))
-        _ -> Error(Nil)
-      }
-    True, _ -> Error(Nil)
+  let edge = {
+    use edge <- result.try(wanted)
+    use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
+    case edge {
+      editor.Up | editor.SelectUp ->
+        case caret_line(control_id) {
+          #(True, _, x) -> Ok(#(edge, x))
+          _ -> Error(Nil)
+        }
+      editor.Down | editor.SelectDown ->
+        case caret_line(control_id) {
+          #(_, True, x) -> Ok(#(edge, x))
+          _ -> Error(Nil)
+        }
+      editor.JoinBefore
+      | editor.JoinAfter
+      | editor.SelectBefore
+      | editor.SelectAfter
+      | editor.SelectToStart
+      | editor.SelectToEnd
+      | editor.SelectAll -> Ok(#(edge, 0.0))
+    }
   }
   case edge {
     Ok(#(edge, x)) ->
@@ -338,7 +420,13 @@ fn mirror(editor: Editor) -> Element(msg) {
 }
 
 @external(javascript, "./surface.ffi.mjs", "writeControl")
-fn write_control(id: String, text: String, start: Int, end: Int) -> Nil
+fn write_control(
+  id: String,
+  text: String,
+  start: Int,
+  end: Int,
+  backward: Bool,
+) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "textWidth")
 fn text_width(text: String) -> Float
@@ -364,6 +452,9 @@ fn aim_control(
   x: Float,
   last_line: Bool,
 ) -> #(String, Int, Int)
+
+@external(javascript, "./surface.ffi.mjs", "findControl")
+fn find_control(id: String) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "locate")
 fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool)

@@ -1,12 +1,18 @@
 // Assigning `value` resets the browser's own undo history, so it is
 // assigned only when it differs.
-export function writeControl(id, text, start, end) {
+export function writeControl(id, text, start, end, backward) {
   const control = document.getElementById(id);
   if (!control) return;
   if (control.value !== text) control.value = text;
-  if (control.selectionStart !== start || control.selectionEnd !== end) {
-    control.setSelectionRange(start, end);
+  const direction = backward ? "backward" : "forward";
+  const turned = start !== end && control.selectionDirection !== direction;
+  if (control.selectionStart !== start || control.selectionEnd !== end || turned) {
+    control.setSelectionRange(start, end, direction);
   }
+}
+
+export function findControl(id) {
+  return document.getElementById(id);
 }
 
 // In live view the page scrolls, not the control, and a control that already
@@ -72,7 +78,8 @@ export function caretLine(id) {
   const control = document.getElementById(id);
   if (!control) return [false, false, 0];
   const place = measure(control);
-  const caret = place(control.selectionStart);
+  const backward = control.selectionDirection === "backward";
+  const caret = place(backward ? control.selectionStart : control.selectionEnd);
   return [
     caret.top === place(0).top,
     caret.top === place(control.value.length).top,
@@ -113,15 +120,20 @@ export function locate(press, rowMark) {
   const page = press.currentTarget;
   const marked = `[data-${rowMark}]`;
   if (press.button !== 0 || !(target instanceof Element)) return none;
-  if (target.closest("a, input, button, textarea")) return none;
+  if (target.closest("a, input, button")) return none;
   // The page's own scrollbar.
   if (target === page && press.offsetX >= target.clientWidth) return none;
+  const field = page.querySelector(`textarea${marked}`);
+  const band = field?.getBoundingClientRect();
+  if (band && press.clientY >= band.top && press.clientY < band.bottom) {
+    return inField(press, field, band, rowMark);
+  }
   const point = caretAt(press.clientX, press.clientY);
   const inside = point && (point.node instanceof Element ? point.node : point.node.parentElement);
   const holder = inside?.closest(marked);
   // A press in the gap between two blocks is on neither, but the browser
   // still names the nearest text, at its start.
-  if (holder && target.closest(marked)) {
+  if (holder && holder !== field && target.closest(marked)) {
     const range = document.createRange();
     range.setStart(holder, 0);
     range.setEnd(point.node, point.offset);
@@ -131,16 +143,36 @@ export function locate(press, rowMark) {
   }
   let nearest = null;
   let gap = Infinity;
+  let above = false;
   for (const element of page.querySelectorAll(marked)) {
     const box = element.getBoundingClientRect();
     const away = Math.max(box.top - press.clientY, press.clientY - box.bottom, 0);
     if (away <= gap) {
       gap = away;
       nearest = element;
+      above = press.clientY < box.top;
     }
   }
   if (!nearest) return none;
+  if (above) return [Number(nearest.dataset[rowMark]), "", false];
   return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true];
+}
+
+// A point level with a line of the field, even beside it, is on that line.
+// The browser keeps a second click, a touch, and a press on text selected
+// within one row, so that a drag can move that text. A field the page has not
+// drawn since its text changed may not start at the row it is marked with.
+function inField(press, field, band, rowMark) {
+  const none = [-1, "", false];
+  const x = Math.min(Math.max(press.clientX, band.left), band.right - 1);
+  const point = caretAt(x, press.clientY);
+  if (point?.node !== field || field.value !== field.defaultValue) return none;
+  const { selectionStart: start, selectionEnd: end, value } = field;
+  const onSelected =
+    start < point.offset && point.offset < end && !value.slice(start, end).includes("\n");
+  const kept = press.detail > 1 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey);
+  if (press.type === "mousedown" && kept) return none;
+  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false];
 }
 
 function caretAt(x, y) {
