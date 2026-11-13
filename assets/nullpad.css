@@ -457,6 +457,79 @@ button[aria-pressed="true"] {
   letter-spacing: 0.05em;
 }
 
+/* A row typed as another kind of block than the page laid it out as keeps
+   the height and margins it was laid out with, so nothing around it moves. */
+.editor.part.framed {
+  margin-block: 0;
+}
+
+.editor.part.framed > * {
+  line-height: var(--frame-line);
+  padding-block: 0;
+}
+
+.editor.part:is(.framed-body, .framed-item, .framed-task) {
+  --frame-line: 1.7rem;
+}
+
+.editor.part:is(.framed-item, .framed-task) {
+  margin-block: 0.25rem;
+}
+
+.editor.part.framed-task > * {
+  padding-block: var(--task-pad);
+}
+
+.editor.part.framed-mono {
+  --frame-line: 1.3125rem;
+}
+
+.editor.part:is(.framed-h1, .framed-h2, .framed-h3, .framed-h4, .framed-h5, .framed-h6) {
+  margin-top: 0.4rem;
+}
+
+.editor.part.framed-h1 {
+  --frame-line: 2.5rem;
+}
+
+.editor.part.framed-h2 {
+  --frame-line: 1.875rem;
+}
+
+.editor.part.framed-h3 {
+  --frame-line: 1.5625rem;
+}
+
+.editor.part.framed-h4 {
+  --frame-line: 1.40625rem;
+}
+
+.editor.part.framed-h5 {
+  --frame-line: 1.25rem;
+}
+
+.editor.part.framed-h6 {
+  --frame-line: 1.09375rem;
+}
+
+/* A heading typed on such a row is as large as the row lets it be, because
+   the text field clips what reaches past its lines. */
+.editor.part.framed.h1 > * {
+  font-size: min(2rem, var(--frame-line) / 1.25);
+}
+
+.editor.part.framed.h2 > * {
+  font-size: min(1.5rem, var(--frame-line) / 1.25);
+}
+
+.editor.part.framed.h3 > * {
+  font-size: min(1.25rem, var(--frame-line) / 1.25);
+}
+
+.editor.part.framed.h4 > * {
+  font-size: min(1.125rem, var(--frame-line) / 1.25);
+}
+
 .page.live > .editor.part:first-child,
 .page.live > .part:empty + .editor.part {
   margin-top: 0;

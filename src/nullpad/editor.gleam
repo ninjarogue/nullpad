@@ -646,6 +646,17 @@ pub fn kind(editor: Editor) -> Option(live.Kind) {
   }
 }
 
+/// The kind of the field's rows as the page was laid out. The field keeps
+/// their height and margins while a row is typed as another kind, so the
+/// page around it does not move. None while the field holds the whole note.
+pub fn frame(editor: Editor) -> Option(live.Kind) {
+  case editor.field {
+    Whole -> None
+    Part(rows:, drawn:, ..) ->
+      Some(live.kind(drawn, field: rows, lines: buffer.lines(editor.buffer)))
+  }
+}
+
 /// The page as laid out, drawn around the field. Empty while the field
 /// holds the whole note.
 pub fn blocks(editor: Editor) -> List(Block) {

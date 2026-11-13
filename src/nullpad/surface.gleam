@@ -131,22 +131,45 @@ fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
 }
 
 fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
-  case kind, editor.is_idle(editor) {
-    None, _ -> "editor"
-    Some(_), True -> "editor part idle"
-    Some(kind), False ->
-      case kind {
-        live.Body -> "editor part"
-        live.Mono -> "editor part mono"
-        live.ListItem(task: False, ..) -> "editor part item"
-        live.ListItem(task: True, ..) -> "editor part item task"
-        live.Title(markdown.H1) -> "editor part h1"
-        live.Title(markdown.H2) -> "editor part h2"
-        live.Title(markdown.H3) -> "editor part h3"
-        live.Title(markdown.H4) -> "editor part h4"
-        live.Title(markdown.H5) -> "editor part h5"
-        live.Title(markdown.H6) -> "editor part h6"
+  case kind, editor.frame(editor), editor.is_idle(editor) {
+    None, _, _ | _, None, _ -> "editor"
+    Some(_), Some(_), True -> "editor part idle"
+    Some(kind), Some(frame), False ->
+      case rows_of(frame) == rows_of(kind) {
+        True -> set_as(kind)
+        False -> set_as(kind) <> " framed framed-" <> rows_of(frame)
       }
+  }
+}
+
+/// What sets the height and margins of rows of a kind.
+fn rows_of(kind: live.Kind) -> String {
+  case kind {
+    live.Body -> "body"
+    live.Mono -> "mono"
+    live.ListItem(task: False, ..) -> "item"
+    live.ListItem(task: True, ..) -> "task"
+    live.Title(markdown.H1) -> "h1"
+    live.Title(markdown.H2) -> "h2"
+    live.Title(markdown.H3) -> "h3"
+    live.Title(markdown.H4) -> "h4"
+    live.Title(markdown.H5) -> "h5"
+    live.Title(markdown.H6) -> "h6"
+  }
+}
+
+fn set_as(kind: live.Kind) -> String {
+  case kind {
+    live.Body -> "editor part"
+    live.Mono -> "editor part mono"
+    live.ListItem(task: False, ..) -> "editor part item"
+    live.ListItem(task: True, ..) -> "editor part item task"
+    live.Title(markdown.H1) -> "editor part h1"
+    live.Title(markdown.H2) -> "editor part h2"
+    live.Title(markdown.H3) -> "editor part h3"
+    live.Title(markdown.H4) -> "editor part h4"
+    live.Title(markdown.H5) -> "editor part h5"
+    live.Title(markdown.H6) -> "editor part h6"
   }
 }
 

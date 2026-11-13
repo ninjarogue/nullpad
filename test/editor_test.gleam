@@ -1188,3 +1188,16 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
   assert editor.region(ed) == Some(Region(0, 0))
   assert list.contains(rows_of(ed), #(1, 1))
 }
+
+pub fn a_row_typed_as_another_block_keeps_the_frame_of_the_row_laid_out_test() {
+  let ed = live("top\n\n\n\nbelow") |> point(2)
+  assert editor.frame(ed) == Some(live.Body)
+
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("- x", 0, 3)))
+  assert editor.kind(ed) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(ed) == Some(live.Body)
+
+  let ed = ed |> point(4) |> point(2)
+  assert editor.frame(ed) == Some(live.ListItem(task: False, marker: "- "))
+}
