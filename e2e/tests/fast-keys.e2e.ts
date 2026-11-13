@@ -257,7 +257,8 @@ for (const { name, note: body, before, at, keys: pressed } of stepsAfterClick) {
 const afterTyping: { name: string; note: string; keys: string[]; typed: string }[] = [
   { name: 'a letter, PageUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'PageUp', 'y'], typed: '' },
   { name: 'a letter, Shift+ArrowUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+ArrowUp', 'y'], typed: '' },
-  { name: 'Enter, PageUp and a letter', note: 'aaaa\n\nbbb', keys: ['Enter', 'PageUp', 'y'], typed: '' },
+  { name: 'Enter and Shift+ArrowUp', note: 'aaaa\n\nbbb\n\nccc', keys: ['Enter', 'Shift+ArrowUp'], typed: 'y' },
+  { name: 'Enter and Shift+ArrowDown twice', note: 'aaaa\n\nbbb\n\nccc', keys: ['Enter', 'Shift+ArrowDown', 'Shift+ArrowDown'], typed: 'y' },
   { name: 'a letter, PageUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'PageUp', ctrl('z')], typed: 'Y' },
   { name: 'a letter, Shift+PageUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+PageUp', ctrl('z')], typed: 'Y' },
   { name: 'a letter, Shift+ArrowUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+ArrowUp', ctrl('z')], typed: 'Y' },
