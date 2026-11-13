@@ -1548,3 +1548,18 @@ test('a drag with one move, let go before the page redraws, selects to where it 
     backward: true,
   });
 });
+
+test('a right-click on the drawn page leaves the caret and the focus where they were', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'first\n\nA [link](https://example.com) here\n\nlast');
+  await browser.keyboard.press('End');
+  await page.drawn('p').last().secondaryTap();
+  await page.drawn('a').secondaryTap();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('firstX');
+});
