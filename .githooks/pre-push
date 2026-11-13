@@ -13,3 +13,4 @@ if [ ! -d node_modules ]; then
 fi
 npx tsc
 npm test
+npm run typist
