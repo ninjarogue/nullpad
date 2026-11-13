@@ -415,7 +415,8 @@ pub fn sync(
         set_drawn(True)
       }),
     ])
-  case sync {
+  let noted = effect.from(fn(_) { note_painted(editor.is_painted(editor)) })
+  let synced = case sync {
     // The field only grows once the page is drawn, so the browser does not
     // scroll the page to a caret that typing takes onto a new line.
     editor.InSync ->
@@ -652,6 +653,7 @@ pub fn sync(
         painted,
       ])
   }
+  effect.batch([noted, synced])
 }
 
 /// The selection is painted from where each of its ends is drawn, and the
@@ -885,7 +887,7 @@ fn edge_decoder(
       False -> x
     }
   }
-  let painted = shifted && is_painted(control_id, painted_class)
+  let painted = shifted && is_painted()
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
@@ -945,22 +947,22 @@ fn edge_decoder(
       // The step takes its place across from the caret once it is drawn.
       editor.Line(..) if pending -> Ok(#(edge, 0.0))
       editor.Line(up: True, select: True) ->
-        case head_line(control_id, live_class, painted_class) {
+        case head_line(control_id, live_class) {
           #(True, _, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
       editor.Line(up: False, select: True) ->
-        case head_line(control_id, live_class, painted_class) {
+        case head_line(control_id, live_class) {
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
       editor.Line(select: False, ..) -> Error(Nil)
       editor.Beside(..) -> {
-        let #(_, _, x) = head_line(control_id, live_class, painted_class)
+        let #(_, _, x) = head_line(control_id, live_class)
         Ok(#(edge, x))
       }
       editor.Page(..) -> {
-        let #(_, _, x) = head_line(control_id, live_class, painted_class)
+        let #(_, _, x) = head_line(control_id, live_class)
         Ok(#(edge, x))
       }
       editor.JoinBefore
@@ -1144,11 +1146,7 @@ fn drawn_in_page(id: String, live_class: String) -> Bool
 fn caret_line(id: String) -> #(Bool, Bool, Float)
 
 @external(javascript, "./surface.ffi.mjs", "headLine")
-fn head_line(
-  id: String,
-  live_class: String,
-  painted_class: String,
-) -> #(Bool, Bool, Float)
+fn head_line(id: String, live_class: String) -> #(Bool, Bool, Float)
 
 @external(javascript, "./surface.ffi.mjs", "stepHead")
 fn step_head(
@@ -1171,7 +1169,10 @@ fn hold_step(held: Bool) -> Nil
 fn take_held_step() -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "isPainted")
-fn is_painted(id: String, painted_class: String) -> Bool
+fn is_painted() -> Bool
+
+@external(javascript, "./surface.ffi.mjs", "notePainted")
+fn note_painted(painted: Bool) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "notePress")
 fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
