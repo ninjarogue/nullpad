@@ -172,8 +172,9 @@ pub type Edge {
   Down
   JoinBefore
   JoinAfter
-  SelectUp
-  SelectDown
+  /// An arrow up or down: the head moves one line up or down the drawn
+  /// page.
+  Line(up: Bool, select: Bool)
   SelectBefore
   SelectAfter
   SelectToStart
@@ -674,13 +675,9 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     Down if live && anchor != cursor -> #(buffer.move_to(base, end), Done)
     Up if live && cursor != start -> #(base, ByLine(up: True))
     Down if live && cursor != end -> #(base, ByLine(up: False))
-    SelectUp if live -> #(
+    Line(up:, select:) if live -> #(
       base,
-      StepTo(Move(up: True, page: False, select: True)),
-    )
-    SelectDown if live -> #(
-      base,
-      StepTo(Move(up: False, page: False, select: True)),
+      StepTo(Move(up:, page: False, select:)),
     )
     Page(up:, select:) if live -> #(base, StepTo(Move(up:, page: True, select:)))
     Row(up:, select:) -> {
@@ -713,8 +710,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | Down
     | JoinBefore
     | JoinAfter
-    | SelectUp
-    | SelectDown
+    | Line(..)
     | SelectBefore
     | SelectAfter
     | Page(..)

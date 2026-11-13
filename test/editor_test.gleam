@@ -750,7 +750,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
   let Outcome(editor: ed, sync:, ..) =
     live(live_note)
     |> editor.update(editor.EdgePressed(
-      editor.SelectDown,
+      editor.Line(up: False, select: True),
       x: 12.5,
       shown: caret("# Trip", 0, 3),
     ))
@@ -771,7 +771,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectUp,
+        editor.Line(up: True, select: True),
         x: 7.0,
         shown: editor.field_buffer(ed),
       ),
@@ -787,13 +787,50 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
     )
 }
 
+pub fn an_arrow_up_or_down_stepped_on_the_drawn_page_moves_the_caret_test() {
+  let ed = pressed(live_note, 4, "on")
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: False, select: False),
+        x: 7.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert sync
+    == editor.WriteAndStep(
+      caret("- one", 0, 4),
+      x: 7.0,
+      up: False,
+      page: False,
+      queued: False,
+      chained: False,
+    )
+
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Stepped(row: 5, visible: "tw", at_end: False, next: "", x: 7.0),
+    )
+  assert buffer.selection(editor.buffer(ed))
+    == #(Position(row: 5, col: 4), Position(row: 5, col: 4))
+}
+
 pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
   let shown = caret("# Trip", 0, 3)
   let Outcome(editor: ed, ..) =
     live(live_note)
-    |> editor.update(editor.EdgePressed(editor.SelectDown, x: 12.5, shown:))
+    |> editor.update(editor.EdgePressed(
+      editor.Line(up: False, select: True),
+      x: 12.5,
+      shown:,
+    ))
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.EdgePressed(editor.SelectUp, x: 12.5, shown:))
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Line(up: True, select: True), x: 12.5, shown:),
+    )
   assert sync == editor.InSync
 
   let Outcome(editor: ed, sync:, ..) =
@@ -825,7 +862,7 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectDown,
+        editor.Line(up: False, select: True),
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -883,7 +920,7 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     live(live_note)
     |> editor.update(editor.EdgePressed(
-      editor.SelectDown,
+      editor.Line(up: False, select: True),
       x: 12.5,
       shown: caret("# Trip", 0, 3),
     ))
@@ -896,7 +933,7 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectDown,
+        editor.Line(up: False, select: True),
         x: 12.5,
         shown: editor.field_buffer(ed),
       ),
@@ -921,12 +958,19 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
   let shown = caret("# Trip", 0, 3)
   let Outcome(editor: ed, ..) =
     live(live_note)
-    |> editor.update(editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
+    |> editor.update(editor.EdgePressed(
+      editor.Line(up: False, select: True),
+      x: 9.0,
+      shown:,
+    ))
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.Unstepped(x: 9.0))
   assert sync == editor.Write(shown)
   let Outcome(sync:, ..) =
-    editor.update(ed, editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Line(up: False, select: True), x: 9.0, shown:),
+    )
   assert sync
     == editor.WriteAndStep(
       shown,
@@ -952,7 +996,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
     editor.update(
       ed.editor,
       editor.EdgePressed(
-        editor.SelectDown,
+        editor.Line(up: False, select: True),
         x: 0.0,
         shown: editor.field_buffer(ed.editor),
       ),
@@ -983,7 +1027,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectUp,
+        editor.Line(up: True, select: True),
         x: 3.0,
         shown: editor.field_buffer(ed),
       ),
@@ -1137,8 +1181,8 @@ pub fn selection_keys_never_cross_with_the_whole_note_in_the_field_test() {
     editor.new(vim: False, live: False, paint: True) |> editor.open("one\ntwo")
   let shown = caret("one\ntwo", 0, 2)
   use edge <- list.each([
-    editor.SelectUp,
-    editor.SelectDown,
+    editor.Line(up: True, select: True),
+    editor.Line(up: False, select: True),
     editor.SelectBefore,
     editor.SelectAfter,
   ])
@@ -1507,7 +1551,7 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectDown,
+        editor.Line(up: False, select: True),
         x: 0.0,
         shown: caret("para one", 0, 8),
       ),
@@ -1521,7 +1565,7 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectDown,
+        editor.Line(up: False, select: True),
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -1633,7 +1677,11 @@ pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.SelectDown, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(
+        editor.Line(up: False, select: True),
+        x: 0.0,
+        shown: caret("", 0, 0),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(

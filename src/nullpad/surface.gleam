@@ -645,8 +645,8 @@ fn edge_decoder(
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
     "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
-    "ArrowUp" if shifted -> Ok(editor.SelectUp)
-    "ArrowDown" if shifted -> Ok(editor.SelectDown)
+    "ArrowUp" if shifted -> Ok(editor.Line(up: True, select: True))
+    "ArrowDown" if shifted -> Ok(editor.Line(up: False, select: True))
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
     "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
     _ if command && !shift && select_all -> Ok(editor.SelectAll)
@@ -688,16 +688,17 @@ fn edge_decoder(
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
-      editor.SelectUp ->
+      editor.Line(up: True, select: True) ->
         case head_line(control_id, live_class, painted_class) {
           #(True, _, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
-      editor.SelectDown ->
+      editor.Line(up: False, select: True) ->
         case head_line(control_id, live_class, painted_class) {
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
+      editor.Line(select: False, ..) -> Error(Nil)
       editor.Page(..) -> {
         let #(_, _, x) = head_line(control_id, live_class, painted_class)
         Ok(#(edge, x))
