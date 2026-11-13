@@ -1661,3 +1661,43 @@ test('a tap in the margin level with a line of the text field puts the caret on 
   await browser.keyboard.type('Z');
   await expect(page.text).toHaveValue('Zsome words here');
 });
+
+test('the end of a selection that the keys move stays in the window as the field grows past it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, Array.from({ length: 60 }, (_, i) => `para ${i}`).join('\n\n'));
+  const head = () =>
+    browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      const at = field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd;
+      const line = field.value.slice(0, at).split('\n').length - 1;
+      const height = parseFloat(getComputedStyle(field).lineHeight);
+      const top = field.getBoundingClientRect().top + line * height;
+      const sheet = document.querySelector('.page')!.getBoundingClientRect();
+      return {
+        row: field.value.slice(0, at).split('\n').at(-1) ?? '',
+        inView: top >= Math.max(sheet.top, 0) - 1 && top + height <= Math.min(sheet.bottom, innerHeight) + 1,
+      };
+    });
+  for (let step = 0; step < 6; step++) await browser.keyboard.press('ArrowDown');
+  for (let step = 1; step <= 50; step++) {
+    await browser.keyboard.press('Shift+ArrowDown');
+    await page.nextFrame();
+    expect({ step, ...(await head()) }).toEqual({ step, row: expect.any(String), inView: true });
+  }
+  for (const key of ['Control+Shift+Home', 'Control+Shift+End', 'Control+Shift+Home']) {
+    await browser.keyboard.press(key);
+    await page.nextFrame();
+    expect({ key, ...(await head()) }).toEqual({ key, row: expect.any(String), inView: true });
+  }
+  for (let step = 1; step <= 8; step++) await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Control+Shift+End');
+  for (let step = 1; step <= 50; step++) {
+    await browser.keyboard.press('Shift+ArrowUp');
+    await page.nextFrame();
+    expect({ step, ...(await head()) }).toEqual({ step, row: expect.any(String), inView: true });
+  }
+});
