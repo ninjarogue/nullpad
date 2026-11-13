@@ -486,3 +486,15 @@ pub fn a_nudge_past_the_end_of_a_row_goes_to_the_next_row_test() {
   assert nudge(lines, visible, 2, 0, True) == Position(2, 0)
   assert nudge(lines, visible, 0, 0, False) == Position(0, 0)
 }
+
+pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_test() {
+  let at = fn(line, visible, next) {
+    live.position([line], row: 0, visible:, at_end: False, next:).col
+  }
+  assert at("| 1 | 2 |", "", "1") == 2
+  assert at("| 1 | 2 |", "1", "2") == 6
+  assert at("| 1 | 2 |", "1", "") == 3
+  assert at("1 | 2", "", "1") == 0
+  assert at("a **b**", "a ", "b") == 2
+  assert at("a \\| b", "a ", "|") == 2
+}

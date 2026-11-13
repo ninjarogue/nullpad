@@ -239,6 +239,10 @@ const events = {
     ["a row above", (_, row) => new editor.Pointed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.Pointed(row + 9, "", false, "", 0, 0)],
   ],
+  WordPointed: [
+    ["a row above", (_, row) => new editor.WordPointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.WordPointed(row + 9, "", false, "", 0, 0)],
+  ],
   ShiftPointed: [
     ["a row above", (field, row) => new editor.ShiftPointed(Math.max(0, row - 9), "", true, "", field, 0, 0)],
     ["a row below", (field, row) => new editor.ShiftPointed(row + 9, "", false, "", field, 0, 0)],
@@ -246,6 +250,10 @@ const events = {
   Grabbed: [
     ["a row above", (_, row) => new editor.Grabbed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.Grabbed(row + 9, "", false, "", 0, 0)],
+  ],
+  SelectionPointed: [
+    ["a row above", (_, row) => new editor.SelectionPointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.SelectionPointed(row + 9, "", false, "", 0, 0)],
   ],
   Dragged: [
     ["a row above", (_, row) => new editor.Dragged(Math.max(0, row - 9), "", true, "")],
@@ -262,6 +270,12 @@ const events = {
     ["back", (field, row) => new editor.Nudged(false, row, "", field)],
   ],
   Released: [["", () => new editor.Released()]],
+  DragStarted: [["", () => new editor.DragStarted()]],
+  Dropped: [
+    ["a row above", (field, row) => new editor.Dropped(Math.max(0, row - 9), "", true, "", "x", false, field)],
+    ["a row below", (field, row) => new editor.Dropped(row + 9, "", false, "", "x", false, field)],
+    ["copied", (field, row) => new editor.Dropped(row + 9, "", false, "", "x", true, field)],
+  ],
   FocusChanged: [
     ["blur", () => new editor.FocusChanged(false)],
     ["focus", () => new editor.FocusChanged(true)],

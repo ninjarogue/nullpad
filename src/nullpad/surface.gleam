@@ -96,8 +96,14 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.on("pointerup", changed),
         // A touch sends `pointerup` before the mouse press that moves the
         // caret.
-        event.on("mouseup", changed),
+        event.advanced("mouseup", released_decoder(on_event)),
         event.on("keyup", moved),
+        event.on("dragstart", decode.success(on_event(editor.DragStarted))),
+        event.on("dragend", decode.success(on_event(editor.Released))),
+        // The page cancels `dragover` to take drops beside the field, and a
+        // cancelled one would stop the browser dropping on the field.
+        event.on("dragover", decode.failure(on_event(editor.Released), "none"))
+          |> event.stop_propagation,
         event.on("focus", focus_changed(True)),
         // Another window taking the focus blurs the field but leaves it
         // the page's active element, and the browser gives it the focus
@@ -118,6 +124,28 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       [element.text(buffer.text(editor.field_buffer(editor)))],
     ),
   ])
+}
+
+/// The browser keeps a press on text the field has selected, so that a drag
+/// can move it. Let go there, the browser puts the caret where it was let go
+/// only after the release, with no event, so the editor puts it there.
+fn released_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use release <- decode.then(decode.dynamic)
+  use at <- decode.then(time_decoder())
+  use shown <- decode.map(shown_decoder())
+  case released_on_selection(release) {
+    -1 ->
+      on_event(editor.ControlChanged(shown:, at:))
+      |> event.handler(prevent_default: False, stop_propagation: False)
+    offset ->
+      on_event(editor.ControlChanged(
+        shown: from_control(buffer.text(shown), offset, offset, False),
+        at:,
+      ))
+      |> event.handler(prevent_default: True, stop_propagation: False)
+  }
 }
 
 fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
@@ -197,14 +225,67 @@ pub fn page(
 ) -> List(attribute.Attribute(msg)) {
   case editor.region(editor) {
     None -> [attribute.class("page")]
-    Some(_) -> [attribute.class("page " <> live_class), on_point(on_event)]
+    Some(_) -> [
+      attribute.class("page " <> live_class),
+      on_point(on_event),
+      on_shift_click(on_event),
+      // A drop is only allowed where `dragover` is cancelled.
+      event.on("dragover", decode.failure(on_event(editor.Released), "none"))
+        |> event.prevent_default,
+      on_drop(on_event),
+    ]
   }
+}
+
+/// Shift and a press on a link or a box select to it, so its click neither
+/// follows the link nor ticks the box.
+fn on_shift_click(
+  on_event: fn(editor.Event) -> msg,
+) -> attribute.Attribute(msg) {
+  event.advanced("click", {
+    use shift <- decode.field("shiftKey", decode.bool)
+    let handler =
+      on_event(editor.Released)
+      |> event.handler(prevent_default: True, stop_propagation: False)
+    case shift {
+      True -> decode.success(handler)
+      False -> decode.failure(handler, expected: "a click with Shift")
+    }
+  })
+}
+
+/// Text dropped on the page beside the field. The browser drops what lands
+/// on the field itself.
+fn on_drop(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
+  event.advanced("drop", {
+    use drop <- decode.then(decode.dynamic)
+    let shown = decode.run(find_control(control_id), control_decoder())
+    case dropped(drop, live.row_mark), shown {
+      #(row, visible, at_end, next, text, copy), Ok(shown) if row >= 0 ->
+        on_event(editor.Dropped(
+          row:,
+          visible:,
+          at_end:,
+          next:,
+          text:,
+          copy:,
+          shown:,
+        ))
+        |> event.handler(prevent_default: True, stop_propagation: False)
+        |> decode.success
+      _, _ ->
+        on_event(editor.Released)
+        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> decode.failure(expected: "text dropped beside the field")
+    }
+  })
 }
 
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
     use shift <- decode.field("shiftKey", decode.bool)
     use button <- decode.field("button", decode.int)
+    use clicks <- decode.field("detail", decode.int)
     use target <- decode.then(decode.optionally_at(
       ["target", "id"],
       "",
@@ -220,11 +301,20 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
       |> decode.success
     }
     case locate(press, live.row_mark), shift, shown {
-      #(row, visible, at_end, next, True), False, _ if row >= 0 ->
+      #(row, visible, at_end, next, True, _), False, _ if row >= 0 ->
         taken(editor.Grabbed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, False), False, _ if row >= 0 ->
+      #(row, visible, at_end, next, False, _), False, _
+        if row >= 0 && clicks == 2
+      -> taken(editor.WordPointed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, False, True), False, _
+        if row >= 0 && clicks == 1 && button == 0
+      ->
+        on_event(editor.SelectionPointed(row:, visible:, at_end:, next:, x:, y:))
+        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> decode.success
+      #(row, visible, at_end, next, False, _), False, _ if row >= 0 ->
         taken(editor.Pointed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, False), True, Ok(shown) if row >= 0 ->
+      #(row, visible, at_end, next, _, _), True, Ok(shown) if row >= 0 ->
         taken(editor.ShiftPointed(
           row:,
           visible:,
@@ -274,7 +364,20 @@ pub fn sync(
     ])
   case sync {
     editor.InSync -> painted
-    editor.Write(buffer) -> effect.batch([write(buffer), focus(), painted])
+    // Painted before the page is scrolled to the head, which may be painted.
+    editor.Write(buffer) ->
+      effect.batch([
+        undrawn,
+        effect.from(fn(_) {
+          write_now(buffer)
+          focus_in_place(control_id)
+        }),
+        effect.before_paint(fn(_, _) {
+          paint(editor)
+          set_drawn(True)
+          focus_control(control_id, live_class, painted_class)
+        }),
+      ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
     // Stepped at once when the page shows where the step starts, so that a
     // key pressed before the next paint replaces what the step selected.
@@ -342,8 +445,8 @@ pub fn sync(
           aim(dispatch, False)
         }),
         effect.before_paint(fn(dispatch, _) {
-          focus_control(control_id)
           aim(dispatch, True)
+          focus_control(control_id, live_class, painted_class)
         }),
         painted,
       ])
@@ -390,6 +493,19 @@ pub fn sync(
         })
       effect.batch([placed, followed, painted])
     }
+    editor.HoldSelection(x:, y:) ->
+      effect.batch([
+        effect.from(fn(dispatch) {
+          hold_selection(
+            control_id,
+            x,
+            y,
+            fn() { dispatch(on_event(editor.DragStarted)) },
+            fn() { dispatch(on_event(editor.Released)) },
+          )
+        }),
+        painted,
+      ])
   }
 }
 
@@ -431,7 +547,8 @@ fn paint(editor: Editor) -> Nil {
   }
 }
 
-/// How far the pointer of a press moves before it drags, in pixels.
+/// How far the pointer of a press moves across or down, more than which it
+/// drags, in pixels.
 const drag_distance = 4.0
 
 pub fn focus() -> Effect(msg) {
@@ -442,7 +559,9 @@ pub fn focus() -> Effect(msg) {
   // scrolled to once it is drawn where it belongs.
   effect.batch([
     effect.from(fn(_) { focus_in_place(control_id) }),
-    effect.before_paint(fn(_, _) { focus_control(control_id) }),
+    effect.before_paint(fn(_, _) {
+      focus_control(control_id, live_class, painted_class)
+    }),
   ])
 }
 
@@ -742,7 +861,7 @@ fn write_control(
 fn text_width(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
-fn focus_control(id: String) -> Nil
+fn focus_control(id: String, live_class: String, painted_class: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "isDrawn")
 fn is_drawn() -> Bool
@@ -829,7 +948,25 @@ fn find_control(id: String) -> Dynamic
 fn locate(
   press: Dynamic,
   row_mark: String,
-) -> #(Int, String, Bool, String, Bool)
+) -> #(Int, String, Bool, String, Bool, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "holdSelection")
+fn hold_selection(
+  id: String,
+  x: Float,
+  y: Float,
+  started: fn() -> Nil,
+  released: fn() -> Nil,
+) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "dropped")
+fn dropped(
+  drop: Dynamic,
+  row_mark: String,
+) -> #(Int, String, Bool, String, String, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "releasedOnSelection")
+fn released_on_selection(release: Dynamic) -> Int
 
 @external(javascript, "./surface.ffi.mjs", "placeCaret")
 fn place_caret(id: String, painted_class: String, x: Float, y: Float) -> Nil

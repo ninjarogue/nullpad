@@ -7,8 +7,8 @@ import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
 import nullpad/markdown.{
-  type Block, type Item, type Level, Block, BulletList, CodeBlock, Heading, Item,
-  OrderedList, Paragraph, Quote, Rule, Table, Task,
+  type Block, type Item, type Level, type Task, Block, BulletList, CodeBlock,
+  Heading, Item, OrderedList, Paragraph, Quote, Rule, Table, Task,
 }
 
 pub const row_mark = "row"
@@ -102,7 +102,8 @@ fn marker(lines: List(String), item: Item) -> String {
 /// "" when the browser named none, as beside the text in the gutter where a
 /// list item's marker is drawn: the marks the page hides there go with the
 /// characters around them as for `nudge`, and with none they stay after the
-/// click.
+/// click. The marks before it that hold the `|` starting its table cell go
+/// with it too.
 pub fn position(
   lines: List(String),
   row row: Int,
@@ -127,11 +128,24 @@ pub fn position(
         _ ->
           case closes(before, next) {
             True -> skip_to(rest, next, col)
-            False -> col
+            False -> col + cell_start(string.drop_start(line, col), next)
           }
       }
       Position(row:, col:)
     }
+  }
+}
+
+/// How far into `rest` the cell that the drawn character `next` starts
+/// begins, when the marks before `next` hold a cell's `|`.
+fn cell_start(rest: String, next: String) -> Int {
+  case next, string.split_once(rest, next) {
+    "", _ | _, Error(Nil) -> 0
+    _, Ok(#(marks, _)) ->
+      case string.contains(marks, "|") {
+        True -> string.length(marks)
+        False -> 0
+      }
   }
 }
 
@@ -363,4 +377,35 @@ fn shift_item(item: Item, move: fn(Int) -> Int) -> Item {
     task: option.map(item.task, fn(task) { Task(..task, row: move(task.row)) }),
     blocks: list.map(item.blocks, shift_block(_, move)),
   )
+}
+
+/// The blocks with the box at the row and column of `task` ticked or not.
+pub fn tick(blocks: List(Block), task: Task, checked: Bool) -> List(Block) {
+  list.map(blocks, tick_block(_, task, checked))
+}
+
+fn tick_block(block: Block, task: Task, checked: Bool) -> Block {
+  let content = case block.content {
+    BulletList(spacing:, items:) ->
+      BulletList(spacing:, items: list.map(items, tick_item(_, task, checked)))
+    OrderedList(start:, spacing:, items:) ->
+      OrderedList(
+        start:,
+        spacing:,
+        items: list.map(items, tick_item(_, task, checked)),
+      )
+    Quote(blocks:) -> Quote(tick(blocks, task, checked))
+    CodeBlock(..) | Heading(..) | Paragraph(..) | Rule | Table(..) ->
+      block.content
+  }
+  Block(..block, content:)
+}
+
+fn tick_item(item: Item, task: Task, checked: Bool) -> Item {
+  let box = case item.task {
+    option.Some(Task(row:, col:, ..)) if row == task.row && col == task.col ->
+      option.Some(Task(row:, col:, checked:))
+    box -> box
+  }
+  Item(..item, task: box, blocks: tick(item.blocks, task, checked))
 }
