@@ -1,5 +1,15 @@
 import type { Browser } from '@e2e-dev/web';
 
+declare const process: { env: Record<string, string | undefined> };
+
+/**
+ * `NULLPAD_FAST=1` runs the movement, editing and typing guards the way a
+ * hurried hand does: no frame is waited for between two keys, or between a
+ * click and the key after it. The page is looked at only where a guard asserts
+ * something.
+ */
+export const fast = process.env['NULLPAD_FAST'] === '1';
+
 /** The properties that decide where a character of a text field is drawn. */
 const placing = [
   'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant-ligatures', 'font-kerning', 'font-feature-settings',

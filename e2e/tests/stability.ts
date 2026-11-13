@@ -1,7 +1,9 @@
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import type { Locator } from 'e2e';
+import type { Editing } from './editing.ts';
 import { cursorProblem } from './guards.ts';
+import { pause } from './nullpad.ts';
 
 /**
  * Types sample notes into the page view one key at a time, and after every
@@ -471,6 +473,42 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
     was = now;
   }
   return { hits, problems };
+}
+
+/** Presses the keys of a sample one after another with no wait between two of them. */
+export async function pressFast(browser: Browser, keys: string) {
+  for (const key of keys) {
+    const name = keyName(key);
+    if (name.length > 1) await browser.keyboard.press(name);
+    else await browser.keyboard.type(name);
+  }
+}
+
+export type End = { note: string; row: number; col: number };
+
+/** Where keys left the note: as saved, once the page has saved it, and where the caret is. */
+export async function endOf(editor: Editing): Promise<End> {
+  await editor.fixtures.page.hide();
+  let note = await editor.savedNewest();
+  for (let wait = 0; wait < 20; wait++) {
+    await pause(100);
+    const again = await editor.savedNewest();
+    if (again === note) break;
+    note = again;
+  }
+  const { row, col } = await editor.caret(note);
+  return { note, row, col };
+}
+
+/** What differs between the end of keys pressed one frame at a time and the end of the same keys pressed with no wait. */
+export function differences(slow: End, quick: End): string[] {
+  const found: string[] = [];
+  if (quick.note !== slow.note) {
+    found.push(`with no wait between keys the note ends as ${JSON.stringify(quick.note)}, and as ${JSON.stringify(slow.note)} when each key is waited for`);
+  } else if (quick.row !== slow.row || quick.col !== slow.col) {
+    found.push(`with no wait between keys the caret ends at row ${quick.row} column ${quick.col}, and at row ${slow.row} column ${slow.col} when each key is waited for`);
+  }
+  return found;
 }
 
 export function report(hits: Hit[], problems: string[]): string[] {

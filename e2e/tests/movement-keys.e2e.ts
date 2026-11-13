@@ -1,7 +1,7 @@
 import { expect } from 'e2e';
 import { ctrl, Editing, offsetOf } from './editing.ts';
 import type { Spot } from './editing.ts';
-import { cursorAt, selectionOf } from './guards.ts';
+import { cursorAt, fast, selectionOf } from './guards.ts';
 import { pause, test } from './nullpad.ts';
 
 /**
@@ -19,6 +19,9 @@ import { pause, test } from './nullpad.ts';
  * was at, within a few pixels, or to the end of a row too short to reach it.
  * Page Up and Page Down are held to the source row alone. Both are marked in
  * `follow`. A key that lands exactly where the plain field does always passes.
+ *
+ * With `NULLPAD_FAST=1` each key is pressed in the same frame as the click that
+ * put the caret there.
  *
  * To check a new key, add a row to `keys`. A test fails for every key the
  * browser's own text field moves a caret or selection with that has no row.
@@ -202,7 +205,7 @@ async function begin(editor: Editing, sheet: Sheet, place: Place, reopen: boolea
   else await drawWholeNote(editor);
 }
 
-type Landing = { at: Cell } | { problem: string };
+type Landing = { at: Cell; x: number } | { problem: string };
 
 /**
  * Where a click aimed at each place of the sheet puts the caret in the page.
@@ -227,7 +230,7 @@ function landingsOf(editor: Editing, sheet: Sheet) {
         const got = await looked(editor, sheet.note);
         if ('problem' in got) lands.set(place, { problem: got.problem });
         else if (got.anchor[0] !== got.head[0] || got.anchor[1] !== got.head[1]) lands.set(place, { problem: `a click selected from ${show(got.anchor)} to ${show(got.head)}` });
-        else lands.set(place, { at: got.head });
+        else lands.set(place, { at: got.head, x: (await cursorAt(editor.fixtures.browser))?.x ?? NaN });
       }
       return lands;
     })();
@@ -294,16 +297,17 @@ for (const row of keys) {
         used = true;
         reopen = false;
         await reach(editor, place);
-        const start = await looked(editor, sheet.note);
-        if ('problem' in start) {
-          failures.push(`${where}: before the key, ${start.problem}`);
-          continue;
+        if (!fast) {
+          const start = await looked(editor, sheet.note);
+          if ('problem' in start) {
+            failures.push(`${where}: before the key, ${start.problem}`);
+            continue;
+          }
+          if (start.head[0] !== from[0] || start.head[1] !== from[1] || start.anchor[0] !== from[0] || start.anchor[1] !== from[1]) {
+            failures.push(`${where}: the same click now puts the caret at ${show(start.head)}`);
+            continue;
+          }
         }
-        if (start.head[0] !== from[0] || start.head[1] !== from[1] || start.anchor[0] !== from[0] || start.anchor[1] !== from[1]) {
-          failures.push(`${where}: the same click now puts the caret at ${show(start.head)}`);
-          continue;
-        }
-        const xBefore = (await cursorAt(fixtures.browser))?.x ?? NaN;
         await editor.press(row.key);
         tried++;
         const want = plain.get(place)!;
@@ -315,7 +319,7 @@ for (const row of keys) {
         }
 
         const xAfter = (await cursorAt(fixtures.browser))?.x ?? NaN;
-        const problems = judge(row, want, got, { before: xBefore, after: xAfter }, want.value.split('\n')[got.head[0]]?.length ?? 0);
+        const problems = judge(row, want, got, { before: landing.x, after: xAfter }, want.value.split('\n')[got.head[0]]?.length ?? 0);
         const edited = want.value !== sheet.note;
         if (edited) {
           const saved = await savedAs(editor, want.value);
