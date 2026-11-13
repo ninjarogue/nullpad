@@ -380,15 +380,16 @@ fn edge_decoder(
   let start = buffer.Position(row: 0, col: 0)
   let end = buffer.end_of(buffer.text(shown))
   let alone = !{ alt || composing }
-  let plain = alone && !{ shift || ctrl || meta } && anchor == head
+  let bare = alone && !{ shift || ctrl || meta }
+  let plain = bare && anchor == head
   let shifted = alone && shift && !{ ctrl || meta }
   let command = alone && { ctrl || meta }
   let select_all = is_key(name, code, "a")
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
-    "ArrowUp" if plain && head.row == 0 -> Ok(editor.Up)
-    "ArrowDown" if plain && head.row == end.row -> Ok(editor.Down)
+    "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
+    "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
     "ArrowUp" if shifted && head.row == 0 -> Ok(editor.SelectUp)
     "ArrowDown" if shifted && head.row == end.row -> Ok(editor.SelectDown)
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
