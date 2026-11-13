@@ -80,7 +80,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
     Model(
       storage:,
       library: started,
-      editor: editor.new(vim: vim && can_vim, live: !markdown),
+      editor: editor.new(vim: vim && can_vim, live: !markdown, paint: False),
       showing: case markdown {
         True -> Markdown
         False -> Page

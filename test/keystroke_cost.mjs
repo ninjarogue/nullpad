@@ -243,6 +243,10 @@ const events = {
     ["a row below", (_, row) => new editor.Dragged(row + 9, "", false)],
     ["in place", (_, row) => new editor.Dragged(row, "", true)],
   ],
+  Stepped: [
+    ["a row above", (_, row) => new editor.Stepped(Math.max(0, row - 9), "", true, 40)],
+    ["a row below", (_, row) => new editor.Stepped(row + 9, "", false, 40)],
+  ],
   Released: [["", () => new editor.Released()]],
   FocusChanged: [
     ["blur", () => new editor.FocusChanged(false)],

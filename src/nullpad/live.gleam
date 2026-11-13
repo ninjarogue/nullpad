@@ -130,3 +130,15 @@ fn match(line: List(String), visible: List(String), col: Int) -> Int {
     [_, ..line], _ -> match(line, visible, col + 1)
   }
 }
+
+/// The inverse of `position`: the drawn text from the start of the element
+/// whose first row is `row`, and whose drawn text is `visible`, to where `at`
+/// is drawn. A row past the element's drawn rows is drawn at its end.
+pub fn drawn(
+  _lines: List(String),
+  row _row: Int,
+  visible _visible: String,
+  at _at: Position,
+) -> String {
+  ""
+}

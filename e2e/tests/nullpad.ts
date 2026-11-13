@@ -5,6 +5,9 @@ import type { App, Locator, Screen } from 'e2e';
 
 export type Note = { key: string; title: string | null; body: string };
 
+/** Where a row of the note is drawn, and in what type, by the element that starts there. */
+export type Placed = { row: number; top: number; height: number; size: string; family: string };
+
 export const trip: Note = { key: 'trip', title: null, body: '# Trip' };
 export const groceries: Note = { key: 'groceries', title: 'Groceries', body: 'milk' };
 export const newNote = { key: expect.any(String), title: null, body: '' };
@@ -372,6 +375,55 @@ class Page {
     await this.browser.mouse.move(to.x, to.y);
     await this.nextFrame();
     await this.browser.mouse.up();
+  }
+
+  /** The text painted as selected on the drawn page, or null when nothing is. */
+  painted() {
+    return this.browser.evaluate(() => {
+      const painted = globalThis.CSS?.highlights?.get('nullpad-selection');
+      const ranges = painted ? [...painted] : [];
+      return ranges.length === 0 ? null : ranges.map((range) => range.toString()).join('');
+    });
+  }
+
+  /** The rows of each blank line of the page that shows the selection colour. */
+  paintedBlanks() {
+    return this.browser.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('.page.live .part .blank')]
+        .filter((blank) =>
+          [getComputedStyle(blank), getComputedStyle(blank, '::before')].some(
+            (style) => style.backgroundColor !== 'rgba(0, 0, 0, 0)',
+          ),
+        )
+        .map((blank) => Number(blank.dataset.row)),
+    );
+  }
+
+  /**
+   * Every element the page draws a row of the note in, and the text field
+   * while it can be seen, in the order of the page.
+   */
+  layout() {
+    return this.browser.evaluate(() => {
+      const sheet = document.querySelector('.page')!;
+      const field = document.querySelector<HTMLElement>('[data-test-id="editor"]')!;
+      const seen = getComputedStyle(field.parentElement!).opacity !== '0';
+      const drawn = [...sheet.querySelectorAll<HTMLElement>('.part [data-row]')];
+      const shown = seen && field.dataset.row !== undefined ? [field, ...drawn] : drawn;
+      return shown
+        .map((element) => {
+          const box = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            row: Number(element.dataset.row),
+            top: box.top - sheet.getBoundingClientRect().top + sheet.scrollTop,
+            height: box.height,
+            size: style.fontSize,
+            family: style.fontFamily,
+          };
+        })
+        .sort((a, b) => a.row - b.row || a.top - b.top);
+    });
   }
 
   /** The text field's text, the part of it selected, and whether it was selected backwards. */

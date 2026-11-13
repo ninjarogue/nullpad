@@ -1,6 +1,7 @@
 //// Examples for live view's pure rules: which rows the text field holds, and
 //// where a click on the drawn page lands in the source.
 
+import gleam/int
 import gleam/list
 import gleam/string
 import nullpad/buffer.{Position}
@@ -208,4 +209,121 @@ pub fn a_click_beside_a_block_lands_at_the_end_of_its_last_row_test() {
 pub fn a_click_past_the_last_row_lands_at_the_end_of_the_note_test() {
   assert live.position(["one", "two"], row: 5, visible: "", at_end: False)
     == Position(row: 1, col: 3)
+}
+
+/// An element drawn on the page: the rows of the note it is drawn from,
+/// numbered from 0, and the text it draws, as the browser reads it.
+type Drawn {
+  Drawn(lines: List(String), visible: String)
+}
+
+/// One of each mark. Each element starts at row 0 of its lines.
+const corpus = [
+  Drawn(["# Heading **one**"], "Heading one"),
+  Drawn(["## Packing"], "Packing"),
+  Drawn(["Setext", "======"], "Setext"),
+  Drawn(
+    [
+      "A **bold** _it_ *em* ~~gone~~ `co*de` [link](http://x.y \"t\") \\*esc\\* &amp; tail",
+      "soft wrapped second row",
+    ],
+    "A bold it em gone co*de link *esc* & tail\nsoft wrapped second row",
+  ),
+  Drawn(["***both*** and __strong__"], "both and strong"),
+  Drawn(["- [ ] task box"], "task box"),
+  Drawn(["- [x] done **b**"], "done b"),
+  Drawn(["  - nested *i*"], "nested i"),
+  Drawn(["12. twelve"], "twelve"),
+  Drawn(["> quoted **q**", "> more"], "quoted q\nmore"),
+  Drawn(["| A | **B** |", "| - | ----- |"], "AB"),
+  Drawn(["| `x` | y |"], "xy"),
+  Drawn(["let a = 1", "```"], "let a = 1\n"),
+]
+
+/// 0 to `last`, both included.
+fn through(last: Int) -> List(Int) {
+  int.range(from: last, to: -1, with: [], run: list.prepend)
+}
+
+/// Every place in the drawn text, taken to the note by `position` and drawn
+/// again, is the same place.
+fn round_trip(drawn: Drawn) -> List(String) {
+  let Drawn(lines:, visible:) = drawn
+  let drawn_rows = string.split(visible, "\n")
+  use #(segment, index) <- list.flat_map(
+    list.index_map(drawn_rows, fn(segment, index) { #(segment, index) }),
+  )
+  let above = list.take(drawn_rows, index)
+  use length <- list.filter_map(through(string.length(segment)))
+  let place =
+    string.join(list.append(above, [string.slice(segment, 0, length)]), "\n")
+  let at = live.position(lines, row: 0, visible: place, at_end: False)
+  case live.drawn(lines, row: 0, visible:, at:) {
+    back if back == place -> Error(Nil)
+    back -> Ok(place <> " -> " <> back)
+  }
+}
+
+pub fn every_drawn_place_survives_the_trip_to_the_note_and_back_test() {
+  assert list.flat_map(corpus, round_trip) == []
+}
+
+pub fn a_place_further_along_a_row_is_never_drawn_earlier_test() {
+  let backwards = {
+    use Drawn(lines:, visible:) <- list.flat_map(corpus)
+    use #(line, row) <- list.flat_map(
+      list.index_map(lines, fn(line, row) { #(line, row) }),
+    )
+    let lengths =
+      list.map(through(string.length(line)), fn(col) {
+        string.length(live.drawn(
+          lines,
+          row: 0,
+          visible:,
+          at: Position(row:, col:),
+        ))
+      })
+    let pairs = list.zip(lengths, list.drop(lengths, 1))
+    case list.any(pairs, fn(pair) { pair.1 < pair.0 }) {
+      True -> [line]
+      False -> []
+    }
+  }
+  assert backwards == []
+}
+
+pub fn the_marks_before_a_place_are_not_drawn_test() {
+  let lines = ["## Packing **light**"]
+  let visible = "Packing light"
+  let at = fn(col) {
+    live.drawn(lines, row: 0, visible:, at: Position(row: 0, col:))
+  }
+  assert at(0) == ""
+  assert at(3) == ""
+  assert at(4) == "P"
+  assert at(13) == "Packing "
+  assert at(15) == "Packing "
+  assert at(16) == "Packing l"
+  assert at(20) == "Packing light"
+}
+
+pub fn a_row_the_element_does_not_draw_is_drawn_at_its_end_test() {
+  let lines = ["| A | B |", "| - | - |"]
+  assert live.drawn(lines, row: 0, visible: "AB", at: Position(row: 1, col: 4))
+    == "AB"
+  assert live.drawn(
+      ["Setext", "==="],
+      row: 0,
+      visible: "Setext",
+      at: Position(1, 0),
+    )
+    == "Setext"
+}
+
+pub fn a_row_in_an_element_further_down_is_drawn_from_its_own_start_test() {
+  let lines = ["- one", "  more **b**"]
+  assert live.drawn(lines, row: 0, visible: "one\nmore b", at: Position(1, 10))
+    == "one\nmore b"
+  assert live.drawn(lines, row: 0, visible: "one\nmore b", at: Position(1, 2))
+    == "one\n"
 }

@@ -11,7 +11,7 @@ import nullpad/vim.{Step}
 
 /// Every change to `buffer` goes through `edit` or `compose`.
 pub opaque type Editor {
-  Editor(buffer: Buffer, keys: Keys, field: Field, focus: Focus)
+  Editor(buffer: Buffer, keys: Keys, field: Field, focus: Focus, paints: Bool)
 }
 
 type Focus {
@@ -73,6 +73,10 @@ pub type Event {
   /// `shown`, the field as it is now, has it.
   ShiftPointed(row: Int, visible: String, at_end: Bool, shown: Buffer)
   Dragged(row: Int, visible: String, at_end: Bool)
+  /// Shift and an arrow up or down, taken by the surface: the head moves to
+  /// the place on the drawn page found `x` from the left of the text, one
+  /// drawn line from where the head was drawn. The anchor stays.
+  Stepped(row: Int, visible: String, at_end: Bool, x: Float)
   Released
   FocusChanged(focused: Bool)
 }
@@ -100,6 +104,10 @@ pub type Sync {
   /// Then the head moves to the place nearest `x` on the first or last drawn
   /// line of its row. A selection keeps its anchor.
   WriteAndAim(Buffer, x: Float, line: Line)
+  /// Then the head moves to the place on the drawn page nearest `x`, from
+  /// the left of the text, one drawn line above or below where it is drawn.
+  /// A selection keeps its anchor.
+  WriteAndStep(Buffer, x: Float, up: Bool)
   Release(Buffer)
 }
 
@@ -112,7 +120,13 @@ pub type Outcome {
   Outcome(editor: Editor, sync: Sync, requests: List(vim.Request))
 }
 
-pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
+/// `paint` says whether a selection across blocks can be painted over the
+/// drawn page.
+pub fn new(
+  vim vim_enabled: Bool,
+  live live: Bool,
+  paint paints: Bool,
+) -> Editor {
   let buffer = buffer.from_text("")
   Editor(
     buffer:,
@@ -122,6 +136,7 @@ pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
       False -> Whole
     },
     focus: Away,
+    paints:,
   )
 }
 
@@ -216,6 +231,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
         Away | Focused -> Outcome(editor:, sync: InSync, requests: [])
       }
+    Stepped(..) -> Outcome(editor:, sync: InSync, requests: [])
     Released -> {
       let focus = case editor.focus {
         Pressing | Focused -> Focused
@@ -578,6 +594,13 @@ pub fn blocks(editor: Editor) -> List(Block) {
     Whole -> []
     Part(drawn:, ..) -> drawn
   }
+}
+
+/// A selection that reaches past the block it ends in is painted over the
+/// drawn page, which is drawn whole. The field keeps the focus and the
+/// selected rows, and is not seen.
+pub fn is_painted(_editor: Editor) -> Bool {
+  False
 }
 
 pub fn is_idle(editor: Editor) -> Bool {

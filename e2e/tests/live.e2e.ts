@@ -703,7 +703,7 @@ test('a click after a selection across blocks puts one block back in the field',
   await openLive({ app, disk, page }, body);
   await browser.keyboard.press('ControlOrMeta+a');
   await expect(page.text).toHaveValue(body);
-  await expect(page.drawn('li')).toHaveCount(0);
+  await expect(page.drawn('li')).toHaveText(['Passport', 'Shoes']);
 
   const shoes = await page.pointAt('Shoes');
   await browser.mouse.move(shoes.x, shoes.y);

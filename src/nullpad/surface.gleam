@@ -213,6 +213,7 @@ pub fn sync(
     editor.InSync -> effect.none()
     editor.Write(buffer) -> effect.batch([write(buffer), focus()])
     editor.WriteQuietly(buffer) -> write(buffer)
+    editor.WriteAndStep(buffer, ..) -> write(buffer)
     editor.WriteAndAim(buffer, x:, line:) ->
       effect.batch([
         write(buffer),
