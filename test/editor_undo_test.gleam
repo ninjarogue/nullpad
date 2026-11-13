@@ -257,3 +257,33 @@ fn next(random: Int, below: Int) -> #(Int, Int) {
   let random = random * 48_271 % 2_147_483_647
   #(random % below, random)
 }
+
+pub fn undo_of_typing_over_a_painted_selection_restores_text_and_selection_test() {
+  let note = "# Trip\n\nFlights are **booked**.\n\n- one\n- two"
+  let ed =
+    live(note)
+    |> point(2, False)
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
+    )
+  assert editor.is_painted(ed)
+  let selected = buffer.selection(editor.buffer(ed))
+
+  let field = editor.field_buffer(ed)
+  let #(from, to) = buffer.selection(field)
+  assert from != to
+  let shown = buffer.replace(field, from:, to:, with: "X")
+  let ed = editor.update(ed, editor.ControlChanged(shown:)).editor
+  assert !editor.is_painted(ed)
+  assert string.length(editor.text(ed)) < string.length(note)
+
+  let Outcome(editor: back, sync:, ..) = editor.update(ed, editor.UndoAsked)
+  assert editor.text(back) == note
+  assert buffer.selection(editor.buffer(back)) == selected
+  assert sync == editor.Write(editor.field_buffer(back))
+
+  let forward = redo(back)
+  assert editor.text(forward) == editor.text(ed)
+}
