@@ -88,6 +88,12 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         // caret.
         event.on("mouseup", changed),
         event.on("keyup", moved),
+        event.on("dragstart", decode.success(on_event(editor.DragStarted))),
+        event.on("dragend", decode.success(on_event(editor.Released))),
+        // The page cancels `dragover` to take drops beside the field, and a
+        // cancelled one would stop the browser dropping on the field.
+        event.on("dragover", decode.failure(on_event(editor.Released), "none"))
+          |> event.stop_propagation,
         event.on("focus", focus_changed(True)),
         // Another window taking the focus blurs the field but leaves it
         // the page's active element, and the browser gives it the focus
@@ -183,6 +189,10 @@ pub fn page(
       attribute.class("page " <> live_class),
       on_point(on_event),
       on_shift_click(on_event),
+      // A drop is only allowed where `dragover` is cancelled.
+      event.on("dragover", decode.failure(on_event(editor.Released), "none"))
+        |> event.prevent_default,
+      on_drop(on_event),
     ]
   }
 }
@@ -200,6 +210,25 @@ fn on_shift_click(
     case shift {
       True -> decode.success(handler)
       False -> decode.failure(handler, expected: "a click with Shift")
+    }
+  })
+}
+
+/// Text dropped on the page beside the field. The browser drops what lands
+/// on the field itself.
+fn on_drop(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
+  event.advanced("drop", {
+    use drop <- decode.then(decode.dynamic)
+    let shown = decode.run(find_control(control_id), control_decoder())
+    case dropped(drop, live.row_mark), shown {
+      #(row, visible, at_end, text, copy), Ok(shown) if row >= 0 ->
+        on_event(editor.Dropped(row:, visible:, at_end:, text:, copy:, shown:))
+        |> event.handler(prevent_default: True, stop_propagation: False)
+        |> decode.success
+      _, _ ->
+        on_event(editor.Released)
+        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> decode.failure(expected: "text dropped beside the field")
     }
   })
 }
@@ -586,6 +615,12 @@ fn find_control(id: String) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "locate")
 fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "dropped")
+fn dropped(
+  drop: Dynamic,
+  row_mark: String,
+) -> #(Int, String, Bool, String, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "placeCaret")
 fn place_caret(id: String, x: Float, y: Float) -> Nil

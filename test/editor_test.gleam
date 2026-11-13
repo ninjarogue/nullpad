@@ -1240,3 +1240,65 @@ pub fn a_row_typed_as_another_block_keeps_the_frame_of_the_row_laid_out_test() {
   let ed = ed |> point(4) |> point(2)
   assert editor.frame(ed) == Some(live.ListItem(task: False, marker: "- "))
 }
+
+pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {
+  let shown =
+    buffer.from_text("alpha beta gamma")
+    |> buffer.select(anchor: Position(0, 0), head: Position(0, 5))
+  let ed =
+    live("alpha beta gamma\n\nsecond para here")
+    |> editor.update(editor.ControlChanged(shown:))
+  let drop = fn(ed: Outcome, copy) {
+    editor.update(
+      ed.editor,
+      editor.Dropped(
+        row: 2,
+        visible: "second ",
+        at_end: False,
+        text: "alpha",
+        copy:,
+        shown:,
+      ),
+    )
+  }
+
+  let Outcome(editor: moved, sync:, ..) =
+    ed.editor |> editor.update(editor.DragStarted) |> drop(False)
+  assert editor.text(moved) == " beta gamma\n\nsecond alphapara here"
+  assert buffer.selection(editor.buffer(moved))
+    == #(Position(2, 7), Position(2, 12))
+  assert sync == editor.Write(editor.field_buffer(moved))
+  assert editor.region(moved) == Some(Region(2, 2))
+
+  let Outcome(editor: copied, ..) =
+    ed.editor |> editor.update(editor.DragStarted) |> drop(True)
+  assert editor.text(copied) == "alpha beta gamma\n\nsecond alphapara here"
+
+  let Outcome(editor: let_go, ..) =
+    ed.editor
+    |> editor.update(editor.DragStarted)
+    |> fn(started: Outcome) { editor.update(started.editor, editor.Released) }
+  let Outcome(editor: inserted, ..) = drop(Outcome(..ed, editor: let_go), False)
+  assert editor.text(inserted) == "alpha beta gamma\n\nsecond alphapara here"
+  assert buffer.selection(editor.buffer(inserted))
+    == #(Position(2, 7), Position(2, 12))
+}
+
+pub fn nothing_is_dropped_in_vim_normal_mode_test() {
+  let opened = editor.new(vim: True, live: False) |> editor.open("one\n\ntwo")
+  let ed = editor.set_live(opened.editor, True).editor
+  let Outcome(editor: dropped, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Dropped(
+        row: 2,
+        visible: "",
+        at_end: False,
+        text: "x",
+        copy: False,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert editor.text(dropped) == "one\n\ntwo"
+  assert sync == editor.InSync
+}

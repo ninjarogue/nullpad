@@ -839,8 +839,12 @@ test('a drag let go off the page leaves no press held', async ({ app, browser, d
   await browser.mouse.down();
   await browser.mouse.move(shoes.x, shoes.y);
   await browser.mouse.up();
-  await page.nextFrame();
-  await expect(page.text).toHaveValue(paragraph);
+  await expect.poll(async () => (await page.selection()).selected).toBe('booked** and the hotel is *not*.');
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue(
+    '# Trip\n\nFlights are **\n\n- [ ] Passport\nbooked** and the hotel is *not*.- Shoes\n\nlast',
+  );
 });
 
 const sizeOf = async (page: { fieldFont(): Promise<{ size: string }> }) => (await page.fieldFont()).size;

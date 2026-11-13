@@ -14,12 +14,14 @@ import nullpad/vim.{Step}
 /// Every change to `buffer` goes through `edit` or `compose`.
 pub opaque type Editor {
   /// `press` is a mouse press the editor took, held until it is let go.
+  /// `dragging` is while the browser drags the field's selection.
   Editor(
     buffer: Buffer,
     keys: Keys,
     field: Field,
     focus: Focus,
     press: Option(Press),
+    dragging: Bool,
   )
 }
 
@@ -95,6 +97,18 @@ pub type Event {
   /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool)
   Released
+  /// The browser starts to drag the field's selection.
+  DragStarted
+  /// Text dropped on a place on the page. It moves there when it is the
+  /// field's selection, unless the drop copies it.
+  Dropped(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    text: String,
+    copy: Bool,
+    shown: Buffer,
+  )
   FocusChanged(focused: Bool)
 }
 
@@ -148,6 +162,7 @@ pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
     },
     focus: Away,
     press: None,
+    dragging: False,
   )
 }
 
@@ -292,7 +307,38 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         None -> Outcome(editor:, sync: InSync, requests: [])
       }
     Released ->
-      Outcome(editor: Editor(..editor, press: None), sync: InSync, requests: [])
+      Outcome(
+        editor: Editor(..editor, press: None, dragging: False),
+        sync: InSync,
+        requests: [],
+      )
+    DragStarted ->
+      Outcome(
+        editor: Editor(..editor, dragging: True),
+        sync: InSync,
+        requests: [],
+      )
+    Dropped(row:, visible:, at_end:, text:, copy:, shown:) -> {
+      let let_go = Editor(..editor, dragging: False)
+      case mode(editor) {
+        Normal -> Outcome(editor: let_go, sync: InSync, requests: [])
+        Plain | Insert -> {
+          let base = base(editor, shown)
+          let at = place(base, row:, visible:, at_end:)
+          let dropped = case editor.dragging && !copy {
+            True -> buffer.move_selection(base, to: at)
+            False ->
+              buffer.replace(base, from: at, to: at, with: text)
+              |> fn(put) {
+                buffer.select(put, anchor: at, head: buffer.cursor(put))
+              }
+          }
+          let editor =
+            Editor(..let_go, focus: Focused) |> edit(dropped) |> realign
+          Outcome(editor:, sync: Write(field_buffer(editor)), requests: [])
+        }
+      }
+    }
     FocusChanged(focused:) -> {
       let #(focus, press) = case focused {
         True -> #(Focused, editor.press)

@@ -388,3 +388,14 @@ export function textWidth(text) {
   pen.font = `${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
   return pen.measureText(text).width;
 }
+
+// Where text dropped on the page lands, the text, and whether the drop
+// copies it, which the key a text field copies with says. A drop on the
+// field is the browser's.
+export function dropped(drop, rowMark) {
+  const text = drop.dataTransfer?.getData("text/plain") ?? "";
+  if (text === "" || drop.target instanceof HTMLTextAreaElement) return [-1, "", false, "", false];
+  const [row, visible, atEnd] = placeAt(drop.currentTarget, drop.clientX, drop.clientY, rowMark);
+  const copy = navigator.platform.startsWith("Mac") ? drop.altKey : drop.ctrlKey;
+  return [row, visible, atEnd, text, copy];
+}

@@ -252,6 +252,12 @@ const events = {
     ["in place", (_, row) => new editor.Dragged(row, "", true)],
   ],
   Released: [["", () => new editor.Released()]],
+  DragStarted: [["", () => new editor.DragStarted()]],
+  Dropped: [
+    ["a row above", (field, row) => new editor.Dropped(Math.max(0, row - 9), "", true, "x", false, field)],
+    ["a row below", (field, row) => new editor.Dropped(row + 9, "", false, "x", false, field)],
+    ["copied", (field, row) => new editor.Dropped(row + 9, "", false, "x", true, field)],
+  ],
   FocusChanged: [
     ["blur", () => new editor.FocusChanged(false)],
     ["focus", () => new editor.FocusChanged(true)],
