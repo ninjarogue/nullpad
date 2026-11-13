@@ -65,6 +65,8 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         attribute.aria_label("Note text"),
         attribute.readonly(editor.mode(editor) == editor.Normal),
         event.on("input", typed),
+        // A caret moved by the browser fires no `select` in Chromium.
+        event.on("keyup", typed),
         event.on("compositionend", changed),
         event.on("select", changed),
         event.on("pointerup", changed),
