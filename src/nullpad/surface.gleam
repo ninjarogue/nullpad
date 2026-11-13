@@ -403,35 +403,37 @@ pub fn sync(
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
-  let undrawn = effect.from(fn(_) { set_drawn(False) })
   let settled = fn(dispatch) {
     fn(from, to) { dispatch(on_event(editor.Settled(from:, to:))) }
   }
+  let drawn = fn() { note_drawn(editor.row_count(editor)) }
   let painted =
-    effect.batch([
-      undrawn,
-      effect.before_paint(fn(dispatch, _) {
-        paint(editor, settled(dispatch))
-        set_drawn(True)
-      }),
-    ])
-  let noted = effect.from(fn(_) { note_painted(editor.is_painted(editor)) })
+    effect.before_paint(fn(dispatch, _) {
+      paint(editor, settled(dispatch))
+      drawn()
+    })
+  // A step the editor no longer waits for is not taken once the page is
+  // drawn.
+  let noted =
+    effect.from(fn(_) {
+      note_painted(editor.is_painted(editor))
+      case editor.is_stepping(editor) {
+        True -> Nil
+        False -> hold_step(False, editor)
+      }
+    })
   let synced = case sync {
     // The field only grows once the page is drawn, so the browser does not
     // scroll the page to a caret that typing takes onto a new line.
     editor.InSync ->
-      effect.batch([
-        undrawn,
-        effect.before_paint(fn(dispatch, _) {
-          paint(editor, settled(dispatch))
-          set_drawn(True)
-          reveal_caret(control_id, live_class, painted_class)
-        }),
-      ])
+      effect.before_paint(fn(dispatch, _) {
+        paint(editor, settled(dispatch))
+        drawn()
+        reveal_caret(control_id, live_class, painted_class)
+      })
     // Painted before the page is scrolled to the head, which may be painted.
     editor.Write(buffer) ->
       effect.batch([
-        undrawn,
         effect.from(fn(_) {
           write_now(buffer)
           focus_in_place(control_id)
@@ -439,7 +441,7 @@ pub fn sync(
         }),
         effect.before_paint(fn(dispatch, _) {
           paint(editor, settled(dispatch))
-          set_drawn(True)
+          drawn()
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
@@ -467,6 +469,10 @@ pub fn sync(
           holder_text(control_id, live_class, live.row_mark, head.row)
         let offset = utf16_length(live.drawn(lines, row:, visible:, at: head))
         let onward = live.follows_hidden(lines, row:, visible:, at: head)
+        let field_first = case editor.region(editor) {
+          Some(live.Region(first_row:, ..)) -> first_row
+          None -> -1
+        }
         let place =
           step_head(
             control_id,
@@ -480,6 +486,8 @@ pub fn sync(
             forward,
             select,
             x,
+            field_first,
+            list.length(lines),
           )
         case place {
           #(-3, _, _, _, _) -> False
@@ -512,11 +520,10 @@ pub fn sync(
         effect.from(fn(dispatch) {
           write_now(buffer)
           hold_step(!step_now(dispatch), editor)
-          set_drawn(False)
         }),
         effect.before_paint(fn(dispatch, _) {
           paint(editor, settled(dispatch))
-          set_drawn(True)
+          drawn()
           case take_held_step(editor) && !step_now(dispatch) {
             True -> dispatch(on_event(editor.Unstepped(x:)))
             False -> Nil
@@ -1138,8 +1145,8 @@ fn focus_stayed(id: String) -> Bool
 @external(javascript, "./surface.ffi.mjs", "focusControl")
 fn focus_control(id: String, live_class: String, painted_class: String) -> Nil
 
-@external(javascript, "./surface.ffi.mjs", "setDrawn")
-fn set_drawn(drawn: Bool) -> Nil
+@external(javascript, "./surface.ffi.mjs", "noteDrawn")
+fn note_drawn(rows: Int) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil
@@ -1173,6 +1180,8 @@ fn step_head(
   forward: Bool,
   select: Bool,
   x: Float,
+  field_first: Int,
+  row_count: Int,
 ) -> #(Int, String, Bool, String, Float)
 
 @external(javascript, "./surface.ffi.mjs", "holdStep")

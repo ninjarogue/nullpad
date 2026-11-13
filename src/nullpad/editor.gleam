@@ -730,7 +730,7 @@ fn travel(
     True, Focused, _ | True, Away, _ ->
       Outcome(editor:, sync: InSync, requests: [])
     False, Focused, Ok(history) ->
-      Editor(..editor, history:)
+      Editor(..editor, history:, waiting: [], goal: None)
       |> edit(history.present(history))
       |> realign
       |> write
@@ -1305,6 +1305,11 @@ pub fn is_painted(editor: Editor) -> Bool {
       anchor != head && rows != live.reveal(drawn, from: head.row, to: head.row)
     _, Part(..), Away | _, Whole, _ | False, Part(..), Focused -> False
   }
+}
+
+/// Whether a step of the head waits for the page.
+pub fn is_stepping(editor: Editor) -> Bool {
+  editor.waiting != []
 }
 
 pub fn is_idle(editor: Editor) -> Bool {

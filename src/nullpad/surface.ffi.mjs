@@ -216,14 +216,14 @@ function edgeSpeed(y, top, bottom) {
   return up > down ? -speed(up) : speed(down);
 }
 
-// Whether the page is drawn as the editor last left it. Lustre draws once a
-// frame, after the effects of every message since the last. Once drawn, the
-// page has placed the field a press put rows in.
-let drawn = true;
+// How many rows the note had when the page was last drawn. Lustre draws once
+// a frame, after the effects of every message since the last. Once drawn,
+// the page has placed the field a press put rows in.
+let drawnCount = 0;
 
-export function setDrawn(value) {
-  drawn = value;
-  if (value) pressed = null;
+export function noteDrawn(rows) {
+  drawnCount = rows;
+  pressed = null;
 }
 
 // A step the page must draw before it is taken, and the editor that asked
@@ -990,13 +990,17 @@ function undrawn(control) {
 // The browser's selection is put back in the field after. A step returns
 // the place it reaches and the `x` it aimed at, or a row of -1 for no page,
 // -2 for nothing past the head, -3 when the page must be drawn first, as
-// the field's text changed since it was drawn or a press in this frame put
-// the field where the page has not placed it, and -4 when the head was in
+// the field holds other rows than it was drawn with or a press in this frame
+// put the field where the page has not placed it, and -4 when the head was in
 // the field and the field took the step: a step of a letter or a line
 // boundary, or of a line from any line of the field but the last it steps
 // past. A `page` step scrolls the page by a window and takes the place that
-// is then where the head was.
-export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x) {
+// is then where the head was. A field typed in since it was drawn still
+// starts on the row it was drawn on, and the rows typed into it or out of it
+// move the rows drawn past it, so it is stepped from as it is.
+export function stepHead(
+  id, liveClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x, fieldFirst, rowCount,
+) {
   const answer = (row, place = ["", false, ""]) => [row, ...place, x];
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
@@ -1004,9 +1008,15 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, ro
   const part = control.parentElement;
   const mirror = part.querySelector(".mirror")?.firstChild;
   const first = control.dataset[rowMark];
-  const held = first === undefined || !mirror ? null : [Number(first), Number(first) + mirror.data.split("\n").length - 1];
+  const drawnLines = mirror ? mirror.data.split("\n").length : 0;
+  const lines = control.value.split("\n").length;
+  const typedIn = first !== undefined && Number(first) === fieldFirst && rowCount - drawnCount === lines - drawnLines;
+  const grown = typedIn ? lines - drawnLines : 0;
+  const held = first === undefined || !mirror ? null : [Number(first), Number(first) + drawnLines + grown - 1];
   const inField = held !== null && headRow >= held[0] && headRow <= held[1];
-  if (inField && undrawn(control)) return answer(-3);
+  if (inField && !typedIn && undrawn(control)) return answer(-3);
+  const drawnLast = held ? held[1] - grown : Infinity;
+  const moved = (place) => (place[0] > drawnLast ? [place[0] + grown, ...place.slice(1)] : place);
   if (pressed !== null && first === undefined) return answer(-3);
   const edge = granularity !== "line" || caretLine(id)[forward ? 1 : 0];
   if (inField && granularity !== "page" && !edge) {
@@ -1024,7 +1034,7 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, ro
     }
     if (x < 0) x = box.left - columnLeft(page);
     const place = pageStep(page, rowMark, box, forward, columnLeft(page) + x);
-    return place ? [...place, x] : answer(-2);
+    return place ? [...moved(place), x] : answer(-2);
   }
   const selection = getSelection();
   const { selectionStart, selectionEnd, selectionDirection } = control;
@@ -1053,7 +1063,7 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, ro
     const line = granularity === "line";
     if (line) landed = toward(selection, landed, columnLeft(page) + x, rowMark);
     const place = placeOfPoint(landed, rowMark, line ? columnLeft(page) + x : Infinity, line && rowStart);
-    return place ? [...place, x] : answer(-1);
+    return place ? [...moved(place), x] : answer(-1);
   } finally {
     control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
   }
