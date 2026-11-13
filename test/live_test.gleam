@@ -301,9 +301,9 @@ pub fn the_marks_before_a_place_are_not_drawn_test() {
   assert at(0) == ""
   assert at(3) == ""
   assert at(4) == "P"
+  assert at(11) == "Packing "
   assert at(13) == "Packing "
-  assert at(15) == "Packing "
-  assert at(16) == "Packing l"
+  assert at(14) == "Packing l"
   assert at(20) == "Packing light"
 }
 

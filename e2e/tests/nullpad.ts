@@ -408,7 +408,7 @@ class Page {
       const sheet = document.querySelector('.page')!;
       const field = document.querySelector<HTMLElement>('[data-test-id="editor"]')!;
       const seen = getComputedStyle(field.parentElement!).opacity !== '0';
-      const drawn = [...sheet.querySelectorAll<HTMLElement>('.part [data-row]')];
+      const drawn = [...sheet.querySelectorAll<HTMLElement>('.preview.part [data-row]')];
       const shown = seen && field.dataset.row !== undefined ? [field, ...drawn] : drawn;
       return shown
         .map((element) => {

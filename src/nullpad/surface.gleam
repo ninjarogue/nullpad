@@ -25,6 +25,8 @@ const control_id = "nullpad-control"
 
 const live_class = "live"
 
+const painted_class = "painted"
+
 /// WARNING: never swap this for `html.textarea(attrs, text)`. In Lustre 5.7.1
 /// that helper adds a `value` property, which Lustre re-assigns on the next
 /// frame after any event from the element. With "" it wipes what was typed.
@@ -65,7 +67,8 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
   let kind = editor.kind(editor)
-  let first_row = case editor.region(editor), editor.is_idle(editor) {
+  let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
+  let first_row = case editor.region(editor), drawn_whole {
     Some(live.Region(first_row:, ..)), False ->
       attribute.data(live.row_mark, int.to_string(first_row))
     Some(_), True | None, _ -> attribute.none()
@@ -113,10 +116,11 @@ fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
 }
 
 fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
-  case kind, editor.is_idle(editor) {
-    None, _ -> "editor"
-    Some(_), True -> "editor part idle"
-    Some(kind), False ->
+  case kind, editor.is_idle(editor), editor.is_painted(editor) {
+    None, _, _ -> "editor"
+    Some(_), True, _ -> "editor part idle"
+    Some(_), False, True -> "editor part " <> painted_class
+    Some(kind), False, False ->
       case kind {
         live.Body -> "editor part"
         live.Mono -> "editor part mono"
@@ -201,7 +205,10 @@ fn on_drag(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   })
 }
 
+/// Brings the field and the page to what `editor` says, and paints its
+/// selection when it is painted.
 pub fn sync(
+  editor: Editor,
   sync: editor.Sync,
   on_event: fn(editor.Event) -> msg,
 ) -> Effect(msg) {
@@ -209,11 +216,32 @@ pub fn sync(
     let #(text, start, end, backward) = to_control(buffer)
     effect.from(fn(_) { write_control(control_id, text, start, end, backward) })
   }
+  let painted = effect.before_paint(fn(_, _) { paint(editor) })
   case sync {
-    editor.InSync -> effect.none()
-    editor.Write(buffer) -> effect.batch([write(buffer), focus()])
-    editor.WriteQuietly(buffer) -> write(buffer)
-    editor.WriteAndStep(buffer, ..) -> write(buffer)
+    editor.InSync -> painted
+    editor.Write(buffer) -> effect.batch([write(buffer), focus(), painted])
+    editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
+    editor.WriteAndStep(buffer, x:, up:) ->
+      effect.batch([
+        write(buffer),
+        effect.before_paint(fn(dispatch, _) {
+          paint(editor)
+          let place =
+            step_head(
+              control_id,
+              live_class,
+              live.row_mark,
+              painted_class,
+              x,
+              up,
+            )
+          case place {
+            #(row, visible, at_end) if row >= 0 ->
+              dispatch(on_event(editor.Stepped(row:, visible:, at_end:, x:)))
+            _ -> Nil
+          }
+        }),
+      ])
     editor.WriteAndAim(buffer, x:, line:) ->
       effect.batch([
         write(buffer),
@@ -236,6 +264,7 @@ pub fn sync(
             ),
           )
         }),
+        painted,
       ])
     // Blurred at once, because a key pressed before the next paint would
     // still be typed into the field, and again before that paint, after any
@@ -245,7 +274,49 @@ pub fn sync(
         write(buffer),
         effect.from(fn(_) { blur_control(control_id) }),
         effect.before_paint(fn(_, _) { blur_control(control_id) }),
+        painted,
       ])
+  }
+}
+
+/// The selection is painted from where each of its ends is drawn, and a
+/// blank line counts as selected when its line break is.
+fn paint(editor: Editor) -> Nil {
+  case editor.is_painted(editor) {
+    False -> clear_paint()
+    True -> {
+      let buffer = editor.buffer(editor)
+      let lines = buffer.lines(buffer)
+      let #(anchor, head) = buffer.selection(buffer)
+      let place = fn(at: Position) {
+        let #(row, visible) =
+          holder_text(control_id, live_class, live.row_mark, at.row)
+        #(row, utf16_length(live.drawn(lines, row:, visible:, at:)))
+      }
+      let #(start, end) = case
+        anchor.row < head.row || anchor.row == head.row && anchor.col < head.col
+      {
+        True -> #(anchor, head)
+        False -> #(head, anchor)
+      }
+      let first_blank = case start.col {
+        0 -> start.row
+        _ -> start.row + 1
+      }
+      let #(anchor_row, anchor_offset) = place(anchor)
+      let #(head_row, head_offset) = place(head)
+      paint_selection(
+        control_id,
+        live_class,
+        live.row_mark,
+        anchor_row,
+        anchor_offset,
+        head_row,
+        head_offset,
+        first_blank,
+        end.row - 1,
+      )
+    }
   }
 }
 
@@ -356,8 +427,8 @@ fn edge_decoder(
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
     "ArrowUp" if plain && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if plain && head.row == end.row -> Ok(editor.Down)
-    "ArrowUp" if shifted && head.row == 0 -> Ok(editor.SelectUp)
-    "ArrowDown" if shifted && head.row == end.row -> Ok(editor.SelectDown)
+    "ArrowUp" if shifted -> Ok(editor.SelectUp)
+    "ArrowDown" if shifted -> Ok(editor.SelectDown)
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
     "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
     "a" | "A" if command && !shift -> Ok(editor.SelectAll)
@@ -371,13 +442,23 @@ fn edge_decoder(
     use edge <- result.try(wanted)
     use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
     case edge {
-      editor.Up | editor.SelectUp ->
+      editor.Up ->
         case caret_line(control_id) {
           #(True, _, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
-      editor.Down | editor.SelectDown ->
+      editor.Down ->
         case caret_line(control_id) {
+          #(_, True, x) -> Ok(#(edge, x))
+          _ -> Error(Nil)
+        }
+      editor.SelectUp ->
+        case head_line(control_id, live_class, painted_class) {
+          #(True, _, x) -> Ok(#(edge, x))
+          _ -> Error(Nil)
+        }
+      editor.SelectDown ->
+        case head_line(control_id, live_class, painted_class) {
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
@@ -462,6 +543,47 @@ fn drawn_in_page(id: String, live_class: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "caretLine")
 fn caret_line(id: String) -> #(Bool, Bool, Float)
+
+@external(javascript, "./surface.ffi.mjs", "headLine")
+fn head_line(
+  id: String,
+  live_class: String,
+  painted_class: String,
+) -> #(Bool, Bool, Float)
+
+@external(javascript, "./surface.ffi.mjs", "stepHead")
+fn step_head(
+  id: String,
+  live_class: String,
+  row_mark: String,
+  painted_class: String,
+  x: Float,
+  up: Bool,
+) -> #(Int, String, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "holderText")
+fn holder_text(
+  id: String,
+  live_class: String,
+  row_mark: String,
+  row: Int,
+) -> #(Int, String)
+
+@external(javascript, "./surface.ffi.mjs", "paintSelection")
+fn paint_selection(
+  id: String,
+  live_class: String,
+  row_mark: String,
+  anchor_row: Int,
+  anchor_offset: Int,
+  head_row: Int,
+  head_offset: Int,
+  first_blank: Int,
+  last_blank: Int,
+) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "clearPaint")
+fn clear_paint() -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "aimControl")
 fn aim_control(

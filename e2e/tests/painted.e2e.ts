@@ -216,8 +216,8 @@ test('a selection across blocks is painted at phone width too, and the page stay
   await page.stopEditing();
   const before = await page.layout();
 
-  await page.drag(await page.pointAt('Trip'), await page.pointAt('Shoes'));
-  await expect.poll(() => page.painted()).toBe('TripFlights are booked and the hotel is not.Passport');
+  await page.drag(await page.pointAt('Trip'), await page.pointAt('last'));
+  await expect.poll(() => page.painted()).toBe('TripFlights are booked and the hotel is not.PassportShoes');
   expectSameLayout(await page.layout(), before);
   const widths = await browser.evaluate(() => ({
     window: innerWidth,
@@ -227,5 +227,5 @@ test('a selection across blocks is painted at phone width too, and the page stay
 
   await browser.keyboard.type('X');
   await page.markdown.tap();
-  await expect(page.text).toHaveValue('XShoes\n\nlast');
+  await expect(page.text).toHaveValue('Xlast');
 });

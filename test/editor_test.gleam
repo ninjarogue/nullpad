@@ -624,6 +624,49 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
   assert sync == editor.WriteAndStep(caret("- one", 0, 4), x: 7.0, up: True)
 }
 
+pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
+  let shown = caret("# Trip", 0, 3)
+  let Outcome(editor: ed, ..) =
+    live(live_note)
+    |> editor.update(editor.EdgePressed(editor.SelectDown, x: 12.5, shown:))
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EdgePressed(editor.SelectUp, x: 12.5, shown:))
+  assert sync == editor.InSync
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Stepped(row: 1, visible: "", at_end: True, x: 12.5),
+    )
+  assert sync
+    == editor.WriteAndStep(
+      selected("# Trip\n", from: Position(0, 3), to: Position(1, 0)),
+      x: 12.5,
+      up: True,
+    )
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Stepped(row: 0, visible: "Tr", at_end: False, x: 12.5),
+    )
+  assert sync
+    == editor.Write(
+      caret("# Trip", 0, 4)
+      |> buffer.select(anchor: Position(0, 3), head: Position(0, 4)),
+    )
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectDown,
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  let assert editor.WriteAndStep(..) = sync
+}
+
 pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     live(live_note)

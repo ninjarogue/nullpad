@@ -59,7 +59,7 @@ function measure(control) {
     range.setStart(ruler.firstChild, offset);
     range.setEnd(ruler.firstChild, offset + 1);
     const box = range.getClientRects()[0] ?? range.getBoundingClientRect();
-    return { top: Math.round(box.top), x: box.left - left };
+    return { top: Math.round(box.top), x: box.left - left, height: box.height };
   };
 }
 
@@ -131,11 +131,16 @@ export function locate(press, rowMark) {
   const none = [-1, "", false];
   const target = press.target;
   const page = press.currentTarget;
-  const marked = `[data-${rowMark}]`;
   if (press.button !== 0 || !(target instanceof Element)) return none;
   if (target.closest("a, input, button")) return none;
   // The page's own scrollbar.
   if (target === page && press.offsetX >= target.clientWidth) return none;
+  return placeOnPage(press, page, target, rowMark);
+}
+
+function placeOnPage(press, page, target, rowMark) {
+  const none = [-1, "", false];
+  const marked = `[data-${rowMark}]`;
   const field = page.querySelector(`textarea${marked}`);
   const band = field?.getBoundingClientRect();
   if (band && press.clientY >= band.top && press.clientY < band.bottom) {
@@ -215,4 +220,196 @@ export function textWidth(text) {
   pen ??= document.createElement("canvas").getContext("2d");
   pen.font = `${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
   return pen.measureText(text).width;
+}
+
+// A selection across blocks is painted over the drawn page with the CSS
+// Custom Highlight API, which draws no box for an empty line: a blank line
+// inside the selection takes a class instead.
+const SELECTION = "nullpad-selection";
+const HEAD = "nullpad-head";
+const SELECTED = "selected";
+let selectedBlanks = [];
+
+function drawnMarks(id, liveClass, rowMark) {
+  const page = document.getElementById(id)?.closest("." + liveClass);
+  return page ? [...page.querySelectorAll(`[data-${rowMark}]:not(textarea)`)] : [];
+}
+
+// The marks are in the order of the page, and their rows never go down.
+function lastAtOrBefore(marks, row, rowMark) {
+  let low = 0;
+  let high = marks.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (Number(marks[middle].dataset[rowMark]) <= row) {
+      found = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return found;
+}
+
+// The innermost element drawn from `row` or a row above it.
+export function holderText(id, liveClass, rowMark, row) {
+  const marks = drawnMarks(id, liveClass, rowMark);
+  const holder = marks[lastAtOrBefore(marks, row, rowMark)];
+  return holder ? [Number(holder.dataset[rowMark]), holder.textContent] : [row, ""];
+}
+
+// At the boundary of two pieces of text, the end of the first.
+function pointIn(holder, offset) {
+  const texts = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+  let last = null;
+  for (let text = texts.nextNode(); text; text = texts.nextNode()) {
+    if (offset <= text.data.length) return [text, offset];
+    offset -= text.data.length;
+    last = text;
+  }
+  return last ? [last, last.data.length] : [holder, 0];
+}
+
+export function paintSelection(
+  id, liveClass, rowMark, anchorRow, anchorOffset, headRow, headOffset, firstBlank, lastBlank,
+) {
+  clearBlanks();
+  const marks = drawnMarks(id, liveClass, rowMark);
+  const holder = (row) => marks[lastAtOrBefore(marks, row, rowMark)];
+  const anchorHolder = holder(anchorRow);
+  const headHolder = holder(headRow);
+  if (!anchorHolder || !headHolder || typeof Highlight !== "function") return;
+  const [anchorNode, anchorAt] = pointIn(anchorHolder, anchorOffset);
+  const [headNode, headAt] = pointIn(headHolder, headOffset);
+  const range = document.createRange();
+  range.setStart(anchorNode, anchorAt);
+  range.setEnd(anchorNode, anchorAt);
+  if (range.comparePoint(headNode, headAt) >= 0) range.setEnd(headNode, headAt);
+  else range.setStart(headNode, headAt);
+  const head = document.createRange();
+  head.setStart(headNode, headAt);
+  CSS.highlights.set(SELECTION, new Highlight(range));
+  CSS.highlights.set(HEAD, new Highlight(head));
+  for (let at = Math.max(lastAtOrBefore(marks, firstBlank - 1, rowMark) + 1, 0); at < marks.length; at++) {
+    const mark = marks[at];
+    if (Number(mark.dataset[rowMark]) > lastBlank) break;
+    if (mark.classList.contains("blank")) {
+      mark.classList.add(SELECTED);
+      selectedBlanks.push(mark);
+    }
+  }
+}
+
+function clearBlanks() {
+  for (const blank of selectedBlanks) blank.classList.remove(SELECTED);
+  selectedBlanks = [];
+}
+
+export function clearPaint() {
+  clearBlanks();
+  globalThis.CSS?.highlights?.delete(SELECTION);
+  globalThis.CSS?.highlights?.delete(HEAD);
+}
+
+function lineHeight(element) {
+  const style = getComputedStyle(element);
+  return parseFloat(style.lineHeight) || 1.2 * parseFloat(style.fontSize);
+}
+
+function columnLeft(page) {
+  return page.getBoundingClientRect().left + parseFloat(getComputedStyle(page).paddingLeft);
+}
+
+// A collapsed range has no box at a soft wrap or in an element with no
+// text, so the character beside it, or the element, is measured instead.
+function caretBox(range) {
+  const node = range.startContainer;
+  const offset = range.startOffset;
+  const element = node instanceof Element ? node : node.parentElement;
+  if (node.nodeType === Node.TEXT_NODE) {
+    const one = document.createRange();
+    if (offset < node.data.length && node.data[offset] !== "\n") {
+      one.setStart(node, offset);
+      one.setEnd(node, offset + 1);
+      const after = one.getClientRects()[0];
+      if (after) return new DOMRect(after.left, after.top, 0, after.height);
+    }
+    if (offset > 0) {
+      one.setStart(node, offset - 1);
+      one.setEnd(node, offset);
+      const before = [...one.getClientRects()].pop();
+      if (before) return new DOMRect(before.right, before.top, 0, before.height);
+    }
+  }
+  const box = element.getBoundingClientRect();
+  return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));
+}
+
+function paintedHead() {
+  const marker = globalThis.CSS?.highlights?.get(HEAD);
+  const head = marker && [...marker][0];
+  if (!head) return null;
+  const node = head.startContainer;
+  const element = node instanceof Element ? node : node.parentElement;
+  return { box: caretBox(head), line: lineHeight(element) };
+}
+
+function fieldCaret(control) {
+  const place = measure(control);
+  const backward = control.selectionDirection === "backward";
+  const caret = place(backward ? control.selectionStart : control.selectionEnd);
+  const box = control.getBoundingClientRect();
+  const top = box.top + caret.top - ruler.getBoundingClientRect().top - control.scrollTop;
+  return { box: new DOMRect(box.left + caret.x, top, 0, caret.height), line: lineHeight(control) };
+}
+
+// Where the head of the selection is drawn: on the first line of the field,
+// on its last line, and how far from the left of the text. A painted head is
+// on both, so every step is taken on the drawn page.
+export function headLine(id, liveClass, paintedClass) {
+  const control = document.getElementById(id);
+  const page = control?.closest("." + liveClass);
+  if (!page) return [false, false, 0];
+  if (control.closest("." + paintedClass)) {
+    const head = paintedHead();
+    return head ? [true, true, head.box.left - columnLeft(page)] : [false, false, 0];
+  }
+  const [first, last, x] = caretLine(id);
+  return [first, last, control.getBoundingClientRect().left + x - columnLeft(page)];
+}
+
+// The place on the drawn page `x` from the left of the text, one drawn line
+// above or below the head, or the head's own place when there is no line
+// there. The head is first kept two lines inside the page, because the
+// browser names no place off the screen.
+export function stepHead(id, liveClass, rowMark, paintedClass, x, up) {
+  const none = [-1, "", false];
+  const control = document.getElementById(id);
+  const page = control?.closest("." + liveClass);
+  if (!page) return none;
+  const painted = control.closest("." + paintedClass) !== null;
+  const head = () => (painted ? paintedHead() : fieldCaret(control));
+  const before = head();
+  if (!before) return none;
+  const view = page.getBoundingClientRect();
+  const room = 2 * before.line;
+  if (before.box.top < view.top + room) page.scrollTop -= view.top + room - before.box.top;
+  else if (before.box.bottom > view.bottom - room) {
+    page.scrollTop += before.box.bottom - (view.bottom - room);
+  }
+  const { box, line } = head();
+  const left = columnLeft(page) + x;
+  const at = (y) => {
+    const target = document.elementFromPoint(left, y);
+    const step = { clientX: left, clientY: y, type: "step", detail: 1, shiftKey: true };
+    return placeOnPage(step, page, page.contains(target) ? target : page, rowMark);
+  };
+  const middle = box.top + box.height / 2;
+  const here = at(middle);
+  for (const reach of [1, 1.5, 2, 3, 4]) {
+    const there = at(middle + (up ? -reach : reach) * line);
+    if (there[0] >= 0 && there.join("\n") !== here.join("\n")) return there;
+  }
+  return here;
 }

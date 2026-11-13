@@ -88,7 +88,7 @@ function note(kb) {
 function opened(text) {
   const ignore = () => undefined;
   const backend = new storage.Backend(ignore, ignore, ignore, ignore, ignore);
-  const flags = new app.Flags(storage.new$(backend), false, false, false);
+  const flags = new app.Flags(storage.new$(backend), false, false, false, true);
   const [model] = app.init(flags);
   const ready = model.withFields({
     editor: editor.open(model.editor, text).editor,

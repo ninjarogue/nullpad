@@ -135,10 +135,39 @@ fn match(line: List(String), visible: List(String), col: Int) -> Int {
 /// whose first row is `row`, and whose drawn text is `visible`, to where `at`
 /// is drawn. A row past the element's drawn rows is drawn at its end.
 pub fn drawn(
-  _lines: List(String),
-  row _row: Int,
-  visible _visible: String,
-  at _at: Position,
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
 ) -> String {
-  ""
+  let drawn_rows = string.split(visible, "\n")
+  let index = at.row - row
+  case list.drop(drawn_rows, index), index < 0 {
+    _, True -> ""
+    [], False -> visible
+    [here, ..], False -> {
+      let line = lines |> list.drop(at.row) |> list.first |> result.unwrap("")
+      let typed = string.to_graphemes(line)
+      let before =
+        unmatch(typed, string.to_graphemes(here), at.col, [])
+        |> list.reverse
+        |> string.concat
+      string.join(list.append(list.take(drawn_rows, index), [before]), "\n")
+    }
+  }
+}
+
+fn unmatch(
+  line: List(String),
+  visible: List(String),
+  left: Int,
+  taken: List(String),
+) -> List(String) {
+  case line, visible {
+    _, _ if left <= 0 -> taken
+    _, [] | [], _ -> taken
+    [typed, ..line], [drawn, ..visible] if typed == drawn ->
+      unmatch(line, visible, left - 1, [drawn, ..taken])
+    [_, ..line], _ -> unmatch(line, visible, left - 1, taken)
+  }
 }

@@ -405,6 +405,34 @@ button[aria-pressed="true"] {
   overflow: hidden;
 }
 
+/* A selection across blocks is painted over the drawn page. The field keeps
+   the focus and the selected rows out of sight, one line tall: a field with
+   no height copies only line breaks and loses what an IME composes. */
+.page.live > .editor.part.painted {
+  height: 1.7rem;
+  left: 0;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  top: 50vh;
+  width: min(46rem, 100vw);
+}
+
+::highlight(nullpad-selection) {
+  background-color: Highlight;
+  color: HighlightText;
+}
+
+.page.live .blank.selected::before {
+  background: Highlight;
+  content: "";
+  display: block;
+  height: 100%;
+  width: 0.5em;
+}
+
 .editor.part.mono > * {
   font: 0.875rem/1.5 var(--text-font);
   font-variant-ligatures: none;

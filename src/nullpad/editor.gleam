@@ -10,8 +10,27 @@ import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
 /// Every change to `buffer` goes through `edit` or `compose`.
+///
+/// `waiting` holds the steps of Shift and an arrow up or down that the page
+/// has not placed yet, True for up. Only the first is asked for, so each
+/// step is measured on a page that shows the step before it.
 pub opaque type Editor {
-  Editor(buffer: Buffer, keys: Keys, field: Field, focus: Focus, paints: Bool)
+  Editor(
+    buffer: Buffer,
+    keys: Keys,
+    field: Field,
+    focus: Focus,
+    paints: Bool,
+    goal: Option(Goal),
+    waiting: List(Bool),
+  )
+}
+
+/// Where a run of Shift and an arrow up or down aims on the drawn page: `x`
+/// from the left of the text, for as long as the head stays at `head`, where
+/// the last step put it.
+type Goal {
+  Goal(head: Position, x: Float)
 }
 
 type Focus {
@@ -39,6 +58,13 @@ type Field {
   /// browser can give it the focus back, and an IME owns the field it
   /// composes in.
   Part(rows: Region, drawn: List(Block), parsed: List(Block), composing: Bool)
+}
+
+/// What the surface does after a key at the edge of the field.
+type Then {
+  Done
+  Aim(Line)
+  StepLine(up: Bool)
 }
 
 /// What an edit changed, by the rows the field holds.
@@ -137,6 +163,8 @@ pub fn new(
     },
     focus: Away,
     paints:,
+    goal: None,
+    waiting: [],
   )
 }
 
@@ -200,7 +228,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         Whole -> outcome
         Part(..) -> {
           let editor =
-            Editor(..outcome.editor, focus: Away)
+            Editor(..outcome.editor, focus: Away, waiting: [])
             |> edit(outcome.editor.buffer)
             |> realign
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
@@ -210,13 +238,13 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
     Pointed(row:, visible:, at_end:) -> {
       let lines = buffer.lines(editor.buffer)
       let position = live.position(lines, row:, visible:, at_end:)
-      Editor(..editor, focus: Pressing)
+      Editor(..editor, focus: Pressing, waiting: [])
       |> edit(buffer.move_to(editor.buffer, position))
       |> realign
       |> write
     }
     ShiftPointed(row:, visible:, at_end:, shown:) ->
-      Editor(..editor, focus: Pressing)
+      Editor(..editor, focus: Pressing, waiting: [])
       |> reach(base(editor, shown), row:, visible:, at_end:)
       |> write
     Dragged(row:, visible:, at_end:) ->
@@ -231,7 +259,19 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
         Away | Focused -> Outcome(editor:, sync: InSync, requests: [])
       }
-    Stepped(..) -> Outcome(editor:, sync: InSync, requests: [])
+    Stepped(row:, visible:, at_end:, x:) -> {
+      let stepped = reach(editor, editor.buffer, row:, visible:, at_end:)
+      let goal = Some(Goal(head: buffer.cursor(stepped.buffer), x:))
+      let waiting = list.drop(editor.waiting, 1)
+      let stepped = Editor(..stepped, goal:, waiting:)
+      case waiting {
+        [] -> write(stepped)
+        [up, ..] -> {
+          let sync = WriteAndStep(field_buffer(stepped), x:, up:)
+          Outcome(editor: stepped, sync:, requests: [])
+        }
+      }
+    }
     Released -> {
       let focus = case editor.focus {
         Pressing | Focused -> Focused
@@ -328,44 +368,40 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let live = editor.field != Whole
   let row_above = live && cursor.row > 0
   let row_below = live && cursor.row < list.length(lines) - 1
-  let #(anchor, _) = buffer.selection(base)
-  let reach = fn(head) { #(buffer.select(base, anchor:, head:), None) }
+  let #(anchor, head) = buffer.selection(base)
+  let reach = fn(head) { #(buffer.select(base, anchor:, head:), Done) }
+  let goal = case editor.goal {
+    Some(Goal(head: aimed, x: kept)) if aimed == head -> kept
+    Some(_) | None -> x
+  }
   let start = Position(row: 0, col: 0)
   let end = end_of_row(list.length(lines) - 1)
-  let #(wanted, aim) = case edge {
+  let #(wanted, then) = case edge {
     Up if row_above -> #(
       buffer.move_to(base, end_of_row(cursor.row - 1)),
-      Some(LastLine),
+      Aim(LastLine),
     )
     Down if row_below -> #(
       buffer.move_to(base, Position(row: cursor.row + 1, col: 0)),
-      Some(FirstLine),
+      Aim(FirstLine),
     )
     JoinBefore if row_above -> {
       let from = end_of_row(cursor.row - 1)
       let to = Position(row: cursor.row, col: 0)
-      #(buffer.replace(base, from:, to:, with: ""), None)
+      #(buffer.replace(base, from:, to:, with: ""), Done)
     }
     JoinAfter if row_below -> {
       let from = end_of_row(cursor.row)
       let to = Position(row: cursor.row + 1, col: 0)
-      #(buffer.replace(base, from:, to:, with: ""), None)
+      #(buffer.replace(base, from:, to:, with: ""), Done)
     }
-    SelectUp if row_above -> #(
-      buffer.select(base, anchor:, head: end_of_row(cursor.row - 1)),
-      Some(LastLine),
-    )
-    SelectDown if row_below -> #(
-      buffer.select(base, anchor:, head: Position(row: cursor.row + 1, col: 0)),
-      Some(FirstLine),
-    )
-    SelectUp if live -> reach(start)
-    SelectDown if live -> reach(end)
+    SelectUp if live -> #(base, StepLine(up: True))
+    SelectDown if live -> #(base, StepLine(up: False))
     SelectBefore if row_above -> reach(end_of_row(cursor.row - 1))
     SelectAfter if row_below -> reach(Position(row: cursor.row + 1, col: 0))
     SelectToStart -> reach(start)
     SelectToEnd -> reach(end)
-    SelectAll -> #(buffer.select(base, anchor: start, head: end), None)
+    SelectAll -> #(buffer.select(base, anchor: start, head: end), Done)
     Up
     | Down
     | JoinBefore
@@ -373,14 +409,20 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | SelectUp
     | SelectDown
     | SelectBefore
-    | SelectAfter -> #(base, None)
+    | SelectAfter -> #(base, Done)
   }
-  let editor = edit(editor, wanted) |> realign
+  let waiting = case then {
+    StepLine(up:) -> list.append(editor.waiting, [up])
+    Done | Aim(_) -> editor.waiting
+  }
+  let first = editor.waiting == []
+  let editor = Editor(..edit(editor, wanted), waiting:) |> realign
   let wanted_shown = field_buffer(editor)
-  let sync = case aim, wanted_shown == shown {
-    Some(line), _ -> WriteAndAim(wanted_shown, x:, line:)
-    None, True -> InSync
-    None, False -> Write(wanted_shown)
+  let sync = case then, wanted_shown == shown {
+    Aim(line), _ -> WriteAndAim(wanted_shown, x:, line:)
+    StepLine(up:), _ if first -> WriteAndStep(wanted_shown, x: goal, up:)
+    StepLine(_), True | Done, True -> InSync
+    StepLine(_), False | Done, False -> Write(wanted_shown)
   }
   Outcome(editor:, sync:, requests: [])
 }
@@ -599,8 +641,15 @@ pub fn blocks(editor: Editor) -> List(Block) {
 /// A selection that reaches past the block it ends in is painted over the
 /// drawn page, which is drawn whole. The field keeps the focus and the
 /// selected rows, and is not seen.
-pub fn is_painted(_editor: Editor) -> Bool {
-  False
+pub fn is_painted(editor: Editor) -> Bool {
+  let #(anchor, head) = buffer.selection(editor.buffer)
+  case editor.paints, editor.field, editor.focus {
+    True, Part(rows:, drawn:, ..), Focused
+    | True, Part(rows:, drawn:, ..), Pressing
+    ->
+      anchor != head && rows != live.reveal(drawn, from: head.row, to: head.row)
+    True, Part(..), Away | True, Whole, _ | False, _, _ -> False
+  }
 }
 
 pub fn is_idle(editor: Editor) -> Bool {
