@@ -321,9 +321,15 @@ fn paint(editor: Editor) -> Nil {
 }
 
 pub fn focus() -> Effect(msg) {
-  // A pane that was hidden cannot take focus until the next render puts it
-  // back on screen.
-  effect.before_paint(fn(_, _) { focus_control(control_id) })
+  // At once, because a key pressed before the next paint goes where the
+  // focus is, and the field is where the editor's keys are read. Again
+  // before that paint, because a pane that was hidden cannot take focus
+  // until the next render puts it back on screen, and the field is only
+  // scrolled to once it is drawn where it belongs.
+  effect.batch([
+    effect.from(fn(_) { focus_control_in_place(control_id) }),
+    effect.before_paint(fn(_, _) { focus_control(control_id) }),
+  ])
 }
 
 /// `selectionStart` and `selectionEnd` are UTF-16 offsets, and the head is
@@ -550,6 +556,9 @@ fn text_width(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
 fn focus_control(id: String) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "focusControlInPlace")
+fn focus_control_in_place(id: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil

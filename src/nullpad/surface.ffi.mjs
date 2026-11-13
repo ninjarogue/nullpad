@@ -23,6 +23,10 @@ export function focusControl(id) {
   control?.scrollIntoView({ block: "nearest" });
 }
 
+export function focusControlInPlace(id) {
+  document.getElementById(id)?.focus({ preventScroll: true });
+}
+
 export function blurControl(id) {
   document.getElementById(id)?.blur();
 }
