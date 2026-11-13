@@ -195,6 +195,7 @@ console.log(`${KEYS} keys of each kind after ${WARMUP} warm-up keys, one update 
 // changed, none when it did not. A variant of `editor.Event` with no entry
 // here fails, so a new event cannot arrive unmeasured. An entry that gives a
 // list sends all but the last before counting, to reach the state it measures.
+// A function in the list makes its event from the field as it is by then.
 const vim = await load("nullpad/nullpad/vim.mjs");
 
 // `surface.view` measures a list marker's width when the caret is in a list.
@@ -209,7 +210,7 @@ const events = {
     ["moved", (field) => new editor.ControlChanged(moved(field, 0), 0)],
     ["typed after a pause", (field) => [
       new editor.ControlChanged(typed(field), 0),
-      new editor.ControlChanged(typed(field), 60000),
+      (now) => new editor.ControlChanged(typed(now), 60000),
     ]],
   ],
   Composing: [
@@ -334,6 +335,9 @@ for (const variant of declared) {
   }
 }
 
+const madeNow = (event, model) =>
+  typeof event === "function" ? event(editor.field_buffer(model.editor)) : event;
+
 const every = [];
 for (const withVim of [false, true]) {
   for (const variant of declared) {
@@ -347,14 +351,14 @@ for (const withVim of [false, true]) {
       const made = [make(field, row)].flat();
       let next;
       try {
-        for (const setup of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(setup));
+        for (const setup of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(madeNow(setup, model)));
       } catch (error) {
         if (error.gleam_error !== "todo") throw error;
       }
       const text = editor.text(model.editor);
       const count = globalThis.parses;
       try {
-        [next] = app.update(model, new app.EditorSent(made.at(-1)));
+        [next] = app.update(model, new app.EditorSent(madeNow(made.at(-1), model)));
         app.view(next);
       } catch (error) {
         if (error.gleam_error !== "todo") throw error;
