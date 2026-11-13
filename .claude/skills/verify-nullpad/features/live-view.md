@@ -6,6 +6,7 @@ The note is always drawn as a page while you write it, unless Markdown is on. Th
 
 - `live-markdown` the Markdown button (`aria-pressed`) or Ctrl+E turns the page off: the text field then holds the whole note as raw markdown, with no drawn parts and no `preview`. It is remembered across reloads in localStorage `nullpad.markdown`. A fresh browser starts with it off.
 - `live-block` the field holds one unit: a top-level block (heading, paragraph, quote, code block, table), or one item of a top-level list. A blank row between blocks is a unit of its own.
+- `live-lists` a list the field splits is drawn as the one list it is: the items on each side keep the whole list's spacing, and the items below the field are numbered on from the items above it, whatever numbers were typed (`1.` on every line draws 1, the field, 3, 4).
 - `live-type` typing changes only those rows of the note. A blank line and then text starts a new block: the field moves to it and the block before is drawn. Text typed on a blank row between two paragraphs joins them, and the field then holds all three rows.
 - `live-arrows` ArrowUp on the field's first drawn line moves to the row above, ArrowDown on its last drawn line to the row below. Inside a wrapped paragraph the arrows move by drawn line first.
 - `live-join` Backspace at the start of the field joins it to the row above. Delete at its end joins the row below to it.

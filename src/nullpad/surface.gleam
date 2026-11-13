@@ -14,7 +14,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/float
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lustre/attribute
@@ -53,7 +53,12 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
-  html.div([attribute.class(classes(editor)), marker(editor)], [
+  let kind = {
+    use field <- option.map(editor.region(editor))
+    let lines = buffer.lines(editor.buffer(editor))
+    live.kind(editor.blocks(editor), field:, lines:)
+  }
+  html.div([attribute.class(classes(editor, kind)), marker(kind)], [
     mirror(editor),
     element.element(
       "textarea",
@@ -88,23 +93,23 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
 /// the words stay where the drawn item had them, on every wrapped line. It is
 /// measured here, as the view is built: CSS cannot measure typed text, and a
 /// width set after the draw would show the item one frame out of place.
-fn marker(editor: Editor) -> attribute.Attribute(msg) {
-  let text = buffer.text(editor.field_buffer(editor))
-  case editor.region(editor), live.kind(text) {
-    Some(_), live.ListItem(marker:, ..) ->
+fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
+  case kind {
+    Some(live.ListItem(marker:, ..)) ->
       attribute.style("--marker", float.to_string(text_width(marker)) <> "px")
-    _, _ -> attribute.none()
+    Some(live.Body) | Some(live.Mono) | Some(live.Title(_)) | None ->
+      attribute.none()
   }
 }
 
 /// Live view sets the field like the block it holds, so the words barely
 /// move when a block turns into its markdown. `idle` hides the field.
-fn classes(editor: Editor) -> String {
-  case editor.region(editor), editor.is_idle(editor) {
+fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
+  case kind, editor.is_idle(editor) {
     None, _ -> "editor"
     Some(_), True -> "editor part idle"
-    Some(_), False ->
-      case live.kind(buffer.text(editor.field_buffer(editor))) {
+    Some(kind), False ->
+      case kind {
         live.Body -> "editor part"
         live.Mono -> "editor part mono"
         live.ListItem(task: False, ..) -> "editor part item"

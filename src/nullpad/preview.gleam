@@ -4,15 +4,17 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import nullpad/markdown.{
-  type Alignment, type Block, type Cell, type Column, type Inline, type Item,
-  type Level, type Spacing, type Task, BulletList, Center, Code, CodeBlock,
-  Emphasis, H1, H2, H3, H4, H5, H6, Heading, Left, Link, OrderedList, Paragraph,
-  Quote, Right, Rule, Strike, Strong, Table, Text, Tight, Unaligned,
+  type Alignment, type Block, type Cell, type Column, type Content, type Inline,
+  type Item, type Level, type Spacing, type Task, Block, BulletList, Center,
+  Code, CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Left, Link,
+  OrderedList, Paragraph, Quote, Right, Rule, Strike, Strong, Table, Text, Tight,
+  Unaligned,
 }
 
 /// Safe by construction: all text goes through `element.text` (escaped) and
@@ -35,11 +37,15 @@ pub fn view(
   )
 }
 
-/// A run of `rows` rows of the note drawn as a page, beside the text field.
-/// `first_row` is where the run starts in the note. Each element carries
-/// the note row it starts on as `data-row`, which is how a click finds its
-/// place in the source (`surface.on_point`), and a ticked task names its row
-/// in the note, not in the run.
+/// A run of `rows` rows of the note drawn as a page, beside the text field,
+/// from the whole note's `blocks`. `first_row` is where the run starts in the
+/// note. Each element carries the note row it starts on as `data-row`, which
+/// is how a click finds its place in the source (`surface.on_point`).
+///
+/// A list the run cuts shows the items inside the run, spaced and numbered
+/// as in the whole list. Any other block the run cuts is left out and its
+/// rows are blank: the field's rows cut a block only while a composition
+/// holds them.
 ///
 /// A row outside every block is blank, and is drawn as one empty line
 /// (`div.blank`), so every row of the note has a place on the page.
@@ -50,16 +56,54 @@ pub fn part(
   test_id test_id: String,
   on_task on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
-  let on_task = fn(task: Task, checked) {
-    on_task(markdown.Task(..task, row: task.row + first_row), checked)
-  }
-  let marks = Marked(first_row)
+  let to = first_row + rows
   html.div(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
-    spaced(blocks, from: 0, to: rows, rows: marks, draw: fn(shown) {
-      [block(shown, marks, on_task)]
-    }),
+    inside(blocks, from: first_row, to:)
+      |> spaced(from: first_row, to:, rows: Marked, draw: fn(shown) {
+        [block(shown, Marked, on_task)]
+      }),
   )
+}
+
+fn inside(blocks: List(Block), from from: Int, to to: Int) -> List(Block) {
+  let within = fn(first_row, last_row) { first_row >= from && last_row < to }
+  use shown <- list.filter_map(blocks)
+  let cut = fn(items: List(Item), content: fn(Int, List(Item)) -> Content) {
+    let is_inside = fn(item: Item) { within(item.row, last_row(item)) }
+    let #(before, rest) = list.split_while(items, fn(item) { !is_inside(item) })
+    case list.take_while(rest, is_inside) {
+      [] -> Error(Nil)
+      [first, ..] as kept -> {
+        let last = list.last(kept) |> result.unwrap(first)
+        let content = content(list.length(before), kept)
+        Ok(Block(first_row: first.row, last_row: last_row(last), content:))
+      }
+    }
+  }
+  case within(shown.first_row, shown.last_row), shown.content {
+    True, _ -> Ok(shown)
+    False, BulletList(spacing, items) ->
+      cut(items, fn(_, kept) { BulletList(spacing, kept) })
+    False, OrderedList(start, spacing, items) ->
+      cut(items, fn(skipped, kept) {
+        OrderedList(start + skipped, spacing, kept)
+      })
+    False, Heading(..)
+    | False, Paragraph(..)
+    | False, Quote(..)
+    | False, CodeBlock(..)
+    | False, Rule
+    | False, Table(..)
+    -> Error(Nil)
+  }
+}
+
+fn last_row(item: Item) -> Int {
+  case list.last(item.blocks) {
+    Ok(child) -> child.last_row
+    Error(Nil) -> item.row
+  }
 }
 
 /// `blocks` drawn in order, with one empty line for each blank row before,
@@ -88,26 +132,36 @@ fn blanks(
   from from: Int,
   to to: Int,
 ) -> List(Element(msg)) {
-  case rows, from < to {
-    Unmarked, _ | _, False -> []
-    Marked(..), True -> [
-      tag([attribute.class("blank"), ..at(rows, from)], []),
-      ..blanks(tag, rows, from: from + 1, to:)
-    ]
+  case rows {
+    Unmarked -> []
+    Marked -> blank_rows(tag, from:, row: to - 1, drawn: [])
+  }
+}
+
+fn blank_rows(
+  tag: fn(List(attribute.Attribute(msg)), List(Element(msg))) -> Element(msg),
+  from from: Int,
+  row row: Int,
+  drawn drawn: List(Element(msg)),
+) -> List(Element(msg)) {
+  case row < from {
+    True -> drawn
+    False -> {
+      let blank = tag([attribute.class("blank"), ..at(Marked, row)], [])
+      blank_rows(tag, from:, row: row - 1, drawn: [blank, ..drawn])
+    }
   }
 }
 
 type Rows {
   Unmarked
-  Marked(first_row: Int)
+  Marked
 }
 
 fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
-    Marked(first_row:) -> [
-      attribute.data("row", int.to_string(first_row + row)),
-    ]
+    Marked -> [attribute.data("row", int.to_string(row))]
   }
 }
 
@@ -226,32 +280,22 @@ fn items(
   rows: Rows,
   on_task: fn(Task, Bool) -> msg,
 ) -> List(Element(msg)) {
-  case listed {
-    [] -> []
-    [shown, ..rest] -> {
-      let next = case rest {
-        [after, ..] -> after.row
-        [] -> end
-      }
-      let last = case list.last(shown.blocks) {
-        Ok(child) -> child.last_row + 1
-        Error(Nil) -> shown.row + 1
-      }
-      let gap =
-        blanks(
-          fn(attributes, children) {
-            html.li([attribute.aria_hidden(True), ..attributes], children)
-          },
-          rows,
-          from: last,
-          to: next,
-        )
-      [
-        item(shown, spacing, last, rows, on_task),
-        ..list.append(gap, items(rest, spacing, end, rows, on_task))
-      ]
-    }
-  }
+  let nexts =
+    list.map(listed, fn(next: Item) { next.row })
+    |> list.drop(1)
+    |> list.append([end])
+  use #(shown, next) <- list.flat_map(list.zip(listed, nexts))
+  let last = last_row(shown) + 1
+  let gap =
+    blanks(
+      fn(attributes, children) {
+        html.li([attribute.aria_hidden(True), ..attributes], children)
+      },
+      rows,
+      from: last,
+      to: next,
+    )
+  [item(shown, spacing, last, rows, on_task), ..gap]
 }
 
 fn item(

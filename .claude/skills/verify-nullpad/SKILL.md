@@ -50,7 +50,7 @@ sh .claude/skills/verify-nullpad/doctor.sh
 
 It changes nothing. Every line must start with `ok`. A `MISSING` line names the fix.
 
-A fresh clone runs no checks on `git push` until `git config core.hooksPath .githooks` is set. Without it, run the gate by hand before pushing: `gleam format --check src test && gleam test && (cd e2e && npx tsc && npm test)`.
+A fresh clone runs no checks on `git push` until `git config core.hooksPath .githooks` is set. Without it, run the gate by hand before pushing: `gleam format --check src test && gleam test && node test/keystroke_cost.mjs && (cd e2e && npx tsc && npm test)`.
 
 ## Drive
 
