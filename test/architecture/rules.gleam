@@ -19,7 +19,15 @@ import gleam/set.{type Set}
 import gleam/string
 
 /// Pure modules: no Lustre, no browser.
-const core = ["buffer", "vim", "editor", "live", "markdown", "library"]
+const core = [
+  "buffer",
+  "vim",
+  "editor",
+  "history",
+  "live",
+  "markdown",
+  "library",
+]
 
 const core_may_also_import = [#("library", "storage")]
 

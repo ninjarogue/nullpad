@@ -6,7 +6,7 @@ A markdown note editor in Gleam with Lustre. Read this before changing code.
 
 | Rule | Checked by |
 | --- | --- |
-| Every module is listed as core, shell or a storage backend. `buffer`, `vim`, `editor`, `live`, `markdown` and `library` are the pure core. | `gleam test` |
+| Every module is listed as core, shell or a storage backend. `buffer`, `vim`, `editor`, `history`, `live`, `markdown` and `library` are the pure core. | `gleam test` |
 | A core module imports only `gleam/*` and other core modules. | `gleam test` |
 | A core module's JavaScript touches no browser. | review |
 | Every function says what it takes and returns. | `gleam test` |

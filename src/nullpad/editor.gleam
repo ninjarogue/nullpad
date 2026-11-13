@@ -75,6 +75,11 @@ pub type Event {
   Dragged(row: Int, visible: String, at_end: Bool)
   Released
   FocusChanged(focused: Bool)
+  /// Undo or redo, by a key or the browser's Edit menu. The editor keeps the
+  /// history, because the browser's own is lost each time the field is
+  /// written.
+  UndoAsked
+  RedoAsked
 }
 
 /// A key that reaches past the rows the field holds. The `Select` keys move
@@ -240,6 +245,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
       Outcome(editor: changed, sync:, requests: [])
     }
+    UndoAsked | RedoAsked -> Outcome(editor:, sync: InSync, requests: [])
   }
 }
 
