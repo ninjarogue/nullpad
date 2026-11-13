@@ -1154,6 +1154,30 @@ test('the line break of a list item with a list inside is painted after its own 
   expect(bar).toMatchObject({ top: true, bottom: true });
 });
 
+test('a step still waiting for the page to draw is dropped once the field loses the focus', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await browser.keyboard.press('End');
+
+  await page.beforeRedraw(async () => {
+    await browser.keyboard.type('X');
+    await browser.keyboard.press('Shift+ArrowDown');
+    await browser.evaluate(() => {
+      document.querySelector<HTMLElement>('[aria-label="Title"]')!.focus();
+      return null;
+    });
+  });
+  await expect(page.title).toBeFocused();
+  expect(await page.painted()).toBeNull();
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(body.replace('# Trip', '# TripX'));
+  expect((await page.selection()).selected).toBe('');
+});
+
 test('keys pressed before the page draws act on the selection the keys before them made', async ({
   app,
   browser,

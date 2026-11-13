@@ -861,7 +861,7 @@ pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
   assert past(editor.SelectLeft) == start
 }
 
-pub fn a_press_or_escape_ends_the_waiting_steps_test() {
+pub fn a_press_escape_or_a_blur_ends_the_waiting_steps_test() {
   let ed = painted_from_trip_to_one()
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
@@ -883,6 +883,7 @@ pub fn a_press_or_escape_ends_the_waiting_steps_test() {
     at(editor.ShiftPointed(row:, visible:, at_end:, next:, shown:, x:, y:)),
     at(editor.SelectionPointed(row:, visible:, at_end:, next:, x:, y:)),
     at(editor.EscapePressed(shown:)),
+    at(editor.FocusChanged(focused: False)),
   ]
   use moved_on <- list.each(moved_on)
   let Outcome(editor: late, sync:, ..) =
