@@ -15,12 +15,28 @@ export function findControl(id) {
   return document.getElementById(id);
 }
 
-// In live view the page scrolls, not the control, and a control that already
-// has the focus is not scrolled to by `focus`.
-export function focusControl(id) {
+// In live view the page scrolls, not the control, which can be taller than
+// the window, and a control that already has the focus is not scrolled to by
+// `focus`. The page is scrolled to the head of the selection, as a text field
+// scrolls to its caret.
+export function focusControl(id, liveClass) {
   const control = document.getElementById(id);
-  control?.focus();
-  control?.scrollIntoView({ block: "nearest" });
+  const page = control?.closest("." + liveClass);
+  if (!page) {
+    control?.focus();
+    control?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  control.focus({ preventScroll: true });
+  const place = measure(control);
+  const style = getComputedStyle(control);
+  const head = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
+  const top = control.getBoundingClientRect().top + parseFloat(style.paddingTop) + place(head).top - place(0).top;
+  const box = page.getBoundingClientRect();
+  const above = Math.max(box.top, 0) - top;
+  const below = top + parseFloat(style.lineHeight) - Math.min(box.bottom, innerHeight);
+  if (above > 0) page.scrollTop -= above;
+  else if (below > 0) page.scrollTop += below;
 }
 
 export function focusInPlace(id) {
@@ -47,7 +63,7 @@ export function placeCaret(id, paintedClass, x, y) {
 }
 
 // Follows the pointer of a press on the page until it is let go. Once it
-// has moved `distance` away from where it was pressed, each move, and each
+// has moved more than `distance` across or down, each move, and each
 // scroll of the page under it, names the place it is over. Held near the
 // top or bottom of the page, it scrolls the page. A place the page has not
 // yet drawn, such as the rows a press has just put in the field, is named
@@ -73,7 +89,7 @@ export function follow(id, liveClass, rowMark, x, y, distance, moved, released) 
     if (letGo) return;
     if ((event.buttons & 1) === 0) return stop();
     pointer = { x: event.clientX, y: event.clientY };
-    dragging ||= Math.hypot(pointer.x - x, pointer.y - y) > distance;
+    dragging ||= Math.abs(pointer.x - x) > distance || Math.abs(pointer.y - y) > distance;
     if (dragging) report();
   };
   const scrolled = () => {
@@ -165,7 +181,7 @@ function measure(control) {
     range.setStart(ruler.firstChild, offset);
     range.setEnd(ruler.firstChild, offset + 1);
     const box = range.getClientRects()[0] ?? range.getBoundingClientRect();
-    return { top: Math.round(box.top), x: box.left - left, height: box.height };
+    return { top: Math.round(box.top), x: box.left - left, right: box.right - left, height: box.height };
   };
 }
 
@@ -190,12 +206,33 @@ export function caretLine(id) {
   if (!control) return [false, false, 0];
   const place = measure(control);
   const backward = control.selectionDirection === "backward";
-  const caret = place(backward ? control.selectionStart : control.selectionEnd);
+  const head = backward ? control.selectionStart : control.selectionEnd;
+  const caret = atLineEnd(control, head, place)
+    ? { top: place(head - 1).top, x: place(head - 1).right }
+    : place(head);
   return [
     caret.top === place(0).top,
     caret.top === place(control.value.length).top,
     caret.x,
   ];
+}
+
+// Where a line wraps, the end of that line and the start of the next share
+// an offset, and the caret may be drawn at either. Only a move to the line's
+// start tells which, and the selection is put back as it was.
+function atLineEnd(control, head, place) {
+  const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = control;
+  if (head === 0 || control.value[head - 1] === "\n" || document.activeElement !== control) return false;
+  if (place(head - 1).top === place(head).top) return false;
+  const anchor = direction === "backward" ? end : start;
+  getSelection().modify("extend", "backward", "lineboundary");
+  const moved = (control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd) !== head;
+  if (moved) {
+    const from = head - 1;
+    control.setSelectionRange(Math.min(anchor, from), Math.max(anchor, from), from < anchor ? "backward" : "forward");
+    getSelection().modify(anchor === head ? "move" : "extend", "forward", "lineboundary");
+  }
+  return moved;
 }
 
 // The field as the last aim left it, so that aiming again can tell
@@ -249,15 +286,20 @@ export function aimControl(id, text, start, end, backward, x, lastLine, again) {
   return shown();
 }
 
+// A middle press puts the caret where it is pressed, where Linux pastes on
+// its release, as in a text field. The browser keeps one on a link, which it
+// opens, and one on the field.
 export function locate(press, rowMark) {
   const none = [-1, "", false, "", false];
   const target = press.target;
   const page = press.currentTarget;
-  if (press.button !== 0 || !(target instanceof Element)) return none;
+  if (press.button > 1 || !(target instanceof Element)) return none;
   // The page's own scrollbar.
   if (target === page && press.offsetX >= target.clientWidth) return none;
+  const grabbed = target.closest("a, input, button") !== null;
+  if (press.button === 1 && (grabbed || target instanceof HTMLTextAreaElement)) return none;
   const [row, visible, atEnd, next] = placeOn(page, target, press.clientX, press.clientY, rowMark, press);
-  return [row, visible, atEnd, next, target.closest("a, input, button") !== null];
+  return [row, visible, atEnd, next, grabbed];
 }
 
 // A point outside the page, as a drag can reach, is taken to the nearest
@@ -342,21 +384,31 @@ function characterAt(text, offset) {
 }
 
 // A point level with a line of the field, even beside it, is on that line.
-// The browser keeps a second click, a touch, and a press on text selected
-// within one row, so that a drag can move that text. A field the page has not
-// drawn since its text changed may not start at the row it is marked with.
+// The browser keeps a third click, a touch, and a press on selected text,
+// so that a drag can move that text, when they are on the field itself: beside it the browser would only take the focus from it. A
+// field the page has not drawn since its text changed may not start at the
+// row it is marked with.
 function inField(press, x, y, field, band, rowMark) {
   const none = [-1, "", false, ""];
   const point = caretAt(Math.min(Math.max(x, band.left), band.right - 1), y);
   if (point?.node !== field || field.value !== field.defaultValue) return none;
   const { selectionStart: start, selectionEnd: end, value } = field;
-  const onSelected =
-    start < point.offset && point.offset < end && !value.slice(start, end).includes("\n");
+  const onSelected = start < point.offset && point.offset < end;
   const kept =
-    press !== null &&
-    (press.detail > 1 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
+    press?.target === field &&
+    (press.detail > 2 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
   if (kept) return none;
-  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, ""];
+  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, characterAt(value, point.offset)];
+}
+
+// The offset in the field where a plain release lands on its selection, or -1.
+export function releasedOnSelection(release) {
+  const field = release.currentTarget;
+  if (release.detail !== 1 || release.button !== 0 || release.shiftKey) return -1;
+  const point = caretAt(release.clientX, release.clientY);
+  if (point?.node !== field) return -1;
+  const { selectionStart: start, selectionEnd: end } = field;
+  return start < point.offset && point.offset < end ? point.offset : -1;
 }
 
 function caretAt(x, y) {
@@ -601,4 +653,15 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up) {
     if (there[0] >= 0 && there.join("\n") !== here.join("\n")) return there;
   }
   return here;
+}
+
+// Where text dropped on the page lands, the text, and whether the drop
+// copies it, which the key a text field copies with says. A drop on the
+// field is the browser's.
+export function dropped(drop, rowMark) {
+  const text = drop.dataTransfer?.getData("text/plain") ?? "";
+  if (text === "" || drop.target instanceof HTMLTextAreaElement) return [-1, "", false, "", "", false];
+  const [row, visible, atEnd, next] = placeAt(drop.currentTarget, drop.clientX, drop.clientY, rowMark);
+  const copy = navigator.platform.startsWith("Mac") ? drop.altKey : drop.ctrlKey;
+  return [row, visible, atEnd, next, text, copy];
 }

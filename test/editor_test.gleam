@@ -72,26 +72,29 @@ pub fn pending_one_insert_is_one_undo_step() {
   assert editor.text(escaped.editor) == "ab"
 }
 
-pub fn replace_line_test() {
+pub fn tick_test() {
   let Outcome(editor: ed, ..) =
-    editor.new(vim: False, live: False, paint: True) |> editor.open("a\nb\nc")
-  let Outcome(editor: ed, sync:, ..) = editor.replace_line(ed, 1, with: "- [x]")
+    editor.new(vim: False, live: False, paint: True)
+    |> editor.open("a\n- [ ] b\nc")
+  let Outcome(editor: ed, sync:, ..) =
+    editor.tick(ed, markdown.Task(checked: False, row: 1, col: 3), True)
 
-  assert editor.text(ed) == "a\n- [x]\nc"
+  assert editor.text(ed) == "a\n- [x] b\nc"
   assert sync == editor.WriteQuietly(editor.buffer(ed))
 }
 
-pub fn replace_line_ignores_a_missing_row_test() {
+pub fn tick_ignores_a_box_the_text_does_not_have_test() {
   let Outcome(editor: ed, ..) =
-    editor.new(vim: False, live: False, paint: True) |> editor.open("a\nb")
+    editor.new(vim: False, live: False, paint: True)
+    |> editor.open("a\n- [ ] b")
   let Outcome(editor: unchanged, sync:, ..) =
-    editor.replace_line(ed, 7, with: "x")
+    editor.tick(ed, markdown.Task(checked: False, row: 7, col: 3), True)
   let Outcome(editor: also_unchanged, ..) =
-    editor.replace_line(ed, -1, with: "x")
+    editor.tick(ed, markdown.Task(checked: False, row: 0, col: 3), True)
 
-  assert editor.text(unchanged) == "a\nb"
+  assert editor.text(unchanged) == "a\n- [ ] b"
   assert sync == editor.InSync
-  assert editor.text(also_unchanged) == "a\nb"
+  assert editor.text(also_unchanged) == "a\n- [ ] b"
 }
 
 /// Press each character as a key, the way `surface` would report it: with
@@ -429,7 +432,8 @@ pub fn a_click_on_the_drawn_page_moves_the_field_there_test() {
 
 pub fn ticking_a_drawn_task_leaves_the_field_alone_test() {
   let Outcome(editor: ed, sync:, ..) =
-    live("# Trip\n\n- [ ] one") |> editor.replace_line(2, with: "- [x] one")
+    live("# Trip\n\n- [ ] one")
+    |> editor.tick(markdown.Task(checked: False, row: 2, col: 3), True)
 
   assert sync == editor.InSync
   assert editor.text(ed) == "# Trip\n\n- [x] one"
@@ -558,9 +562,7 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_composing_o
   assert editor.text(ed)
     == "# Trips\n> a\n\nFlights are **booked**.\n\n- one\n- two"
   assert !parsed(ed)
-  let Outcome(editor: ed, ..) = editor.replace_line(ed, 5, with: "- [x] one")
-  assert editor.text(ed)
-    == "# Trips\n> a\n\nFlights are **booked**.\n\n- [x] one\n- two"
+  let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(False))
   assert parsed(ed)
   let Outcome(editor: ed, ..) = editor.open(ed, "1. a\n2. b")
   assert parsed(ed)
@@ -1326,14 +1328,21 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
   assert editor.blocks(escaped) == markdown.parse("Hello\n-")
 }
 
-pub fn a_tick_on_a_drawn_task_draws_the_page_from_the_text_test() {
-  let ed = live("- [ ] one\n\ntop") |> point(2) |> show(caret("top!", 0, 4))
+pub fn a_tick_keeps_the_page_as_it_was_laid_out_but_for_the_box_test() {
+  let ed =
+    live("- [ ] one\n\ntext")
+    |> point(2)
+    |> show(caret("text\n", 1, 0))
+    |> show(caret("-", 0, 1))
+  assert editor.region(ed) == Some(Region(3, 3))
 
   let Outcome(editor: ed, sync:, ..) =
-    editor.replace_line(ed, 0, with: "- [x] one")
+    editor.tick(ed, markdown.Task(checked: False, row: 0, col: 3), True)
   assert sync == editor.InSync
-  assert editor.region(ed) == Some(Region(2, 2))
-  assert editor.blocks(ed) == markdown.parse("- [x] one\n\ntop!")
+  assert editor.text(ed) == "- [x] one\n\ntext\n-"
+  assert editor.region(ed) == Some(Region(3, 3))
+  assert editor.blocks(ed) == markdown.parse("- [x] one\n\ntext\n")
+  assert editor.kind(ed) == Some(live.Body)
 }
 
 pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
@@ -1368,6 +1377,42 @@ pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
     )
   assert buffer.selection(editor.buffer(dragged))
     == #(Position(row: 2, col: 3), Position(row: 4, col: 3))
+}
+
+pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
+  let ed = live("alpha beta gamma\n\nsecond para here")
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.WordPointed(
+        row: 2,
+        visible: "second pa",
+        at_end: False,
+        next: "",
+        x: 1.0,
+        y: 2.0,
+      ),
+    )
+  let para = #(Position(2, 7), Position(2, 11))
+  assert buffer.selection(editor.buffer(ed)) == para
+  assert sync == editor.Press(Some(editor.field_buffer(ed)), x: 1.0, y: 2.0)
+
+  let drag = fn(ed, row, visible) {
+    editor.update(ed, editor.Dragged(row:, visible:, at_end: False, next: "")).editor
+    |> editor.buffer
+    |> buffer.selection
+  }
+  assert drag(ed, 0, "alpha be") == #(Position(2, 11), Position(0, 6))
+  assert drag(ed, 2, "second p") == para
+  assert drag(ed, 2, "second para he") == #(Position(2, 7), Position(2, 16))
+
+  let Outcome(editor: let_go, ..) = editor.update(ed, editor.Released)
+  let Outcome(sync:, ..) =
+    editor.update(
+      let_go,
+      editor.Dragged(row: 0, visible: "a", at_end: False, next: ""),
+    )
+  assert sync == editor.InSync
 }
 
 pub fn a_drag_from_a_box_on_the_idle_page_takes_the_focus_test() {
@@ -1487,4 +1532,84 @@ pub fn a_row_typed_as_another_block_keeps_the_frame_of_the_row_laid_out_test() {
 
   let ed = ed |> point(4) |> point(2)
   assert editor.frame(ed) == Some(live.ListItem(task: False, marker: "- "))
+}
+
+pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {
+  let shown =
+    buffer.from_text("alpha beta gamma")
+    |> buffer.select(anchor: Position(0, 0), head: Position(0, 5))
+  let ed =
+    live("alpha beta gamma\n\nsecond para here")
+    |> editor.update(editor.ControlChanged(shown:))
+  let drop = fn(ed: Outcome, copy) {
+    editor.update(
+      ed.editor,
+      editor.Dropped(
+        row: 2,
+        visible: "second ",
+        at_end: False,
+        next: "",
+        text: "alpha",
+        copy:,
+        shown:,
+      ),
+    )
+  }
+
+  let Outcome(editor: moved, sync:, ..) =
+    ed.editor |> editor.update(editor.DragStarted) |> drop(False)
+  assert editor.text(moved) == " beta gamma\n\nsecond alphapara here"
+  assert buffer.selection(editor.buffer(moved))
+    == #(Position(2, 7), Position(2, 12))
+  assert sync == editor.Write(editor.field_buffer(moved))
+  assert editor.region(moved) == Some(Region(2, 2))
+
+  let Outcome(editor: copied, ..) =
+    ed.editor |> editor.update(editor.DragStarted) |> drop(True)
+  assert editor.text(copied) == "alpha beta gamma\n\nsecond alphapara here"
+
+  let Outcome(editor: let_go, ..) =
+    ed.editor
+    |> editor.update(editor.DragStarted)
+    |> fn(started: Outcome) { editor.update(started.editor, editor.Released) }
+  let Outcome(editor: inserted, ..) = drop(Outcome(..ed, editor: let_go), False)
+  assert editor.text(inserted) == "alpha beta gamma\n\nsecond alphapara here"
+  assert buffer.selection(editor.buffer(inserted))
+    == #(Position(2, 7), Position(2, 12))
+}
+
+pub fn nothing_is_dropped_in_vim_normal_mode_test() {
+  let opened =
+    editor.new(vim: True, live: False, paint: True) |> editor.open("one\n\ntwo")
+  let ed = editor.set_live(opened.editor, True).editor
+  let Outcome(editor: dropped, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Dropped(
+        row: 2,
+        visible: "",
+        at_end: False,
+        next: "",
+        text: "x",
+        copy: False,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert editor.text(dropped) == "one\n\ntwo"
+  assert sync == editor.InSync
+}
+
+pub fn a_selection_reaching_another_row_lays_out_the_row_typed_as_another_block_test() {
+  let ed = live("- a\n- b") |> point(1) |> show(caret("# b", 0, 3))
+  assert editor.region(ed) == Some(Region(1, 1))
+  let assert Some(live.ListItem(..)) = editor.frame(ed)
+
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.SelectAll, x: 0.0, shown: caret("# b", 0, 3)),
+    )
+  assert editor.region(ed) == Some(Region(0, 1))
+  assert editor.blocks(ed) == markdown.parse("- a\n# b")
+  assert editor.frame(ed) == Some(live.Body)
 }

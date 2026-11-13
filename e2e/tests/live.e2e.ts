@@ -839,8 +839,12 @@ test('a drag let go off the page leaves no press held', async ({ app, browser, d
   await browser.mouse.down();
   await browser.mouse.move(shoes.x, shoes.y);
   await browser.mouse.up();
-  await page.nextFrame();
-  await expect(page.text).toHaveValue(paragraph);
+  await expect.poll(async () => (await page.selection()).selected).toBe('booked** and the hotel is *not*.');
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue(
+    '# Trip\n\nFlights are **\n\n- [ ] Passport\nbooked** and the hotel is *not*.- Shoes\n\nlast',
+  );
 });
 
 const sizeOf = async (page: { fieldFont(): Promise<{ size: string }> }) => (await page.fieldFont()).size;
@@ -1608,5 +1612,693 @@ for (const [what, typed, below] of [
         height: false,
       });
     }
+  });
+}
+
+test('a press whose hand moves up to four pixels each way selects nothing, and five pixels sideways selects', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nThe flight is booked and the hotel is not.\n\nlast');
+  for (const [dx, dy] of [[3, 3], [4, 1], [4, 4], [5, 0]] as const) {
+    await browser.keyboard.press('Escape');
+    await expect(page.preview).toBeVisible();
+    const hotel = await page.pointAt('otel');
+    await browser.mouse.move(hotel.x, hotel.y);
+    await browser.mouse.down();
+    await page.nextFrame();
+    await browser.mouse.move(hotel.x + dx, hotel.y + dy);
+    await page.nextFrame();
+    await browser.mouse.up();
+    await page.nextFrame();
+    expect({ dx, dy, selected: (await page.selection()).selected !== '' }).toEqual({ dx, dy, selected: dx > 4 });
+  }
+});
+
+test('a tap in the margin level with a line of the text field puts the caret on that line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await browser.keyboard.press('End');
+
+  // A touch sends its pointer events first, then the mouse events.
+  await browser.evaluate(() => {
+    const sheet = document.querySelector('.page.live')!;
+    const field = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: sheet.getBoundingClientRect().left + 6, clientY: field.top + field.height / 2 };
+    const touch = { ...at, pointerType: 'touch', isPrimary: true };
+    const capabilities = (globalThis as unknown as { InputDeviceCapabilities: new (init: object) => object })
+      .InputDeviceCapabilities;
+    const fromTouch = { sourceCapabilities: new capabilities({ firesTouchEvents: true }) };
+    sheet.dispatchEvent(new PointerEvent('pointerdown', touch));
+    sheet.dispatchEvent(new PointerEvent('pointerup', touch));
+    sheet.dispatchEvent(new MouseEvent('mousedown', { ...at, ...fromTouch, buttons: 1 }));
+    sheet.dispatchEvent(new MouseEvent('mouseup', { ...at, ...fromTouch }));
+    sheet.dispatchEvent(new MouseEvent('click', { ...at, ...fromTouch }));
+    return null;
+  });
+  await page.nextFrame();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('Z');
+  await expect(page.text).toHaveValue('Zsome words here');
+});
+
+test('the end of a selection that the keys move stays in the window as the field grows past it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, Array.from({ length: 60 }, (_, i) => `para ${i}`).join('\n\n'));
+  const head = () =>
+    browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      const at = field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd;
+      const line = field.value.slice(0, at).split('\n').length - 1;
+      const height = parseFloat(getComputedStyle(field).lineHeight);
+      const top = field.getBoundingClientRect().top + line * height;
+      const sheet = document.querySelector('.page')!.getBoundingClientRect();
+      return {
+        row: field.value.slice(0, at).split('\n').at(-1) ?? '',
+        inView: top >= Math.max(sheet.top, 0) - 1 && top + height <= Math.min(sheet.bottom, innerHeight) + 1,
+      };
+    });
+  for (let step = 0; step < 6; step++) await browser.keyboard.press('ArrowDown');
+  for (let step = 1; step <= 50; step++) {
+    await browser.keyboard.press('Shift+ArrowDown');
+    await page.nextFrame();
+    expect({ step, ...(await head()) }).toEqual({ step, row: expect.any(String), inView: true });
+  }
+  for (const key of ['Control+Shift+Home', 'Control+Shift+End', 'Control+Shift+Home']) {
+    await browser.keyboard.press(key);
+    await page.nextFrame();
+    expect({ key, ...(await head()) }).toEqual({ key, row: expect.any(String), inView: true });
+  }
+  for (let step = 1; step <= 8; step++) await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Control+Shift+End');
+  for (let step = 1; step <= 50; step++) {
+    await browser.keyboard.press('Shift+ArrowUp');
+    await page.nextFrame();
+    expect({ step, ...(await head()) }).toEqual({ step, row: expect.any(String), inView: true });
+  }
+});
+
+test('Shift and a click on a link or a box select to it, and neither opens the link nor ticks the box', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsee the [long link text](https://example.com/x) tail\n\n- [ ] box item');
+  await page.drawn('a').tap({ modifiers: ['Shift'] });
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^alpha beta gamma\n\nsee the \[long l/);
+  await expect(page.text).toBeFocused();
+
+  await page.drawn('input').tap({ modifiers: ['Shift'] });
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^alpha beta gamma\n\n[^]* tail\n\n$/);
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.press('Escape');
+  await expect(page.box('box item')).not.toBeChecked();
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('alpha beta gamma\n\nsee the [long link text](https://example.com/x) tail\n\n- [ ] box item');
+});
+
+test('a middle click on the drawn page puts the caret where it clicked, where Linux pastes', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'first line\n\nsecond paragraph\n\nA [link](https://example.com) here');
+  await browser.keyboard.press('End');
+  const middleClick = (point: { x: number; y: number }) =>
+    browser.evaluate((at: { x: number; y: number }) => {
+      const target = document.elementFromPoint(at.x, at.y)!;
+      const press = { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 1 };
+      target.dispatchEvent(new MouseEvent('mousedown', { ...press, buttons: 4 }));
+      target.dispatchEvent(new MouseEvent('mouseup', press));
+      target.dispatchEvent(new MouseEvent('auxclick', press));
+      return null;
+    }, point);
+
+  await middleClick(await page.pointAt('econd'));
+  await expect.poll(() => page.caret()).toBe('s|econd paragraph');
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('sXecond paragraph');
+
+  await middleClick(await page.pointAt('link'));
+  await page.nextFrame();
+  expect(await page.caret()).toBe('sX|econd paragraph');
+});
+
+test('a box ticked while a row is typed under a line keeps that line drawn as it was', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '- [ ] box\n\ntext');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('text');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('-');
+  await expect(page.text).toHaveValue('-');
+  await expect(page.drawn('p')).toHaveText('text');
+
+  await page.drawn('input').tap();
+  await expect(page.drawn('input')).toBeChecked();
+  await page.nextFrame();
+  await expect(page.text).toHaveValue('-');
+  await expect(page.drawn('p')).toHaveText('text');
+  await expect(page.drawn('h2')).toHaveCount(0);
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('- [x] box\n\ntext\n-');
+});
+
+test('at the end of a wrapped line the arrows move from that line, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ');
+  await openLive({ app, disk, page }, `first\n\n${long}\n\nlast para`);
+  await page.drawn('p').last().tap();
+  await expect(page.text).toHaveValue('last para');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue(long);
+  await page.nextFrame();
+  const lines = await browser.evaluate(() => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    return field.getBoundingClientRect().height / parseFloat(getComputedStyle(field).lineHeight);
+  });
+  expect(lines).toBeGreaterThanOrEqual(3);
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await page.nextFrame();
+  const down = await page.selection();
+  expect(down.text).toBe(long);
+  expect(long.endsWith(down.selected) && down.selected.length > 0).toBe(true);
+
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('ArrowDown');
+  await page.nextFrame();
+  expect(await page.caret()).toBe(`${long}|`);
+
+  await browser.keyboard.press('Control+Home');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await page.nextFrame();
+  const up = await page.selection();
+  expect(up.selected).toMatch(/^\nword0 word1 /);
+  expect(up.selected).not.toContain('word39');
+});
+
+test('a double-click held and dragged into another block selects whole words, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsecond para here');
+  // The mouse of a test presses once at a time, so the second press of a
+  // double-click is sent from the page.
+  const send = (type: string, at: { x: number; y: number }, detail: number) =>
+    browser.evaluate(
+      (event: { type: string; x: number; y: number; detail: number }) => {
+        const target = document.elementFromPoint(event.x, event.y)!;
+        const pressed = event.type === 'mouseup' ? 0 : 1;
+        target.dispatchEvent(
+          new MouseEvent(event.type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: event.x,
+            clientY: event.y,
+            detail: event.detail,
+            button: 0,
+            buttons: pressed,
+          }),
+        );
+        return null;
+      },
+      { type, ...at, detail },
+    );
+  const doubleDrag = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await send('mousedown', from, 2);
+    await page.nextFrame();
+    for (let step = 1; step <= 6; step++) {
+      await send('mousemove', { x: from.x + ((to.x - from.x) * step) / 6, y: from.y + ((to.y - from.y) * step) / 6 }, 0);
+      await page.nextFrame();
+    }
+    await send('mouseup', to, 2);
+    await page.nextFrame();
+  };
+  const inField = (before: string) =>
+    browser.evaluate((before: string) => {
+      const field = document.querySelector('[data-test-id="editor"]')!;
+      const box = field.getBoundingClientRect();
+      const style = getComputedStyle(field);
+      const pen = document.createElement('canvas').getContext('2d')!;
+      pen.font = style.font;
+      const x = box.left + parseFloat(style.paddingLeft) + pen.measureText(before).width;
+      return { x, y: box.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2 };
+    }, before);
+
+  await doubleDrag(await inField('al'), await page.pointAt('ara here'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: 'alpha beta gamma\n\nsecond para here',
+    selected: 'alpha beta gamma\n\nsecond para',
+    backward: false,
+  });
+
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('second para here');
+  await doubleDrag(await inField('second pa'), await page.pointAt('eta'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: 'alpha beta gamma\n\nsecond para here',
+    selected: 'beta gamma\n\nsecond para',
+    backward: true,
+  });
+});
+
+test('selected text dragged onto another block moves there, as in a text field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsecond para here');
+  for (let step = 0; step < 5; step++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  const from = await browser.evaluate(() => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.left + 15, y: box.top + 12 };
+  });
+  const to = await page.pointAt('para here');
+
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  for (let step = 1; step <= 10; step++) {
+    await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  expect((await page.selection()).text).toBe('second alphapara here');
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue(' beta gamma\n\nsecond alphapara here');
+});
+
+test('Ctrl+Shift+Home selects from the caret back to the start of the note', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  const hotel = await page.pointAt('hotel');
+  await browser.mouse.move(hotel.x, hotel.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect.poll(() => page.caret()).toBe('Flights are **booked** and the |hotel is *not*.');
+
+  await browser.keyboard.press('Control+Shift+Home');
+  await expect.poll(() => page.selection()).toEqual({
+    text: `# Trip\n\n${paragraph}`,
+    selected: '# Trip\n\nFlights are **booked** and the ',
+    backward: true,
+  });
+});
+
+test('Ctrl+Shift+A selects nothing, as in a text field', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue(paragraph);
+  await browser.keyboard.press('End');
+
+  await browser.keyboard.press('ControlOrMeta+Shift+A');
+  await page.nextFrame();
+  expect(await page.selection()).toEqual({ text: paragraph, selected: '', backward: false });
+});
+
+test('Ctrl and the key that types e shows the markdown on any Latin layout, and the key where E sits on QWERTY does not', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  const press = (key: string, code: string) =>
+    browser.evaluate(
+      (which: { key: string; code: string }) => {
+        const target = document.activeElement ?? document.body;
+        const apple = /Mac|iPhone|iPad/.test(navigator.platform);
+        target.dispatchEvent(
+          new KeyboardEvent('keydown', { ...which, ctrlKey: !apple, metaKey: apple, bubbles: true, cancelable: true }),
+        );
+        return null;
+      },
+      { key, code },
+    );
+
+  // On Colemak the key where QWERTY has E types f, and e is where QWERTY has K.
+  await press('f', 'KeyE');
+  await page.nextFrame();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
+
+  await press('e', 'KeyK');
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a drag whose button is let go outside the window selects no further once the pointer comes back', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('em').tap();
+  await expect(page.text).toHaveValue(paragraph);
+
+  const booked = await page.pointAt('booked');
+  const hotel = await page.pointAt('hotel');
+  await browser.mouse.move(booked.x, booked.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  await browser.mouse.move(hotel.x, hotel.y);
+  await expect.poll(async () => (await page.selection()).selected).toBe('booked** and the ');
+
+  // The browser does not report a release outside its window: the pointer
+  // comes back with no button held.
+  const shoes = await page.pointAt('Shoes');
+  await browser.evaluate((at: { x: number; y: number }) => {
+    document.body.dispatchEvent(
+      new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, buttons: 0 }),
+    );
+    return null;
+  }, shoes);
+  await page.nextFrame();
+  await page.nextFrame();
+  expect((await page.selection()).selected).toBe('booked** and the ');
+  await browser.mouse.up();
+});
+
+test('selected text dragged onto another block with the copy key held is copied there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsecond para here');
+  for (let step = 0; step < 5; step++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  const from = await browser.evaluate(() => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.left + 15, y: box.top + 12 };
+  });
+  const to = await page.pointAt('para here');
+  const copyKey = await browser.evaluate(() => (/Mac/.test(navigator.platform) ? 'Alt' : 'Control'));
+
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  await browser.keyboard.down(copyKey);
+  for (let step = 1; step <= 10; step++) {
+    await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await browser.keyboard.up(copyKey);
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('alpha beta gamma\n\nsecond alphapara here');
+});
+
+test('Shift and a press on the selected text select from the anchor, and a drag from there reaches the blocks below', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue(paragraph);
+  await browser.keyboard.press('Home');
+  for (let step = 0; step < 7; step++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('Flights');
+
+  const inside = await page.pointAt('ghts');
+  const shoes = await page.pointAt('Shoes');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(inside.x, inside.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  for (let step = 1; step <= 6; step++) {
+    await browser.mouse.move(inside.x + ((shoes.x - inside.x) * step) / 6, inside.y + ((shoes.y - inside.y) * step) / 6);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^Flights are .*\n\n- \[ \] Passport\n- S/);
+  expect((await page.selection()).backward).toBe(false);
+});
+
+test('a third click in the text field is left to the browser, which selects the line as in a text field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await page.text.dblclick();
+  const word = (await page.selection()).selected;
+  expect(word).not.toBe('');
+
+  // The mouse of a test presses once at a time, so the third press of a
+  // triple click is sent from the page.
+  const kept = await browser.evaluate(() => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+    const pressed = field.dispatchEvent(new MouseEvent('mousedown', { ...at, detail: 3, buttons: 1 }));
+    field.dispatchEvent(new MouseEvent('mouseup', { ...at, detail: 3 }));
+    return pressed;
+  });
+  await page.nextFrame();
+  expect(kept).toBe(true);
+  expect((await page.selection()).selected).toBe(word);
+});
+
+test('a tap in the text field is left to the browser, as in a text field', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await browser.keyboard.press('End');
+
+  // A touch sends its pointer events first, then the mouse events.
+  const kept = await browser.evaluate(() => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: box.left + 20, clientY: box.top + box.height / 2 };
+    const touch = { ...at, pointerType: 'touch', isPrimary: true };
+    const capabilities = (globalThis as unknown as { InputDeviceCapabilities: new (init: object) => object })
+      .InputDeviceCapabilities;
+    const fromTouch = { sourceCapabilities: new capabilities({ firesTouchEvents: true }) };
+    field.dispatchEvent(new PointerEvent('pointerdown', touch));
+    field.dispatchEvent(new PointerEvent('pointerup', touch));
+    const pressed = field.dispatchEvent(new MouseEvent('mousedown', { ...at, ...fromTouch, buttons: 1 }));
+    field.dispatchEvent(new MouseEvent('mouseup', { ...at, ...fromTouch }));
+    return pressed;
+  });
+  await page.nextFrame();
+  expect(kept).toBe(true);
+  expect(await page.caret()).toBe('some words here|');
+});
+
+test('a third click beside the text field puts the caret there and keeps no word selected', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await browser.keyboard.press('End');
+
+  // The mouse of a test presses once at a time, so a triple click is sent
+  // from the page.
+  const click = (detail: number) =>
+    browser.evaluate((detail: number) => {
+      const sheet = document.querySelector('.page.live')!;
+      const field = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+      const at = { bubbles: true, cancelable: true, detail, clientX: sheet.getBoundingClientRect().left + 6, clientY: field.top + field.height / 2 };
+      sheet.dispatchEvent(new MouseEvent('mousedown', { ...at, buttons: 1 }));
+      sheet.dispatchEvent(new MouseEvent('mouseup', at));
+      return null;
+    }, detail);
+  await click(1);
+  await click(2);
+  await expect.poll(async () => (await page.selection()).selected).toBe('some');
+  await click(3);
+  await expect.poll(() => page.caret()).toBe('|some words here');
+});
+
+test('switching to the page with the caret on a row below the window scrolls only until that row shows, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const rows = Array.from({ length: 60 }, (_, n) => `Paragraph ${n} with some words.`).join('\n\n');
+  await disk.seed([stored(rows)]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(rows);
+  await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    const at = field.value.indexOf('Paragraph 40');
+    field.setSelectionRange(at, at);
+    return null;
+  });
+  await browser.keyboard.press('ArrowRight');
+
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('Paragraph 40 with some words.');
+  await expect(page.text).toBeFocused();
+  const gapBelow = () =>
+    browser.evaluate(() => {
+      const sheet = document.querySelector('.page')!.getBoundingClientRect();
+      const field = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+      return Math.min(sheet.bottom, innerHeight) - field.bottom;
+    });
+  await expect.poll(gapBelow).toBeGreaterThanOrEqual(-1);
+  expect(await gapBelow()).toBeLessThan(8);
+});
+
+test('selected text across rows dragged onto another block moves there, as in a text field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'Alpha para one.\n\n- item x\n- item y\n\nDelta para.';
+  const glide = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    for (let step = 1; step <= 10; step++) {
+      await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.nextFrame();
+    }
+    await browser.mouse.up();
+  };
+
+  await openLive({ app, disk, page }, note);
+  await page.drawn('li').first().tap();
+  await expect(page.text).toHaveValue('- item x');
+  await browser.keyboard.press('Home');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Shift+End');
+  await expect.poll(() => page.selection()).toEqual({
+    text: '- item x\n- item y',
+    selected: '- item x\n- item y',
+    backward: false,
+  });
+
+  await glide(await page.pointAt('tem x'), await page.pointAt('para.'));
+  await expect.poll(async () => (await page.selection()).selected).toBe('- item x\n- item y');
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('Alpha para one.\n\n\n\nDelta - item x\n- item ypara.');
+});
+
+test('text selected by a drag across blocks dragged onto another block moves there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'Alpha para one.\n\n- item x\n- item y\n\nDelta para.';
+  const glide = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    for (let step = 1; step <= 10; step++) {
+      await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.nextFrame();
+    }
+    await browser.mouse.up();
+  };
+
+  await openLive({ app, disk, page }, note);
+  await page.drawn('p').last().tap();
+  await expect(page.text).toHaveValue('Delta para.');
+  await glide(await page.pointAt('para one'), await page.pointAt('tem x'));
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^para one\.\n\n- i/);
+  const moved = (await page.selection()).selected;
+
+  await glide(await page.pointAt('ra one'), await page.pointAt('para.'));
+  await expect.poll(async () => (await page.selection()).selected).toBe(moved);
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  const left = note.replace(moved, '');
+  const at = left.lastIndexOf('para.');
+  await expect(page.text).toHaveValue(left.slice(0, at) + moved + left.slice(at));
+});
+
+for (const [cell, row] of [
+  ['1', '| alpha1 | 2 |'],
+  ['2', '| 1 | alpha2 |'],
+]) {
+  test(`selected text dragged onto the start of a drawn table's cell ${cell} lands in that cell`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    const note = 'Para alpha beta.\n\n| a | b |\n|-|-|\n| 1 | 2 |\n\nEnd.';
+    await openLive({ app, disk, page }, note);
+    await expect(page.text).toHaveValue('Para alpha beta.');
+    await browser.keyboard.press('Home');
+    for (let step = 0; step < 5; step++) await browser.keyboard.press('ArrowRight');
+    for (let step = 0; step < 5; step++) await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+    const from = await page.pointAt('lpha');
+    const to = await browser.evaluate((cell: string) => {
+      const text = [...document.querySelectorAll('.page.live td')].find((td) => td.textContent === cell)!.firstChild!;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 1);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + box.width / 3, y: box.top + box.height / 2 };
+    }, cell);
+
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    for (let step = 1; step <= 10; step++) {
+      await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.nextFrame();
+    }
+    await browser.mouse.up();
+    await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+    await browser.keyboard.press('Escape');
+    await page.showMarkdown();
+    await expect(page.text).toHaveValue(`Para  beta.\n\n| a | b |\n|-|-|\n${row}\n\nEnd.`);
   });
 }
