@@ -378,12 +378,18 @@ export async function doubleClick(page: RawPage, spot: Spot) {
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 }
 
-/** A quick series of clicks on one spot: what a double or triple click is. A hand takes some time between two clicks, so the fast mode keeps that wait. */
+/**
+ * A quick series of presses on one spot: what a double or triple click is.
+ * Each press is counted as the next of the series, as a hand's are. A hand
+ * takes some time between two presses, so the fast mode keeps that wait.
+ */
 export async function clickSeries(page: RawPage, spot: Spot, count: number) {
   const at = await page.evaluate(centreOf, spot);
   if (!at) throw new Error(`"${spot.word}" is not drawn on the page`);
+  await page.mouse.move(at.x, at.y);
   for (let click = 1; click <= count; click++) {
-    await page.mouse.click(at.x, at.y, { clickCount: click });
+    await page.mouse.down({ clickCount: click });
+    await page.mouse.up({ clickCount: click });
     if (!fast || click < count) await page.waitForTimeout(70);
   }
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
