@@ -218,6 +218,78 @@ pub fn an_edge_key_with_no_row_to_go_to_changes_nothing_test() {
   assert editor.text(ed) == "only"
 }
 
+pub fn an_arrow_with_no_row_to_go_to_moves_like_the_browsers_own_test() {
+  let Outcome(editor: ed, sync:, ..) =
+    live("only one")
+    |> editor.update(editor.EdgePressed(
+      editor.Up,
+      x: 30.0,
+      shown: caret("only one", 0, 4),
+    ))
+  assert sync == editor.Write(caret("only one", 0, 0))
+  assert editor.region(ed) == Some(Region(0, 0))
+
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Down, x: 0.0, shown: caret("only one", 0, 0)),
+    )
+  assert sync == editor.Write(caret("only one", 0, 8))
+}
+
+pub fn an_arrow_at_the_edge_of_the_field_already_there_changes_nothing_test() {
+  let Outcome(sync:, ..) =
+    live("only")
+    |> editor.update(editor.EdgePressed(
+      editor.Up,
+      x: 0.0,
+      shown: caret("only", 0, 0),
+    ))
+  assert sync == editor.InSync
+}
+
+pub fn edge_keys_never_cross_with_the_whole_note_in_the_field_test() {
+  let Outcome(editor: whole, ..) =
+    editor.new(vim: False) |> editor.open("one\ntwo")
+  let edge = fn(edge, shown) {
+    editor.update(whole, editor.EdgePressed(edge, x: 9.0, shown:))
+  }
+
+  let Outcome(editor: ed, sync:, ..) = edge(editor.Up, caret("one\ntwo", 0, 2))
+  assert sync == editor.Write(caret("one\ntwo", 0, 0))
+  assert editor.region(ed) == None
+  let Outcome(sync:, ..) = edge(editor.Down, caret("one\ntwo", 1, 1))
+  assert sync == editor.Write(caret("one\ntwo", 1, 3))
+  let Outcome(editor: ed, sync:, ..) =
+    edge(editor.JoinBefore, caret("one\ntwo", 0, 0))
+  assert sync == editor.InSync
+  assert editor.text(ed) == "one\ntwo"
+  let Outcome(editor: ed, sync:, ..) =
+    edge(editor.JoinAfter, caret("one\ntwo", 1, 3))
+  assert sync == editor.InSync
+  assert editor.text(ed) == "one\ntwo"
+}
+
+pub fn an_arrow_crosses_from_the_rows_the_field_holds_now_test() {
+  let Outcome(editor: ed, ..) =
+    live(live_note)
+    |> editor.update(editor.EdgePressed(
+      editor.Down,
+      x: 0.0,
+      shown: caret("# Trip", 0, 0),
+    ))
+  assert editor.region(ed) == Some(Region(1, 1))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Up, x: 0.0, shown: caret("", 0, 0)),
+    )
+  assert sync
+    == editor.WriteAndAim(caret("# Trip", 0, 6), x: 0.0, line: editor.LastLine)
+  assert editor.region(ed) == Some(Region(0, 0))
+}
+
 pub fn a_click_on_the_drawn_page_moves_the_field_there_test() {
   let Outcome(editor: ed, sync:, ..) =
     live(live_note)
@@ -248,6 +320,36 @@ pub fn the_whole_note_is_drawn_while_the_field_is_out_of_focus_test() {
   let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(True))
   assert !editor.is_idle(ed)
   assert !editor.is_idle(editor.new(vim: False))
+}
+
+pub fn escape_releases_the_field_in_live_view_test() {
+  let ed = live(live_note)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: editor.field_buffer(ed)))
+
+  assert sync == editor.Release(caret("# Trip", 0, 0))
+  assert editor.is_idle(ed)
+  assert editor.text(ed) == live_note
+}
+
+pub fn escape_right_after_live_view_comes_on_releases_the_field_test() {
+  let Outcome(editor: markdown, ..) =
+    editor.new(vim: False) |> editor.open(live_note)
+  let Outcome(editor: ed, ..) = editor.set_live(markdown, True)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: caret("# Trip", 0, 0)))
+
+  assert sync == editor.Release(caret("# Trip", 0, 0))
+  assert editor.is_idle(ed)
+}
+
+pub fn escape_with_the_whole_note_in_the_field_changes_nothing_test() {
+  let Outcome(editor: ed, ..) = editor.new(vim: False) |> editor.open("one")
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: caret("one", 0, 1)))
+
+  assert sync == editor.InSync
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 0, col: 1)
 }
 
 pub fn a_write_counts_as_focus_before_the_browser_says_so_test() {

@@ -138,6 +138,79 @@ test('an arrow moves inside a wrapped paragraph before it leaves it', async ({
   await expect(page.text).toHaveValue('');
 });
 
+test('an arrow pressed before the page redraws still moves inside the paragraph it reached', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const long = 'word '.repeat(80).trim();
+  await openLive({ app, disk, page }, `# Trip\n\n${long}\n\nlast`);
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('');
+
+  await page.pressBeforeRedraw('ArrowDown', 'ArrowDown');
+  await expect(page.text).toHaveValue(long);
+  expect(await page.caret()).not.toBe(`|${long}`);
+
+  await browser.keyboard.press('ArrowUp');
+  expect(await page.caret()).toBe(`|${long}`);
+});
+
+test('an arrow pressed before the page redraws crosses back to the block it left', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+
+  await page.pressBeforeRedraw('ArrowDown', 'ArrowUp');
+  await expect(page.text).toHaveValue('# Trip');
+  await page.pressBeforeRedraw('ArrowDown', 'ArrowDown', 'ArrowUp');
+  await expect(page.text).toHaveValue('');
+});
+
+test('Escape pressed before the page redraws after Ctrl+E draws the whole note', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await disk.seed([stored(body)]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(body);
+  await expect(page.text).toBeFocused();
+
+  await page.pressBeforeRedraw('ControlOrMeta+e', 'Escape');
+  await expect(page.preview.getByRole('heading')).toHaveText('Trip');
+  await expect(page.text).not.toBeFocused();
+});
+
+test('in the markdown, an arrow past the first or last line keeps the column it came from', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const rows = 'abcdef\nabcdef\nabcdef';
+  await disk.seed([stored(rows)]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(rows);
+
+  await browser.keyboard.press('ArrowDown');
+  for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('ArrowRight');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('ArrowUp');
+  expect(await page.caret()).toBe(`|${rows}`);
+  await browser.keyboard.press('ArrowDown');
+  expect(await page.caret()).toBe('abcdef\nabc|def\nabcdef');
+
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  expect(await page.caret()).toBe(`${rows}|`);
+  await browser.keyboard.press('ArrowUp');
+  expect(await page.caret()).toBe('abcdef\nabc|def\nabcdef');
+});
+
 test('a new paragraph takes the field and the one before it is drawn', async ({
   app,
   browser,

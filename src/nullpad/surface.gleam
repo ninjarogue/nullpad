@@ -24,7 +24,7 @@ import lustre/element/html
 import lustre/event
 import nullpad/buffer.{type Buffer, type Position}
 import nullpad/editor.{type Editor}
-import nullpad/live.{Region}
+import nullpad/live
 import nullpad/markdown
 import nullpad/vim
 
@@ -72,7 +72,8 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.advanced(
           "keydown",
           decode.one_of(key_decoder(editor, on_event), [
-            edge_decoder(editor, on_event),
+            edge_decoder(on_event),
+            escape_decoder(on_event),
           ]),
         ),
       ],
@@ -159,10 +160,13 @@ pub fn sync(
         // After the render, because the field's font follows its block.
         effect.before_paint(fn(dispatch, _) {
           focus_control(control_id)
+          let #(text, start, end) = to_control(buffer)
           let #(text, start, end) =
             aim_control(
               control_id,
-              buffer.text(buffer),
+              text,
+              start,
+              end,
               x,
               line == editor.LastLine,
             )
@@ -171,6 +175,12 @@ pub fn sync(
             on_event(editor.ControlChanged(from_control(text, start, end))),
           )
         }),
+      ])
+    editor.Release(buffer) ->
+      effect.batch([
+        write(buffer),
+        // After any `focus` asked for earlier, which also waits for the render.
+        effect.before_paint(fn(_, _) { blur_control(control_id) }),
       ])
   }
 }
@@ -256,12 +266,14 @@ fn key_decoder(
   }
 }
 
-/// Live view: the four keys that leave the field's rows, each only at the
-/// edge it leaves by. Fails for every other key press, so those stay native
-/// and cost no `update`. A line is a drawn line here: an arrow moves inside a
-/// wrapped row until it is on the row's first or last drawn line.
+/// The four keys that may leave the field's rows, each only at the edge of
+/// the field it leaves by, judged from the page as it is now: the field is
+/// drawn as one block of the page, and the caret is at that edge. A line is a
+/// drawn line here: an arrow moves inside a wrapped row until it is on the
+/// field's first or last drawn line. Whether there is a row past the edge is
+/// for `editor.update`. Fails for every other key press, so those stay native
+/// and cost no `update`.
 fn edge_decoder(
-  editor: Editor,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
@@ -273,33 +285,29 @@ fn edge_decoder(
   use shown <- decode.then(shown_decoder())
   let #(anchor, head) = buffer.selection(shown)
   let plain = !{ shift || ctrl || meta || alt || composing } && anchor == head
-  let at_start = head == buffer.Position(row: 0, col: 0)
-  let at_end = head == buffer.end_of(buffer.text(shown))
-  let edge = case editor.region(editor), name {
-    Some(Region(first_row:, ..)), "Backspace"
-      if plain && at_start && first_row > 0
-    -> Ok(#(editor.JoinBefore, 0.0))
-    Some(Region(first_row:, ..)), "ArrowUp" if plain && first_row > 0 ->
+  let end = buffer.end_of(buffer.text(shown))
+  let in_edge_row = case name {
+    "Backspace" -> head == buffer.Position(row: 0, col: 0)
+    "Delete" -> head == end
+    "ArrowUp" -> head.row == 0
+    "ArrowDown" -> head.row == end.row
+    _ -> False
+  }
+  let edge = case plain && in_edge_row && drawn_in_page(control_id), name {
+    False, _ -> Error(Nil)
+    True, "Backspace" -> Ok(#(editor.JoinBefore, 0.0))
+    True, "Delete" -> Ok(#(editor.JoinAfter, 0.0))
+    True, "ArrowUp" ->
       case caret_line(control_id) {
         #(True, _, x) -> Ok(#(editor.Up, x))
         _ -> Error(Nil)
       }
-    Some(Region(last_row:, ..)), "Delete" if plain && at_end ->
-      case last_row < editor.row_count(editor) - 1 {
-        True -> Ok(#(editor.JoinAfter, 0.0))
-        False -> Error(Nil)
+    True, "ArrowDown" ->
+      case caret_line(control_id) {
+        #(_, True, x) -> Ok(#(editor.Down, x))
+        _ -> Error(Nil)
       }
-    Some(Region(last_row:, ..)), "ArrowDown" if plain ->
-      case last_row < editor.row_count(editor) - 1, caret_line(control_id) {
-        True, #(_, True, x) -> Ok(#(editor.Down, x))
-        _, _ -> Error(Nil)
-      }
-    Some(_), "Escape" if !composing -> {
-      // Out of focus the whole note is drawn (`editor.is_idle`).
-      blur_control(control_id)
-      Error(Nil)
-    }
-    _, _ -> Error(Nil)
+    True, _ -> Error(Nil)
   }
   case edge {
     Ok(#(edge, x)) ->
@@ -310,6 +318,21 @@ fn edge_decoder(
       on_event(editor.ControlChanged(shown:))
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key at the edge of the field")
+  }
+}
+
+fn escape_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use name <- decode.field("key", decode.string)
+  use composing <- decode.field("isComposing", decode.bool)
+  use shown <- decode.then(shown_decoder())
+  let handler =
+    on_event(editor.EscapePressed(shown:))
+    |> event.handler(prevent_default: False, stop_propagation: False)
+  case name, composing {
+    "Escape", False -> decode.success(handler)
+    _, _ -> decode.failure(handler, expected: "Escape")
   }
 }
 
@@ -362,18 +385,26 @@ fn focus_control(id: String) -> Nil
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil
 
+/// Is the control drawn as one block of a page (live view) right now, rather
+/// than as the whole note.
+@external(javascript, "./surface.ffi.mjs", "drawnInPage")
+fn drawn_in_page(id: String) -> Bool
+
 /// Is the caret on the control's first drawn line, is it on its last, and how
 /// many pixels is it from the control's left edge.
 @external(javascript, "./surface.ffi.mjs", "caretLine")
 fn caret_line(id: String) -> #(Bool, Bool, Float)
 
-/// While the control still holds `text`, put the caret on its first or last
-/// drawn line, as near to `x` as a character allows. Gives the control as it
-/// is afterwards: `#(value, selectionStart, selectionEnd)`.
+/// While the control still holds `text` selected from `start` to `end`, put
+/// the caret on its first or last drawn line, as near to `x` as a character
+/// allows. Gives the control as it is afterwards: `#(value, selectionStart,
+/// selectionEnd)`.
 @external(javascript, "./surface.ffi.mjs", "aimControl")
 fn aim_control(
   id: String,
   text: String,
+  start: Int,
+  end: Int,
   x: Float,
   last_line: Bool,
 ) -> #(String, Int, Int)
