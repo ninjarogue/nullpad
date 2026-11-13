@@ -503,17 +503,18 @@ fn settle(lines: List(String), visible: String, row: Int, col: Int) -> Int {
   live.settle(lines, row: 0, visible:, at: Position(row:, col:)).col
 }
 
-/// A place between two marks the page hides goes beside the drawn letter
-/// they go with: after marks that open what follows, before marks that close
-/// what came before. A place beside the marks stays.
-pub fn a_place_between_hidden_marks_settles_beside_the_letter_they_go_with_test() {
+/// Marks between two drawn letters all draw at one place, so a place among
+/// or beside them goes where a click there lands: before marks that open
+/// what follows, past marks that close what came before.
+pub fn a_place_among_hidden_marks_settles_where_a_click_there_lands_test() {
   let lines = ["Flights are **booked** and *not*."]
   let visible = "Flights are booked and not."
-  assert list.map([12, 13, 14], settle(lines, visible, 0, _)) == [12, 14, 14]
-  assert list.map([20, 21, 22], settle(lines, visible, 0, _)) == [20, 20, 22]
-  assert list.map([27, 28, 31, 32], settle(lines, visible, 0, _))
-    == [27, 28, 31, 32]
+  assert list.map([12, 13, 14], settle(lines, visible, 0, _)) == [12, 12, 12]
+  assert list.map([20, 21, 22], settle(lines, visible, 0, _)) == [22, 22, 22]
+  assert list.map([27, 28], settle(lines, visible, 0, _)) == [27, 27]
+  assert list.map([31, 32], settle(lines, visible, 0, _)) == [32, 32]
   assert settle(lines, visible, 0, 16) == 16
+  assert settle(lines, visible, 0, 33) == 33
 }
 
 pub fn the_marks_a_row_starts_with_keep_every_place_among_them_test() {
@@ -522,10 +523,10 @@ pub fn the_marks_a_row_starts_with_keep_every_place_among_them_test() {
     == [0, 3, 6]
 }
 
-pub fn a_place_between_the_marks_of_two_cells_settles_in_the_next_test() {
+pub fn a_place_among_the_marks_between_two_cells_settles_in_the_next_test() {
   let lines = ["| a | b |", "|---|---|"]
-  assert list.map([3, 4, 5, 6], settle(lines, "ab", 0, _)) == [3, 6, 6, 6]
-  assert list.map([7, 8, 9], settle(lines, "ab", 0, _)) == [7, 7, 9]
+  assert list.map([3, 4, 5, 6], settle(lines, "ab", 0, _)) == [6, 6, 6, 6]
+  assert list.map([7, 8, 9], settle(lines, "ab", 0, _)) == [9, 9, 9]
   assert settle(lines, "ab", 1, 2) == 2
 }
 

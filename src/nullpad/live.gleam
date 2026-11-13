@@ -189,11 +189,11 @@ pub fn drawn(
   }
 }
 
-/// Where `at` lands when it is between two marks the page hides, which it
-/// cannot draw: beside the drawn character they go with, as for `nudge`, so
-/// that a selection painted from there holds what it shows. A place beside
-/// the marks stays, as do the places among the marks a row starts with.
-/// `row` and `visible` are as for `drawn`.
+/// Where `at` lands when it is among or beside marks the page hides between
+/// two drawn characters, which all draw at one place: where `position` puts
+/// a click there, as for `nudge`, so that a selection painted from there
+/// holds both marks of a pair or neither. The marks a row starts with keep
+/// every place among them. `row` and `visible` are as for `drawn`.
 pub fn settle(
   lines: List(String),
   row row: Int,
@@ -212,15 +212,14 @@ pub fn settle(
         shown(typed, string.to_graphemes(here), []) |> list.split(at.col)
       let start = at.col - hidden_run(list.reverse(before), 0)
       let end = at.col + hidden_run(after, 0)
-      let drawn_before = typed |> list.drop(start - 1) |> list.first
-      case start > 0 && start < at.col && at.col < end, list.drop(typed, end) {
-        False, _ -> at
-        True, [] -> Position(..at, col: start)
-        True, [next, ..] ->
-          case closes(option.from_result(drawn_before), next) {
-            True -> Position(..at, col: start)
-            False -> Position(..at, col: end)
-          }
+      case start > 0 && start < end {
+        True -> {
+          let next =
+            typed |> list.drop(end) |> list.first |> result.unwrap("\n")
+          let place = drawn(lines, row:, visible:, at: Position(at.row, start))
+          position(lines, row:, visible: place, at_end: False, next:)
+        }
+        False -> at
       }
     }
     _, _ -> at
