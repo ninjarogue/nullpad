@@ -1886,3 +1886,33 @@ test('a double-click held and dragged into another block selects whole words, as
     backward: true,
   });
 });
+
+test('selected text dragged onto another block moves there, as in a text field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsecond para here');
+  for (let step = 0; step < 5; step++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  const from = await browser.evaluate(() => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.left + 15, y: box.top + 12 };
+  });
+  const to = await page.pointAt('para here');
+
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  for (let step = 1; step <= 10; step++) {
+    await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  expect((await page.selection()).text).toBe('second alphapara here');
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue(' beta gamma\n\nsecond alphapara here');
+});
