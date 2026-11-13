@@ -215,3 +215,35 @@ for (const { name, note: body, from, keys: pressed } of crossings) {
     await editor.expectNote(slow);
   });
 }
+
+/**
+ * A click moves the text field to the block it lands in, and until the next
+ * frame the page still shows the field on the block it left. Steps pressed
+ * in that frame go over that page, up or down onto the block the field left,
+ * which is first or last on the page, or has a paragraph past it.
+ */
+const stepsAfterClick: { name: string; note: string; before?: Spot; at: Spot; keys: string[] }[] = [
+  { name: 'Shift+ArrowUp three times onto a quote at the top', note: '> a\n>\n> b\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp', 'Shift+ArrowUp'] },
+  { name: 'Shift+ArrowDown three times onto a quote at the end', note: 'first\n\n> a\n>\n> b', before: { word: 'b', at: 1 }, at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown'] },
+  { name: 'Shift+ArrowDown four times onto a list item at the end', note: 'first\n\n- a\n\n b', before: { word: 'b', at: 1 }, at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown'] },
+  { name: 'Shift+ArrowDown three times onto a quote before a paragraph', note: 'first\n\n> a\n>\n> b\n\nlast', before: { word: 'b', at: 1 }, at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown'] },
+];
+
+for (const { name, note: body, before, at, keys: pressed } of stepsAfterClick) {
+  test(`${name}, in the same frame as the click, select what a plain field selects`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    await editor.seed(body);
+    const expected = await editor.plainField(body, offsetOf(body, at), pressed, 'X');
+    await editor.show(body);
+    if (before) await editor.click(before);
+    await page.beforeRedraw(async () => {
+      await editor.clickNow(at);
+      for (const key of pressed) await browser.keyboard.press(key);
+    });
+    await editor.type('X');
+    await page.markdown.tap();
+
+    await expect(page.text).toHaveValue(expected);
+  });
+}
