@@ -115,7 +115,7 @@ function recordCrashes() {
   addEventListener('unhandledrejection', record);
 }
 
-class Disk {
+export class Disk {
   constructor(
     private readonly app: App,
     private readonly browser: Browser,
@@ -162,7 +162,7 @@ class Disk {
   }
 }
 
-class Page {
+export class Page {
   readonly text: Locator;
   readonly title: Locator;
   readonly saveState: Locator;
