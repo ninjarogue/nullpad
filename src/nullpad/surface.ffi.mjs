@@ -15,12 +15,28 @@ export function findControl(id) {
   return document.getElementById(id);
 }
 
-// In live view the page scrolls, not the control, and a control that already
-// has the focus is not scrolled to by `focus`.
-export function focusControl(id) {
+// In live view the page scrolls, not the control, which can be taller than
+// the window, and a control that already has the focus is not scrolled to by
+// `focus`. The page is scrolled to the head of the selection, as a text field
+// scrolls to its caret.
+export function focusControl(id, liveClass) {
   const control = document.getElementById(id);
-  control?.focus();
-  control?.scrollIntoView({ block: "nearest" });
+  const page = control?.closest("." + liveClass);
+  if (!page) {
+    control?.focus();
+    control?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  control.focus({ preventScroll: true });
+  const place = measure(control);
+  const style = getComputedStyle(control);
+  const head = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
+  const top = control.getBoundingClientRect().top + parseFloat(style.paddingTop) + place(head).top - place(0).top;
+  const box = page.getBoundingClientRect();
+  const above = Math.max(box.top, 0) - top;
+  const below = top + parseFloat(style.lineHeight) - Math.min(box.bottom, innerHeight);
+  if (above > 0) page.scrollTop -= above;
+  else if (below > 0) page.scrollTop += below;
 }
 
 export function focusInPlace(id) {

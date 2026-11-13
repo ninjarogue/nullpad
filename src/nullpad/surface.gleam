@@ -263,8 +263,8 @@ pub fn sync(
         write(buffer),
         effect.from(fn(dispatch) { aim(dispatch, False) }),
         effect.before_paint(fn(dispatch, _) {
-          focus_control(control_id)
           aim(dispatch, True)
+          focus_control(control_id, live_class)
         }),
       ])
     }
@@ -318,7 +318,7 @@ const drag_distance = 4.0
 pub fn focus() -> Effect(msg) {
   // A pane that was hidden cannot take focus until the next render puts it
   // back on screen.
-  effect.before_paint(fn(_, _) { focus_control(control_id) })
+  effect.before_paint(fn(_, _) { focus_control(control_id, live_class) })
 }
 
 /// `selectionStart` and `selectionEnd` are UTF-16 offsets, and the head is
@@ -531,7 +531,7 @@ fn write_control(
 fn text_width(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
-fn focus_control(id: String) -> Nil
+fn focus_control(id: String, live_class: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil
