@@ -70,9 +70,17 @@ export class Editing {
 
   constructor(readonly fixtures: Fixtures) {}
 
-  /** Seeds the note and leaves the browser on a blank page, where `plainField` can run. */
+  /**
+   * Seeds the note and leaves the browser on a blank page, where `plainField`
+   * can run. The page opens with Markdown on, as it does the first time, so
+   * `show` can be called again and again.
+   */
   async seed(body: string) {
     await this.fixtures.disk.seed([{ key: 'edit', title: null, body }]);
+    await this.fixtures.browser.evaluate(() => {
+      localStorage.removeItem('nullpad.markdown');
+      return null;
+    });
   }
 
   /** Opens the seeded note in the page view, with the caret at its start. */
@@ -90,6 +98,22 @@ export class Editing {
     await this.show(body);
   }
 
+  /** A plain text field on the blank page, holding `body`, with `start` to `end` selected. */
+  private async putPlainField(body: string, start: number, end: number) {
+    await this.fixtures.browser.evaluate(
+      (put: { body: string; start: number; end: number }) => {
+        const field = document.createElement('textarea');
+        field.style.cssText = 'position:fixed;top:0;left:0;width:2400px;height:600px;white-space:pre;font:16px monospace';
+        document.body.append(field);
+        field.value = put.body;
+        field.focus();
+        field.setSelectionRange(put.start, put.end);
+        return null;
+      },
+      { body, start, end },
+    );
+  }
+
   /**
    * What a plain text field holding `body` does to its text when `keys` are
    * pressed from `start`, and `typed` is typed after them. Runs on the blank
@@ -97,18 +121,7 @@ export class Editing {
    */
   async plainField(body: string, start: number, keys: string[], typed: string) {
     const { browser } = this.fixtures;
-    await browser.evaluate(
-      (put: { body: string; start: number }) => {
-        const field = document.createElement('textarea');
-        field.style.cssText = 'position:fixed;top:0;left:0;width:2400px;height:600px;white-space:pre;font:16px monospace';
-        document.body.append(field);
-        field.value = put.body;
-        field.focus();
-        field.setSelectionRange(put.start, put.start);
-        return null;
-      },
-      { body, start },
-    );
+    await this.putPlainField(body, start, start);
     for (const key of keys) await browser.keyboard.press(key);
     await browser.keyboard.type(typed);
     return browser.evaluate(() => {
@@ -116,6 +129,29 @@ export class Editing {
       const value = field.value;
       field.remove();
       return value;
+    });
+  }
+
+  /**
+   * What a plain text field holding `body` ends with when `key` is pressed
+   * with the caret at `start`, or with `start` to `end` selected: its text and
+   * the two ends of its selection as offsets, `head` being the end that moves.
+   * Runs on the blank page.
+   */
+  async plainKey(body: string, start: number, key: string, end = start) {
+    const { browser } = this.fixtures;
+    await this.putPlainField(body, start, end);
+    await browser.keyboard.press(key);
+    return browser.evaluate(() => {
+      const field = document.querySelector('textarea')!;
+      const backward = field.selectionDirection === 'backward';
+      const out = {
+        value: field.value,
+        anchor: backward ? field.selectionEnd : field.selectionStart,
+        head: backward ? field.selectionStart : field.selectionEnd,
+      };
+      field.remove();
+      return out;
     });
   }
 
