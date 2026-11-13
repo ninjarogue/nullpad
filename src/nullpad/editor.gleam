@@ -201,10 +201,18 @@ pub type Sync {
   WriteAndAim(Buffer, x: Float, line: Line)
   /// Then the head moves to the place on the drawn page nearest `x`, from
   /// the left of the text, one drawn line above or below where it is drawn.
-  /// A selection keeps its anchor. A `queued` step starts where the step
-  /// before it landed, which the page may not show yet. A `page` step goes a
-  /// window, not a line.
-  WriteAndStep(Buffer, x: Float, up: Bool, page: Bool, queued: Bool)
+  /// A selection keeps its anchor. A `queued` step waited for the step
+  /// before it, which the page does not show yet. A `chained` step starts
+  /// where the step before it landed. A `page` step goes a window, not a
+  /// line.
+  WriteAndStep(
+    Buffer,
+    x: Float,
+    up: Bool,
+    page: Bool,
+    queued: Bool,
+    chained: Bool,
+  )
   /// Then the browser acts on the key, and the field is read once it has.
   WriteAndRead(Buffer)
   /// Then the head moves a line up or down the field as the browser moves
@@ -517,7 +525,14 @@ fn next_step(editor: Editor, x: Float) -> Outcome {
     [] -> write(editor)
     [Move(up:, page:, ..), ..] -> {
       let sync =
-        WriteAndStep(field_buffer(editor), x:, up:, page:, queued: True)
+        WriteAndStep(
+          field_buffer(editor),
+          x:,
+          up:,
+          page:,
+          queued: True,
+          chained: True,
+        )
       Outcome(editor:, sync:, requests: [])
     }
   }
@@ -716,7 +731,14 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     Aim(line), _ -> WriteAndAim(wanted_shown, x: goal, line:)
     ByLine(up:), _ -> WriteAndMove(wanted_shown, up:)
     StepTo(Move(up:, page:, ..)), _ if first ->
-      WriteAndStep(wanted_shown, x: goal, up:, page:, queued: landed)
+      WriteAndStep(
+        wanted_shown,
+        x: goal,
+        up:,
+        page:,
+        queued: False,
+        chained: landed,
+      )
     StepTo(_), True | Done, True -> InSync
     StepTo(_), False | Done, False -> Write(wanted_shown)
   }

@@ -761,6 +761,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       up: False,
       page: False,
       queued: False,
+      chained: False,
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 3), Position(row: 0, col: 3))
@@ -782,6 +783,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       up: True,
       page: False,
       queued: False,
+      chained: False,
     )
 }
 
@@ -806,6 +808,7 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
       up: True,
       page: False,
       queued: True,
+      chained: True,
     )
 
   let Outcome(editor: ed, sync:, ..) =
@@ -925,7 +928,14 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
   let Outcome(sync:, ..) =
     editor.update(ed, editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
   assert sync
-    == editor.WriteAndStep(shown, x: 9.0, up: False, page: False, queued: False)
+    == editor.WriteAndStep(
+      shown,
+      x: 9.0,
+      up: False,
+      page: False,
+      queued: False,
+      chained: False,
+    )
 }
 
 pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() {
@@ -952,7 +962,8 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
     x: 40.0,
     up: False,
     page: False,
-    queued: True,
+    queued: False,
+    chained: True,
   ) = sync
 
   let Outcome(editor: ed, ..) =
@@ -983,6 +994,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
     up: True,
     page: False,
     queued: False,
+    chained: False,
   ) = sync
 }
 

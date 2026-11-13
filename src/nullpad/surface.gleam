@@ -305,7 +305,7 @@ pub fn sync(
     // Stepped at once when the page shows where the step starts, or the
     // step before it landed on the page as it is still drawn, so that a key
     // pressed before the next paint replaces what the steps selected.
-    editor.WriteAndStep(buffer, x:, up:, page:, queued:) -> {
+    editor.WriteAndStep(buffer, x:, up:, page:, queued:, chained:) -> {
       let measure = fn(from_landing) {
         step_head(
           control_id,
@@ -328,7 +328,7 @@ pub fn sync(
         }
       }
       let step = fn(dispatch) { stepped(dispatch, measure(False)) }
-      case queued && has_landing(), !queued && is_drawn() {
+      case chained && has_landing(), !queued && is_drawn() {
         False, True ->
           effect.batch([
             effect.from(fn(dispatch) {
