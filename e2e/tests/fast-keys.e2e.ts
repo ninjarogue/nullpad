@@ -56,6 +56,26 @@ for (const { name, spot } of spots) {
   }
 }
 
+for (const { name, spot } of spots) {
+  for (const key of keys) {
+    test(`${key} pressed one frame after a click ${name}, with the whole note drawn, acts where the click put the caret`, async (fixtures) => {
+      const { browser, page } = fixtures;
+      const editor = new Editing(fixtures);
+      await editor.seed(note);
+      const expected = await editor.plainField(note, offsetOf(note, spot), [key], 'X');
+      await editor.show(note);
+      await editor.press('Escape');
+      await page.nextFrame();
+      await editor.clickNow(spot);
+      await browser.evaluate(() => new Promise<null>((done) => requestAnimationFrame(() => done(null))));
+      await browser.keyboard.press(key);
+      await editor.type('X');
+
+      await editor.expectNote(expected);
+    });
+  }
+}
+
 const afterClick = [
   { name: 'in the same frame', held: true },
   { name: 'with no wait', held: false },
