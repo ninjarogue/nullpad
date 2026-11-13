@@ -667,6 +667,52 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
   let assert editor.WriteAndStep(..) = sync
 }
 
+pub fn shift_and_an_arrow_left_or_right_on_a_painted_selection_skip_hidden_marks_test() {
+  let ed = pressed(live_note, 0, "Tr")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Dragged(row: 2, visible: "Flights are ", at_end: False),
+    )
+  let ed = editor.update(ed, editor.Released).editor
+  assert editor.is_painted(ed)
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Nudged(
+        forward: True,
+        row: 2,
+        visible: "Flights are booked.",
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert sync
+    == editor.Write(selected(
+      "# Trip\n\nFlights are **booked**.",
+      from: Position(0, 4),
+      to: Position(2, 15),
+    ))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Nudged(
+        forward: False,
+        row: 2,
+        visible: "Flights are booked.",
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert sync
+    == editor.Write(selected(
+      "# Trip\n\nFlights are **booked**.",
+      from: Position(0, 4),
+      to: Position(2, 14),
+    ))
+  assert editor.text(ed) == live_note
+}
+
 pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     live(live_note)

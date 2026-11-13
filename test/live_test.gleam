@@ -327,3 +327,100 @@ pub fn a_row_in_an_element_further_down_is_drawn_from_its_own_start_test() {
   assert live.drawn(lines, row: 0, visible: "one\nmore b", at: Position(1, 2))
     == "one\n"
 }
+
+fn nudge(
+  lines: List(String),
+  visible: String,
+  row: Int,
+  col: Int,
+  forward: Bool,
+) {
+  live.nudge(lines, row: 0, visible:, at: Position(row:, col:), forward:)
+}
+
+pub fn a_nudge_crosses_the_marks_the_page_does_not_draw_test() {
+  let lines = ["Flights are **booked** and"]
+  let visible = "Flights are booked and"
+  assert nudge(lines, visible, 0, 12, True) == Position(0, 15)
+  assert nudge(lines, visible, 0, 19, True) == Position(0, 20)
+  assert nudge(lines, visible, 0, 20, True) == Position(0, 23)
+  assert nudge(lines, visible, 0, 23, False) == Position(0, 22)
+  assert nudge(lines, visible, 0, 22, False) == Position(0, 19)
+  assert nudge(lines, visible, 0, 15, False) == Position(0, 14)
+  assert nudge(lines, visible, 0, 14, False) == Position(0, 11)
+}
+
+/// A nudge that stays on its row draws one character more or less, or
+/// reaches the end of the row it was on when nothing more is drawn there.
+pub fn every_nudge_draws_one_character_more_or_less_test() {
+  let wrong = {
+    use Drawn(lines:, visible:) <- list.flat_map(corpus)
+    use #(line, row) <- list.flat_map(
+      list.index_map(lines, fn(line, row) { #(line, row) }),
+    )
+    let drawn_here = list.length(string.split(visible, "\n")) > row
+    let end = string.length(line)
+    let last = list.length(lines) - 1
+    let length = fn(col) {
+      string.length(live.drawn(
+        lines,
+        row: 0,
+        visible:,
+        at: Position(row:, col:),
+      ))
+    }
+    use col <- list.filter_map(through(end))
+    let at = Position(row:, col:)
+    let forward = live.nudge(lines, row: 0, visible:, at:, forward: True)
+    let back = live.nudge(lines, row: 0, visible:, at:, forward: False)
+    let forward_ok = case forward.row == row {
+      False -> col == end
+      True ->
+        forward == at
+        && col == end
+        && row == last
+        || forward.col > col
+        && {
+          length(forward.col) - length(col) == 1
+          || length(forward.col) == length(col)
+          && forward.col == end
+        }
+    }
+    let back_ok = case back.row == row {
+      False -> col == 0
+      True ->
+        back == at
+        && col == 0
+        && row == 0
+        || back.col < col
+        && {
+          length(col) - length(back.col) == 1
+          || length(back.col) == length(col)
+          && back.col == 0
+        }
+    }
+    case drawn_here && !{ forward_ok && back_ok } {
+      True -> Ok(line <> " at " <> int.to_string(col))
+      False -> Error(Nil)
+    }
+  }
+  assert wrong == []
+}
+
+pub fn a_nudge_skips_the_marks_that_start_a_row_test() {
+  let lines = ["- [ ] task box"]
+  assert nudge(lines, "task box", 0, 0, True) == Position(0, 7)
+  assert nudge(lines, "task box", 0, 6, False) == Position(0, 0)
+  assert nudge(["**bold**"], "bold", 0, 6, True) == Position(0, 8)
+}
+
+pub fn a_nudge_past_the_end_of_a_row_goes_to_the_next_row_test() {
+  let lines = ["> quoted **q**", "> more", ""]
+  let visible = "quoted q\nmore"
+  assert nudge(lines, visible, 0, 14, True) == Position(1, 0)
+  assert nudge(lines, visible, 1, 0, True) == Position(1, 3)
+  assert nudge(lines, visible, 1, 0, False) == Position(0, 14)
+  assert nudge(lines, visible, 1, 6, True) == Position(2, 0)
+  assert nudge(lines, visible, 2, 0, True) == Position(2, 0)
+  assert nudge(lines, visible, 0, 0, False) == Position(0, 0)
+}

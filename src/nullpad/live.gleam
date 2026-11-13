@@ -171,3 +171,18 @@ fn unmatch(
     [_, ..line], _ -> unmatch(line, visible, left - 1, taken)
   }
 }
+
+/// One character drawn on the page from `at`, along its row, past the marks
+/// the page does not draw: forward to just after the next drawn character,
+/// back to just after the drawn character before the last. Past the end or
+/// the start of the row, to the row beyond. `row` and `visible` are as for
+/// `drawn`, for the element `at` is drawn in.
+pub fn nudge(
+  _lines: List(String),
+  row _row: Int,
+  visible _visible: String,
+  at at: Position,
+  forward _forward: Bool,
+) -> Position {
+  at
+}

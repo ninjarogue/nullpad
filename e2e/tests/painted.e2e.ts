@@ -79,7 +79,7 @@ test('a drag from a heading into a paragraph paints the selection over the page 
 
   await browser.keyboard.type('X');
   await expect(page.text).toHaveValue('Xhotel is *not*.');
-  expect(await page.painted()).toBeNull();
+  await expect.poll(() => page.painted()).toBeNull();
   await page.markdown.tap();
   await expect(page.text).toHaveValue('Xhotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast');
 });
@@ -201,8 +201,8 @@ test('a click takes the paint off and puts the block clicked in the field', asyn
   await browser.mouse.down();
   await browser.mouse.up();
   await expect(page.text).toHaveValue('- Shoes');
-  expect(await page.painted()).toBeNull();
-  expect(await page.paintedBlanks()).toEqual([]);
+  await expect.poll(() => page.painted()).toBeNull();
+  await expect.poll(() => page.paintedBlanks()).toEqual([]);
 });
 
 test('a selection across blocks is painted at phone width too, and the page stays as wide as the window', async ({
@@ -228,4 +228,115 @@ test('a selection across blocks is painted at phone width too, and the page stay
   await browser.keyboard.type('X');
   await page.markdown.tap();
   await expect(page.text).toHaveValue('Xlast');
+});
+
+test('Shift+ArrowRight and Shift+ArrowLeft move a painted selection one drawn letter at a time, past hidden marks', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await browser.keyboard.press('End');
+  const are = await page.pointAt('are');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(are.x, are.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(() => page.painted()).toBe('Flights ');
+  const steady = await page.layout();
+
+  for (const painted of ['Flights a', 'Flights ar', 'Flights are', 'Flights are ', 'Flights are b']) {
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => page.painted()).toBe(painted);
+  }
+  await expect.poll(async () => (await page.selection()).selected).toBe('\n\nFlights are **b');
+  for (const painted of ['Flights are ', 'Flights are']) {
+    await browser.keyboard.press('Shift+ArrowLeft');
+    await expect.poll(() => page.painted()).toBe(painted);
+  }
+  for (let letter = 0; letter < 7; letter++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.painted()).toBe('Flights are booked');
+  await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.painted()).toBe('Flights are booked ');
+  await expect.poll(async () => (await page.selection()).selected).toBe('\n\nFlights are **booked** ');
+  expectSameLayout(await page.layout(), steady);
+});
+
+test('Shift and a click, or a drag, from a painted selection paint further', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('Trip'), await page.pointAt('hotel'));
+  await expect.poll(() => page.painted()).toBe('TripFlights are booked and the ');
+
+  const passport = await page.pointAt('Passport');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(passport.x, passport.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(() => page.painted()).toBe('TripFlights are booked and the hotel is not.');
+
+  const last = await page.pointAt('last');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(passport.x, passport.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  await browser.mouse.move(last.x, last.y);
+  await page.nextFrame();
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(() => page.painted()).toBe('TripFlights are booked and the hotel is not.PassportShoes');
+  await expect(page.text).toBeFocused();
+});
+
+test('Backspace, Delete and text the browser puts in replace a painted selection', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const put = (text: string) =>
+    browser.evaluate((text: string) => {
+      document.execCommand('insertText', false, text);
+      return null;
+    }, text);
+  const replacements: [string, () => Promise<unknown>][] = [
+    ['', () => browser.keyboard.press('Backspace')],
+    ['', () => browser.keyboard.press('Delete')],
+    ['Put ', () => put('Put ')],
+  ];
+  for (const [typed, replace] of replacements) {
+    await openLive({ app, disk, page }, body);
+    await page.stopEditing();
+    await page.drag(await page.pointAt('Trip'), await page.pointAt('hotel'));
+    await expect.poll(() => page.painted()).toBe('TripFlights are booked and the ');
+
+    await replace();
+    await expect(page.text).toHaveValue(`${typed}hotel is *not*.`);
+    await expect.poll(() => page.painted()).toBeNull();
+    await page.markdown.tap();
+    await expect(page.text).toHaveValue(`${typed}hotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast`);
+  }
+});
+
+test('Ctrl+A pressed right after a click, before the page draws again, paints the whole note', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.stopEditing();
+  const shoes = await page.pointAt('Shoes');
+
+  await page.beforeRedraw(async () => {
+    await browser.mouse.move(shoes.x, shoes.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await browser.keyboard.press('ControlOrMeta+a');
+  });
+  await expect.poll(() => page.painted()).toBe(everything);
+  await expect.poll(() => page.selection()).toEqual({ text: body, selected: body, backward: false });
 });

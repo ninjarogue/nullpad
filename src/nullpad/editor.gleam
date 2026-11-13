@@ -103,6 +103,10 @@ pub type Event {
   /// the place on the drawn page found `x` from the left of the text, one
   /// drawn line from where the head was drawn. The anchor stays.
   Stepped(row: Int, visible: String, at_end: Bool, x: Float)
+  /// Shift and an arrow left or right over a painted selection: the head
+  /// moves one character drawn on the page, past the marks it does not draw.
+  /// `row` and `visible` are the element the head is drawn in.
+  Nudged(forward: Bool, row: Int, visible: String, shown: Buffer)
   Released
   FocusChanged(focused: Bool)
 }
@@ -272,6 +276,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
       }
     }
+    Nudged(..) -> Outcome(editor:, sync: InSync, requests: [])
     Released -> {
       let focus = case editor.focus {
         Pressing | Focused -> Focused
