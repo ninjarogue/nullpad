@@ -1424,3 +1424,19 @@ test('Ctrl+A and Ctrl+E work on a keyboard laid out for another alphabet', async
   await press('у', 'KeyE');
   await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('Shift+ArrowUp and a letter pressed before the page redraws replace what the arrow selected', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '- alpha one\n- bravo two');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('Home');
+  await expect.poll(() => page.caret()).toBe('|- bravo two');
+
+  await page.pressBeforeRedraw('Shift+ArrowUp', 'X');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('X- bravo two');
+});
