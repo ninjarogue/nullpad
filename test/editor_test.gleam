@@ -855,8 +855,48 @@ pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
     let Outcome(editor: ed, ..) = editor.update(ed, editor.SteppedPast)
     buffer.selection(editor.buffer(ed))
   }
-  assert past(editor.SelectDown) == #(Position(0, 3), buffer.end_of(live_note))
-  assert past(editor.SelectUp) == #(Position(0, 3), Position(0, 0))
+  let end = #(Position(0, 3), buffer.end_of(live_note))
+  let start = #(Position(0, 3), Position(0, 0))
+  assert past(editor.SelectDown) == end
+  assert past(editor.SelectLineEnd) == end
+  assert past(editor.SelectRight) == end
+  assert past(editor.SelectUp) == start
+  assert past(editor.SelectLineStart) == start
+  assert past(editor.SelectLeft) == start
+}
+
+pub fn a_press_escape_or_a_blur_ends_the_waiting_steps_test() {
+  let ed = painted_from_trip_to_one()
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectRight,
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  let assert editor.WriteAndStep(..) = sync
+  let at = fn(event) { editor.update(ed, event).editor }
+  let #(row, visible, at_end, next, x, y) = #(2, "Fli", False, "", 0.0, 0.0)
+  let shown = editor.field_buffer(ed)
+  let moved_on = [
+    at(editor.Pointed(row:, visible:, at_end:, next:, x:, y:)),
+    at(editor.WordPointed(row:, visible:, at_end:, next:, x:, y:)),
+    at(editor.LinePointed(row:, visible:, at_end:, next:, x:, y:)),
+    at(editor.ShiftPointed(row:, visible:, at_end:, next:, shown:, x:, y:)),
+    at(editor.SelectionPointed(row:, visible:, at_end:, next:, x:, y:)),
+    at(editor.EscapePressed(shown:)),
+    at(editor.FocusChanged(focused: False)),
+  ]
+  use moved_on <- list.each(moved_on)
+  let Outcome(editor: late, sync:, ..) =
+    editor.update(
+      moved_on,
+      editor.Stepped(row: 5, visible: "tw", at_end: False, next: "", x: 0.0),
+    )
+  assert sync == editor.InSync
+  assert late == moved_on
 }
 
 pub fn a_change_the_editor_did_not_write_ends_the_waiting_steps_test() {

@@ -407,11 +407,14 @@ pub fn sync(
         effect.from(fn(_) {
           write_now(buffer)
           focus_in_place(control_id)
+          ask_focus()
         }),
         effect.before_paint(fn(dispatch, _) {
           paint(editor, settled(dispatch))
           set_drawn(True)
-          focus_control(control_id, live_class, painted_class)
+          focus_later(fn() {
+            focus_control(control_id, live_class, painted_class)
+          })
         }),
       ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
@@ -520,11 +523,14 @@ pub fn sync(
       effect.batch([
         effect.from(fn(dispatch) {
           write_now(buffer)
+          ask_focus()
           aim(dispatch, False)
         }),
         effect.before_paint(fn(dispatch, _) {
           aim(dispatch, True)
-          focus_control(control_id, live_class, painted_class)
+          focus_later(fn() {
+            focus_control(control_id, live_class, painted_class)
+          })
         }),
         painted,
       ])
@@ -548,10 +554,13 @@ pub fn sync(
             effect.from(fn(_) {
               write_now(buffer)
               focus_in_place(control_id)
+              ask_focus()
               place_caret(control_id, painted_class, x, y)
               hold_page(control_id, live_class)
             }),
-            effect.before_paint(fn(_, _) { focus_in_place(control_id) }),
+            effect.before_paint(fn(_, _) {
+              focus_later(fn() { focus_in_place(control_id) })
+            }),
           ])
         None -> effect.none()
       }
@@ -657,11 +666,23 @@ pub fn focus() -> Effect(msg) {
   // until the next render puts it back on screen, and the field is only
   // scrolled to once it is drawn where it belongs.
   effect.batch([
-    effect.from(fn(_) { focus_in_place(control_id) }),
+    effect.from(fn(_) {
+      focus_in_place(control_id)
+      ask_focus()
+    }),
     effect.before_paint(fn(_, _) {
-      focus_control(control_id, live_class, painted_class)
+      focus_later(fn() { focus_control(control_id, live_class, painted_class) })
     }),
   ])
+}
+
+/// Focus asked for before a paint is given then only if it has not moved
+/// to another element since, so that the field does not take it back.
+fn focus_later(focus: fn() -> Nil) -> Nil {
+  case focus_stayed(control_id) {
+    True -> focus()
+    False -> Nil
+  }
 }
 
 /// `selectionStart` and `selectionEnd` are UTF-16 offsets, and the head is
@@ -954,6 +975,12 @@ fn write_control(
 
 @external(javascript, "./surface.ffi.mjs", "textWidth")
 fn text_width(text: String) -> Float
+
+@external(javascript, "./surface.ffi.mjs", "askFocus")
+fn ask_focus() -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "focusStayed")
+fn focus_stayed(id: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
 fn focus_control(id: String, live_class: String, painted_class: String) -> Nil

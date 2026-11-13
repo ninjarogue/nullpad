@@ -586,11 +586,12 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
     }
     FocusChanged(focused:) -> {
-      let #(focus, press) = case focused {
-        True -> #(Focused, editor.press)
-        False -> #(Away, None)
+      let #(focus, press, waiting) = case focused {
+        True -> #(Focused, editor.press, editor.waiting)
+        False -> #(Away, None, [])
       }
-      let changed = Editor(..editor, focus:, press:) |> edit(editor.buffer)
+      let changed =
+        Editor(..editor, focus:, press:, waiting:) |> edit(editor.buffer)
       let changed = case focus {
         Away -> changed
         Focused -> realign(changed)

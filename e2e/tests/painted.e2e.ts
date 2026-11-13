@@ -44,6 +44,11 @@ async function listenForCopy(browser: { evaluate<T>(run: () => T): Promise<T> })
 const copied = (browser: { evaluate<T>(run: () => T): Promise<T> }) =>
   browser.evaluate(() => (globalThis as { copied?: string }).copied ?? null);
 
+const fieldSeen = (browser: { evaluate<T>(run: () => T): Promise<T> }) =>
+  browser.evaluate(() =>
+    document.querySelector('[data-test-id="editor"]')!.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+  );
+
 test('a drag from a heading into a paragraph paints the selection over the page and moves nothing', async ({
   app,
   browser,
@@ -138,12 +143,19 @@ test('Shift+ArrowDown and Shift+ArrowUp move a painted selection one drawn line 
   expectSameLayout(await page.layout(), steady);
 });
 
-test('Ctrl+A paints the whole note and moves nothing', async ({ app, browser, disk, page }) => {
+test('Ctrl+A paints the whole note, hides the markdown in the field and moves nothing', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
   await openLive({ app, disk, page }, body);
   const before = await page.layout();
+  expect(await fieldSeen(browser)).toBe(true);
 
   await browser.keyboard.press('ControlOrMeta+a');
   await expect.poll(() => page.painted()).toBe(everything);
+  expect(await fieldSeen(browser)).toBe(false);
   expectSameLayout(await page.layout(), before);
   expect(await page.scrolled()).toBe(0);
   await expect.poll(() => page.selection()).toEqual({ text: body, selected: body, backward: false });
@@ -556,22 +568,25 @@ test('the hidden field keeps its caret where a painted selection starts, so an I
   expect(Math.abs(places.caret.y - places.start.y)).toBeLessThan(4);
 });
 
-/** Where the head of a painted selection is drawn, and whether that is inside the window. */
+/** Whether the end of the painted selection that the field's selection moves is drawn inside the window. */
 const paintedHeadInView = (browser: { evaluate<T>(run: () => T): Promise<T> }) =>
   browser.evaluate(() => {
-    const head = [...(CSS.highlights.get('nullpad-head') ?? [])][0] as Range | undefined;
-    if (!head) return null;
-    const node = head.startContainer;
+    const painted = [...(CSS.highlights.get('nullpad-selection') ?? [])][0] as Range | undefined;
+    if (!painted) return null;
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    const backward = field.selectionDirection === 'backward';
+    const node = backward ? painted.startContainer : painted.endContainer;
+    const offset = backward ? painted.startOffset : painted.endOffset;
     const letter = document.createRange();
     const text = node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
     let box: DOMRect;
-    if (text && head.startOffset < text.length) {
-      letter.setStart(text, head.startOffset);
-      letter.setEnd(text, head.startOffset + 1);
+    if (text && offset < text.length) {
+      letter.setStart(text, offset);
+      letter.setEnd(text, offset + 1);
       box = letter.getClientRects()[0] ?? letter.getBoundingClientRect();
-    } else if (text && head.startOffset > 0) {
-      letter.setStart(text, head.startOffset - 1);
-      letter.setEnd(text, head.startOffset);
+    } else if (text && offset > 0) {
+      letter.setStart(text, offset - 1);
+      letter.setEnd(text, offset);
       box = [...letter.getClientRects()].pop() ?? letter.getBoundingClientRect();
     } else {
       box = (node instanceof Element ? node : node.parentElement!).getBoundingClientRect();
@@ -691,6 +706,44 @@ test('a click inside a painted selection puts the caret where it clicked', async
   await expect(page.text).toBeFocused();
 });
 
+test('a press at the edge of a painted selection, and a drag from there, select as from any other place', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, threeParas);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+
+  await glide(browser, page, await page.pointAt('para two'), await page.pointAt('para.'));
+  await expect.poll(() => page.painted()).toBe('para two.Delta ');
+  await browser.keyboard.press('Escape');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(threeParas);
+});
+
+test('a painted selection dragged off the page stays, and what is typed then replaces it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, threeParas);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('para one'), await page.pointAt('para two'));
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+
+  const button = (await page.markdown.boundingBox())!;
+  const away = { x: button.x + button.width / 2, y: button.y + button.height / 2 };
+  await glide(browser, page, await page.pointAt('ra one'), away);
+  await expect.poll(() => page.painted()).toBe('para one.Beta ');
+  await browser.keyboard.type('X');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('Alpha Xpara two.\n\nDelta para.');
+});
+
 test('Shift and a press inside a painted selection select from its anchor, and a drag from there reaches below', async ({
   app,
   browser,
@@ -732,7 +785,7 @@ test('a middle click inside a painted selection puts the caret where it clicked,
   const point = await page.pointAt('ra one');
   await browser.evaluate((at: { x: number; y: number }) => {
     const target = document.elementFromPoint(at.x, at.y)!;
-    const press = { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 1 };
+    const press = { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 1, detail: 1 };
     target.dispatchEvent(new MouseEvent('mousedown', { ...press, buttons: 4 }));
     target.dispatchEvent(new MouseEvent('mouseup', press));
     target.dispatchEvent(new MouseEvent('auxclick', press));
@@ -1099,6 +1152,30 @@ test('the line break of a list item with a list inside is painted after its own 
   });
   expect(Math.abs(bar.left)).toBeLessThan(2);
   expect(bar).toMatchObject({ top: true, bottom: true });
+});
+
+test('a step still waiting for the page to draw is dropped once the field loses the focus', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await browser.keyboard.press('End');
+
+  await page.beforeRedraw(async () => {
+    await browser.keyboard.type('X');
+    await browser.keyboard.press('Shift+ArrowDown');
+    await browser.evaluate(() => {
+      document.querySelector<HTMLElement>('[aria-label="Title"]')!.focus();
+      return null;
+    });
+  });
+  await expect(page.title).toBeFocused();
+  expect(await page.painted()).toBeNull();
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(body.replace('# Trip', '# TripX'));
+  expect((await page.selection()).selected).toBe('');
 });
 
 test('keys pressed before the page draws act on the selection the keys before them made', async ({
