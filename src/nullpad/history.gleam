@@ -1,9 +1,9 @@
-//// The note's undo history: the note before each step that can be undone,
-//// and after each step undone. Pure.
+//// The note's undo history: what each step that can be undone changed, and
+//// each step undone. Pure.
 ////
 //// A step is one change, except that a run of typed characters, or of
 //// characters erased one at a time, is one step until the caret moves some
-//// other way. A space typed after a word starts a new step, so undo takes
+//// other way. A character typed over selected text starts a run of typing. A space typed after a word starts a new step, so undo takes
 //// back about a word at a time. A pause of more than `pause` milliseconds
 //// since the last character typed or erased also starts a new step.
 ////
@@ -159,7 +159,9 @@ fn joins(run: Run, change: Change, now: Int) -> Bool {
       now - at <= pause && !{ is_space(typed) && !is_space(last) }
     Erasing(direction:, at:), Erased(erased) ->
       now - at <= pause && direction == erased
-    _, TypedOver(_)
+    Closed, TypedOver(_)
+    | Typing(..), TypedOver(_)
+    | Erasing(..), TypedOver(_)
     | Closed, Typed(_)
     | Closed, Erased(_)
     | Closed, Replaced

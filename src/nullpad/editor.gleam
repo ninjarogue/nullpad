@@ -616,7 +616,8 @@ fn travel(
   through: fn(History) -> Result(History, Nil),
 ) -> Outcome {
   case editor.composing, editor.focus, through(editor.history) {
-    True, _, _ -> Outcome(editor:, sync: InSync, requests: [])
+    True, Focused, _ | True, Away, _ ->
+      Outcome(editor:, sync: InSync, requests: [])
     False, Focused, Ok(history) ->
       Editor(..editor, history:)
       |> edit(history.present(history))
