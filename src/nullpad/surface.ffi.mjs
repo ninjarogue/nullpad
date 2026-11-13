@@ -154,6 +154,11 @@ const COPIED = [
   "paddingRight", "paddingBottom", "paddingLeft",
 ];
 
+export function holdsFocus(id) {
+  const control = document.getElementById(id);
+  return control !== null && document.activeElement === control;
+}
+
 export function drawnInPage(id, liveClass) {
   return document.getElementById(id)?.closest("." + liveClass) != null;
 }

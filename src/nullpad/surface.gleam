@@ -89,7 +89,10 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.on("mouseup", changed),
         event.on("keyup", moved),
         event.on("focus", focus_changed(True)),
-        event.on("blur", focus_changed(False)),
+        // Another window taking the focus blurs the field but leaves it
+        // the page's active element, and the browser gives it the focus
+        // back: the editor does not hear of it.
+        event.on("blur", leave_decoder(on_event)),
         event.advanced(
           "keydown",
           decode.one_of(key_decoder(editor, on_event), [
@@ -103,6 +106,18 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       [element.text(buffer.text(editor.field_buffer(editor)))],
     ),
   ])
+}
+
+fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
+  use _ <- decode.then(decode.dynamic)
+  case holds_focus(control_id) {
+    True ->
+      decode.failure(
+        on_event(editor.FocusChanged(focused: False)),
+        expected: "a blur that leaves the field",
+      )
+    False -> decode.success(on_event(editor.FocusChanged(focused: False)))
+  }
 }
 
 /// CSS cannot measure typed text, so the marker is measured here.
@@ -462,6 +477,9 @@ fn focus_control(id: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "holdsFocus")
+fn holds_focus(id: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "drawnInPage")
 fn drawn_in_page(id: String, live_class: String) -> Bool
