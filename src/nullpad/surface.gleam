@@ -804,11 +804,13 @@ fn is_blank(text: String) -> Bool {
   string.to_graphemes(text) |> list.all(fn(character) { character == " " })
 }
 
+/// The painted head is where the head was when the page last drew. Until
+/// the page draws again the browser moves the head in the field's text.
 fn nudged(forward: Bool, shown: Buffer) -> Result(editor.Event, Nil) {
-  case painted_head(control_id, live.row_mark, painted_class) {
-    #(row, visible) if row >= 0 ->
+  case is_drawn(), painted_head(control_id, live.row_mark, painted_class) {
+    True, #(row, visible) if row >= 0 ->
       Ok(editor.Nudged(forward:, row:, visible:, shown:))
-    _ -> Error(Nil)
+    _, _ -> Error(Nil)
   }
 }
 
