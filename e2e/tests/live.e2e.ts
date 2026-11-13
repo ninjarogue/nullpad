@@ -1120,3 +1120,179 @@ test('Escape after a selection across blocks keeps only the caret, so a key type
   await expect(page.saveState).toHaveText('Saved');
   expect((await disk.notes())[0].body).toBe(note.replace('Third', 'QThird'));
 });
+
+test('a click whose hand moves a pixel while the page lays out under it selects nothing', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = '# Trip\n\nThe flight is **booked** and the hotel is *not*.\n\nlast';
+  await openLive({ app, disk, page }, note);
+  const hotel = await page.pointAt('hotel');
+
+  await browser.mouse.move(hotel.x, hotel.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  await browser.mouse.move(hotel.x + 1, hotel.y);
+  await page.nextFrame();
+  await browser.mouse.up();
+  await page.nextFrame();
+  expect((await page.selection()).selected).toBe('');
+});
+
+test('a press on a text field that runs off the window does not scroll the page', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const paragraphs = Array.from({ length: 20 }, (_, i) => `para ${i + 1}`).join('\n\n');
+  const code = Array.from({ length: 12 }, (_, i) => `line ${i + 1};`).join('\n');
+  await openLive({ app, disk, page }, `${paragraphs}\n\n\`\`\`js\n${code}\n\`\`\`\n\n${paragraphs}`);
+  await browser.evaluate(() => {
+    document.querySelector('[data-test-id="live-below"] pre')!.scrollIntoView({ block: 'center' });
+    return null;
+  });
+  await page.drawnIn('live-below', 'pre').tap();
+  await expect(page.text).toHaveValue(`\`\`\`js\n${code}\n\`\`\``);
+
+  await browser.evaluate(() => {
+    const sheet = document.querySelector('.page')!;
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    sheet.scrollTop += field.getBoundingClientRect().top - (sheet.getBoundingClientRect().bottom - 90);
+    return null;
+  });
+  await page.nextFrame();
+  const scrolled = await page.scrolled();
+  const line = await browser.evaluate(() => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.left + 200, y: box.top + 33 };
+  });
+  await browser.mouse.move(line.x, line.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  await browser.mouse.up();
+  await page.nextFrame();
+  expect(await page.scrolled()).toBe(scrolled);
+  expect((await page.caret()).startsWith('```js\n')).toBe(true);
+});
+
+test('a click past the end of a wrapped line puts the caret at the end of that line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const long = 'This paragraph is long enough that it wraps onto several lines in the page, so a selection made with the keyboard has to move through it one line at a time, and not jump over all of it at once when Shift and the up arrow are pressed.';
+  await openLive({ app, disk, page }, `${long}\n\nlast`);
+  const end = await browser.evaluate(() => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const style = getComputedStyle(field);
+    return { x: box.right - 3, y: box.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2 };
+  });
+
+  await browser.mouse.move(end.x, end.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await browser.keyboard.press('Shift+Home');
+  const selected = (await page.selection()).selected;
+  expect(long.startsWith(selected)).toBe(true);
+  expect(selected.length).toBeGreaterThan(20);
+});
+
+test('a drag let go on a link selects to the place let go', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, '# Trip\n\nFirst para words.\n\nSee [the docs page](https://example.com) for more.\n\nlast');
+  const first = await page.pointAt('First');
+  const docs = await page.pointAt('docs');
+  await browser.mouse.move(first.x, first.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  for (let step = 1; step <= 8; step++) {
+    await browser.mouse.move(first.x + ((docs.x - first.x) * step) / 8, first.y + ((docs.y - first.y) * step) / 8);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await expect.poll(async () => (await page.selection()).selected).toBe('First para words.\n\nSee [the ');
+});
+
+test('a drag that starts on a link or a box selects, and a click on a box still ticks it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nSee [the docs](https://example.com) now.\n\n- [ ] pack bags\n\nlast line');
+  await page.drag(await page.pointAt('docs'), await page.pointAt('last'));
+  await expect.poll(async () => (await page.selection()).selected).toBe('docs](https://example.com) now.\n\n- [ ] pack bags\n\n');
+
+  await browser.keyboard.press('Escape');
+  const box = await browser.evaluate(() => {
+    const at = document.querySelector('[data-test-id="preview"] input')!.getBoundingClientRect();
+    return { x: at.left + at.width / 2, y: at.top + at.height / 2 };
+  });
+  await page.drag(box, await page.pointAt('line'));
+  await expect.poll(async () => (await page.selection()).selected).toBe('pack bags\n\nlast ');
+  expect(await page.drawn('input').isChecked()).toBe(false);
+
+  await browser.keyboard.press('Escape');
+  await page.box('pack bags').tap();
+  await expect(page.box('pack bags')).toBeChecked();
+});
+
+test('a drag held at the bottom of the window scrolls the page and keeps selecting', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const paragraphs = Array.from({ length: 60 }, (_, i) => `para ${i + 1}`);
+  await openLive({ app, disk, page }, paragraphs.join('\n\n'));
+  const second = await page.pointAt('para 2');
+  const bottom = await browser.evaluate(() => innerHeight);
+
+  await browser.mouse.move(second.x, second.y);
+  await browser.mouse.down();
+  for (let step = 0; step < 40; step++) {
+    await browser.mouse.move(second.x + (step % 2), bottom - 4 - (step % 3));
+    await pause(50);
+  }
+  await browser.mouse.up();
+  expect(await page.scrolled()).toBeGreaterThan(300);
+  const last = (await page.selection()).selected.split('\n').filter(Boolean).at(-1)!;
+  expect(Number(last.split(' ')[1])).toBeGreaterThan(30);
+});
+
+test('the wheel turned during a drag keeps the end of the selection under the pointer', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const paragraphs = Array.from({ length: 60 }, (_, i) => `para ${i + 1}`);
+  await openLive({ app, disk, page }, paragraphs.join('\n\n'));
+  const first = await page.pointAt('para 1');
+  const middle = await browser.evaluate(() => innerHeight / 2);
+
+  await browser.mouse.move(first.x, first.y);
+  await browser.mouse.down();
+  await browser.mouse.move(first.x + 20, middle);
+  await page.nextFrame();
+  await browser.mouse.wheel(0, 300);
+  await expect.poll(() => page.scrolled()).toBeGreaterThan(250);
+  await pause(300);
+  await page.nextFrame();
+  const lines = await browser.evaluate((y: number) => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const style = getComputedStyle(field);
+    return {
+      pointer: Math.floor((y - box.top - parseFloat(style.paddingTop)) / parseFloat(style.lineHeight)),
+      head: field.value.slice(0, field.selectionEnd).split('\n').length - 1,
+    };
+  }, middle);
+  await browser.mouse.up();
+  expect(lines.head).toBeGreaterThan(8);
+  expect(Math.abs(lines.head - lines.pointer)).toBeLessThanOrEqual(1);
+});
