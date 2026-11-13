@@ -226,6 +226,29 @@ pub fn arrow_down_at_the_bottom_of_the_field_moves_to_the_row_below_test() {
   assert editor.region(ed) == Some(Region(1, 1))
 }
 
+pub fn an_arrow_after_an_aim_aims_again_on_the_line_beside_with_the_kept_column_test() {
+  let Outcome(editor: ed, ..) =
+    live(live_note)
+    |> editor.update(editor.EdgePressed(
+      editor.Down,
+      x: 9.5,
+      shown: caret("# Trip", 0, 3),
+    ))
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.Aimed(shown: caret("", 0, 0), x: 9.5))
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Beside(up: False),
+        x: 0.0,
+        shown: caret("", 0, 0),
+      ),
+    )
+  assert sync
+    == editor.WriteAndAim(caret("", 0, 0), x: 9.5, line: editor.LineBelow)
+}
+
 pub fn backspace_at_the_start_of_the_field_joins_the_row_above_test() {
   let Outcome(editor: ed, ..) =
     live("one\ntwo\n\nthree")

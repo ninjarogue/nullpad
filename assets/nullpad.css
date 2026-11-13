@@ -502,12 +502,14 @@ button[aria-pressed="true"] {
 }
 
 /* A row typed as another kind of block than the page laid it out as keeps
-   the height and margins it was laid out with, so nothing around it moves. */
-.editor.part.framed {
+   the height and margins it was laid out with, so nothing around it moves.
+   So does the field written with other rows until the page draws them
+   (`held`, set by `surface`), in the type of those rows. */
+.editor.part:is(.framed, .held) {
   margin-block: 0;
 }
 
-.editor.part.framed > * {
+.editor.part:is(.framed, .held) > * {
   line-height: var(--frame-line);
   padding-block: 0;
 }

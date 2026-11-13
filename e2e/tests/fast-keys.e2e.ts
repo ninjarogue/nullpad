@@ -183,3 +183,35 @@ for (const view of views) {
     });
   }
 }
+
+/** An arrow into a block of another kind aims at the column on that block as it is drawn, so a letter before the next frame lands where it lands after the frame. */
+const crossings: { name: string; note: string; from: Spot; keys: string[] }[] = [
+  { name: 'from a heading down to a paragraph', note: '# Big title here\n\nparagraph words', from: { word: 'here', at: 4 }, keys: ['ArrowDown', 'ArrowDown'] },
+  { name: 'from a paragraph up to a heading', note: '# Big title here\n\nparagraph words', from: { word: 'words', at: 5 }, keys: ['ArrowUp', 'ArrowUp'] },
+  { name: 'from a list item down to a quote', note: '- item one\n\n> quoted words', from: { word: 'one', at: 3 }, keys: ['ArrowDown', 'ArrowDown'] },
+  { name: 'from a paragraph down to a code block', note: 'some words here\n\n```\ncode words here\n```', from: { word: 'words', at: 3 }, keys: ['ArrowDown', 'ArrowDown', 'ArrowDown'] },
+];
+
+for (const { name, note: body, from, keys: pressed } of crossings) {
+  test(`arrows ${name}, then a letter before the next frame, land where they do after it`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    await editor.open(body);
+    await editor.click(from);
+    for (const key of pressed) {
+      await browser.keyboard.press(key);
+      await page.nextFrame();
+    }
+    await editor.type('X');
+    const slow = await editor.shown();
+
+    await editor.open(body);
+    await editor.click(from);
+    await page.beforeRedraw(async () => {
+      for (const key of pressed) await browser.keyboard.press(key);
+      await browser.keyboard.type('X');
+    });
+
+    await editor.expectNote(slow);
+  });
+}

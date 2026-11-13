@@ -238,6 +238,10 @@ pub type Edge {
   /// An arrow up or down: the head moves one line up or down the drawn
   /// page.
   Line(up: Bool, select: Bool)
+  /// An arrow up or down while the field is as an aim left it: the head
+  /// moves to the drawn line above or below in the field, at the column the
+  /// aim kept, which the browser does not know.
+  Beside(up: Bool)
   SelectBefore
   SelectAfter
   SelectToStart
@@ -295,6 +299,8 @@ pub type Sync {
 pub type Line {
   FirstLine
   LastLine
+  LineAbove
+  LineBelow
 }
 
 pub type Outcome {
@@ -884,6 +890,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       StepTo(Move(up:, page: False, select:)),
     )
     Page(up:, select:) if live -> #(base, StepTo(Move(up:, page: True, select:)))
+    Beside(up: True) if live -> #(base, Aim(LineAbove))
+    Beside(up: False) if live -> #(base, Aim(LineBelow))
     Row(up:, select:) -> {
       let from = case select {
         True -> head
@@ -918,6 +926,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | SelectBefore
     | SelectAfter
     | Page(..)
+    | Beside(..)
     | Widen -> #(base, Done)
   }
   let waiting = case then {

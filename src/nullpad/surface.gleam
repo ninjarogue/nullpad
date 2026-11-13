@@ -162,11 +162,17 @@ fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
 
 /// CSS cannot measure typed text, so the marker is measured here.
 fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
+  case marker_width(kind) {
+    "" -> attribute.none()
+    width -> attribute.style("--marker", width)
+  }
+}
+
+fn marker_width(kind: Option(live.Kind)) -> String {
   case kind {
     Some(live.ListItem(marker:, ..)) ->
-      attribute.style("--marker", float.to_string(text_width(marker)) <> "px")
-    Some(live.Body) | Some(live.Mono) | Some(live.Title(_)) | None ->
-      attribute.none()
+      float.to_string(text_width(marker)) <> "px"
+    Some(live.Body) | Some(live.Mono) | Some(live.Title(_)) | None -> ""
   }
 }
 
@@ -371,8 +377,19 @@ pub fn sync(
 ) -> Effect(msg) {
   // Lustre runs a batch's effects backwards or forwards by how deep the
   // batch is nested, so effects whose order matters run as one.
+  let kind = editor.kind(editor)
   let write_now = fn(buffer) {
     let #(text, start, end, backward) = to_control(buffer)
+    case kind, editor.is_idle(editor) || editor.is_painted(editor) {
+      Some(rows), False ->
+        hold_control(
+          control_id,
+          set_as(rows),
+          rows_of(rows),
+          marker_width(kind),
+        )
+      Some(_), True | None, _ -> Nil
+    }
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
@@ -483,7 +500,12 @@ pub fn sync(
             end,
             backward,
             x,
-            line == editor.LastLine,
+            case line {
+              editor.FirstLine -> 0
+              editor.LastLine -> 1
+              editor.LineAbove -> 2
+              editor.LineBelow -> 3
+            },
             again,
           )
         dispatch(
@@ -593,6 +615,16 @@ pub fn sync(
 /// line break of each row from its start to the row before its end is
 /// painted too, where it ends a drawn element.
 fn paint(editor: Editor) -> Nil {
+  let kind = editor.kind(editor)
+  let rows = case
+    kind,
+    editor.frame(editor),
+    editor.is_idle(editor) || editor.is_painted(editor)
+  {
+    Some(_), Some(frame), False -> rows_of(frame)
+    None, _, _ | _, None, _ | _, _, True -> ""
+  }
+  drawn_control(control_id, classes(editor, kind), rows, marker_width(kind))
   case editor.is_painted(editor) {
     False -> clear_paint()
     True -> {
@@ -787,10 +819,10 @@ fn edge_decoder(
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
     "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
-    "ArrowUp" if bare && { pending || aimed } ->
-      Ok(editor.Line(up: True, select: False))
-    "ArrowDown" if bare && { pending || aimed } ->
-      Ok(editor.Line(up: False, select: False))
+    "ArrowUp" if bare && pending -> Ok(editor.Line(up: True, select: False))
+    "ArrowDown" if bare && pending -> Ok(editor.Line(up: False, select: False))
+    "ArrowUp" if bare && aimed -> Ok(editor.Beside(up: True))
+    "ArrowDown" if bare && aimed -> Ok(editor.Beside(up: False))
     "ArrowUp" if shifted -> Ok(editor.Line(up: True, select: True))
     "ArrowDown" if shifted -> Ok(editor.Line(up: False, select: True))
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
@@ -836,10 +868,6 @@ fn edge_decoder(
         }
       // The step takes its place across from the caret once it is drawn.
       editor.Line(..) if pending -> Ok(#(edge, 0.0))
-      editor.Line(select: False, ..) if aimed -> {
-        let #(_, _, x) = head_line(control_id, live_class, painted_class)
-        Ok(#(edge, x))
-      }
       editor.Line(up: True, select: True) ->
         case head_line(control_id, live_class, painted_class) {
           #(True, _, x) -> Ok(#(edge, x))
@@ -851,6 +879,10 @@ fn edge_decoder(
           _ -> Error(Nil)
         }
       editor.Line(select: False, ..) -> Error(Nil)
+      editor.Beside(..) -> {
+        let #(_, _, x) = head_line(control_id, live_class, painted_class)
+        Ok(#(edge, x))
+      }
       editor.Page(..) -> {
         let #(_, _, x) = head_line(control_id, live_class, painted_class)
         Ok(#(edge, x))
@@ -999,6 +1031,22 @@ fn mirror(editor: Editor) -> Element(msg) {
   ])
 }
 
+@external(javascript, "./surface.ffi.mjs", "holdControl")
+fn hold_control(
+  id: String,
+  classes: String,
+  rows: String,
+  marker: String,
+) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "drawnControl")
+fn drawn_control(
+  id: String,
+  classes: String,
+  rows: String,
+  marker: String,
+) -> Nil
+
 @external(javascript, "./surface.ffi.mjs", "writeControl")
 fn write_control(
   id: String,
@@ -1113,7 +1161,7 @@ fn aim_control(
   end: Int,
   backward: Bool,
   x: Float,
-  last_line: Bool,
+  line: Int,
   again: Bool,
 ) -> #(String, Int, Int, Bool)
 

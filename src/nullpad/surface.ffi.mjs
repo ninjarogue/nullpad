@@ -11,6 +11,33 @@ export function writeControl(id, text, start, end, backward) {
   }
 }
 
+// A key pressed before the next render acts on the field as it is laid out.
+// Written with other rows, it takes their type at once, and keeps the line
+// height and margins of the rows it was drawn with, as a row typed as another
+// kind of block does, so nothing around it moves until the render.
+let drawnRows = "";
+
+export function holdControl(id, classes, rows, marker) {
+  const holder = document.getElementById(id)?.parentElement;
+  if (!holder) return;
+  const held = drawnRows !== "" && drawnRows !== rows ? ` held framed-${drawnRows}` : "";
+  setHolder(holder, classes + held, marker);
+}
+
+// Lustre sets only what changed since its last render, not what was held.
+export function drawnControl(id, classes, rows, marker) {
+  const holder = document.getElementById(id)?.parentElement;
+  if (!holder) return;
+  setHolder(holder, classes, marker);
+  drawnRows = rows;
+}
+
+function setHolder(holder, classes, marker) {
+  if (holder.className !== classes) holder.className = classes;
+  if (marker === "") holder.style.removeProperty("--marker");
+  else holder.style.setProperty("--marker", marker);
+}
+
 export function findControl(id) {
   return document.getElementById(id);
 }
@@ -276,7 +303,10 @@ function atLineEnd(control, head, place) {
 // whether a key has moved the caret since.
 const aimed = new WeakMap();
 
-export function aimControl(id, text, start, end, backward, x, lastLine, again) {
+// `line` is 0 for the first drawn line of the head's row, 1 for its last, and
+// 2 or 3 for the drawn line above or below the head's. Aimed again, a step
+// to the line beside stays on the line it reached.
+export function aimControl(id, text, start, end, backward, x, line, again) {
   const control = document.getElementById(id);
   if (!control) return ["", 0, 0, false];
   const shown = () => [
@@ -295,20 +325,30 @@ export function aimControl(id, text, start, end, backward, x, lastLine, again) {
     if (!written) return shown();
   }
   const head = backward ? start : end;
-  const rowStart = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
-  const newline = text.indexOf("\n", head);
-  const rowEnd = newline < 0 ? text.length : newline;
   const place = measure(control);
-  const step = lastLine ? -1 : 1;
-  let offset = lastLine ? rowEnd : rowStart;
-  const top = place(offset).top;
-  let best = offset;
+  const lineFrom = (offset, step) => {
+    const top = place(offset).top;
+    while (offset + step >= 0 && offset + step <= text.length && place(offset + step).top === top) offset += step;
+    return offset;
+  };
+  let from;
+  if (line === 0) from = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
+  else if (line === 1) from = lineFrom(text.indexOf("\n", head) < 0 ? text.length : text.indexOf("\n", head), -1);
+  else if (again) from = lineFrom(head, -1);
+  else if (line === 2) {
+    from = lineFrom(head, -1) - 1;
+    if (from < 0) return shown();
+    from = lineFrom(from, -1);
+  } else {
+    from = lineFrom(head, 1) + 1;
+    if (from > text.length) return shown();
+  }
+  const top = place(from).top;
+  let best = from;
   let gap = Infinity;
-  for (; offset >= rowStart && offset <= rowEnd; offset += step) {
-    const here = place(offset);
-    if (here.top !== top) break;
-    if (Math.abs(here.x - x) < gap) {
-      gap = Math.abs(here.x - x);
+  for (let offset = from; offset <= text.length && place(offset).top === top; offset++) {
+    if (Math.abs(place(offset).x - x) < gap) {
+      gap = Math.abs(place(offset).x - x);
       best = offset;
     }
   }
