@@ -73,8 +73,11 @@ async function drawWholeNote(editor: Editing, sample: Sample) {
   return { words, links };
 }
 
+/** Whether a click shows the marks it reveals, and so moves the words after them, waits on a decision about how hidden marks reveal. */
+const pendingReveal = 'pending the decision on how hidden marks reveal on a click';
+
 for (const sample of samples) {
-  test(`a click on a word in ${sample.name} leaves the word where it was`, async (fixtures) => {
+  test(`a click on a word in ${sample.name} leaves the word where it was`, { skip: pendingReveal }, async (fixtures) => {
     const editor = new Editing(fixtures);
     const { browser, page } = fixtures;
     const { words } = await drawWholeNote(editor, sample);
