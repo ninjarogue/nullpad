@@ -511,13 +511,13 @@ pub fn sync(
       effect.batch([
         effect.from(fn(dispatch) {
           write_now(buffer)
-          hold_step(!step_now(dispatch))
+          hold_step(!step_now(dispatch), editor)
           set_drawn(False)
         }),
         effect.before_paint(fn(dispatch, _) {
           paint(editor, settled(dispatch))
           set_drawn(True)
-          case take_held_step() && !step_now(dispatch) {
+          case take_held_step(editor) && !step_now(dispatch) {
             True -> dispatch(on_event(editor.Unstepped(x:)))
             False -> Nil
           }
@@ -1176,10 +1176,10 @@ fn step_head(
 ) -> #(Int, String, Bool, String, Float)
 
 @external(javascript, "./surface.ffi.mjs", "holdStep")
-fn hold_step(held: Bool) -> Nil
+fn hold_step(held: Bool, for: Editor) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "takeHeldStep")
-fn take_held_step() -> Bool
+fn take_held_step(for: Editor) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "isPainted")
 fn is_painted(id: String, painted_class: String) -> Bool

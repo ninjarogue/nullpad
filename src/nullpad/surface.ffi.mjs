@@ -217,24 +217,28 @@ function edgeSpeed(y, top, bottom) {
 }
 
 // Whether the page is drawn as the editor last left it. Lustre draws once a
-// frame, after the effects of every message since the last.
+// frame, after the effects of every message since the last. Once drawn, the
+// page has placed the field a press put rows in.
 let drawn = true;
 
 export function setDrawn(value) {
   drawn = value;
+  if (value) pressed = null;
 }
 
-// A step the page must draw before it is taken.
-let heldStep = false;
+// A step the page must draw before it is taken, and the editor that asked
+// for it. Only that editor's paint takes it: the paint of an earlier step in
+// the same frame starts from a head the editor has since left.
+let heldStep = null;
 
-export function holdStep(held) {
-  heldStep = held;
+export function holdStep(held, editor) {
+  heldStep = held ? editor : null;
 }
 
-export function takeHeldStep() {
-  const held = heldStep;
-  heldStep = false;
-  return held;
+export function takeHeldStep(editor) {
+  if (heldStep !== editor) return false;
+  heldStep = null;
+  return true;
 }
 
 export function blurControl(id) {
@@ -981,7 +985,8 @@ function undrawn(control) {
 // that line nearest `x` from the left of the text, or nearest where the head
 // is drawn when `x` is below 0. A line step into the rows the field holds,
 // which the browser does not step into, lands on the line of the field's
-// mirror that it reaches: the mirror holds the field's text as last drawn.
+// mirror that it reaches, also with nothing drawn past the field: the mirror
+// holds the field's text as last drawn.
 // The browser's selection is put back in the field after. A step returns
 // the place it reaches and the `x` it aimed at, or a row of -1 for no page,
 // -2 for nothing past the head, -3 when the page must be drawn first, as
@@ -1038,7 +1043,9 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, ro
       if (x < 0) x = caretBox(node, offset).left - columnLeft(page);
       selection.collapse(node, offset);
       landed = step(selection, page, rowMark, granularity, forward);
-      if (landed && held && granularity === "line" && crosses(part, { node, offset }, landed)) {
+      const from = { node, offset };
+      const past = landed ? crosses(part, from, landed) : after(part, from) !== forward;
+      if (held && granularity === "line" && past) {
         return [held[0], ...mirrorPlace(mirror, !forward, columnLeft(page) + x), x];
       }
     }
@@ -1202,9 +1209,12 @@ function pageStep(page, rowMark, box, forward, left) {
   return there[0] >= 0 ? there : at(middle);
 }
 
+function after(part, point) {
+  return (part.compareDocumentPosition(point.node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
 function crosses(part, from, to) {
-  const after = (point) => (part.compareDocumentPosition(point.node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-  return after(from) !== after(to) || part.contains(from.node) || part.contains(to.node);
+  return after(part, from) !== after(part, to) || part.contains(from.node) || part.contains(to.node);
 }
 
 // A task runs after the browser's own action for the event being handled.
