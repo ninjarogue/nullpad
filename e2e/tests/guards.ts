@@ -109,3 +109,83 @@ function selectionInPage(model: { lines: string[] }): { problem: string } | { va
 export function selectionOf(browser: Browser, lines: string[]) {
   return browser.evaluate(selectionInPage, { lines });
 }
+
+export type Box = { left: number; top: number; right: number; bottom: number };
+
+export type Word = {
+  /** Where the page draws the word, or null while the text field holds it. */
+  drawn: Box | null;
+  /** Where the open text field has the word, or null while the page draws it. */
+  typed: Box | null;
+  /** Where a hand aims at the drawn word: a quarter of the way into its middle letter. */
+  aim: { x: number; y: number } | null;
+};
+
+/** The first drawn text node holding `word` and the same word in the open text field. Runs in the page. */
+function wordInPage(find: { word: string; placing: string[] }): Word {
+  const rect = (range: Range): Box => {
+    const box = range.getClientRects()[0] ?? range.getBoundingClientRect();
+    return { left: box.left, top: box.top, right: box.right, bottom: box.bottom };
+  };
+  let drawn: Box | null = null;
+  let aim: { x: number; y: number } | null = null;
+  const texts = document.createTreeWalker(document.querySelector('.page')!, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (node.parentElement?.closest('textarea, .mirror') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  for (let text = texts.nextNode() as Text | null; text && !drawn; text = texts.nextNode() as Text | null) {
+    const at = text.data.indexOf(find.word);
+    if (at < 0) continue;
+    const range = document.createRange();
+    range.setStart(text, at);
+    range.setEnd(text, at + find.word.length);
+    drawn = rect(range);
+    const middle = at + Math.floor(find.word.length / 2);
+    range.setStart(text, middle);
+    range.setEnd(text, middle + 1);
+    const letter = rect(range);
+    aim = { x: letter.left + (letter.right - letter.left) / 4, y: (letter.top + letter.bottom) / 2 };
+  }
+
+  let typed: Box | null = null;
+  const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
+  const at = field ? field.value.indexOf(find.word) : -1;
+  if (field && at >= 0) {
+    const box = field.getBoundingClientRect();
+    const style = getComputedStyle(field);
+    const ruler = document.createElement('div');
+    ruler.setAttribute('aria-hidden', 'true');
+    ruler.style.cssText = `position:fixed;left:${box.left}px;top:${box.top - field.scrollTop}px;width:${box.width}px;height:${box.height}px;visibility:hidden;pointer-events:none;box-sizing:border-box`;
+    for (const name of find.placing) ruler.style.setProperty(name, style.getPropertyValue(name));
+    ruler.append(field.value);
+    document.body.append(ruler);
+    const range = document.createRange();
+    range.setStart(ruler.firstChild!, at);
+    range.setEnd(ruler.firstChild!, at + find.word.length);
+    typed = rect(range);
+    ruler.remove();
+  }
+  return { drawn, typed, aim };
+}
+
+/** Where `word` is, drawn on the page and in the open text field. The word must appear once in the note. */
+export function wordAt(browser: Browser, word: string) {
+  return browser.evaluate(wordInPage, { word, placing });
+}
+
+/** The words drawn on the page, and the ones among them that are link text, which a click follows instead of editing. Runs in the page. */
+export function drawnWordsInPage(): { words: string[]; links: string[] } {
+  const words: string[] = [];
+  const links: string[] = [];
+  const texts = document.createTreeWalker(document.querySelector('.page')!, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (node.parentElement?.closest('textarea, .mirror') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  for (let text = texts.nextNode() as Text | null; text; text = texts.nextNode() as Text | null) {
+    for (const found of text.data.matchAll(/[\p{L}\p{N}]{3,}/gu)) (text.parentElement?.closest('a') ? links : words).push(found[0]);
+  }
+  return { words, links };
+}
+
+/** Every run of three or more letters or digits drawn on the page. */
+export function drawnWords(browser: Browser) {
+  return browser.evaluate(drawnWordsInPage);
+}
