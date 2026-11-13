@@ -163,6 +163,7 @@ pub fn text_that_joins_two_blocks_brings_both_into_the_field_once_the_caret_leav
       row: 1,
       visible: "",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -194,6 +195,7 @@ pub fn arrow_up_at_the_top_of_the_field_moves_to_the_row_above_test() {
       row: 2,
       visible: "Fli",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -225,6 +227,7 @@ pub fn backspace_at_the_start_of_the_field_joins_the_row_above_test() {
       row: 3,
       visible: "",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -304,6 +307,7 @@ pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
       row: 1,
       visible: "",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -336,6 +340,7 @@ pub fn blocks_kept_through_a_composition_are_parsed_again_by_any_later_change_te
       row: 1,
       visible: "",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -406,6 +411,7 @@ pub fn a_click_on_the_drawn_page_moves_the_field_there_test() {
       row: 2,
       visible: "Flights are boo",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -501,6 +507,7 @@ pub fn a_write_counts_as_focus_before_the_browser_says_so_test() {
       row: 4,
       visible: "on",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -514,6 +521,7 @@ pub fn leaving_live_view_puts_the_whole_note_back_test() {
       row: 4,
       visible: "on",
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -592,6 +600,7 @@ fn pressed(text: String, row: Int, visible: String) -> Editor {
       row:,
       visible:,
       at_end: False,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -601,7 +610,12 @@ fn pressed(text: String, row: Int, visible: String) -> Editor {
 pub fn a_drag_from_a_press_selects_into_a_later_block_test() {
   let Outcome(editor: ed, sync:, ..) =
     pressed(live_note, 2, "Flights")
-    |> editor.update(editor.Dragged(row: 4, visible: "o", at_end: False))
+    |> editor.update(editor.Dragged(
+      row: 4,
+      visible: "o",
+      at_end: False,
+      next: "",
+    ))
 
   assert editor.region(ed) == Some(Region(2, 4))
   assert sync
@@ -616,7 +630,12 @@ pub fn a_drag_from_a_press_selects_into_a_later_block_test() {
 pub fn a_drag_into_an_earlier_block_keeps_the_anchor_where_the_press_was_test() {
   let Outcome(editor: ed, sync:, ..) =
     pressed(live_note, 4, "on")
-    |> editor.update(editor.Dragged(row: 0, visible: "Tr", at_end: False))
+    |> editor.update(editor.Dragged(
+      row: 0,
+      visible: "Tr",
+      at_end: False,
+      next: "",
+    ))
 
   assert editor.region(ed) == Some(Region(0, 4))
   assert buffer.selection(editor.buffer(ed))
@@ -632,14 +651,22 @@ pub fn a_drag_into_an_earlier_block_keeps_the_anchor_where_the_press_was_test() 
 pub fn a_move_with_no_press_the_editor_took_selects_nothing_test() {
   let Outcome(editor: ed, sync:, ..) =
     live(live_note)
-    |> editor.update(editor.Dragged(row: 4, visible: "o", at_end: False))
+    |> editor.update(editor.Dragged(
+      row: 4,
+      visible: "o",
+      at_end: False,
+      next: "",
+    ))
   assert sync == editor.InSync
   assert editor.region(ed) == Some(Region(0, 0))
 
   let Outcome(editor: ed, ..) =
     pressed(live_note, 2, "Fli") |> editor.update(editor.Released)
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.Dragged(row: 4, visible: "o", at_end: False))
+    editor.update(
+      ed,
+      editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
+    )
   assert sync == editor.InSync
   assert editor.field_buffer(ed) == caret("Flights are **booked**.", 0, 3)
 }
@@ -648,14 +675,20 @@ pub fn the_focus_a_press_brings_does_not_end_it_but_a_blur_does_test() {
   let Outcome(editor: ed, ..) =
     pressed(live_note, 2, "Flights") |> editor.update(editor.FocusChanged(True))
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.Dragged(row: 4, visible: "o", at_end: False))
+    editor.update(
+      ed,
+      editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
+    )
   assert editor.region(ed) == Some(Region(2, 4))
 
   let Outcome(editor: ed, ..) =
     pressed(live_note, 2, "Flights")
     |> editor.update(editor.FocusChanged(False))
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.Dragged(row: 4, visible: "o", at_end: False))
+    editor.update(
+      ed,
+      editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
+    )
   assert sync == editor.InSync
   assert editor.region(ed) == Some(Region(2, 2))
 }
@@ -663,7 +696,12 @@ pub fn the_focus_a_press_brings_does_not_end_it_but_a_blur_does_test() {
 pub fn a_drag_that_stays_in_place_writes_nothing_test() {
   let Outcome(sync:, ..) =
     pressed(live_note, 2, "Fli")
-    |> editor.update(editor.Dragged(row: 2, visible: "Fli", at_end: False))
+    |> editor.update(editor.Dragged(
+      row: 2,
+      visible: "Fli",
+      at_end: False,
+      next: "",
+    ))
   assert sync == editor.InSync
 }
 
@@ -675,6 +713,7 @@ pub fn shift_and_a_press_extend_the_selection_the_field_shows_test() {
       row: 4,
       visible: "o",
       at_end: False,
+      next: "",
       shown:,
       x: 0.0,
       y: 0.0,
@@ -692,7 +731,10 @@ pub fn shift_and_a_press_extend_the_selection_the_field_shows_test() {
     )
 
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.Dragged(row: 5, visible: "t", at_end: False))
+    editor.update(
+      ed,
+      editor.Dragged(row: 5, visible: "t", at_end: False, next: ""),
+    )
   assert editor.region(ed) == Some(Region(2, 5))
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 2, col: 23), Position(row: 5, col: 3))
@@ -797,6 +839,7 @@ pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
       row: 2,
       visible: "",
       at_end: True,
+      next: "",
       x: 0.0,
       y: 0.0,
     ))
@@ -896,6 +939,7 @@ pub fn a_press_after_a_selection_across_blocks_puts_one_block_back_test() {
         row: 0,
         visible: "# Trip\n\nFli",
         at_end: False,
+        next: "",
         x: 0.0,
         y: 0.0,
       ),
@@ -932,7 +976,7 @@ fn show(ed: Editor, shown: buffer.Buffer) -> Editor {
 fn point(ed: Editor, row: Int) -> Editor {
   editor.update(
     ed,
-    editor.Pointed(row:, visible: "", at_end: False, x: 0.0, y: 0.0),
+    editor.Pointed(row:, visible: "", at_end: False, next: "", x: 0.0, y: 0.0),
   ).editor
 }
 
@@ -1080,18 +1124,31 @@ pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
   let Outcome(editor: grabbed, sync:, ..) =
     editor.update(
       ed,
-      editor.Grabbed(row: 2, visible: "Fli", at_end: False, x: 5.0, y: 6.0),
+      editor.Grabbed(
+        row: 2,
+        visible: "Fli",
+        at_end: False,
+        next: "",
+        x: 5.0,
+        y: 6.0,
+      ),
     )
   assert sync == editor.Press(None, x: 5.0, y: 6.0)
   assert editor.field_buffer(grabbed) == editor.field_buffer(ed)
 
   let Outcome(editor: let_go, ..) = editor.update(grabbed, editor.Released)
   let Outcome(sync:, ..) =
-    editor.update(let_go, editor.Dragged(row: 4, visible: "o", at_end: False))
+    editor.update(
+      let_go,
+      editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
+    )
   assert sync == editor.InSync
 
   let Outcome(editor: dragged, ..) =
-    editor.update(grabbed, editor.Dragged(row: 4, visible: "o", at_end: False))
+    editor.update(
+      grabbed,
+      editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
+    )
   assert buffer.selection(editor.buffer(dragged))
     == #(Position(row: 2, col: 3), Position(row: 4, col: 3))
 }
@@ -1105,6 +1162,7 @@ pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
         row: 2,
         visible: "second pa",
         at_end: False,
+        next: "",
         x: 1.0,
         y: 2.0,
       ),
@@ -1114,7 +1172,7 @@ pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
   assert sync == editor.Press(Some(editor.field_buffer(ed)), x: 1.0, y: 2.0)
 
   let drag = fn(ed, row, visible) {
-    editor.update(ed, editor.Dragged(row:, visible:, at_end: False)).editor
+    editor.update(ed, editor.Dragged(row:, visible:, at_end: False, next: "")).editor
     |> editor.buffer
     |> buffer.selection
   }
@@ -1124,7 +1182,10 @@ pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
 
   let Outcome(editor: let_go, ..) = editor.update(ed, editor.Released)
   let Outcome(sync:, ..) =
-    editor.update(let_go, editor.Dragged(row: 0, visible: "a", at_end: False))
+    editor.update(
+      let_go,
+      editor.Dragged(row: 0, visible: "a", at_end: False, next: ""),
+    )
   assert sync == editor.InSync
 }
 
@@ -1134,12 +1195,22 @@ pub fn a_drag_from_a_box_on_the_idle_page_takes_the_focus_test() {
   let Outcome(editor: grabbed, ..) =
     editor.update(
       idle,
-      editor.Grabbed(row: 4, visible: "", at_end: False, x: 0.0, y: 0.0),
+      editor.Grabbed(
+        row: 4,
+        visible: "",
+        at_end: False,
+        next: "",
+        x: 0.0,
+        y: 0.0,
+      ),
     )
   assert editor.is_idle(grabbed)
 
   let Outcome(editor: dragged, sync:, ..) =
-    editor.update(grabbed, editor.Dragged(row: 5, visible: "t", at_end: False))
+    editor.update(
+      grabbed,
+      editor.Dragged(row: 5, visible: "t", at_end: False, next: ""),
+    )
   assert !editor.is_idle(dragged)
   assert sync
     == editor.Write(selected(
@@ -1255,6 +1326,7 @@ pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {
         row: 2,
         visible: "second ",
         at_end: False,
+        next: "",
         text: "alpha",
         copy:,
         shown:,
@@ -1294,6 +1366,7 @@ pub fn nothing_is_dropped_in_vim_normal_mode_test() {
         row: 2,
         visible: "",
         at_end: False,
+        next: "",
         text: "x",
         copy: False,
         shown: editor.field_buffer(ed),

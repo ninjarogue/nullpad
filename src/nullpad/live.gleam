@@ -97,12 +97,16 @@ fn marker(lines: List(String), item: Item) -> String {
 /// Where a click on the drawn page lands in the source. `row` is the first
 /// source row of the element that was hit, and `visible` is the drawn text
 /// from the start of that element to the click. Each "\n" in it is one
-/// source row further down. `at_end` asks for the end of that row.
+/// source row further down. `at_end` asks for the end of that row. `next`
+/// is the drawn character after the click, or "" when there is none: the
+/// marks the page hides before it go with it when they hold the `|` that
+/// starts its table cell.
 pub fn position(
   lines: List(String),
   row row: Int,
   visible visible: String,
   at_end at_end: Bool,
+  next next: String,
 ) -> Position {
   let drawn_rows = string.split(visible, "\n")
   let row = row + list.length(drawn_rows) - 1
@@ -112,8 +116,22 @@ pub fn position(
     Ok(line), True -> Position(row:, col: string.length(line))
     Ok(line), False -> {
       let drawn = list.last(drawn_rows) |> result.unwrap("")
-      Position(row:, col: column(line, after: drawn))
+      let col = column(line, after: drawn)
+      Position(row:, col: col + cell_start(string.drop_start(line, col), next))
     }
+  }
+}
+
+/// How far into `rest` the cell that the drawn character `next` starts
+/// begins, when the marks before `next` hold a cell's `|`.
+fn cell_start(rest: String, next: String) -> Int {
+  case next, string.split_once(rest, next) {
+    "", _ | _, Error(Nil) -> 0
+    _, Ok(#(marks, _)) ->
+      case string.contains(marks, "|") {
+        True -> string.length(marks)
+        False -> 0
+      }
   }
 }
 

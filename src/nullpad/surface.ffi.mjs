@@ -81,9 +81,9 @@ export function follow(id, liveClass, rowMark, x, y, distance, moved, released) 
   let frame = 0;
   const report = () => {
     if (!page.isConnected) return;
-    const [row, visible, atEnd] = placeAt(page, pointer.x, pointer.y, rowMark);
+    const [row, visible, atEnd, next] = placeAt(page, pointer.x, pointer.y, rowMark);
     unnamed = row < 0;
-    if (!unnamed) moved(row, visible, atEnd);
+    if (!unnamed) moved(row, visible, atEnd, next);
   };
   const move = (event) => {
     if (letGo) return;
@@ -278,7 +278,7 @@ export function aimControl(id, text, start, end, backward, x, lastLine, again) {
 // its release, as in a text field. The browser keeps one on a link, which it
 // opens, and one on the field.
 export function locate(press, rowMark) {
-  const none = [-1, "", false, false];
+  const none = [-1, "", false, "", false];
   const target = press.target;
   const page = press.currentTarget;
   if (press.button > 1 || !(target instanceof Element)) return none;
@@ -286,8 +286,8 @@ export function locate(press, rowMark) {
   if (target === page && press.offsetX >= target.clientWidth) return none;
   const grabbed = target.closest("a, input, button") !== null;
   if (press.button === 1 && (grabbed || target instanceof HTMLTextAreaElement)) return none;
-  const [row, visible, atEnd] = placeOn(page, target, press.clientX, press.clientY, rowMark, press);
-  return [row, visible, atEnd, grabbed];
+  const [row, visible, atEnd, next] = placeOn(page, target, press.clientX, press.clientY, rowMark, press);
+  return [row, visible, atEnd, next, grabbed];
 }
 
 // A point outside the page, as a drag can reach, is taken to the nearest
@@ -304,7 +304,7 @@ function placeAt(page, x, y, rowMark) {
 }
 
 function placeOn(page, target, x, y, rowMark, press) {
-  const none = [-1, "", false];
+  const none = [-1, "", false, ""];
   const marked = `[data-${rowMark}]`;
   const field = page.querySelector(`textarea${marked}`);
   const band = field?.getBoundingClientRect();
@@ -334,8 +334,8 @@ function placeOn(page, target, x, y, rowMark, press) {
     const beside = drawnAt(Math.min(Math.max(x, box.left + 1), box.right - 1), y, rowMark);
     if (beside) return beside;
   }
-  if (above) return [Number(nearest.dataset[rowMark]), "", false];
-  return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true];
+  if (above) return [Number(nearest.dataset[rowMark]), "", false, ""];
+  return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true, ""];
 }
 
 function drawnAt(x, y, rowMark) {
@@ -346,9 +346,10 @@ function drawnAt(x, y, rowMark) {
   const range = document.createRange();
   range.setStart(holder, 0);
   range.setEnd(point.node, point.offset);
+  const before = range.toString();
   // An element that draws no text, such as a fence with no code, has no
   // place before its text: the press lands at the end of its row.
-  return [Number(holder.dataset[rowMark]), range.toString(), holder.textContent === ""];
+  return [Number(holder.dataset[rowMark]), before, holder.textContent === "", charAfter(holder.textContent, before.length)];
 }
 
 // A point level with a line of the field, even beside it, is on that line.
@@ -357,7 +358,7 @@ function drawnAt(x, y, rowMark) {
 // field the page has not drawn since its text changed may not start at the
 // row it is marked with.
 function inField(press, x, y, field, band, rowMark) {
-  const none = [-1, "", false];
+  const none = [-1, "", false, ""];
   const point = caretAt(Math.min(Math.max(x, band.left), band.right - 1), y);
   if (point?.node !== field || field.value !== field.defaultValue) return none;
   const { selectionStart: start, selectionEnd: end, value } = field;
@@ -366,7 +367,7 @@ function inField(press, x, y, field, band, rowMark) {
     press?.target === field &&
     (press.detail > 2 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
   if (kept) return none;
-  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false];
+  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, charAfter(value, point.offset)];
 }
 
 // The offset in the field where a plain release lands on its selection, or -1.
@@ -377,6 +378,11 @@ export function releasedOnSelection(release) {
   if (point?.node !== field) return -1;
   const { selectionStart: start, selectionEnd: end } = field;
   return start < point.offset && point.offset < end ? point.offset : -1;
+}
+
+function charAfter(text, offset) {
+  const code = text.codePointAt(offset);
+  return code === undefined ? "" : String.fromCodePoint(code);
 }
 
 function caretAt(x, y) {
@@ -402,8 +408,8 @@ export function textWidth(text) {
 // field is the browser's.
 export function dropped(drop, rowMark) {
   const text = drop.dataTransfer?.getData("text/plain") ?? "";
-  if (text === "" || drop.target instanceof HTMLTextAreaElement) return [-1, "", false, "", false];
-  const [row, visible, atEnd] = placeAt(drop.currentTarget, drop.clientX, drop.clientY, rowMark);
+  if (text === "" || drop.target instanceof HTMLTextAreaElement) return [-1, "", false, "", "", false];
+  const [row, visible, atEnd, next] = placeAt(drop.currentTarget, drop.clientX, drop.clientY, rowMark);
   const copy = navigator.platform.startsWith("Mac") ? drop.altKey : drop.ctrlKey;
-  return [row, visible, atEnd, text, copy];
+  return [row, visible, atEnd, next, text, copy];
 }

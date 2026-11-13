@@ -246,8 +246,16 @@ fn on_drop(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
     use drop <- decode.then(decode.dynamic)
     let shown = decode.run(find_control(control_id), control_decoder())
     case dropped(drop, live.row_mark), shown {
-      #(row, visible, at_end, text, copy), Ok(shown) if row >= 0 ->
-        on_event(editor.Dropped(row:, visible:, at_end:, text:, copy:, shown:))
+      #(row, visible, at_end, next, text, copy), Ok(shown) if row >= 0 ->
+        on_event(editor.Dropped(
+          row:,
+          visible:,
+          at_end:,
+          next:,
+          text:,
+          copy:,
+          shown:,
+        ))
         |> event.handler(prevent_default: True, stop_propagation: False)
         |> decode.success
       _, _ ->
@@ -278,14 +286,23 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
       |> decode.success
     }
     case locate(press, live.row_mark), shift, shown {
-      #(row, visible, at_end, True), False, _ if row >= 0 ->
-        taken(editor.Grabbed(row:, visible:, at_end:, x:, y:))
-      #(row, visible, at_end, False), False, _ if row >= 0 && clicks == 2 ->
-        taken(editor.WordPointed(row:, visible:, at_end:, x:, y:))
-      #(row, visible, at_end, False), False, _ if row >= 0 ->
-        taken(editor.Pointed(row:, visible:, at_end:, x:, y:))
-      #(row, visible, at_end, _), True, Ok(shown) if row >= 0 ->
-        taken(editor.ShiftPointed(row:, visible:, at_end:, shown:, x:, y:))
+      #(row, visible, at_end, next, True), False, _ if row >= 0 ->
+        taken(editor.Grabbed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, False), False, _
+        if row >= 0 && clicks == 2
+      -> taken(editor.WordPointed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, False), False, _ if row >= 0 ->
+        taken(editor.Pointed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, _), True, Ok(shown) if row >= 0 ->
+        taken(editor.ShiftPointed(
+          row:,
+          visible:,
+          at_end:,
+          next:,
+          shown:,
+          x:,
+          y:,
+        ))
       // A press the browser keeps also ends a press the editor took, whose
       // release the page does not hear when it happens off the page. A
       // press of another button would take the focus to the page, but
@@ -378,8 +395,8 @@ pub fn sync(
             x,
             y,
             drag_distance,
-            fn(row, visible, at_end) {
-              dispatch(on_event(editor.Dragged(row:, visible:, at_end:)))
+            fn(row, visible, at_end, next) {
+              dispatch(on_event(editor.Dragged(row:, visible:, at_end:, next:)))
             },
             fn() { dispatch(on_event(editor.Released)) },
           )
@@ -639,13 +656,16 @@ fn aim_control(
 fn find_control(id: String) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "locate")
-fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool, Bool)
+fn locate(
+  press: Dynamic,
+  row_mark: String,
+) -> #(Int, String, Bool, String, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "dropped")
 fn dropped(
   drop: Dynamic,
   row_mark: String,
-) -> #(Int, String, Bool, String, Bool)
+) -> #(Int, String, Bool, String, String, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "releasedOnSelection")
 fn released_on_selection(release: Dynamic) -> Int
@@ -664,7 +684,7 @@ fn follow(
   x: Float,
   y: Float,
   distance: Float,
-  moved: fn(Int, String, Bool) -> Nil,
+  moved: fn(Int, String, Bool, String) -> Nil,
   released: fn() -> Nil,
 ) -> Nil
 

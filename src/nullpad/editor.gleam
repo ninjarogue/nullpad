@@ -77,25 +77,48 @@ pub type Event {
   KeyPressed(key: vim.Key, shown: Buffer)
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
   EscapePressed(shown: Buffer)
-  /// A press at a place on the page, at `x`, `y` in the window.
-  Pointed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
+  /// A press at a place on the page, at `x`, `y` in the window. The place
+  /// is as `live.position` takes it.
+  Pointed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
   /// The second press of a double click: selects the word there.
-  WordPointed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
+  WordPointed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
   /// Shift and a press: the head moves there and the anchor stays where
   /// `shown`, the field as it is now, has it.
   ShiftPointed(
     row: Int,
     visible: String,
     at_end: Bool,
+    next: String,
     shown: Buffer,
     x: Float,
     y: Float,
   )
   /// A press on a link or a box, which keeps its click: the caret stays
   /// where it is unless the pointer drags from there.
-  Grabbed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
+  Grabbed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
   /// The pointer of a held press, once it has moved off the place pressed.
-  Dragged(row: Int, visible: String, at_end: Bool)
+  Dragged(row: Int, visible: String, at_end: Bool, next: String)
   Released
   /// The browser starts to drag the field's selection.
   DragStarted
@@ -105,6 +128,7 @@ pub type Event {
     row: Int,
     visible: String,
     at_end: Bool,
+    next: String,
     text: String,
     copy: Bool,
     shown: Buffer,
@@ -234,8 +258,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
       }
     }
-    Pointed(row:, visible:, at_end:, x:, y:) -> {
-      let at = place(editor.buffer, row:, visible:, at_end:)
+    Pointed(row:, visible:, at_end:, next:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:, next:)
       let editor =
         Editor(..editor, focus: Focused, press: Some(PressedAt(at)))
         |> edit(buffer.move_to(editor.buffer, at))
@@ -246,8 +270,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     }
-    WordPointed(row:, visible:, at_end:, x:, y:) -> {
-      let at = place(editor.buffer, row:, visible:, at_end:)
+    WordPointed(row:, visible:, at_end:, next:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:, next:)
       let #(start, end) = buffer.word_at(editor.buffer, at)
       let editor =
         Editor(
@@ -263,10 +287,10 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     }
-    ShiftPointed(row:, visible:, at_end:, shown:, x:, y:) -> {
+    ShiftPointed(row:, visible:, at_end:, next:, shown:, x:, y:) -> {
       let from = base(editor, shown)
       let #(anchor, _) = buffer.selection(from)
-      let head = place(from, row:, visible:, at_end:)
+      let head = place(from, row:, visible:, at_end:, next:)
       let editor =
         Editor(..editor, focus: Focused, press: Some(PressedAt(anchor)))
         |> edit(buffer.select(from, anchor:, head:))
@@ -277,18 +301,18 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     }
-    Grabbed(row:, visible:, at_end:, x:, y:) -> {
-      let at = place(editor.buffer, row:, visible:, at_end:)
+    Grabbed(row:, visible:, at_end:, next:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:, next:)
       Outcome(
         editor: Editor(..editor, press: Some(PressedAt(at))),
         sync: Press(None, x:, y:),
         requests: [],
       )
     }
-    Dragged(row:, visible:, at_end:) ->
+    Dragged(row:, visible:, at_end:, next:) ->
       case editor.press {
         Some(press) -> {
-          let at = place(editor.buffer, row:, visible:, at_end:)
+          let at = place(editor.buffer, row:, visible:, at_end:, next:)
           let #(anchor, head) = stretch(editor.buffer, press, to: at)
           let dragged =
             Editor(..editor, focus: Focused)
@@ -318,13 +342,13 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         sync: InSync,
         requests: [],
       )
-    Dropped(row:, visible:, at_end:, text:, copy:, shown:) -> {
+    Dropped(row:, visible:, at_end:, next:, text:, copy:, shown:) -> {
       let let_go = Editor(..editor, dragging: False)
       case mode(editor) {
         Normal -> Outcome(editor: let_go, sync: InSync, requests: [])
         Plain | Insert -> {
           let base = base(editor, shown)
-          let at = place(base, row:, visible:, at_end:)
+          let at = place(base, row:, visible:, at_end:, next:)
           let dropped = case editor.dragging && !copy {
             True -> buffer.move_selection(base, to: at)
             False ->
@@ -376,8 +400,9 @@ fn place(
   row row: Int,
   visible visible: String,
   at_end at_end: Bool,
+  next next: String,
 ) -> Position {
-  live.position(buffer.lines(in), row:, visible:, at_end:)
+  live.position(buffer.lines(in), row:, visible:, at_end:, next:)
 }
 
 fn typed(

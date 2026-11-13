@@ -193,19 +193,44 @@ pub fn each_drawn_line_break_is_one_row_down_test() {
       row: 2,
       visible: "Flights are booked\nand the hotel is n",
       at_end: False,
+      next: "",
     )
     == Position(row: 3, col: 19)
-  assert live.position(lines, row: 0, visible: "Tr", at_end: False)
+  assert live.position(lines, row: 0, visible: "Tr", at_end: False, next: "")
     == Position(row: 0, col: 4)
 }
 
 pub fn a_click_beside_a_block_lands_at_the_end_of_its_last_row_test() {
   let lines = ["one **two**", "three"]
-  assert live.position(lines, row: 0, visible: "one two\nthree", at_end: True)
+  assert live.position(
+      lines,
+      row: 0,
+      visible: "one two\nthree",
+      at_end: True,
+      next: "",
+    )
     == Position(row: 1, col: 5)
 }
 
 pub fn a_click_past_the_last_row_lands_at_the_end_of_the_note_test() {
-  assert live.position(["one", "two"], row: 5, visible: "", at_end: False)
+  assert live.position(
+      ["one", "two"],
+      row: 5,
+      visible: "",
+      at_end: False,
+      next: "",
+    )
     == Position(row: 1, col: 3)
+}
+
+pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_test() {
+  let at = fn(line, visible, next) {
+    live.position([line], row: 0, visible:, at_end: False, next:).col
+  }
+  assert at("| 1 | 2 |", "", "1") == 2
+  assert at("| 1 | 2 |", "1", "2") == 6
+  assert at("| 1 | 2 |", "1", "") == 3
+  assert at("1 | 2", "", "1") == 0
+  assert at("a **b**", "a ", "b") == 2
+  assert at("a \\| b", "a ", "|") == 2
 }
