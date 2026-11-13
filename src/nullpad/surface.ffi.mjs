@@ -990,8 +990,9 @@ function undrawn(control) {
 // The browser's selection is put back in the field after. A step returns
 // the place it reaches and the `x` it aimed at, or a row of -1 for no page,
 // -2 for nothing past the head, -3 when the page must be drawn first, as
-// the field holds other rows than it was drawn with or a press in this frame
-// put the field where the page has not placed it, and -4 when the head was in
+// the field holds other rows than it was drawn with, the rows drawn are
+// numbered as the note was then, or a press in this frame put the field
+// where the page has not placed it, and -4 when the head was in
 // the field and the field took the step: a step of a letter or a line
 // boundary, or of a line from any line of the field but the last it steps
 // past. A `page` step scrolls the page by a window and takes the place that
@@ -1014,7 +1015,7 @@ export function stepHead(
   const grown = typedIn ? lines - drawnLines : 0;
   const held = first === undefined || !mirror ? null : [Number(first), Number(first) + drawnLines + grown - 1];
   const inField = held !== null && headRow >= held[0] && headRow <= held[1];
-  if (inField && !typedIn && undrawn(control)) return answer(-3);
+  if (!typedIn && (rowCount !== drawnCount || (inField && undrawn(control)))) return answer(-3);
   const drawnLast = held ? held[1] - grown : Infinity;
   const moved = (place) => (place[0] > drawnLast ? [place[0] + grown, ...place.slice(1)] : place);
   if (pressed !== null && first === undefined) return answer(-3);
