@@ -201,29 +201,39 @@ pub fn sync(
     editor.InSync -> effect.none()
     editor.Write(buffer) -> effect.batch([write(buffer), focus()])
     editor.WriteQuietly(buffer) -> write(buffer)
-    editor.WriteAndAim(buffer, x:, line:) ->
+    // Aimed at once, with the field set as it is, so that a key pressed
+    // before the next paint lands where the arrow went, and again before
+    // that paint, once the field is set for the rows it holds, unless a key
+    // has moved the caret since.
+    editor.WriteAndAim(buffer, x:, line:) -> {
+      let aim = fn(dispatch, again) {
+        let #(text, start, end, backward) = to_control(buffer)
+        let #(text, start, end, backward) =
+          aim_control(
+            control_id,
+            text,
+            start,
+            end,
+            backward,
+            x,
+            line == editor.LastLine,
+            again,
+          )
+        dispatch(
+          on_event(
+            editor.ControlChanged(from_control(text, start, end, backward)),
+          ),
+        )
+      }
       effect.batch([
         write(buffer),
+        effect.from(fn(dispatch) { aim(dispatch, False) }),
         effect.before_paint(fn(dispatch, _) {
           focus_control(control_id)
-          let #(text, start, end, backward) = to_control(buffer)
-          let #(text, start, end, backward) =
-            aim_control(
-              control_id,
-              text,
-              start,
-              end,
-              backward,
-              x,
-              line == editor.LastLine,
-            )
-          dispatch(
-            on_event(
-              editor.ControlChanged(from_control(text, start, end, backward)),
-            ),
-          )
+          aim(dispatch, True)
         }),
       ])
+    }
     // Blurred at once, because a key pressed before the next paint would
     // still be typed into the field, and again before that paint, after any
     // focus an earlier key asked for.
@@ -508,6 +518,7 @@ fn aim_control(
   backward: Bool,
   x: Float,
   last_line: Bool,
+  again: Bool,
 ) -> #(String, Int, Int, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "findControl")

@@ -176,7 +176,11 @@ export function caretLine(id) {
   ];
 }
 
-export function aimControl(id, text, start, end, backward, x, lastLine) {
+// The field as the last aim left it, so that aiming again can tell
+// whether a key has moved the caret since.
+const aimed = new WeakMap();
+
+export function aimControl(id, text, start, end, backward, x, lastLine, again) {
   const control = document.getElementById(id);
   if (!control) return ["", 0, 0, false];
   const shown = () => [
@@ -185,9 +189,15 @@ export function aimControl(id, text, start, end, backward, x, lastLine) {
     control.selectionEnd,
     control.selectionDirection === "backward",
   ];
-  const written =
-    control.value === text && control.selectionStart === start && control.selectionEnd === end;
-  if (!written) return shown();
+  if (again) {
+    const last = aimed.get(control);
+    if (!last || last.join("\u0000") !== shown().join("\u0000")) return shown();
+    [text, start, end, backward] = last;
+  } else {
+    const written =
+      control.value === text && control.selectionStart === start && control.selectionEnd === end;
+    if (!written) return shown();
+  }
   const head = backward ? start : end;
   const rowStart = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
   const newline = text.indexOf("\n", head);
@@ -213,6 +223,7 @@ export function aimControl(id, text, start, end, backward, x, lastLine) {
     best < anchor ? "backward" : "forward",
   );
   control.scrollTop = 0;
+  aimed.set(control, shown());
   return shown();
 }
 
