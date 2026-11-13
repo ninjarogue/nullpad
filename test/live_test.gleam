@@ -236,6 +236,15 @@ pub fn a_place_between_letters_takes_closing_marks_with_the_letter_before_test()
   assert place("Flights are boo", "k") == Position(0, 17)
 }
 
+pub fn a_place_before_a_line_break_is_past_the_marks_that_end_the_row_test() {
+  let place = fn(line, visible) {
+    live.position([line], row: 0, visible:, at_end: False, next: "\n")
+  }
+  assert place("Flights are **booked**", "Flights are booked")
+    == Position(0, 22)
+  assert place("see [the map](https://x.org)", "see the map") == Position(0, 28)
+}
+
 pub fn a_click_beside_a_block_lands_at_the_end_of_its_last_row_test() {
   let lines = ["one **two**", "three"]
   assert live.position(
