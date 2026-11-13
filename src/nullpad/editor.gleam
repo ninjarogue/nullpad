@@ -77,6 +77,8 @@ pub type Sync {
   InSync
   Write(Buffer)
   WriteQuietly(Buffer)
+  /// Then the head moves to the place nearest `x` on the first or last drawn
+  /// line of its row. A selection keeps its anchor.
   WriteAndAim(Buffer, x: Float, line: Line)
   Release(Buffer)
 }
@@ -297,8 +299,16 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       let to = Position(row: cursor.row + 1, col: 0)
       #(buffer.replace(base, from:, to:, with: ""), None)
     }
-    SelectUp if row_above -> reach(Position(..cursor, row: cursor.row - 1))
-    SelectDown if row_below -> reach(Position(..cursor, row: cursor.row + 1))
+    SelectUp if row_above -> #(
+      buffer.select(base, anchor:, head: end_of_row(cursor.row - 1)),
+      Some(LastLine),
+    )
+    SelectDown if row_below -> #(
+      buffer.select(base, anchor:, head: Position(row: cursor.row + 1, col: 0)),
+      Some(FirstLine),
+    )
+    SelectUp if live -> reach(start)
+    SelectDown if live -> reach(end)
     SelectBefore if row_above -> reach(end_of_row(cursor.row - 1))
     SelectAfter if row_below -> reach(Position(row: cursor.row + 1, col: 0))
     SelectToStart -> reach(start)

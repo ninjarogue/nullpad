@@ -10,7 +10,8 @@ The note is always drawn as a page while you write it, unless Markdown is on. Th
 - `live-type` typing changes only those rows of the note. A blank line and then text starts a new block: the field moves to it and the block before is drawn. Text typed on a blank row between two paragraphs joins them, and the field then holds all three rows.
 - `live-arrows` ArrowUp on the field's first drawn line moves to the row above, ArrowDown on its last drawn line to the row below. Inside a wrapped paragraph the arrows move by drawn line first.
 - `live-join` Backspace at the start of the field joins it to the row above. Delete at its end joins the row below to it.
-- `live-click` a click on drawn text puts the field on that block with the caret at the word clicked. A click on the box of a fence with no code puts the field on that fence. A click beside or between blocks goes to the end of the nearest one.
+- `live-click` a click on drawn text puts the field on that block with the caret at the word clicked. A click on the box of a fence with no code puts the field on that fence. A click beside a block, level with one of its lines, goes to that line. A click in the gap between two blocks goes to the nearer one: the end of the block above, or the start of the block below.
+- `live-select` a selection can span blocks. A mouse drag (from drawn text or inside the field), Shift and a click, Shift with an arrow at the edge of the field, Ctrl+A, and Ctrl+Shift+Home or End all reach past the field. The field then holds every block the selection touches, as markdown, so copy gives the markdown and typing or Delete replaces the whole selection. A plain click, or an arrow that ends the selection, puts one block back in the field. A second click and a touch stay the browser's, so double-click selects a word in the field.
 - `live-idle` Escape, or focus anywhere else, draws the whole note in one element, `[data-test-id=preview]`, with no field and no `live-above`. A click on the page brings the field back.
 - `live-tasks` a drawn box ticks its line without opening its block. A link opens in a new tab.
 - `live-font` the field is set like its block: heading sizes for a heading, the code font for a code block or table, an indent for a list item.
@@ -19,6 +20,7 @@ The note is always drawn as a page while you write it, unless Markdown is on. Th
 
 - Open the app. The field holds only the block the cursor is in.
 - Move with the arrow keys, or click any drawn text.
+- Drag across blocks, Shift-click, Shift with the arrows, or Ctrl+A to select across blocks.
 - Press Escape to read the note with nothing revealed.
 - Click Markdown, or press Ctrl+E, to see the whole source.
 
@@ -31,6 +33,7 @@ Preconditions: a fresh run. A ready journey is `journeys/live-view.mjs`.
 - **Type a note.** `await type('# Trip\n\nPack **light**\n\n- [ ] Passport')`. After each blank line the field holds only the newest block, and `live-above` shows the earlier ones drawn.
 - **Arrows.** `await page.keyboard.press('ArrowUp')` and read `inputValue()` after each press. It walks `- [ ] Passport`, an empty string for the blank row, `Pack **light**`, and so on.
 - **Click.** `await page.locator('.part strong').click()`. The field holds that paragraph and is focused. `selectionStart` is inside the bold word's source.
+- **Select.** Drag with `page.mouse.move`, `down`, `move` (a few `steps`) and `up` between two drawn words. Read the field's `value.slice(selectionStart, selectionEnd)` and `selectionDirection` with `evaluate`. Wait a frame after each step before measuring a word, because the field grows and the page reflows.
 - **Idle.** `await page.keyboard.press('Escape')`. The field is no longer `document.activeElement`, `.editor` has the class `idle` and `[data-test-id=preview]` is visible.
 - **Drawn box.** In `preview`, click a task box. It ticks and the field stays out of focus.
 - **Saved.** The note in storage is always the whole note. Wait for "Saved", reload, click Markdown and read the field.
@@ -42,5 +45,6 @@ Preconditions: a fresh run. A ready journey is `journeys/live-view.mjs`.
 - A click on a block element lands where its box is, which for a heading is often past the end of the words. Click an inline element (`strong`, `em`) to land inside a line.
 - Arrow keys keep the caret's distance from the left edge when they cross into a block, but a blank row resets it to the start.
 - Ctrl+Z only undoes typing done since the field last moved. There is no undo across blocks yet.
-- Shift with an arrow does not select past the field. Turn Markdown on to select across blocks.
+- While a selection spans blocks the field shows their markdown in the body font, so the page below it moves. Measure a word again after the field changes.
+- A drag stops at the edge of the window: the page does not scroll while you drag. Shift and a click reaches a block out of view.
 - The caret after a click on a table cell lands near the cell, not exactly at the character.

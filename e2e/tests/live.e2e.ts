@@ -716,3 +716,123 @@ test('a double-click in the text field still selects one word', async ({ app, di
   await page.text.dblclick();
   await expect.poll(async () => (await page.selection()).selected).toBe('word');
 });
+
+test('Shift+ArrowUp from below a wrapped paragraph selects only its last line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const long =
+    'This paragraph is long enough that it wraps onto several lines in the page, so a selection made with the keyboard has to move through it one line at a time, and not jump over all of it at once when Shift and the up arrow are pressed.';
+  await openLive({ app, disk, page }, `${long}\n\nlast`);
+  await page.drawn('p').last().tap();
+  await expect(page.text).toHaveValue('last');
+  await expect(page.drawn('p')).toHaveText([long]);
+  const lastLine = await browser.evaluate(() => {
+    const text = document.querySelector('.page.live .part p')!.firstChild as Text;
+    const range = document.createRange();
+    const top = (at: number) => {
+      range.setStart(text, at);
+      range.setEnd(text, at + 1);
+      return range.getBoundingClientRect().top;
+    };
+    let at = text.length - 1;
+    while (at > 0 && top(at - 1) === top(text.length - 1)) at--;
+    return text.data.slice(at);
+  });
+  expect(lastLine.length).toBeLessThan(long.length / 2);
+  await browser.keyboard.press('Home');
+
+  await browser.keyboard.press('Shift+ArrowUp');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await expect.poll(() => page.selection()).toEqual({
+    text: `${long}\n\nlast`,
+    selected: `${lastLine}\n\n`,
+    backward: true,
+  });
+});
+
+test('Shift+ArrowDown on the last row of the note selects to its end', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('p').last().tap();
+  await browser.keyboard.press('Home');
+
+  await browser.keyboard.press('Shift+ArrowDown');
+  await expect.poll(() => page.selection()).toEqual({ text: 'last', selected: 'last', backward: false });
+});
+
+test('an arrow that ends a selection across blocks puts one block back in the field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('p').last().tap();
+  await browser.keyboard.press('Home');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await expect.poll(() => page.selection()).toEqual({
+    text: '- Shoes\n\nlast',
+    selected: '- Shoes\n\n',
+    backward: true,
+  });
+
+  await browser.keyboard.press('ArrowRight');
+  await expect.poll(() => page.caret()).toBe('|last');
+  await expect(page.drawn('li')).toHaveText(['Passport', 'Shoes']);
+});
+
+test('a drag into the margin beside a block selects to the start of its line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  const margin = await browser.evaluate(() => document.querySelector('.page')!.getBoundingClientRect().left + 4);
+  const shoes = await page.pointAt('Shoes');
+
+  await page.drag(await page.pointAt('hotel'), { x: margin, y: shoes.y });
+  await expect.poll(() => page.selection()).toEqual({
+    text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
+    selected: 'hotel is *not*.\n\n- [ ] Passport\n',
+    backward: false,
+  });
+});
+
+test('Ctrl+A with Caps Lock on selects the whole note too', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+
+  await browser.keyboard.press('ControlOrMeta+A');
+  await expect.poll(() => page.selection()).toEqual({ text: body, selected: body, backward: false });
+});
+
+test('a drag let go off the page leaves no press held', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('em').tap();
+  await expect(page.text).toHaveValue(paragraph);
+
+  const booked = await page.pointAt('booked');
+  await browser.mouse.move(booked.x, booked.y);
+  await browser.mouse.down();
+  await browser.mouse.move(100, booked.y);
+  await browser.mouse.up();
+  await browser.keyboard.press('Shift+End');
+  await expect.poll(async () => (await page.selection()).selected).toBe('booked** and the hotel is *not*.');
+
+  const hotel = await page.pointAt('hotel');
+  const shoes = await page.pointAt('Shoes');
+  await browser.mouse.move(hotel.x, hotel.y);
+  await browser.mouse.down();
+  await browser.mouse.move(shoes.x, shoes.y);
+  await browser.mouse.up();
+  await page.nextFrame();
+  await expect(page.text).toHaveValue(paragraph);
+});

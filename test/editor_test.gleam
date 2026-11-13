@@ -582,16 +582,16 @@ pub fn shift_arrow_down_at_the_bottom_of_the_field_takes_the_row_below_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.SelectDown,
-      x: 0.0,
+      x: 12.5,
       shown: caret("# Trip", 0, 3),
     ))
   assert editor.region(ed) == Some(Region(0, 1))
   assert sync
-    == editor.Write(selected(
-      "# Trip\n",
-      from: Position(0, 3),
-      to: Position(1, 0),
-    ))
+    == editor.WriteAndAim(
+      selected("# Trip\n", from: Position(0, 3), to: Position(1, 0)),
+      x: 12.5,
+      line: editor.FirstLine,
+    )
 
   let shown = editor.field_buffer(ed)
   let Outcome(editor: ed, ..) =
@@ -605,15 +605,54 @@ pub fn shift_arrow_up_at_the_top_of_the_field_takes_the_row_above_test() {
   let ed = pressed(live_note, 4, "on")
   let shown = editor.field_buffer(ed)
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.EdgePressed(editor.SelectUp, x: 0.0, shown:))
-
+    editor.update(ed, editor.EdgePressed(editor.SelectUp, x: 7.0, shown:))
   assert editor.region(ed) == Some(Region(3, 4))
   assert sync
-    == editor.Write(selected(
-      "\n- one",
-      from: Position(1, 4),
-      to: Position(0, 0),
+    == editor.WriteAndAim(
+      selected("\n- one", from: Position(1, 4), to: Position(0, 0)),
+      x: 7.0,
+      line: editor.LastLine,
+    )
+
+  let shown = editor.field_buffer(ed)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EdgePressed(editor.SelectUp, x: 7.0, shown:))
+  assert editor.region(ed) == Some(Region(2, 4))
+  assert sync
+    == editor.WriteAndAim(
+      selected(
+        "Flights are **booked**.\n\n- one",
+        from: Position(2, 4),
+        to: Position(0, 23),
+      ),
+      x: 7.0,
+      line: editor.LastLine,
+    )
+}
+
+pub fn shift_arrows_on_the_first_and_last_rows_select_to_the_ends_of_the_note_test() {
+  let Outcome(sync:, ..) =
+    live(live_note)
+    |> editor.update(editor.EdgePressed(
+      editor.SelectUp,
+      x: 30.0,
+      shown: caret("# Trip", 0, 3),
     ))
+  assert sync
+    == editor.Write(selected("# Trip", from: Position(0, 3), to: Position(0, 0)))
+
+  let ed = pressed(live_note, 5, "t")
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectDown,
+        x: 30.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert sync
+    == editor.Write(selected("- two", from: Position(0, 3), to: Position(0, 5)))
 }
 
 pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {

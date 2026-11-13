@@ -87,21 +87,29 @@ export function caretLine(id) {
   ];
 }
 
-export function aimControl(id, text, start, end, x, lastLine) {
+export function aimControl(id, text, start, end, backward, x, lastLine) {
   const control = document.getElementById(id);
-  if (!control) return ["", 0, 0];
-  const shown = () => [control.value, control.selectionStart, control.selectionEnd];
+  if (!control) return ["", 0, 0, false];
+  const shown = () => [
+    control.value,
+    control.selectionStart,
+    control.selectionEnd,
+    control.selectionDirection === "backward",
+  ];
   const written =
     control.value === text && control.selectionStart === start && control.selectionEnd === end;
   if (!written) return shown();
+  const head = backward ? start : end;
+  const rowStart = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
+  const newline = text.indexOf("\n", head);
+  const rowEnd = newline < 0 ? text.length : newline;
   const place = measure(control);
-  const length = control.value.length;
   const step = lastLine ? -1 : 1;
-  let offset = lastLine ? length : 0;
+  let offset = lastLine ? rowEnd : rowStart;
   const top = place(offset).top;
   let best = offset;
   let gap = Infinity;
-  for (; offset >= 0 && offset <= length; offset += step) {
+  for (; offset >= rowStart && offset <= rowEnd; offset += step) {
     const here = place(offset);
     if (here.top !== top) break;
     if (Math.abs(here.x - x) < gap) {
@@ -109,7 +117,12 @@ export function aimControl(id, text, start, end, x, lastLine) {
       best = offset;
     }
   }
-  control.setSelectionRange(best, best);
+  const anchor = start === end ? best : backward ? end : start;
+  control.setSelectionRange(
+    Math.min(anchor, best),
+    Math.max(anchor, best),
+    best < anchor ? "backward" : "forward",
+  );
   control.scrollTop = 0;
   return shown();
 }
@@ -128,19 +141,10 @@ export function locate(press, rowMark) {
   if (band && press.clientY >= band.top && press.clientY < band.bottom) {
     return inField(press, field, band, rowMark);
   }
-  const point = caretAt(press.clientX, press.clientY);
-  const inside = point && (point.node instanceof Element ? point.node : point.node.parentElement);
-  const holder = inside?.closest(marked);
   // A press in the gap between two blocks is on neither, but the browser
   // still names the nearest text, at its start.
-  if (holder && holder !== field && target.closest(marked)) {
-    const range = document.createRange();
-    range.setStart(holder, 0);
-    range.setEnd(point.node, point.offset);
-    // An element that draws no text, such as a fence with no code, has no
-    // place before its text: the press lands at the end of its row.
-    return [Number(holder.dataset[rowMark]), range.toString(), holder.textContent === ""];
-  }
+  const placed = target.closest(marked) && drawnAt(press.clientX, press.clientY, rowMark);
+  if (placed) return placed;
   let nearest = null;
   let gap = Infinity;
   let above = false;
@@ -154,8 +158,28 @@ export function locate(press, rowMark) {
     }
   }
   if (!nearest) return none;
+  if (gap === 0) {
+    // Beside a block, level with one of its lines, is on that line.
+    const box = nearest.getBoundingClientRect();
+    const x = Math.min(Math.max(press.clientX, box.left + 1), box.right - 1);
+    const beside = drawnAt(x, press.clientY, rowMark);
+    if (beside) return beside;
+  }
   if (above) return [Number(nearest.dataset[rowMark]), "", false];
   return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true];
+}
+
+function drawnAt(x, y, rowMark) {
+  const point = caretAt(x, y);
+  const inside = point && (point.node instanceof Element ? point.node : point.node.parentElement);
+  const holder = inside?.closest(`[data-${rowMark}]`);
+  if (!holder || holder instanceof HTMLTextAreaElement) return null;
+  const range = document.createRange();
+  range.setStart(holder, 0);
+  range.setEnd(point.node, point.offset);
+  // An element that draws no text, such as a fence with no code, has no
+  // place before its text: the press lands at the end of its row.
+  return [Number(holder.dataset[rowMark]), range.toString(), holder.textContent === ""];
 }
 
 // A point level with a line of the field, even beside it, is on that line.

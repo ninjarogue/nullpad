@@ -42,6 +42,25 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       False -> on_event(editor.ControlChanged(shown:))
     }
   }
+  // The browser moves the caret for these keys and says nothing, so the
+  // editor reads it when the key is let go.
+  let moved = {
+    use name <- decode.field("key", decode.string)
+    use composing <- decode.field("isComposing", decode.bool)
+    case name {
+      "ArrowUp"
+        | "ArrowDown"
+        | "ArrowLeft"
+        | "ArrowRight"
+        | "Home"
+        | "End"
+        | "PageUp"
+        | "PageDown"
+        if !composing
+      -> changed
+      _ -> decode.failure(on_event(editor.Released), expected: "a caret move")
+    }
+  }
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
@@ -69,6 +88,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.on("compositionend", changed),
         event.on("select", changed),
         event.on("pointerup", changed),
+        event.on("keyup", moved),
         event.on("focus", focus_changed(True)),
         event.on("blur", focus_changed(False)),
         event.advanced(
@@ -155,10 +175,12 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
         on_event(editor.ShiftPointed(row:, visible:, at_end:, shown:))
         |> event.handler(prevent_default: True, stop_propagation: False)
         |> decode.success
+      // A press the browser keeps also ends a press the editor took, whose
+      // release the page does not hear when it happens off the page.
       _, _, _ ->
-        on_event(editor.FocusChanged(False))
+        on_event(editor.Released)
         |> event.handler(prevent_default: False, stop_propagation: False)
-        |> decode.failure(expected: "a place on the drawn page")
+        |> decode.success
     }
   })
 }
@@ -200,19 +222,20 @@ pub fn sync(
         write(buffer),
         effect.before_paint(fn(dispatch, _) {
           focus_control(control_id)
-          let #(text, start, end, _) = to_control(buffer)
-          let #(text, start, end) =
+          let #(text, start, end, backward) = to_control(buffer)
+          let #(text, start, end, backward) =
             aim_control(
               control_id,
               text,
               start,
               end,
+              backward,
               x,
               line == editor.LastLine,
             )
           dispatch(
             on_event(
-              editor.ControlChanged(from_control(text, start, end, False)),
+              editor.ControlChanged(from_control(text, start, end, backward)),
             ),
           )
         }),
@@ -340,7 +363,7 @@ fn edge_decoder(
     "ArrowDown" if shifted && head.row == end.row -> Ok(editor.SelectDown)
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
     "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
-    "a" if command && !shift -> Ok(editor.SelectAll)
+    "a" | "A" if command && !shift -> Ok(editor.SelectAll)
     "Home" if command && shift -> Ok(editor.SelectToStart)
     "End" if command && shift -> Ok(editor.SelectToEnd)
     "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToStart)
@@ -449,9 +472,10 @@ fn aim_control(
   text: String,
   start: Int,
   end: Int,
+  backward: Bool,
   x: Float,
   last_line: Bool,
-) -> #(String, Int, Int)
+) -> #(String, Int, Int, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "findControl")
 fn find_control(id: String) -> Dynamic
