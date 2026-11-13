@@ -598,7 +598,7 @@ test('a mouse drag that starts in the text field selects past it', async ({ app,
   await page.drag(await page.pointAt('booked'), await page.pointAt('Shoes'));
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: 'booked** and the hotel is *not*.\n\n- [ ] Passport\n- ',
+    selected: '**booked** and the hotel is *not*.\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });

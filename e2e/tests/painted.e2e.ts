@@ -838,19 +838,26 @@ function inField(browser: Browser, before: string) {
 
 const boldNote = 'Some **bold** words\n\n- item one\n\nend';
 
-test('a double-click on a bold word held and dragged to another block starts where the double-click alone does', async ({
+test('a double-click on a bold word selects the word, and dragged on to another block holds both its marks', async ({
   app,
   browser,
   disk,
   page,
 }) => {
   await openLive({ app, disk, page }, boldNote);
-  await pressAndDrag({ browser, page }, await inField(browser, 'Some **bo'), await page.pointAt('item'), 2);
+  const bold = await inField(browser, 'Some **bo');
+  await pressAndDrag({ browser, page }, bold, bold, 2);
+  await expect.poll(async () => (await page.selection()).selected).toBe('bold');
+  await browser.keyboard.press('ArrowLeft');
+
+  await pressAndDrag({ browser, page }, bold, await page.pointAt('item'), 2);
   await expect.poll(() => page.painted()).toBe('bold wordsitem');
-  await expect.poll(async () => (await page.selection()).selected).toBe('bold** words\n\n- item');
+  await expect.poll(async () => (await page.selection()).selected).toBe('**bold** words\n\n- item');
+  await browser.keyboard.press('Delete');
+  await expect(page.text).toHaveValue('Some  one');
 });
 
-test('a drag from between the hidden marks of a bold word to another block starts beside the word, where it is painted', async ({
+test('a drag from between the hidden marks of a bold word to another block holds both its marks', async ({
   app,
   browser,
   disk,
@@ -859,5 +866,7 @@ test('a drag from between the hidden marks of a bold word to another block start
   await openLive({ app, disk, page }, boldNote);
   await pressAndDrag({ browser, page }, await inField(browser, 'Some *'), await page.pointAt('item'), 1);
   await expect.poll(() => page.painted()).toBe('bold words');
-  await expect.poll(async () => (await page.selection()).selected).toBe('bold** words\n\n- ');
+  await expect.poll(async () => (await page.selection()).selected).toBe('**bold** words\n\n- ');
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('Some Xitem one');
 });
