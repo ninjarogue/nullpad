@@ -497,11 +497,9 @@ pub fn sync(
           }
           #(-4, _, _, _, _) -> {
             case decode.run(find_control(control_id), control_decoder()) {
-              Ok(shown) ->
-                dispatch(on_event(editor.ControlChanged(shown:, at: 0)))
-              Error(_) -> Nil
+              Ok(shown) -> dispatch(on_event(editor.FieldStepped(shown:, x:)))
+              Error(_) -> dispatch(on_event(editor.Unstepped(x:)))
             }
-            dispatch(on_event(editor.Unstepped(x:)))
             True
           }
           #(row, visible, at_end, next, x) if row >= 0 -> {

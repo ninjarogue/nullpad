@@ -1093,6 +1093,22 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
     == editor.WriteAndStep(shown, move: editor.LineDown, select: True, x: -1.0)
 }
 
+pub fn a_step_the_field_took_lets_the_steps_behind_it_go_test() {
+  let shown = caret("# Trip", 0, 3)
+  let down =
+    editor.EdgePressed(editor.Line(up: False, select: True), x: 9.0, shown:)
+  let Outcome(editor: ed, ..) = live(live_note) |> editor.update(down)
+  let Outcome(editor: ed, ..) = editor.update(ed, down)
+  let took = selected("# Trip", from: Position(0, 3), to: Position(0, 6))
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.FieldStepped(shown: took, x: 9.0))
+  assert sync
+    == editor.WriteAndStep(took, move: editor.LineDown, select: True, x: 9.0)
+  assert editor.buffer(ed)
+    |> buffer.selection
+    == #(Position(0, 3), Position(0, 6))
+}
+
 fn step_to(
   ed: editor.Editor,
   row row: Int,

@@ -292,6 +292,7 @@ const events = {
       new editor.Unstepped(40),
     ]],
   ],
+  FieldStepped: [["", (field) => [asked(field), new editor.FieldStepped(moved(field, 0), 40)]]],
   Aimed: [["moved", (field) => new editor.Aimed(moved(field, 0), 40)]],
   SteppedPast: [
     ["", (field) => [asked(field), new editor.SteppedPast()]],

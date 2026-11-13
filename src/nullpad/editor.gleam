@@ -202,6 +202,9 @@ pub type Event {
   /// A step the page had no place for: the head stays where it is, and a
   /// step of a window goes to the start or end of the note.
   Unstepped(x: Float)
+  /// The field took the first waiting step itself, and shows where it put
+  /// the selection.
+  FieldStepped(shown: Buffer, x: Float)
   /// The field as an arrow up or down that crossed into it left it, aimed
   /// `x` from the left of the text.
   Aimed(shown: Buffer, x: Float)
@@ -596,6 +599,12 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       next_step(Editor(..stepped, goal:), x)
     }
     Unstepped(x:) -> next_step(editor, x)
+    FieldStepped(shown:, x:) ->
+      case editor.waiting {
+        [] -> typed(editor, shown, None, realign)
+        [_, ..] ->
+          editor |> edit(base(editor, shown)) |> realign |> next_step(x)
+      }
     Aimed(shown:, x:) -> {
       let outcome = typed(editor, shown, None, realign)
       let head = buffer.cursor(outcome.editor.buffer)
