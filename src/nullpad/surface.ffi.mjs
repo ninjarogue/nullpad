@@ -253,15 +253,20 @@ export function aimControl(id, text, start, end, backward, x, lastLine, again) {
   return shown();
 }
 
+// A middle press puts the caret where it is pressed, where Linux pastes on
+// its release, as in a text field. The browser keeps one on a link, which it
+// opens, and one on the field.
 export function locate(press, rowMark) {
   const none = [-1, "", false, false];
   const target = press.target;
   const page = press.currentTarget;
-  if (press.button !== 0 || !(target instanceof Element)) return none;
+  if (press.button > 1 || !(target instanceof Element)) return none;
   // The page's own scrollbar.
   if (target === page && press.offsetX >= target.clientWidth) return none;
+  const grabbed = target.closest("a, input, button") !== null;
+  if (press.button === 1 && (grabbed || target instanceof HTMLTextAreaElement)) return none;
   const [row, visible, atEnd] = placeOn(page, target, press.clientX, press.clientY, rowMark, press);
-  return [row, visible, atEnd, target.closest("a, input, button") !== null];
+  return [row, visible, atEnd, grabbed];
 }
 
 // A point outside the page, as a drag can reach, is taken to the nearest
