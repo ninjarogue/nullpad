@@ -1628,3 +1628,36 @@ test('a press whose hand moves up to four pixels each way selects nothing, and f
     expect({ dx, dy, selected: (await page.selection()).selected !== '' }).toEqual({ dx, dy, selected: dx > 4 });
   }
 });
+
+test('a tap in the margin level with a line of the text field puts the caret on that line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await browser.keyboard.press('End');
+
+  // A touch sends its pointer events first, then the mouse events.
+  await browser.evaluate(() => {
+    const sheet = document.querySelector('.page.live')!;
+    const field = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: sheet.getBoundingClientRect().left + 6, clientY: field.top + field.height / 2 };
+    const touch = { ...at, pointerType: 'touch', isPrimary: true };
+    const capabilities = (globalThis as unknown as { InputDeviceCapabilities: new (init: object) => object })
+      .InputDeviceCapabilities;
+    const fromTouch = { sourceCapabilities: new capabilities({ firesTouchEvents: true }) };
+    sheet.dispatchEvent(new PointerEvent('pointerdown', touch));
+    sheet.dispatchEvent(new PointerEvent('pointerup', touch));
+    sheet.dispatchEvent(new MouseEvent('mousedown', { ...at, ...fromTouch, buttons: 1 }));
+    sheet.dispatchEvent(new MouseEvent('mouseup', { ...at, ...fromTouch }));
+    sheet.dispatchEvent(new MouseEvent('click', { ...at, ...fromTouch }));
+    return null;
+  });
+  await page.nextFrame();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('Z');
+  await expect(page.text).toHaveValue('Zsome words here');
+});
