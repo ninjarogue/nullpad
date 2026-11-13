@@ -399,3 +399,30 @@ test('Shift+ArrowRight over the last letter of a bold word takes its hidden clos
   await page.markdown.tap();
   await expect(page.text).toHaveValue('# TripX and the hotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast');
 });
+
+test('each Shift and arrow that crosses a line break into the next block paints it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha one\n\nbravo two\n\ncharlie');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.paintedBreaks()).toEqual([0]);
+  expect(await page.paintedBlanks()).toEqual([]);
+  await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.paintedBlanks()).toEqual([1]);
+  await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.painted()).toBe('b');
+  expect(await page.paintedBreaks()).toEqual([0]);
+
+  await browser.keyboard.press('End');
+  await expect.poll(() => page.paintedBreaks()).toEqual([]);
+  await browser.keyboard.press('Shift+ArrowDown');
+  await expect.poll(() => page.paintedBreaks()).toEqual([2]);
+  expect(await page.paintedBlanks()).toEqual([]);
+  await browser.keyboard.press('Shift+ArrowDown');
+  await expect.poll(() => page.paintedBlanks()).toEqual([3]);
+  expect(await page.paintedBreaks()).toEqual([2]);
+});

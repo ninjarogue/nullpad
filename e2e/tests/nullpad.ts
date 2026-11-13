@@ -406,6 +406,15 @@ class Page {
     );
   }
 
+  /** The first row of each drawn element whose last line break shows the selection colour after its text. */
+  paintedBreaks() {
+    return this.browser.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('.page.live .part [data-row]:not(.blank)')]
+        .filter((element) => getComputedStyle(element, '::after').backgroundColor !== 'rgba(0, 0, 0, 0)')
+        .map((element) => Number(element.dataset.row)),
+    );
+  }
+
   /**
    * Every element the page draws a row of the note in, and the text field
    * while it can be seen, in the order of the page.
