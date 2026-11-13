@@ -437,6 +437,7 @@ export function paintSelection(
   head.setStart(headNode, headAt);
   CSS.highlights.set(SELECTION, new Highlight(range));
   CSS.highlights.set(HEAD, new Highlight(head));
+  underStart(document.getElementById(id), range);
   for (let row = firstBreak; row <= lastBreak; row++) {
     const here = holder(row);
     if (!here || here === holder(row + 1)) continue;
@@ -451,7 +452,32 @@ function clearBreaks() {
   selectedBreaks = [];
 }
 
+// An IME opens its window at the caret of the field, which typing over the
+// selection puts at its start, so the hidden field is moved to put that
+// caret where the start of the selection is drawn.
+let moved = null;
+
+function underStart(control, range) {
+  const box = control?.parentElement;
+  if (!box) return;
+  box.style.translate = "";
+  moved = box;
+  const place = measure(control);
+  const caret = place(control.selectionStart);
+  control.scrollTop = caret.top - place(0).top;
+  const start = document.createRange();
+  start.setStart(range.startContainer, range.startOffset);
+  const drawn = caretBox(start);
+  const field = control.getBoundingClientRect();
+  const top = field.top + caret.top - ruler.getBoundingClientRect().top - control.scrollTop;
+  const x = drawn.left - (field.left + caret.x);
+  const y = drawn.top + drawn.height / 2 - (top + caret.height / 2);
+  box.style.translate = `${x}px ${y}px`;
+}
+
 export function clearPaint() {
+  if (moved) moved.style.translate = "";
+  moved = null;
   clearBreaks();
   globalThis.CSS?.highlights?.delete(SELECTION);
   globalThis.CSS?.highlights?.delete(HEAD);
