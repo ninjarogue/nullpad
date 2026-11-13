@@ -1440,3 +1440,30 @@ test('Shift+ArrowUp and a letter pressed before the page redraws replace what th
   await page.markdown.tap();
   await expect(page.text).toHaveValue('X- bravo two');
 });
+
+test('an arrow pressed while a selection is held moves one row on from its head, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha one\n\nbravo two\n\ncharlie three\n\ndelta four');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha one\n\n');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('charlie three');
+
+  for (let presses = 0; presses < 2; presses++) await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('delta four');
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await expect.poll(async () => (await page.selection()).backward).toBe(true);
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue('');
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue('bravo two');
+});
