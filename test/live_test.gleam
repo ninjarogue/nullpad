@@ -342,12 +342,26 @@ pub fn a_nudge_crosses_the_marks_the_page_does_not_draw_test() {
   let lines = ["Flights are **booked** and"]
   let visible = "Flights are booked and"
   assert nudge(lines, visible, 0, 12, True) == Position(0, 15)
-  assert nudge(lines, visible, 0, 19, True) == Position(0, 20)
+  assert nudge(lines, visible, 0, 19, True) == Position(0, 22)
   assert nudge(lines, visible, 0, 20, True) == Position(0, 23)
   assert nudge(lines, visible, 0, 23, False) == Position(0, 22)
   assert nudge(lines, visible, 0, 22, False) == Position(0, 19)
-  assert nudge(lines, visible, 0, 15, False) == Position(0, 14)
+  assert nudge(lines, visible, 0, 15, False) == Position(0, 12)
   assert nudge(lines, visible, 0, 14, False) == Position(0, 11)
+}
+
+/// Between two drawn letters, marks that close what the letter before
+/// opened go with it, and marks that open what follows go with the letter
+/// after, so that a selection ending there holds both marks of a pair or
+/// neither.
+pub fn a_nudge_takes_closing_marks_with_the_letter_before_them_test() {
+  let lines = ["**bold** and *it*. ok"]
+  let visible = "bold and it. ok"
+  assert nudge(lines, visible, 0, 5, True) == Position(0, 8)
+  assert nudge(lines, visible, 0, 15, True) == Position(0, 17)
+  assert nudge(lines, visible, 0, 12, True) == Position(0, 13)
+  assert nudge(lines, visible, 0, 15, False) == Position(0, 13)
+  assert nudge(lines, visible, 0, 3, False) == Position(0, 2)
 }
 
 /// A nudge that stays on its row draws one character more or less, or

@@ -375,3 +375,27 @@ test('a step the page could not place lets the next Shift+ArrowDown step', async
   await browser.keyboard.press('Shift+ArrowDown');
   await expect.poll(() => page.selection()).not.toEqual(before);
 });
+
+test('Shift+ArrowRight over the last letter of a bold word takes its hidden closing marks too', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await browser.keyboard.press('End');
+  const are = await page.pointAt('are');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(are.x, are.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(() => page.painted()).toBe('Flights ');
+
+  for (let letter = 0; letter < 10; letter++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.painted()).toBe('Flights are booked');
+  await expect.poll(async () => (await page.selection()).selected).toBe('\n\nFlights are **booked**');
+  await browser.keyboard.type('X');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('# TripX and the hotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast');
+});
