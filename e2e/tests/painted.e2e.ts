@@ -1210,6 +1210,8 @@ test('keys pressed before the page draws act on the selection the keys before th
     ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown', 'X', 'Y'],
     ['Shift+ArrowDown', 'Shift+ArrowUp', 'Shift+ArrowDown', 'Shift+ArrowDown', 'X'],
     ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowRight', 'X'],
+    ['ControlOrMeta+End', 'Enter', 'ControlOrMeta+a', 'Shift+ArrowLeft', 'ControlOrMeta+e', 'X', 'ControlOrMeta+e'],
+    ['ControlOrMeta+End', 'Enter', 'Y', 'ControlOrMeta+a', 'Shift+Home', 'ControlOrMeta+e', 'X', 'ControlOrMeta+e'],
   ]) {
     const slow = await typedAfter(keys, false);
     expect({ keys, held: await typedAfter(keys, true) }).toEqual({ keys, held: slow });
