@@ -323,6 +323,16 @@ export function aimControl(id, text, start, end, backward, x, lastLine, again) {
   return shown();
 }
 
+// The browser keeps the column of its own moves up and down, not of an aim,
+// so the editor takes the next one while the field is as the aim left it.
+export function isAimed(id) {
+  const control = document.getElementById(id);
+  const last = control && aimed.get(control);
+  if (!last) return false;
+  const now = [control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
+  return last.join("\u0000") === now.join("\u0000");
+}
+
 // A middle press puts the caret where it is pressed, where Linux pastes on
 // its release, as in a text field. The browser keeps one on a link, which it
 // opens, and one on the field.

@@ -1791,6 +1791,25 @@ test('a box ticked while a row is typed under a line keeps that line drawn as it
   await expect(page.text).toHaveValue('- [x] box\n\ntext\n-');
 });
 
+test('Up and then Down on the rows of a paragraph just typed come back to the column they left, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('ab');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('abcdef');
+  await page.nextFrame();
+  await browser.keyboard.press('ArrowUp');
+  await page.nextFrame();
+  await expect.poll(() => page.caret()).toMatch(/^ab\|/);
+  await browser.keyboard.press('ArrowDown');
+  await page.nextFrame();
+  await expect.poll(() => page.caret()).toMatch(/abcdef\|$/);
+});
+
 test('at the end of a wrapped line the arrows move from that line, as a text field does', async ({
   app,
   browser,

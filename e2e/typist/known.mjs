@@ -17,6 +17,7 @@
 const text = (k) => (typeof k === 'string' ? k : '');
 const makesLines = (script) => script.some((k) => (typeof k === 'string' ? k === 'Enter' : k.paste.includes('\n')));
 const without = (script, keys) => script.filter((k) => !keys.includes(text(k)));
+const vertical = ['ArrowUp', 'ArrowDown', 'Shift+ArrowUp', 'Shift+ArrowDown'];
 
 /** @type {{ id: string, kind: 'intended' | 'open', reason: string, repro?: Key[], sanitize: (script: Key[]) => Key[] }[]} */
 export const known = [
@@ -28,34 +29,18 @@ export const known = [
     sanitize: (script) => script,
   },
   {
-    id: 'vertical-edge',
-    kind: 'open',
+    id: 'vertical-column',
+    kind: 'intended',
     reason:
-      'ArrowUp on the first line and ArrowDown on the last do not move to the start or end of the text as a textarea does. Every vertical key is left out, so sticky-column bugs are not looked for either (hand probes of a sticky column matched the textarea on this branch).',
-    repro: ['f', 'ArrowUp'],
-    sanitize: (script) => without(script, ['ArrowUp', 'ArrowDown', 'Shift+ArrowUp', 'Shift+ArrowDown']),
+      'Up and Down keep the caret\'s place across the drawn page. nullpad draws proportional type, larger headings and list markers in the gutter, and the textarea is monospace, so the column they land on differs. In a script that makes a second line the vertical keys are left out; on one line they go to the start or end in both, and are compared.',
+    sanitize: (script) => (makesLines(script) ? without(script, vertical) : script),
   },
   {
-    id: 'left-across-blocks',
+    id: 'shift-up-under-empty-quote',
     kind: 'open',
-    reason:
-      'Moving left, by character or word, out of an empty line does not cross into the line before. Only scripts that make a second line (Enter, or a paste with a newline) can show it; in those the keys are left out.',
-    repro: ['Enter', 'ArrowLeft'],
-    sanitize: (script) => (makesLines(script) ? without(script, ['ArrowLeft', 'Control+ArrowLeft', 'Control+Shift+ArrowLeft', 'Shift+ArrowLeft']) : script),
-  },
-  {
-    id: 'ctrl-home-end-across-blocks',
-    kind: 'open',
-    reason: 'Ctrl+Home does not reach the start of the note when the cursor is on a later line.',
-    repro: ['Enter', 'Control+Home'],
-    sanitize: (script) => (makesLines(script) ? without(script, ['Control+Home', 'Control+End']) : script),
-  },
-  {
-    id: 'ctrl-backspace-delete-across-blocks',
-    kind: 'open',
-    reason: 'Ctrl+Backspace at the start of a line deletes nothing instead of the line break and the word before it.',
-    repro: ['Enter', 'Control+Backspace'],
-    sanitize: (script) => (makesLines(script) ? without(script, ['Control+Backspace', 'Control+Delete']) : script),
+    reason: 'Shift+ArrowUp from the row below a quote with no text selects nothing.',
+    repro: ['>', 'Enter', 'Shift+ArrowUp'],
+    sanitize: (script) => script,
   },
 ];
 

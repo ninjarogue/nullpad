@@ -775,6 +775,7 @@ fn edge_decoder(
   // The browser would move the caret by the layout of a field the page has
   // not yet set for the rows a press put in it.
   let #(pending, landed_x, landed) = press_landing()
+  let aimed = is_aimed(control_id)
   let from_press = fn(x) {
     case landed {
       True -> landed_x
@@ -786,8 +787,10 @@ fn edge_decoder(
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
     "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
-    "ArrowUp" if bare && pending -> Ok(editor.Line(up: True, select: False))
-    "ArrowDown" if bare && pending -> Ok(editor.Line(up: False, select: False))
+    "ArrowUp" if bare && { pending || aimed } ->
+      Ok(editor.Line(up: True, select: False))
+    "ArrowDown" if bare && { pending || aimed } ->
+      Ok(editor.Line(up: False, select: False))
     "ArrowUp" if shifted -> Ok(editor.Line(up: True, select: True))
     "ArrowDown" if shifted -> Ok(editor.Line(up: False, select: True))
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
@@ -833,6 +836,10 @@ fn edge_decoder(
         }
       // The step takes its place across from the caret once it is drawn.
       editor.Line(..) if pending -> Ok(#(edge, 0.0))
+      editor.Line(select: False, ..) if aimed -> {
+        let #(_, _, x) = head_line(control_id, live_class, painted_class)
+        Ok(#(edge, x))
+      }
       editor.Line(up: True, select: True) ->
         case head_line(control_id, live_class, painted_class) {
           #(True, _, x) -> Ok(#(edge, x))
@@ -1046,6 +1053,9 @@ fn step_head(
 
 @external(javascript, "./surface.ffi.mjs", "notePress")
 fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "isAimed")
+fn is_aimed(id: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "pressLanding")
 fn press_landing() -> #(Bool, Float, Bool)

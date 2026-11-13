@@ -42,7 +42,8 @@ const measures = [
   "drawnInPage", "isDrawn", "holdsFocus", "caretLine", "headLine", "holderText",
   "paintedHead", "locate", "findControl", "textWidth", "utf16Split",
   "utf16Length", "below", "hasHardwareKeyboard", "canPaint", "readVimSetting",
-  "readMarkdownSetting", "pressLanding", "dropped", "releasedOnSelection",
+  "readMarkdownSetting", "pressLanding", "isAimed", "dropped",
+  "releasedOnSelection",
 ]
 
 /// How many state parameters each of these decoders still takes.
