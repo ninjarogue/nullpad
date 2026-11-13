@@ -996,7 +996,8 @@ function undrawn(control) {
 // the field and the field took the step: a step of a letter or a line
 // boundary, or of a line from any line of the field but the last it steps
 // past. A `page` step scrolls the page by a window and takes the place that
-// is then where the head was. A field typed in since it was drawn still
+// is then where the head was. A step back to the start of a line that starts
+// a row lands before the row's marks, as Home does in a text field. A field typed in since it was drawn still
 // starts on the row it was drawn on, and the rows typed into it or out of it
 // move the rows drawn past it, so it is stepped from as it is.
 export function stepHead(
@@ -1063,7 +1064,9 @@ export function stepHead(
     if (!landed) return answer(-2);
     const line = granularity === "line";
     if (line) landed = toward(selection, landed, columnLeft(page) + x, rowMark);
-    const place = placeOfPoint(landed, rowMark, line ? columnLeft(page) + x : Infinity, line && rowStart);
+    const home = granularity === "lineboundary" && !forward;
+    const pointer = line ? columnLeft(page) + x : home ? -Infinity : Infinity;
+    const place = placeOfPoint(landed, rowMark, pointer, (line && rowStart) || home);
     return place ? [...moved(place), x] : answer(-1);
   } finally {
     control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
