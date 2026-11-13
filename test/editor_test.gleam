@@ -1491,7 +1491,7 @@ pub fn a_row_typed_as_another_block_keeps_the_frame_of_the_row_laid_out_test() {
   assert editor.frame(ed) == Some(live.Body)
 
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.ControlChanged(shown: caret("- x", 0, 3)))
+    editor.update(ed, editor.ControlChanged(shown: caret("- x", 0, 3), at: 0))
   assert editor.kind(ed) == Some(live.ListItem(task: False, marker: "- "))
   assert editor.frame(ed) == Some(live.Body)
 
