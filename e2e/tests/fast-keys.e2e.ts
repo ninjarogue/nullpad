@@ -280,3 +280,24 @@ for (const { name, note: body, keys: pressed, typed: letters } of afterTyping) {
     await expect(page.text).toHaveValue(expected);
   });
 }
+
+test('an undo after steps that wait for the page, in the frame of a click, takes the steps back with the typing', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  const body = '> a\n>\n> b\n\nnext';
+  const steps = ['Shift+ArrowUp', 'Shift+ArrowUp', 'Shift+ArrowUp'];
+  await editor.seed(body);
+  const expected = await editor.plainField(body, body.indexOf('\n\nnext'), ['z', 'ArrowDown', 'ArrowDown', 'Home', ...steps, ctrl('z')], 'Y');
+  await editor.show(body);
+  await editor.click({ word: 'b', at: 1 });
+  await editor.type('z');
+  await page.nextFrame();
+  await page.beforeRedraw(async () => {
+    await editor.clickNow({ word: 'next', at: 0 });
+    for (const key of [...steps, ctrl('z')]) await browser.keyboard.press(key);
+  });
+  await browser.keyboard.type('Y');
+  await page.markdown.tap();
+
+  await expect(page.text).toHaveValue(expected);
+});
