@@ -110,11 +110,15 @@ pub type Outcome {
   Outcome(editor: Editor, sync: Sync, requests: List(vim.Request))
 }
 
-pub fn new(vim vim_enabled: Bool) -> Editor {
+pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
+  let buffer = buffer.from_text("")
   Editor(
-    buffer: buffer.from_text(""),
+    buffer:,
     keys: fresh_keys(vim_enabled),
-    field: Whole,
+    field: case live {
+      True -> Part(Region(0, 0), parse(buffer))
+      False -> Whole
+    },
     focused: False,
   )
 }
@@ -157,11 +161,12 @@ pub fn set_live(editor: Editor, on: Bool) -> Outcome {
 }
 
 /// Turn vim on or off, keeping the text.
-pub fn set_vim(editor: Editor, enabled: Bool) -> Editor {
-  case editor.keys, enabled {
+pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
+  let editor = case editor.keys, enabled {
     PlainKeys, False | VimKeys(_), True -> editor
     _, _ -> Editor(..editor, keys: fresh_keys(enabled))
   }
+  Outcome(editor:, sync: InSync, requests: [])
 }
 
 /// The whole editing rule:

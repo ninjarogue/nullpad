@@ -67,8 +67,8 @@ const COPIED = [
   "paddingRight", "paddingBottom", "paddingLeft",
 ];
 
-export function drawnInPage(id) {
-  return document.getElementById(id)?.closest(".page.live") != null;
+export function drawnInPage(id, liveClass) {
+  return document.getElementById(id)?.closest("." + liveClass) != null;
 }
 
 export function caretLine(id) {
@@ -115,28 +115,30 @@ export function aimControl(id, text, start, end, x, lastLine) {
 
 // A press on the drawn page: the note row of the element under it, and the
 // drawn text from that element's start to the press.
-export function locate(press) {
+export function locate(press, rowMark) {
   const none = [-1, "", false];
   const target = press.target;
+  const page = press.currentTarget;
+  const marked = `[data-${rowMark}]`;
   if (press.button !== 0 || !(target instanceof Element)) return none;
   if (target.closest("a, input, button, textarea")) return none;
   // The page's own scrollbar.
-  if (target.matches(".page") && press.offsetX >= target.clientWidth) return none;
+  if (target === page && press.offsetX >= target.clientWidth) return none;
   const point = caretAt(press.clientX, press.clientY);
   const inside = point && (point.node instanceof Element ? point.node : point.node.parentElement);
-  const holder = inside?.closest("[data-row]");
+  const holder = inside?.closest(marked);
   // A press in the gap between two blocks is on neither, but the browser
   // still names the nearest text, at its start.
-  if (holder && target.closest("[data-row]")) {
+  if (holder && target.closest(marked)) {
     const range = document.createRange();
     range.setStart(holder, 0);
     range.setEnd(point.node, point.offset);
-    return [Number(holder.dataset.row), range.toString(), false];
+    return [Number(holder.dataset[rowMark]), range.toString(), false];
   }
   // Between blocks, or beside them: the end of the nearest one.
   let nearest = null;
   let gap = Infinity;
-  for (const element of document.querySelectorAll(".part [data-row]")) {
+  for (const element of page.querySelectorAll(marked)) {
     const box = element.getBoundingClientRect();
     const away = Math.max(box.top - press.clientY, press.clientY - box.bottom, 0);
     if (away <= gap) {
@@ -145,7 +147,7 @@ export function locate(press) {
     }
   }
   if (!nearest) return none;
-  return [Number(nearest.dataset.row), nearest.textContent.replace(/\n$/, ""), true];
+  return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true];
 }
 
 function caretAt(x, y) {
