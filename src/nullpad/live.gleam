@@ -189,6 +189,31 @@ pub fn drawn(
   }
 }
 
+/// Whether the page hides the character before `at`, which is then drawn at
+/// the start of the drawn text after it, such as the start of a table cell,
+/// rather than the end of the text before it. `row` and `visible` are as
+/// for `drawn`.
+pub fn follows_hidden(
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
+) -> Bool {
+  let line = lines |> list.drop(at.row) |> list.first
+  let here = case at.row >= row && at.col > 0 {
+    True -> string.split(visible, "\n") |> list.drop(at.row - row) |> list.first
+    False -> Error(Nil)
+  }
+  case line, here {
+    Ok(line), Ok(here) ->
+      shown(string.to_graphemes(line), string.to_graphemes(here), [])
+      |> list.drop(at.col - 1)
+      |> list.first
+      == Ok(False)
+    _, _ -> False
+  }
+}
+
 /// Where `at` lands when it is among or beside marks the page hides between
 /// two drawn characters, which all draw at one place: where `position` puts
 /// a click there, as for `nudge`, so that a selection painted from there
