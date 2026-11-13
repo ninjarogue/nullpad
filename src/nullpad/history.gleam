@@ -52,8 +52,9 @@ pub fn new(buffer: Buffer) -> History {
 
 /// The note as it is now. A change to its text clears what can be redone.
 /// A change to its selection alone ends a run of typing.
-pub fn record(history: History, buffer: Buffer) -> History {
+pub fn record(history: History, buffer: Buffer, at at: Int) -> History {
   let History(past:, present:, run:, ..) = history
+  let _ = at
   let same_text = buffer.lines(buffer) == buffer.lines(present)
   let same_selection = buffer.selection(buffer) == buffer.selection(present)
   case same_text, same_selection {

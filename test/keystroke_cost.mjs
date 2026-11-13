@@ -118,7 +118,7 @@ const moved = (field, step) => {
 function press(model, shown) {
   const before = globalThis.parses;
   const start = performance.now();
-  const [next] = app.update(model, new app.EditorSent(new editor.ControlChanged(shown)));
+  const [next] = app.update(model, new app.EditorSent(new editor.ControlChanged(shown, 0)));
   const drawn = app.view(next);
   const ms = performance.now() - start;
   return { next, drawn, ms, parses: globalThis.parses - before };
@@ -202,8 +202,12 @@ globalThis.document = {
 };
 const events = {
   ControlChanged: [
-    ["typed", (field) => new editor.ControlChanged(typed(field))],
-    ["moved", (field) => new editor.ControlChanged(moved(field, 0))],
+    ["typed", (field) => new editor.ControlChanged(typed(field), 0)],
+    ["moved", (field) => new editor.ControlChanged(moved(field, 0), 0)],
+    ["typed after a pause", (field) => [
+      new editor.ControlChanged(typed(field), 0),
+      new editor.ControlChanged(typed(field), 60000),
+    ]],
   ],
   Composing: [
     ["typed", (field) => new editor.Composing(typed(field))],
@@ -264,9 +268,9 @@ const events = {
   ],
   UndoAsked: [
     ["nothing to undo", () => new editor.UndoAsked()],
-    ["a typed character", (field) => [new editor.ControlChanged(typed(field)), new editor.UndoAsked()]],
+    ["a typed character", (field) => [new editor.ControlChanged(typed(field), 0), new editor.UndoAsked()]],
     ["typing in a row left", (field, row) => [
-      new editor.ControlChanged(typed(field)),
+      new editor.ControlChanged(typed(field), 0),
       new editor.Pointed(row + 9, "", false),
       new editor.UndoAsked(),
     ]],
@@ -274,7 +278,7 @@ const events = {
   RedoAsked: [
     ["nothing to redo", () => new editor.RedoAsked()],
     ["an undone character", (field) => [
-      new editor.ControlChanged(typed(field)),
+      new editor.ControlChanged(typed(field), 0),
       new editor.UndoAsked(),
       new editor.RedoAsked(),
     ]],

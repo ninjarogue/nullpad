@@ -531,7 +531,7 @@ fn outside_breaks() -> List(Break) {
       "a decoder decides what a key does",
       surface,
       last(
-        "fn tab_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {\n  use shown <- decode.then(shown_decoder())\n  decode.success(on_event(editor.ControlChanged(shown:)))\n}",
+        "fn tab_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {\n  use shown <- decode.then(shown_decoder())\n  decode.success(on_event(editor.ControlChanged(shown:, at: 0)))\n}",
       ),
     ),
     Break(

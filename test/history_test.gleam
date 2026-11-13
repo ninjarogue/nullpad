@@ -13,7 +13,20 @@ fn at(text: String, col: Int) -> Buffer {
 }
 
 fn record_all(history: History, buffers: List(Buffer)) -> History {
-  list.fold(buffers, history, history.record)
+  let #(history, _) = {
+    use #(history, now), buffer <- list.fold(buffers, #(history, 0))
+    #(history.record(history, buffer, at: now), now + typing_gap)
+  }
+  history
+}
+
+/// Typed fast, as a person does: far under the pause.
+const typing_gap = 150
+
+/// Each buffer recorded at its time, in milliseconds.
+fn record_at(history: History, steps: List(#(Buffer, Int))) -> History {
+  use history, #(buffer, now) <- list.fold(steps, history)
+  history.record(history, buffer, at: now)
 }
 
 fn undone(history: History) -> History {
@@ -106,7 +119,7 @@ pub fn an_edit_after_undo_clears_redo_test() {
     history.new(at("", 0))
     |> record_all([at("a", 1), at("a ", 2), at("a b", 3)])
     |> undone
-    |> history.record(at("a c", 3))
+    |> history.record(at("a c", 3), at: 0)
 
   assert history.redo(typed) == Error(Nil)
   assert shown(undone(typed)) == "a"
@@ -117,7 +130,7 @@ pub fn a_caret_move_after_undo_keeps_redo_test() {
     history.new(at("x", 0))
     |> record_all([at("ax", 1)])
     |> undone
-    |> history.record(at("x", 1))
+    |> history.record(at("x", 1), at: 0)
 
   assert shown(redone(moved)) == "ax"
 }
@@ -126,7 +139,7 @@ pub fn undo_puts_back_the_selection_typed_over_test() {
   let selected =
     buffer.from_text("abc")
     |> buffer.select(anchor: Position(0, 3), head: Position(0, 1))
-  let typed = history.new(selected) |> history.record(at("ax", 2))
+  let typed = history.new(selected) |> history.record(at("ax", 2), at: 0)
 
   assert history.present(undone(typed)) == selected
 }
@@ -134,7 +147,7 @@ pub fn undo_puts_back_the_selection_typed_over_test() {
 pub fn a_history_keeps_a_bounded_number_of_steps_test() {
   let typed =
     int.range(1, 1501, history.new(at("", 0)), fn(history, step) {
-      history.record(history, at(shown(history) <> "\n", step))
+      history.record(history, at(shown(history) <> "\n", step), at: 0)
     })
   let undo_all = fn(history) {
     use history, _ <- int.range(1, 2001, history)
@@ -161,8 +174,74 @@ pub fn undo_after_redo_puts_the_caret_where_the_step_began_test() {
     history.new(at("xy", 1))
     |> record_all([at("xay", 2)])
     |> undone
-    |> history.record(at("xy", 0))
+    |> history.record(at("xy", 0), at: 0)
     |> redone
 
   assert history.present(undone(typed)) == at("xy", 1)
+}
+
+pub fn a_pause_while_typing_starts_a_new_step_test() {
+  let typed =
+    history.new(at("", 0))
+    |> record_at([
+      #(at("a", 1), 0),
+      #(at("ab", 2), 150),
+      #(at("abc", 3), 300),
+      #(at("abcd", 4), 1800),
+      #(at("abcde", 5), 1950),
+    ])
+
+  assert shown(undone(typed)) == "abc"
+  assert shown(undone(undone(typed))) == ""
+}
+
+pub fn typing_with_gaps_under_the_pause_stays_one_step_test() {
+  let typed =
+    history.new(at("", 0))
+    |> record_at([
+      #(at("a", 1), 0),
+      #(at("ab", 2), 900),
+      #(at("abc", 3), 1800),
+      #(at("abcd", 4), 2700),
+    ])
+
+  assert shown(undone(typed)) == ""
+}
+
+pub fn a_gap_of_exactly_the_pause_does_not_end_a_step_test() {
+  let typed =
+    history.new(at("", 0))
+    |> record_at([#(at("a", 1), 0), #(at("ab", 2), 1000)])
+  assert shown(undone(typed)) == ""
+
+  let paused =
+    history.new(at("", 0))
+    |> record_at([#(at("a", 1), 0), #(at("ab", 2), 1001)])
+  assert shown(undone(paused)) == "a"
+}
+
+pub fn a_pause_while_erasing_starts_a_new_step_test() {
+  let erased =
+    history.new(at("abcd", 4))
+    |> record_at([
+      #(at("abc", 3), 0),
+      #(at("ab", 2), 100),
+      #(at("a", 1), 5000),
+    ])
+
+  assert shown(undone(erased)) == "ab"
+  assert shown(undone(undone(erased))) == "abcd"
+}
+
+pub fn a_pause_before_a_character_typed_after_a_caret_move_changes_nothing_test() {
+  let typed =
+    history.new(at("xy", 0))
+    |> record_at([
+      #(at("axy", 1), 0),
+      #(at("axy", 3), 50_000),
+      #(at("axyb", 4), 50_100),
+    ])
+
+  assert history.present(undone(typed)) == at("axy", 3)
+  assert history.present(undone(undone(typed))) == at("xy", 0)
 }

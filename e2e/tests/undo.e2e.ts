@@ -296,3 +296,23 @@ test('undo puts the caret where the step began, and redo where it ended', async 
   await editor.type('Z');
   await editor.expectNote('alpha oneYZ\n\nbravo two words\n\ncharlie three');
 });
+
+test('a pause while typing ends an undo step, and typing without a pause is undone a word at a time', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  await editor.open('');
+  await editor.type('abc');
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  await editor.type('def');
+  expect(await editor.shown()).toBe('abcdef');
+
+  await editor.press(ctrl('z'));
+  expect(await editor.shown(), 'Ctrl+Z takes back only what was typed after the pause').toBe('abc');
+  await editor.press(ctrl('z'));
+  expect(await editor.shown()).toBe('');
+
+  await editor.type('one two');
+  await editor.press(ctrl('z'));
+  expect(await editor.shown(), 'without a pause a step is a word').toBe('one');
+  await editor.press(ctrl('z'));
+  expect(await editor.shown()).toBe('');
+});

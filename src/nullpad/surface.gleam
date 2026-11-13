@@ -33,20 +33,22 @@ const painted_class = "painted"
 /// With the model's text it is a second writer beside `sync`.
 pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let changed = {
+    use at <- decode.then(time_decoder())
     use shown <- decode.map(shown_decoder())
-    on_event(editor.ControlChanged(shown:))
+    on_event(editor.ControlChanged(shown:, at:))
   }
   // Chromium sends no `beforeinput` for an undo from a menu: it undoes the
   // field itself, and the editor writes its own undo over that.
   let typed = {
     use kind <- decode.optional_field("inputType", "", decode.string)
     use composing <- decode.optional_field("isComposing", False, decode.bool)
+    use at <- decode.then(time_decoder())
     use shown <- decode.map(shown_decoder())
     case kind, composing {
       "historyUndo", _ -> on_event(editor.UndoAsked)
       "historyRedo", _ -> on_event(editor.RedoAsked)
       _, True -> on_event(editor.Composing(shown:))
-      _, False -> on_event(editor.ControlChanged(shown:))
+      _, False -> on_event(editor.ControlChanged(shown:, at:))
     }
   }
   // The browser moves the caret for these keys and says nothing, so the
@@ -289,9 +291,10 @@ pub fn sync(
             again,
           )
         dispatch(
-          on_event(
-            editor.ControlChanged(from_control(text, start, end, backward)),
-          ),
+          on_event(editor.ControlChanged(
+            from_control(text, start, end, backward),
+            at: 0,
+          )),
         )
       }
       effect.batch([
@@ -446,6 +449,17 @@ fn offset(lines: List(String), position: Position) -> Int {
   rows_above + utf16_length(in_row)
 }
 
+/// When the browser made the event, in milliseconds. The editor never reads
+/// a clock: the time arrives with the event.
+fn time_decoder() -> Decoder(Int) {
+  decode.one_of(decode.field("timeStamp", decode.int, decode.success), [
+    decode.field("timeStamp", decode.float, fn(ms) {
+      decode.success(float.truncate(ms))
+    }),
+    decode.success(0),
+  ])
+}
+
 fn shown_decoder() -> Decoder(Buffer) {
   decode.at(["target"], control_decoder())
 }
@@ -476,7 +490,7 @@ fn key_decoder(
     }
     _, _ -> {
       // `decode.failure` wants a placeholder value. It is never used.
-      let unused = on_event(editor.ControlChanged(buffer.from_text("")))
+      let unused = on_event(editor.ControlChanged(buffer.from_text(""), at: 0))
       event.handler(unused, prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key the editor claims")
     }
@@ -564,7 +578,7 @@ fn edge_decoder(
       |> event.handler(prevent_default: True, stop_propagation: False)
       |> decode.success
     Error(Nil) ->
-      on_event(editor.ControlChanged(shown:))
+      on_event(editor.ControlChanged(shown:, at: 0))
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key at the edge of the field")
   }

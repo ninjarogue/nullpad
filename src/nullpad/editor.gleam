@@ -26,6 +26,7 @@ pub opaque type Editor {
     field: Field,
     focus: Focus,
     history: History,
+    clock: Int,
     press: Option(Position),
     paints: Bool,
     goal: Option(Goal),
@@ -84,7 +85,7 @@ pub type Mode {
 }
 
 pub type Event {
-  ControlChanged(shown: Buffer)
+  ControlChanged(shown: Buffer, at: Int)
   /// In the middle of an IME composition: the control must not be written
   /// to until it ends.
   Composing(shown: Buffer)
@@ -203,6 +204,7 @@ pub fn new(
     },
     focus: Away,
     history: history.new(buffer),
+    clock: 0,
     press: None,
     paints:,
     goal: None,
@@ -260,7 +262,8 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 
 pub fn update(editor: Editor, event: Event) -> Outcome {
   case event {
-    ControlChanged(shown:) -> typed(editor, shown, None, realign)
+    ControlChanged(shown:, at:) ->
+      typed(Editor(..editor, clock: at), shown, None, realign)
     Composing(shown:) -> compose(editor, shown)
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
@@ -629,7 +632,7 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
     ..editor,
     buffer:,
     field:,
-    history: history.record(editor.history, buffer),
+    history: history.record(editor.history, buffer, at: editor.clock),
   )
 }
 

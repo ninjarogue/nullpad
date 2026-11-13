@@ -30,7 +30,7 @@ fn type_in(ed: Editor, text: String) -> Editor {
   let field = editor.field_buffer(ed)
   let at = buffer.cursor(field)
   let shown = buffer.replace(field, from: at, to: at, with: key)
-  editor.update(ed, editor.ControlChanged(shown:)).editor
+  editor.update(ed, editor.ControlChanged(shown:, at: 0)).editor
 }
 
 fn point(ed: Editor, row: Int, at_end: Bool) -> Editor {
@@ -133,7 +133,10 @@ pub fn a_composition_is_one_step_test() {
       editor.update(ed, editor.Composing(shown:)).editor
     })
   let ended =
-    editor.update(composing, editor.ControlChanged(caret("one 日本", 0, 6))).editor
+    editor.update(
+      composing,
+      editor.ControlChanged(shown: caret("one 日本", 0, 6), at: 0),
+    ).editor
 
   assert editor.text(undo(ended)) == "one"
 }
@@ -142,7 +145,7 @@ pub fn undo_works_the_same_with_the_whole_note_in_the_field_test() {
   let at_end = caret("one\ntwo", 1, 3)
   let typed =
     whole("one\ntwo")
-    |> editor.update(editor.ControlChanged(shown: at_end))
+    |> editor.update(editor.ControlChanged(shown: at_end, at: 0))
     |> fn(outcome: editor.Outcome) { type_in(outcome.editor, "!") }
   let Outcome(editor: back, sync:, ..) = editor.update(typed, editor.UndoAsked)
 
@@ -228,12 +231,12 @@ fn backspace(ed: Editor) -> Editor {
       let assert Ok(above) = above
       let from = Position(row: row - 1, col: string.length(above))
       let shown = buffer.replace(field, from:, to: at, with: "")
-      editor.update(ed, editor.ControlChanged(shown:)).editor
+      editor.update(ed, editor.ControlChanged(shown:, at: 0)).editor
     }
     Position(row:, col:) -> {
       let from = Position(row:, col: col - 1)
       let shown = buffer.replace(field, from:, to: at, with: "")
-      editor.update(ed, editor.ControlChanged(shown:)).editor
+      editor.update(ed, editor.ControlChanged(shown:, at: 0)).editor
     }
   }
 }
@@ -243,7 +246,7 @@ fn select_and_type(ed: Editor, pick: Int) -> Editor {
   let at = buffer.cursor(field)
   let from = Position(row: at.row, col: int.max(0, at.col - pick % 3))
   let shown = buffer.replace(field, from:, to: at, with: "Z")
-  editor.update(ed, editor.ControlChanged(shown:)).editor
+  editor.update(ed, editor.ControlChanged(shown:, at: 0)).editor
 }
 
 fn pick_from(items: List(String), pick: Int) -> String {
@@ -275,7 +278,7 @@ pub fn undo_of_typing_over_a_painted_selection_restores_text_and_selection_test(
   let #(from, to) = buffer.selection(field)
   assert from != to
   let shown = buffer.replace(field, from:, to:, with: "X")
-  let ed = editor.update(ed, editor.ControlChanged(shown:)).editor
+  let ed = editor.update(ed, editor.ControlChanged(shown:, at: 0)).editor
   assert !editor.is_painted(ed)
   assert string.length(editor.text(ed)) < string.length(note)
 
@@ -286,4 +289,23 @@ pub fn undo_of_typing_over_a_painted_selection_restores_text_and_selection_test(
 
   let forward = redo(back)
   assert editor.text(forward) == editor.text(ed)
+}
+
+fn type_at(ed: Editor, key: String, at: Int) -> Editor {
+  let field = editor.field_buffer(ed)
+  let place = buffer.cursor(field)
+  let shown = buffer.replace(field, from: place, to: place, with: key)
+  editor.update(ed, editor.ControlChanged(shown:, at:)).editor
+}
+
+pub fn a_pause_between_two_typed_characters_is_two_undo_steps_test() {
+  let ed =
+    whole("")
+    |> type_at("a", 10_000)
+    |> type_at("b", 10_200)
+    |> type_at("c", 12_000)
+    |> type_at("d", 12_200)
+  assert editor.text(ed) == "abcd"
+  assert editor.text(undo(ed)) == "ab"
+  assert editor.text(undo(undo(ed))) == ""
 }
