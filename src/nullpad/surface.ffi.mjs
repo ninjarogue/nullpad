@@ -311,8 +311,10 @@ function drawnAt(x, y, rowMark) {
 
 // A point level with a line of the field, even beside it, is on that line.
 // The browser keeps a second click, a touch, and a press on text selected
-// within one row, so that a drag can move that text. A field the page has not
-// drawn since its text changed may not start at the row it is marked with.
+// within one row, so that a drag can move that text, when they are on the
+// field itself: beside it the browser would only take the focus from it. A
+// field the page has not drawn since its text changed may not start at the
+// row it is marked with.
 function inField(press, x, y, field, band, rowMark) {
   const none = [-1, "", false];
   const point = caretAt(Math.min(Math.max(x, band.left), band.right - 1), y);
@@ -321,7 +323,7 @@ function inField(press, x, y, field, band, rowMark) {
   const onSelected =
     start < point.offset && point.offset < end && !value.slice(start, end).includes("\n");
   const kept =
-    press !== null &&
+    press?.target === field &&
     (press.detail > 1 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
   if (kept) return none;
   return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false];
