@@ -11,6 +11,20 @@ export function writeControl(id, text, start, end, backward) {
   }
 }
 
+// The field is focused before the next paint, so focus moved elsewhere in
+// the meantime would be taken back. It is focused only if focus is still
+// where it was when that was asked, or has left everything.
+let focusAsked = null;
+
+export function askFocus() {
+  focusAsked = document.activeElement;
+}
+
+function focusStayed(control) {
+  const active = document.activeElement;
+  return !active || active === document.body || active === control || active === focusAsked;
+}
+
 export function findControl(id) {
   return document.getElementById(id);
 }
@@ -21,6 +35,7 @@ export function findControl(id) {
 // scrolls to its caret.
 export function focusControl(id, liveClass) {
   const control = document.getElementById(id);
+  if (!focusStayed(control)) return;
   const page = control?.closest("." + liveClass);
   if (!page) {
     control?.focus();
@@ -55,7 +70,8 @@ export function holdPage(id, liveClass) {
 }
 
 export function focusInPlace(id) {
-  document.getElementById(id)?.focus({ preventScroll: true });
+  const control = document.getElementById(id);
+  if (focusStayed(control)) control?.focus({ preventScroll: true });
 }
 
 // A textarea cannot be told that its caret sits at the end of a wrapped

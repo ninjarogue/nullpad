@@ -2461,3 +2461,37 @@ test('a file dropped on the page or the text field is refused, so the browser st
   expect(await drop('.page.live .part p', false)).toEqual([false, true, true]);
   await expect(page.text).toHaveValue('dropped some words here');
 });
+
+for (const key of ['Enter', 'ArrowDown']) {
+  test(`focus moved to the title after ${key}, before the page redraws, stays there`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, body);
+
+    await page.beforeRedraw(async () => {
+      await browser.keyboard.press(key);
+      await page.title.focus();
+    });
+    await expect(page.title).toBeFocused();
+    await browser.keyboard.type('Plans');
+    await expect(page.title).toHaveValue('Plans');
+  });
+}
+
+test('focus moved to the note list before the page redraws stays there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+
+  await page.beforeRedraw(async () => {
+    await browser.keyboard.press('Enter');
+    await page.row('Trip').focus();
+  });
+  await expect(page.row('Trip')).toBeFocused();
+});

@@ -388,7 +388,10 @@ pub fn sync(
       }
       effect.batch([
         write(buffer),
-        effect.from(fn(dispatch) { aim(dispatch, False) }),
+        effect.from(fn(dispatch) {
+          ask_focus()
+          aim(dispatch, False)
+        }),
         effect.before_paint(fn(dispatch, _) {
           aim(dispatch, True)
           focus_control(control_id, live_class)
@@ -410,6 +413,7 @@ pub fn sync(
           let #(text, start, end, backward) = to_control(buffer)
           effect.batch([
             effect.from(fn(_) {
+              ask_focus()
               write_control(control_id, text, start, end, backward)
               place_caret(control_id, x, y)
               hold_page(control_id, live_class)
@@ -446,7 +450,10 @@ const drag_distance = 4.0
 pub fn focus() -> Effect(msg) {
   // A pane that was hidden cannot take focus until the next render puts it
   // back on screen.
-  effect.before_paint(fn(_, _) { focus_control(control_id, live_class) })
+  effect.batch([
+    effect.from(fn(_) { ask_focus() }),
+    effect.before_paint(fn(_, _) { focus_control(control_id, live_class) }),
+  ])
 }
 
 /// `selectionStart` and `selectionEnd` are UTF-16 offsets, and the head is
@@ -657,6 +664,9 @@ fn write_control(
 
 @external(javascript, "./surface.ffi.mjs", "textWidth")
 fn text_width(text: String) -> Float
+
+@external(javascript, "./surface.ffi.mjs", "askFocus")
+fn ask_focus() -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
 fn focus_control(id: String, live_class: String) -> Nil
