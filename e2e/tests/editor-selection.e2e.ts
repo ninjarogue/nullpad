@@ -206,10 +206,16 @@ test('Shift+Arrow Down from the first block selects down into the next', async (
 test('Shift+Arrow Up or Down from the start of a row selects to the start of a quote, a heading or an item, before its marks', async (fixtures) => {
   const cases = [
     { body: '> quote\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp'] },
+    { body: '>\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp'] },
+    { body: '> a\n>\n> b\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp', 'Shift+ArrowUp'] },
     { body: '# heading\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp'] },
+    { body: '#\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp'] },
     { body: '- item\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp'] },
+    { body: '-\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp'] },
     { body: 'first\n\n> quote', at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown'] },
+    { body: 'first\n\n>', at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown'] },
     { body: 'first\n\n## heading', at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown'] },
+    { body: 'first\n\n##', at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown'] },
   ];
   const editor = new Editing(fixtures);
   const typed = [];
@@ -218,6 +224,23 @@ test('Shift+Arrow Up or Down from the start of a row selects to the start of a q
     const plain = await editor.plainField(body, offsetOf(body, at), keys, 'X');
     await editor.show(body);
     await editor.click(at);
+    await editor.press(...keys);
+    await editor.type('X');
+    await fixtures.page.markdown.tap();
+    typed.push({ body, plain, page: await fixtures.page.text.inputValue() });
+  }
+  expect(typed).toEqual(typed.map(({ body, plain }) => ({ body, plain, page: plain })));
+});
+
+test('Shift+Arrow Left onto a quote, a heading or an item with nothing after its marks shows the cursor there', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const typed = [];
+  for (const body of ['>\n\nnext', '> a\n>\n\nnext', '#\n\nnext', '-\n\nnext']) {
+    const keys = ['Shift+ArrowLeft', 'Shift+ArrowLeft'];
+    await editor.seed(body);
+    const plain = await editor.plainField(body, body.indexOf('next'), keys, 'X');
+    await editor.show(body);
+    await editor.click({ word: 'next', at: 0 });
     await editor.press(...keys);
     await editor.type('X');
     await fixtures.page.markdown.tap();
