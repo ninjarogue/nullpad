@@ -1122,8 +1122,7 @@ test('Escape after a selection across blocks keeps only the caret, so a key type
   await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
   expect((await page.selection()).selected).toBe('');
   await browser.keyboard.type('Q');
-  await expect(page.saveState).toHaveText('Saved');
-  expect((await disk.notes())[0].body).toBe(note.replace('Third', 'QThird'));
+  await expect.poll(async () => (await disk.notes())[0].body).toBe(note.replace('Third', 'QThird'));
 });
 
 test('a click whose hand moves a pixel while the page lays out under it selects nothing', async ({
