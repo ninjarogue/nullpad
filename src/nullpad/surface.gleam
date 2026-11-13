@@ -320,11 +320,11 @@ pub fn sync(
       }
       let stepped = fn(dispatch, place) {
         case place {
-          #(row, visible, at_end, next) if row >= 0 ->
+          #(row, visible, at_end, next, x) if row >= 0 ->
             dispatch(
               on_event(editor.Stepped(row:, visible:, at_end:, next:, x:)),
             )
-          _ -> dispatch(on_event(editor.Unstepped(x:)))
+          #(_, _, _, _, x) -> dispatch(on_event(editor.Unstepped(x:)))
         }
       }
       let step = fn(dispatch) { stepped(dispatch, measure(False)) }
@@ -436,6 +436,7 @@ pub fn sync(
         Some(buffer) ->
           effect.batch([
             effect.from(fn(_) {
+              note_press(control_id, live_class, x, y)
               write_now(buffer)
               focus_in_place(control_id)
               place_caret(control_id, painted_class, x, y)
@@ -640,11 +641,22 @@ fn edge_decoder(
     |> result.unwrap("")
     |> string.drop_start(head.col)
     |> is_blank
+  // The browser would move the caret by the layout of a field the page has
+  // not yet set for the rows a press put in it.
+  let #(pending, landed_x, landed) = press_landing()
+  let from_press = fn(x) {
+    case landed {
+      True -> landed_x
+      False -> x
+    }
+  }
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
     "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
+    "ArrowUp" if bare && pending -> Ok(editor.Line(up: True, select: False))
+    "ArrowDown" if bare && pending -> Ok(editor.Line(up: False, select: False))
     "ArrowUp" if shifted -> Ok(editor.Line(up: True, select: True))
     "ArrowDown" if shifted -> Ok(editor.Line(up: False, select: True))
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
@@ -680,14 +692,16 @@ fn edge_decoder(
     case edge {
       editor.Up ->
         case caret_line(control_id) {
-          #(True, _, x) -> Ok(#(edge, x))
+          #(True, _, x) -> Ok(#(edge, from_press(x)))
           _ -> Error(Nil)
         }
       editor.Down ->
         case caret_line(control_id) {
-          #(_, True, x) -> Ok(#(edge, x))
+          #(_, True, x) -> Ok(#(edge, from_press(x)))
           _ -> Error(Nil)
         }
+      // The step takes its place across from the caret once it is drawn.
+      editor.Line(..) if pending -> Ok(#(edge, 0.0))
       editor.Line(up: True, select: True) ->
         case head_line(control_id, live_class, painted_class) {
           #(True, _, x) -> Ok(#(edge, x))
@@ -895,7 +909,13 @@ fn step_head(
   up: Bool,
   page: Bool,
   from_landing: Bool,
-) -> #(Int, String, Bool, String)
+) -> #(Int, String, Bool, String, Float)
+
+@external(javascript, "./surface.ffi.mjs", "notePress")
+fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "pressLanding")
+fn press_landing() -> #(Bool, Float, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "hasLanding")
 fn has_landing() -> Bool

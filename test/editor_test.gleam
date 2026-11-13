@@ -817,6 +817,20 @@ pub fn an_arrow_up_or_down_stepped_on_the_drawn_page_moves_the_caret_test() {
     == #(Position(row: 5, col: 4), Position(row: 5, col: 4))
 }
 
+pub fn an_arrow_up_on_the_first_row_moves_along_it_as_a_text_field_does_test() {
+  let ed = pressed(live_note, 0, "Tr")
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: True, select: False),
+        x: 7.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  assert sync == editor.WriteAndMove(caret("# Trip", 0, 4), up: True)
+}
+
 pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
   let shown = caret("# Trip", 0, 3)
   let Outcome(editor: ed, ..) =

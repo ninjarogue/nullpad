@@ -582,11 +582,36 @@ export function hasLanding() {
   return landing !== null;
 }
 
+// A press puts rows in the field that the page has not yet set it for, so
+// until the frame that draws them the field's caret is not where it will be
+// drawn. A step taken in that frame starts from the caret once drawn. A key
+// that takes the caret out of the field cannot wait for that, and aims from
+// where the press landed on the page, from the left of the text.
+let pressed = null;
+
+export function notePress(id, liveClass, x, y) {
+  const control = document.getElementById(id);
+  const page = control?.closest("." + liveClass);
+  const point = page && caretAt(x, y);
+  const range = document.createRange();
+  const drawn = point && point.node !== control && page.contains(point.node);
+  if (drawn) range.setStart(point.node, point.offset);
+  const landed = { x: drawn ? caretBox(range).left - columnLeft(page) : null };
+  pressed = landed;
+  requestAnimationFrame(() => {
+    if (pressed === landed) pressed = null;
+  });
+}
+
+export function pressLanding() {
+  return [pressed !== null, pressed?.x ?? -1, pressed?.x != null];
+}
+
 export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page, fromLanding) {
   const none = [-1, "", false, ""];
   const control = document.getElementById(id);
   const scroller = control?.closest("." + liveClass);
-  if (!scroller) return none;
+  if (!scroller) return [...none, x];
   const painted = control.closest("." + paintedClass) !== null;
   const last = fromLanding && landing?.scroller === scroller ? landing : null;
   const landed = () => {
@@ -595,7 +620,8 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page, from
   };
   const head = last ? landed : () => (painted ? headPlace() : fieldCaret(control));
   const before = head();
-  if (!before) return none;
+  if (!before) return [...none, x];
+  if (pressed !== null && !last && !painted) x = before.box.left - columnLeft(scroller);
   const view = scroller.getBoundingClientRect();
   const room = 2 * before.line;
   if (before.box.top < view.top + room) scroller.scrollTop -= view.top + room - before.box.top;
@@ -617,7 +643,7 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page, from
         if (landing === landed) landing = null;
       });
     }
-    return place;
+    return [...place, x];
   };
   if (page) {
     const top = Math.max(view.top, 0);

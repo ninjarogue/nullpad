@@ -675,6 +675,14 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     Down if live && anchor != cursor -> #(buffer.move_to(base, end), Done)
     Up if live && cursor != start -> #(base, ByLine(up: True))
     Down if live && cursor != end -> #(base, ByLine(up: False))
+    Line(up: True, select: False) if live && !row_above && cursor != start -> #(
+      base,
+      ByLine(up: True),
+    )
+    Line(up: False, select: False) if live && !row_below && cursor != end -> #(
+      base,
+      ByLine(up: False),
+    )
     Line(up:, select:) if live -> #(
       base,
       StepTo(Move(up:, page: False, select:)),
