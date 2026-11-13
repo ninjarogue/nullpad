@@ -2045,3 +2045,146 @@ test('selected text dragged onto another block with the copy key held is copied 
   await page.showMarkdown();
   await expect(page.text).toHaveValue('alpha beta gamma\n\nsecond alphapara here');
 });
+
+test('Shift and a press on the selected text select from the anchor, and a drag from there reaches the blocks below', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue(paragraph);
+  await browser.keyboard.press('Home');
+  for (let step = 0; step < 7; step++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('Flights');
+
+  const inside = await page.pointAt('ghts');
+  const shoes = await page.pointAt('Shoes');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(inside.x, inside.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  for (let step = 1; step <= 6; step++) {
+    await browser.mouse.move(inside.x + ((shoes.x - inside.x) * step) / 6, inside.y + ((shoes.y - inside.y) * step) / 6);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^Flights are .*\n\n- \[ \] Passport\n- S/);
+  expect((await page.selection()).backward).toBe(false);
+});
+
+test('a third click in the text field is left to the browser, which selects the line as in a text field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await page.text.dblclick();
+  const word = (await page.selection()).selected;
+  expect(word).not.toBe('');
+
+  // The mouse of a test presses once at a time, so the third press of a
+  // triple click is sent from the page.
+  const kept = await browser.evaluate(() => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+    const pressed = field.dispatchEvent(new MouseEvent('mousedown', { ...at, detail: 3, buttons: 1 }));
+    field.dispatchEvent(new MouseEvent('mouseup', { ...at, detail: 3 }));
+    return pressed;
+  });
+  await page.nextFrame();
+  expect(kept).toBe(true);
+  expect((await page.selection()).selected).toBe(word);
+});
+
+test('a tap in the text field is left to the browser, as in a text field', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await browser.keyboard.press('End');
+
+  // A touch sends its pointer events first, then the mouse events.
+  const kept = await browser.evaluate(() => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: box.left + 20, clientY: box.top + box.height / 2 };
+    const touch = { ...at, pointerType: 'touch', isPrimary: true };
+    const capabilities = (globalThis as unknown as { InputDeviceCapabilities: new (init: object) => object })
+      .InputDeviceCapabilities;
+    const fromTouch = { sourceCapabilities: new capabilities({ firesTouchEvents: true }) };
+    field.dispatchEvent(new PointerEvent('pointerdown', touch));
+    field.dispatchEvent(new PointerEvent('pointerup', touch));
+    const pressed = field.dispatchEvent(new MouseEvent('mousedown', { ...at, ...fromTouch, buttons: 1 }));
+    field.dispatchEvent(new MouseEvent('mouseup', { ...at, ...fromTouch }));
+    return pressed;
+  });
+  await page.nextFrame();
+  expect(kept).toBe(true);
+  expect(await page.caret()).toBe('some words here|');
+});
+
+test('a third click beside the text field puts the caret there and keeps no word selected', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue('some words here');
+  await browser.keyboard.press('End');
+
+  // The mouse of a test presses once at a time, so a triple click is sent
+  // from the page.
+  const click = (detail: number) =>
+    browser.evaluate((detail: number) => {
+      const sheet = document.querySelector('.page.live')!;
+      const field = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+      const at = { bubbles: true, cancelable: true, detail, clientX: sheet.getBoundingClientRect().left + 6, clientY: field.top + field.height / 2 };
+      sheet.dispatchEvent(new MouseEvent('mousedown', { ...at, buttons: 1 }));
+      sheet.dispatchEvent(new MouseEvent('mouseup', at));
+      return null;
+    }, detail);
+  await click(1);
+  await click(2);
+  await expect.poll(async () => (await page.selection()).selected).toBe('some');
+  await click(3);
+  await expect.poll(() => page.caret()).toBe('|some words here');
+});
+
+test('switching to the page with the caret on a row below the window scrolls only until that row shows, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const rows = Array.from({ length: 60 }, (_, n) => `Paragraph ${n} with some words.`).join('\n\n');
+  await disk.seed([stored(rows)]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(rows);
+  await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    const at = field.value.indexOf('Paragraph 40');
+    field.setSelectionRange(at, at);
+    return null;
+  });
+  await browser.keyboard.press('ArrowRight');
+
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('Paragraph 40 with some words.');
+  await expect(page.text).toBeFocused();
+  const gapBelow = () =>
+    browser.evaluate(() => {
+      const sheet = document.querySelector('.page')!.getBoundingClientRect();
+      const field = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+      return Math.min(sheet.bottom, innerHeight) - field.bottom;
+    });
+  await expect.poll(gapBelow).toBeGreaterThanOrEqual(-1);
+  expect(await gapBelow()).toBeLessThan(8);
+});
