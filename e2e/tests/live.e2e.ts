@@ -1099,3 +1099,24 @@ test('a field that loses focus while its row is typed is still where typing goes
   await expect(page.text).toHaveValue('Hello\n--');
   await expect.poll(() => sizeOf(page)).toBe('24px');
 });
+
+test('Escape after a selection across blocks keeps only the caret, so a key typed later replaces nothing', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'First para here\n\n- [ ] task one\n\nSecond para\n\nThird para';
+  await openLive({ app, disk, page }, note);
+  await page.drag(await page.pointAt('First'), await page.pointAt('Third'));
+  await expect.poll(async () => (await page.selection()).selected).not.toBe('');
+
+  await browser.keyboard.press('Escape');
+  await expect(page.preview).toBeVisible();
+  await page.pressMarkdownShortcut();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
+  expect((await page.selection()).selected).toBe('');
+  await browser.keyboard.type('Q');
+  await expect(page.saveState).toHaveText('Saved');
+  expect((await disk.notes())[0].body).toBe(note.replace('Third', 'QThird'));
+});

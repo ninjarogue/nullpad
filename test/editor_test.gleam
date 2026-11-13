@@ -390,6 +390,26 @@ pub fn escape_releases_the_field_in_live_view_test() {
   assert editor.text(ed) == live_note
 }
 
+pub fn escape_collapses_a_selection_across_blocks_to_its_head_test() {
+  let ed = pressed(live_note, 2, "Fli")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectToEnd,
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.EscapePressed(shown: editor.field_buffer(ed)))
+
+  let end = Position(row: 5, col: 5)
+  assert buffer.selection(editor.buffer(ed)) == #(end, end)
+  assert sync == editor.Release(caret("- two", 0, 5))
+  assert editor.is_idle(ed)
+}
+
 pub fn escape_right_after_live_view_comes_on_releases_the_field_test() {
   let Outcome(editor: markdown, ..) =
     editor.new(vim: False, live: False) |> editor.open(live_note)
