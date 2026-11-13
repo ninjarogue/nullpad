@@ -61,8 +61,8 @@ export function follow(id, liveClass, rowMark, x, y, distance, moved, released) 
   let frame = 0;
   const report = () => {
     if (!page.isConnected) return;
-    const [row, visible, atEnd] = placeAt(page, pointer.x, pointer.y, rowMark);
-    if (row >= 0) moved(row, visible, atEnd);
+    const [row, visible, atEnd, next] = placeAt(page, pointer.x, pointer.y, rowMark);
+    if (row >= 0) moved(row, visible, atEnd, next);
   };
   const move = (event) => {
     if ((event.buttons & 1) === 0) return stop();
@@ -240,14 +240,14 @@ export function aimControl(id, text, start, end, backward, x, lastLine, again) {
 }
 
 export function locate(press, rowMark) {
-  const none = [-1, "", false, false];
+  const none = [-1, "", false, "", false];
   const target = press.target;
   const page = press.currentTarget;
   if (press.button !== 0 || !(target instanceof Element)) return none;
   // The page's own scrollbar.
   if (target === page && press.offsetX >= target.clientWidth) return none;
-  const [row, visible, atEnd] = placeOn(page, target, press.clientX, press.clientY, rowMark, press);
-  return [row, visible, atEnd, target.closest("a, input, button") !== null];
+  const [row, visible, atEnd, next] = placeOn(page, target, press.clientX, press.clientY, rowMark, press);
+  return [row, visible, atEnd, next, target.closest("a, input, button") !== null];
 }
 
 // A point outside the page, as a drag can reach, is taken to the nearest
@@ -263,8 +263,12 @@ function placeAt(page, x, y, rowMark) {
   return placeOn(page, target, inX, inY, rowMark, null);
 }
 
+// A place is the row of the element it is in, the text that element draws
+// before it, whether it is past an element that draws no text, and the
+// character drawn after it: "\n" at the end of a row, and "" beside the text,
+// where a list item's marker is drawn.
 function placeOn(page, target, x, y, rowMark, press) {
-  const none = [-1, "", false];
+  const none = [-1, "", false, ""];
   const marked = `[data-${rowMark}]`;
   const field = page.querySelector(`textarea${marked}`);
   const band = field?.getBoundingClientRect();
@@ -291,14 +295,16 @@ function placeOn(page, target, x, y, rowMark, press) {
   if (gap === 0) {
     // Beside a block, level with one of its lines, is on that line.
     const box = nearest.getBoundingClientRect();
-    const beside = drawnAt(Math.min(Math.max(x, box.left + 1), box.right - 1), y, rowMark);
+    const beside = drawnAt(Math.min(Math.max(x, box.left + 1), box.right - 1), y, rowMark, x);
     if (beside) return beside;
   }
-  if (above) return [Number(nearest.dataset[rowMark]), "", false];
-  return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true];
+  if (above) return [Number(nearest.dataset[rowMark]), "", false, characterAt(nearest.textContent, 0)];
+  return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true, "\n"];
 }
 
-function drawnAt(x, y, rowMark) {
+// Left of a list item's text, where its marker is drawn, no character is
+// named after the place.
+function drawnAt(x, y, rowMark, pointer = x) {
   const point = caretAt(x, y);
   const inside = point && (point.node instanceof Element ? point.node : point.node.parentElement);
   const holder = inside?.closest(`[data-${rowMark}]`);
@@ -306,9 +312,23 @@ function drawnAt(x, y, rowMark) {
   const range = document.createRange();
   range.setStart(holder, 0);
   range.setEnd(point.node, point.offset);
+  const visible = range.toString();
+  let next = characterAt(holder.textContent, visible.length);
+  const rowStart = visible === "" || visible.endsWith("\n");
+  if (rowStart && holder.closest("li") && point.node.nodeType === Node.TEXT_NODE) {
+    const letter = document.createRange();
+    letter.setStart(point.node, point.offset);
+    letter.setEnd(point.node, Math.min(point.offset + 1, point.node.data.length));
+    const box = letter.getClientRects()[0];
+    if (box && pointer < box.left - 1) next = "";
+  }
   // An element that draws no text, such as a fence with no code, has no
   // place before its text: the press lands at the end of its row.
-  return [Number(holder.dataset[rowMark]), range.toString(), holder.textContent === ""];
+  return [Number(holder.dataset[rowMark]), visible, holder.textContent === "", next];
+}
+
+function characterAt(text, offset) {
+  return offset < text.length ? String.fromCodePoint(text.codePointAt(offset)) : "\n";
 }
 
 // A point level with a line of the field, even beside it, is on that line.
@@ -316,7 +336,7 @@ function drawnAt(x, y, rowMark) {
 // within one row, so that a drag can move that text. A field the page has not
 // drawn since its text changed may not start at the row it is marked with.
 function inField(press, x, y, field, band, rowMark) {
-  const none = [-1, "", false];
+  const none = [-1, "", false, ""];
   const point = caretAt(Math.min(Math.max(x, band.left), band.right - 1), y);
   if (point?.node !== field || field.value !== field.defaultValue) return none;
   const { selectionStart: start, selectionEnd: end, value } = field;
@@ -326,7 +346,7 @@ function inField(press, x, y, field, band, rowMark) {
     press !== null &&
     (press.detail > 1 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
   if (kept) return none;
-  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false];
+  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, ""];
 }
 
 function caretAt(x, y) {
@@ -518,7 +538,7 @@ export function headLine(id, liveClass, paintedClass) {
 // there. The head is first kept two lines inside the page, because the
 // browser names no place off the screen.
 export function stepHead(id, liveClass, rowMark, paintedClass, x, up) {
-  const none = [-1, "", false];
+  const none = [-1, "", false, ""];
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
   if (!page) return none;

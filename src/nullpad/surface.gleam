@@ -177,12 +177,20 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
       |> decode.success
     }
     case locate(press, live.row_mark), shift, shown {
-      #(row, visible, at_end, True), False, _ if row >= 0 ->
-        taken(editor.Grabbed(row:, visible:, at_end:, x:, y:))
-      #(row, visible, at_end, False), False, _ if row >= 0 ->
-        taken(editor.Pointed(row:, visible:, at_end:, x:, y:))
-      #(row, visible, at_end, False), True, Ok(shown) if row >= 0 ->
-        taken(editor.ShiftPointed(row:, visible:, at_end:, shown:, x:, y:))
+      #(row, visible, at_end, next, True), False, _ if row >= 0 ->
+        taken(editor.Grabbed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, False), False, _ if row >= 0 ->
+        taken(editor.Pointed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, False), True, Ok(shown) if row >= 0 ->
+        taken(editor.ShiftPointed(
+          row:,
+          visible:,
+          at_end:,
+          next:,
+          shown:,
+          x:,
+          y:,
+        ))
       // A press the browser keeps also ends a press the editor took, whose
       // release the page does not hear when it happens off the page.
       _, _, _ ->
@@ -227,8 +235,10 @@ pub fn sync(
         let place =
           step_head(control_id, live_class, live.row_mark, painted_class, x, up)
         case place {
-          #(row, visible, at_end) if row >= 0 ->
-            dispatch(on_event(editor.Stepped(row:, visible:, at_end:, x:)))
+          #(row, visible, at_end, next) if row >= 0 ->
+            dispatch(
+              on_event(editor.Stepped(row:, visible:, at_end:, next:, x:)),
+            )
           _ -> dispatch(on_event(editor.Unstepped(x:)))
         }
       }
@@ -323,8 +333,8 @@ pub fn sync(
             x,
             y,
             drag_distance,
-            fn(row, visible, at_end) {
-              dispatch(on_event(editor.Dragged(row:, visible:, at_end:)))
+            fn(row, visible, at_end, next) {
+              dispatch(on_event(editor.Dragged(row:, visible:, at_end:, next:)))
             },
             fn() { dispatch(on_event(editor.Released)) },
           )
@@ -656,7 +666,7 @@ fn step_head(
   painted_class: String,
   x: Float,
   up: Bool,
-) -> #(Int, String, Bool)
+) -> #(Int, String, Bool, String)
 
 @external(javascript, "./surface.ffi.mjs", "paintedHead")
 fn painted_head(
@@ -705,7 +715,10 @@ fn aim_control(
 fn find_control(id: String) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "locate")
-fn locate(press: Dynamic, row_mark: String) -> #(Int, String, Bool, Bool)
+fn locate(
+  press: Dynamic,
+  row_mark: String,
+) -> #(Int, String, Bool, String, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "placeCaret")
 fn place_caret(id: String, painted_class: String, x: Float, y: Float) -> Nil
@@ -721,7 +734,7 @@ fn follow(
   x: Float,
   y: Float,
   distance: Float,
-  moved: fn(Int, String, Bool) -> Nil,
+  moved: fn(Int, String, Bool, String) -> Nil,
   released: fn() -> Nil,
 ) -> Nil
 

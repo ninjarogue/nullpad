@@ -69,19 +69,19 @@ test('a drag from a heading into a paragraph paints the selection over the page 
   await expect(page.text).toBeFocused();
   await expect.poll(() => page.selection()).toEqual({
     text: `# Trip\n\n${paragraph}`,
-    selected: '# Trip\n\nFlights are **booked** and the ',
+    selected: 'Trip\n\nFlights are **booked** and the ',
     backward: false,
   });
 
   await listenForCopy(browser);
   await browser.keyboard.press('ControlOrMeta+c');
-  expect(await copied(browser)).toBe('# Trip\n\nFlights are **booked** and the ');
+  expect(await copied(browser)).toBe('Trip\n\nFlights are **booked** and the ');
 
   await browser.keyboard.type('X');
-  await expect(page.text).toHaveValue('Xhotel is *not*.');
+  await expect(page.text).toHaveValue('# Xhotel is *not*.');
   await expect.poll(() => page.painted()).toBeNull();
   await page.markdown.tap();
-  await expect(page.text).toHaveValue('Xhotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast');
+  await expect(page.text).toHaveValue('# Xhotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast');
 });
 
 test('Shift+ArrowDown and Shift+ArrowUp move a painted selection one drawn line at a time', async ({
@@ -227,7 +227,7 @@ test('a selection across blocks is painted at phone width too, and the page stay
 
   await browser.keyboard.type('X');
   await page.markdown.tap();
-  await expect(page.text).toHaveValue('Xlast');
+  await expect(page.text).toHaveValue('# Xlast');
 });
 
 test('Shift+ArrowRight and Shift+ArrowLeft move a painted selection one drawn letter at a time, past hidden marks', async ({
@@ -314,10 +314,10 @@ test('Backspace, Delete and text the browser puts in replace a painted selection
     await expect.poll(() => page.painted()).toBe('TripFlights are booked and the ');
 
     await replace();
-    await expect(page.text).toHaveValue(`${typed}hotel is *not*.`);
+    await expect(page.text).toHaveValue(`# ${typed}hotel is *not*.`);
     await expect.poll(() => page.painted()).toBeNull();
     await page.markdown.tap();
-    await expect(page.text).toHaveValue(`${typed}hotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast`);
+    await expect(page.text).toHaveValue(`# ${typed}hotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast`);
   }
 });
 
@@ -356,7 +356,7 @@ test('without the Highlight API a selection across blocks is shown in the field 
   await page.drag(await page.pointAt('Trip'), await page.pointAt('hotel'));
   await expect.poll(() => page.selection()).toEqual({
     text: `# Trip\n\n${paragraph}`,
-    selected: '# Trip\n\nFlights are **booked** and the ',
+    selected: 'Trip\n\nFlights are **booked** and the ',
     backward: false,
   });
   await expect(page.drawn('h1')).toHaveCount(0);

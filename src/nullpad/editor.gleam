@@ -89,26 +89,41 @@ pub type Event {
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
   EscapePressed(shown: Buffer)
   /// A press at a place on the page, at `x`, `y` in the window.
-  Pointed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
+  Pointed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
   /// Shift and a press: the head moves there and the anchor stays where
   /// `shown`, the field as it is now, has it.
   ShiftPointed(
     row: Int,
     visible: String,
     at_end: Bool,
+    next: String,
     shown: Buffer,
     x: Float,
     y: Float,
   )
   /// A press on a link or a box, which keeps its click: the caret stays
   /// where it is unless the pointer drags from there.
-  Grabbed(row: Int, visible: String, at_end: Bool, x: Float, y: Float)
+  Grabbed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
   /// The pointer of a held press, once it has moved off the place pressed.
-  Dragged(row: Int, visible: String, at_end: Bool)
+  Dragged(row: Int, visible: String, at_end: Bool, next: String)
   /// Shift and an arrow up or down, taken by the surface: the head moves to
   /// the place on the drawn page found `x` from the left of the text, one
   /// drawn line from where the head was drawn. The anchor stays.
-  Stepped(row: Int, visible: String, at_end: Bool, x: Float)
+  Stepped(row: Int, visible: String, at_end: Bool, next: String, x: Float)
   /// A step the page had no place for: the head stays where it is.
   Unstepped(x: Float)
   /// Shift and an arrow left or right over a painted selection: the head
@@ -254,8 +269,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
       }
     }
-    Pointed(row:, visible:, at_end:, x:, y:) -> {
-      let at = place(editor.buffer, row:, visible:, at_end:)
+    Pointed(row:, visible:, at_end:, next:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:, next:)
       let editor =
         Editor(..editor, focus: Focused, press: Some(at), waiting: [])
         |> edit(buffer.move_to(editor.buffer, at))
@@ -266,32 +281,32 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     }
-    ShiftPointed(row:, visible:, at_end:, shown:, x:, y:) -> {
+    ShiftPointed(row:, visible:, at_end:, next:, shown:, x:, y:) -> {
       let from = base(editor, shown)
       let #(anchor, _) = buffer.selection(from)
       let editor =
         Editor(..editor, focus: Focused, press: Some(anchor), waiting: [])
-        |> reach(from, anchor, row:, visible:, at_end:)
+        |> reach(from, anchor, row:, visible:, at_end:, next:)
       Outcome(
         editor:,
         sync: Press(Some(field_buffer(editor)), x:, y:),
         requests: [],
       )
     }
-    Grabbed(row:, visible:, at_end:, x:, y:) -> {
-      let at = place(editor.buffer, row:, visible:, at_end:)
+    Grabbed(row:, visible:, at_end:, next:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:, next:)
       Outcome(
         editor: Editor(..editor, press: Some(at)),
         sync: Press(None, x:, y:),
         requests: [],
       )
     }
-    Dragged(row:, visible:, at_end:) ->
+    Dragged(row:, visible:, at_end:, next:) ->
       case editor.press {
         Some(from) -> {
           let dragged =
             Editor(..editor, focus: Focused)
-            |> reach(editor.buffer, from, row:, visible:, at_end:)
+            |> reach(editor.buffer, from, row:, visible:, at_end:, next:)
           let sync = case
             editor.focus,
             field_buffer(dragged) == field_buffer(editor)
@@ -304,10 +319,10 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
         None -> Outcome(editor:, sync: InSync, requests: [])
       }
-    Stepped(row:, visible:, at_end:, x:) -> {
+    Stepped(row:, visible:, at_end:, next:, x:) -> {
       let #(anchor, _) = buffer.selection(editor.buffer)
       let stepped =
-        reach(editor, editor.buffer, anchor, row:, visible:, at_end:)
+        reach(editor, editor.buffer, anchor, row:, visible:, at_end:, next:)
       let goal = Some(Goal(head: buffer.cursor(stepped.buffer), x:))
       next_step(Editor(..stepped, goal:), x)
     }
@@ -365,8 +380,9 @@ fn reach(
   row row: Int,
   visible visible: String,
   at_end at_end: Bool,
+  next next: String,
 ) -> Editor {
-  let head = place(from, row:, visible:, at_end:)
+  let head = place(from, row:, visible:, at_end:, next:)
   edit(editor, buffer.select(from, anchor:, head:)) |> realign
 }
 
@@ -375,8 +391,9 @@ fn place(
   row row: Int,
   visible visible: String,
   at_end at_end: Bool,
+  next next: String,
 ) -> Position {
-  live.position(buffer.lines(in), row:, visible:, at_end:)
+  live.position(buffer.lines(in), row:, visible:, at_end:, next:)
 }
 
 fn typed(

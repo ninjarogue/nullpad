@@ -194,20 +194,68 @@ pub fn each_drawn_line_break_is_one_row_down_test() {
       row: 2,
       visible: "Flights are booked\nand the hotel is n",
       at_end: False,
+      next: "",
     )
     == Position(row: 3, col: 19)
-  assert live.position(lines, row: 0, visible: "Tr", at_end: False)
+  assert live.position(lines, row: 0, visible: "Tr", at_end: False, next: "")
     == Position(row: 0, col: 4)
+}
+
+/// A place before the first drawn letter of a row is past the marks the row
+/// starts with, unless the browser named no letter after it, as in the
+/// gutter of a list item, where its marker is drawn.
+pub fn the_start_of_a_rows_text_is_past_the_marks_it_starts_with_test() {
+  let lines = ["# Trip", "", "- [ ] Passport", "- Shoes"]
+  assert live.position(lines, row: 0, visible: "", at_end: False, next: "T")
+    == Position(row: 0, col: 2)
+  assert live.position(lines, row: 2, visible: "", at_end: False, next: "P")
+    == Position(row: 2, col: 6)
+  assert live.position(
+      lines,
+      row: 2,
+      visible: "Passport\n",
+      at_end: False,
+      next: "S",
+    )
+    == Position(row: 3, col: 2)
+  assert live.position(lines, row: 3, visible: "", at_end: False, next: "")
+    == Position(row: 3, col: 0)
+}
+
+/// Between two drawn letters a place is past the marks that close what the
+/// letter before it is in, and before the marks that open what follows.
+pub fn a_place_between_letters_takes_closing_marks_with_the_letter_before_test() {
+  let lines = ["Flights are **booked** and *not*."]
+  let place = fn(visible, next) {
+    live.position(lines, row: 0, visible:, at_end: False, next:)
+  }
+  assert place("Flights are booked", " ") == Position(0, 22)
+  assert place("Flights are ", "b") == Position(0, 12)
+  assert place("Flights are booked and not", ".") == Position(0, 32)
+  assert place("Flights are booked and not.", "\n") == Position(0, 33)
+  assert place("Flights are boo", "k") == Position(0, 17)
 }
 
 pub fn a_click_beside_a_block_lands_at_the_end_of_its_last_row_test() {
   let lines = ["one **two**", "three"]
-  assert live.position(lines, row: 0, visible: "one two\nthree", at_end: True)
+  assert live.position(
+      lines,
+      row: 0,
+      visible: "one two\nthree",
+      at_end: True,
+      next: "",
+    )
     == Position(row: 1, col: 5)
 }
 
 pub fn a_click_past_the_last_row_lands_at_the_end_of_the_note_test() {
-  assert live.position(["one", "two"], row: 5, visible: "", at_end: False)
+  assert live.position(
+      ["one", "two"],
+      row: 5,
+      visible: "",
+      at_end: False,
+      next: "",
+    )
     == Position(row: 1, col: 3)
 }
 
@@ -257,7 +305,7 @@ fn round_trip(drawn: Drawn) -> List(String) {
   use length <- list.filter_map(through(string.length(segment)))
   let place =
     string.join(list.append(above, [string.slice(segment, 0, length)]), "\n")
-  let at = live.position(lines, row: 0, visible: place, at_end: False)
+  let at = live.position(lines, row: 0, visible: place, at_end: False, next: "")
   case live.drawn(lines, row: 0, visible:, at:) {
     back if back == place -> Error(Nil)
     back -> Ok(place <> " -> " <> back)

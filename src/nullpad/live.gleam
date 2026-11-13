@@ -97,12 +97,18 @@ fn marker(lines: List(String), item: Item) -> String {
 /// Where a click on the drawn page lands in the source. `row` is the first
 /// source row of the element that was hit, and `visible` is the drawn text
 /// from the start of that element to the click. Each "\n" in it is one
-/// source row further down. `at_end` asks for the end of that row.
+/// source row further down. `at_end` asks for the end of that row. `next`
+/// is the drawn character after the click, "\n" at the end of its row, or
+/// "" when the browser named none, as beside the text in the gutter where a
+/// list item's marker is drawn: the marks the page hides there go with the
+/// characters around them as for `nudge`, and with none they stay after the
+/// click.
 pub fn position(
   lines: List(String),
   row row: Int,
   visible visible: String,
   at_end at_end: Bool,
+  next next: String,
 ) -> Position {
   let drawn_rows = string.split(visible, "\n")
   let row = row + list.length(drawn_rows) - 1
@@ -112,7 +118,19 @@ pub fn position(
     Ok(line), True -> Position(row:, col: string.length(line))
     Ok(line), False -> {
       let drawn = list.last(drawn_rows) |> result.unwrap("")
-      Position(row:, col: column(line, after: drawn))
+      let col = column(line, after: drawn)
+      let before = string.last(drawn) |> option.from_result
+      let rest = string.to_graphemes(line) |> list.drop(col)
+      let col = case next {
+        "" -> col
+        "\n" -> col + list.length(rest)
+        _ ->
+          case closes(before, next) {
+            True -> skip_to(rest, next, col)
+            False -> col
+          }
+      }
+      Position(row:, col:)
     }
   }
 }
@@ -246,11 +264,16 @@ fn next_drawn(typed: List(String), drawn: List(String), col: Int) -> Int {
   }
 }
 
+/// The column of the next `drawn` in `typed`, or `col` when there is none.
 fn skip_to(typed: List(String), drawn: String, col: Int) -> Int {
+  skip(typed, drawn, col, col)
+}
+
+fn skip(typed: List(String), drawn: String, col: Int, from: Int) -> Int {
   case typed {
     [one, ..] if one == drawn -> col
-    [_, ..typed] -> skip_to(typed, drawn, col + 1)
-    [] -> col
+    [_, ..typed] -> skip(typed, drawn, col + 1, from)
+    [] -> from
   }
 }
 

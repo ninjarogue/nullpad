@@ -46,5 +46,5 @@ Preconditions: a fresh run. A ready journey is `journeys/live-view.mjs`.
 - Arrow keys keep the caret's distance from the left edge when they cross into a block, but a blank row resets it to the start.
 - Ctrl+Z only undoes typing done since the field last moved. There is no undo across blocks yet.
 - While a selection spans blocks the field is hidden, so a word found in it is not where the page draws it. Find words on the drawn page, outside `textarea` and `pre.mirror`.
-- A drag that ends at the very start of a list item's or a heading's text ends before its marks, so typing over the selection leaves the marks as text (`X- Shoes`).
+- A press, drag or step at the very start of a heading's or a list item's text lands past its marks (`# `, `- [ ] `), so typing over a selection that ends there joins the item's text to the block before (`the XShoes`), as in the Markdown view. Left of an item's text, where its bullet is drawn, it lands before them. Between two drawn letters, hidden marks that close go with the letter before (`**booked**|`), marks that open with the letter after (`|**booked**`).
 - The caret after a click on a table cell lands near the cell, not exactly at the character.

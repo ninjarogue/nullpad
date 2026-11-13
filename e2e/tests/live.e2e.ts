@@ -574,7 +574,7 @@ test('a mouse drag from a paragraph into a later block selects the rows between'
   await page.drag(await page.pointAt('hotel'), await page.pointAt('Shoes'));
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: 'hotel is *not*.\n\n- [ ] Passport\n',
+    selected: 'hotel is *not*.\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });
@@ -598,7 +598,7 @@ test('a mouse drag that starts in the text field selects past it', async ({ app,
   await page.drag(await page.pointAt('booked'), await page.pointAt('Shoes'));
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: 'booked** and the hotel is *not*.\n\n- [ ] Passport\n',
+    selected: 'booked** and the hotel is *not*.\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });
@@ -621,7 +621,7 @@ test('Shift and a click select from where the caret is to the place clicked', as
   await browser.keyboard.up('Shift');
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: '\n\n- [ ] Passport\n',
+    selected: '\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });
