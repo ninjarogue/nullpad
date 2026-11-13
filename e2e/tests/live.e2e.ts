@@ -1402,3 +1402,25 @@ test('composing with an IME over a selection across blocks keeps the rows after 
   await page.nextFrame();
   await expect(page.below).toContainText('text under head');
 });
+
+test('Ctrl+A and Ctrl+E work on a keyboard laid out for another alphabet', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+  const press = (key: string, code: string) =>
+    browser.evaluate(
+      (which: { key: string; code: string }) => {
+        const target = document.activeElement ?? document.body;
+        const apple = /Mac|iPhone|iPad/.test(navigator.platform);
+        target.dispatchEvent(
+          new KeyboardEvent('keydown', { ...which, ctrlKey: !apple, metaKey: apple, bubbles: true, cancelable: true }),
+        );
+        return null;
+      },
+      { key, code },
+    );
+
+  await press('ф', 'KeyA');
+  await expect.poll(() => page.selection()).toEqual({ text: body, selected: body, backward: false });
+
+  await press('у', 'KeyE');
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
+});
