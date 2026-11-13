@@ -18,6 +18,11 @@ import type { Locator } from 'e2e';
  *
  * A key that leaves the caret's block, and Enter and Backspace at the start
  * of a row, change the caret's row, so the page may lay out again after them.
+ * So does the first arrow that moves the caret to another row after typing on
+ * a row, because typing there can change what the block is (a table loses its
+ * delimiter row, a paragraph line becomes a list). That move is the commit.
+ * After it, and after any move that has had no typing before it, the rule
+ * holds again.
  *
  * A row is shown by the drawn element that carries its `data-row`, or, while
  * the caret's block is open, by the text field. A row with no element of its
@@ -385,6 +390,7 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
     lines().slice(0, row).reduce((sum, line) => sum + line.length + 1, 0) + Math.min(col, lines()[row]!.length);
   const rowAt = (index: number) => text.slice(0, index).split('\n').length - 1;
   let caret = 0;
+  let uncommitted = false;
 
   let was = await browser.evaluate(snapshotInPage, { lines: lines() });
   const hits: Hit[] = [];
@@ -430,9 +436,12 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
     const rowNow = now.caret.row;
     const stays = rowNow === rowBefore;
     const inBlock = rowNow >= heldBefore.first && rowNow <= heldBefore.last;
+    const commits = !stays && uncommitted;
+    if (text !== before && stays) uncommitted = true;
+    else if (!stays) uncommitted = false;
     let rule: Rule | null = null;
     if (text !== before) rule = stays ? 'typing on a row' : null;
-    else rule = stays ? 'moving along a row' : inBlock ? 'moving between rows of one block' : null;
+    else rule = stays ? 'moving along a row' : inBlock && !commits ? 'moving between rows of one block' : null;
     if (rule === null || lines().length !== was.looks.length) {
       was = now;
       continue;
