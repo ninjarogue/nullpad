@@ -58,7 +58,7 @@ pub fn a_row_past_the_note_is_kept_as_asked_test() {
 fn kind_of(text: String) -> live.Kind {
   let lines = string.split(text, "\n")
   let field = Region(0, list.length(lines) - 1)
-  live.kind(markdown.parse(text), field:, lines:)
+  live.kind(markdown.parse(text), field:, caret_row: 0, lines:)
 }
 
 pub fn the_field_is_set_like_the_block_it_holds_test() {
@@ -79,7 +79,12 @@ pub fn the_field_is_set_like_the_block_it_holds_test() {
 /// `note`.
 fn field_kind(first_row: Int, last_row: Int) -> live.Kind {
   let field = Region(first_row, last_row)
-  live.kind(markdown.parse(note), field:, lines: string.split(note, "\n"))
+  live.kind(
+    markdown.parse(note),
+    field:,
+    caret_row: first_row,
+    lines: string.split(note, "\n"),
+  )
 }
 
 pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
@@ -109,8 +114,9 @@ pub fn a_blank_row_between_two_items_is_set_as_body_text_test() {
   let lines = ["- a", "", "- b"]
   let blocks = markdown.parse("- a\n\n- b")
 
-  assert live.kind(blocks, field: Region(1, 1), lines:) == live.Body
-  assert live.kind(blocks, field: Region(1, 2), lines:)
+  assert live.kind(blocks, field: Region(1, 1), caret_row: 1, lines:)
+    == live.Body
+  assert live.kind(blocks, field: Region(1, 2), caret_row: 1, lines:)
     == live.ListItem(task: False, marker: "- ")
 }
 

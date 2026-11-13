@@ -59,6 +59,7 @@ pub type Kind {
 pub fn kind(
   blocks: List(Block),
   field field: Region,
+  caret_row _caret_row: Int,
   lines lines: List(String),
 ) -> Kind {
   let held = fn(first_row, last_row) {

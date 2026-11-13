@@ -46,8 +46,14 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   }
   let kind = {
     use field <- option.map(editor.region(editor))
-    let lines = buffer.lines(editor.buffer(editor))
-    live.kind(editor.blocks(editor), field:, lines:)
+    let note = editor.buffer(editor)
+    let caret_row = buffer.cursor(note).row
+    live.kind(
+      editor.blocks(editor),
+      field:,
+      caret_row:,
+      lines: buffer.lines(note),
+    )
   }
   html.div([attribute.class(classes(editor, kind)), marker(kind)], [
     mirror(editor),
