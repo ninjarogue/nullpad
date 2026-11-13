@@ -15,13 +15,20 @@ import nullpad/buffer.{type Buffer, type Position, Position}
 const most_steps = 1000
 
 /// `present` is the note as last recorded, with its selection. `past` holds
-/// the note before each step, newest first, and `future` the note after each
-/// step undone, next first.
+/// the steps that can be undone, newest first, and `future` the steps undone,
+/// next first. The text of `present` is the text after the newest step in
+/// `past`.
 pub opaque type History {
-  History(past: List(Buffer), present: Buffer, future: List(Buffer), run: Run)
+  History(past: List(Step), present: Buffer, future: List(Step), run: Run)
 }
 
-/// What the step `present` ends is doing, so that the next change can join it.
+/// The note before and after one step, each with the selection it had then,
+/// so undo puts the caret where the step began and redo where it ended.
+type Step {
+  Step(before: Buffer, after: Buffer)
+}
+
+/// What the newest step is doing, so that the next change can join it.
 type Run {
   Closed
   Typing(last: String)
@@ -54,9 +61,13 @@ pub fn record(history: History, buffer: Buffer) -> History {
     True, False -> History(..history, present: buffer, run: Closed)
     False, _ -> {
       let change = change(present, buffer)
-      let past = case joins(run, change) {
-        True -> past
-        False -> list.take([present, ..past], most_steps)
+      let past = case joins(run, change), past {
+        True, [Step(before:, ..), ..past] -> [
+          Step(before:, after: buffer),
+          ..past
+        ]
+        True, [] | False, _ ->
+          list.take([Step(before: present, after: buffer), ..past], most_steps)
       }
       History(past:, present: buffer, future: [], run: run_of(change))
     }
@@ -66,11 +77,11 @@ pub fn record(history: History, buffer: Buffer) -> History {
 pub fn undo(history: History) -> Result(History, Nil) {
   case history.past {
     [] -> Error(Nil)
-    [before, ..past] ->
+    [step, ..past] ->
       Ok(History(
         past:,
-        present: before,
-        future: [history.present, ..history.future],
+        present: step.before,
+        future: [step, ..history.future],
         run: Closed,
       ))
   }
@@ -79,10 +90,10 @@ pub fn undo(history: History) -> Result(History, Nil) {
 pub fn redo(history: History) -> Result(History, Nil) {
   case history.future {
     [] -> Error(Nil)
-    [after, ..future] ->
+    [step, ..future] ->
       Ok(History(
-        past: [history.present, ..history.past],
-        present: after,
+        past: [step, ..history.past],
+        present: step.after,
         future:,
         run: Closed,
       ))

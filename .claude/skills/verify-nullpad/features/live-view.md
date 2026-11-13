@@ -44,7 +44,7 @@ Preconditions: a fresh run. A ready journey is `journeys/live-view.mjs`.
 - `page.locator('.part p')` matches every drawn paragraph in both parts.
 - A click on a block element lands where its box is, which for a heading is often past the end of the words. Click an inline element (`strong`, `em`) to land inside a line.
 - Arrow keys keep the caret's distance from the left edge when they cross into a block, but a blank row resets it to the start.
-- Ctrl+Z only undoes typing done since the field last moved. There is no undo across blocks yet.
+- Undo reaches across blocks. See [Undo and redo](./undo.md).
 - While a selection spans blocks the field shows their markdown in the body font, so the page below it moves. Measure a word again after the field changes.
 - A drag stops at the edge of the window: the page does not scroll while you drag. Shift and a click reaches a block out of view.
 - The caret after a click on a table cell lands near the cell, not exactly at the character.

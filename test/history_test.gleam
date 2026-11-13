@@ -146,3 +146,23 @@ pub fn a_history_keeps_a_bounded_number_of_steps_test() {
 
   assert shown(undo_all(typed)) == string.drop_end(shown(typed), 1000)
 }
+
+pub fn redo_puts_the_caret_where_the_step_ended_after_a_caret_move_test() {
+  let typed =
+    history.new(at("x", 0))
+    |> record_all([at("ax", 1), at("abx", 2), at("abx", 3)])
+
+  assert history.present(undone(typed)) == at("x", 0)
+  assert history.present(redone(undone(typed))) == at("abx", 2)
+}
+
+pub fn undo_after_redo_puts_the_caret_where_the_step_began_test() {
+  let typed =
+    history.new(at("xy", 1))
+    |> record_all([at("xay", 2)])
+    |> undone
+    |> history.record(at("xy", 0))
+    |> redone
+
+  assert history.present(undone(typed)) == at("xy", 1)
+}

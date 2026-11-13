@@ -279,3 +279,20 @@ test('a note opened from the list starts with nothing to undo', async ({ app, di
   await page.nextFrame();
   await expect(page.text).toHaveValue(other);
 });
+
+test('undo puts the caret where the step began, and redo where it ended', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  await editor.open(note);
+  await editor.click(endOfOne);
+  await editor.type(' A');
+  await editor.click(startOfCharlie);
+  await editor.press(ctrl('z'));
+  await editor.type('Y');
+  await editor.expectNote('alpha oneY\n\nbravo two words\n\ncharlie three');
+
+  await editor.press(ctrl('z'));
+  await editor.click(startOfCharlie);
+  await editor.press(ctrl('Shift+z'));
+  await editor.type('Z');
+  await editor.expectNote('alpha oneYZ\n\nbravo two words\n\ncharlie three');
+});
