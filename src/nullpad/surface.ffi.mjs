@@ -16,7 +16,8 @@ export function writeControl(id, text, start, end, backward) {
 // height and margins of the rows it was drawn with, as a row typed as another
 // kind of block does, so nothing around it moves until the render. The
 // render sets the classes only when they changed since the last one, so
-// held classes it did not replace go back to the ones it drew.
+// held classes it did not replace go back to the ones it drew. The held
+// marker width has its own property for the same reason.
 let drawnRows = "";
 let held = null;
 
@@ -24,7 +25,7 @@ export function holdControl(id, classes, rows, marker) {
   const holder = document.getElementById(id)?.parentElement;
   if (!holder || drawnRows === "") return;
   if (!held) {
-    held = { holder, drawn: holder.className, drawnMarker: holder.style.getPropertyValue("--marker") };
+    held = { holder, drawn: holder.className };
     requestAnimationFrame(releaseControl);
   }
   held.classes = `${classes}${drawnRows === rows ? "" : ` held framed-${drawnRows}`} holding`;
@@ -33,10 +34,9 @@ export function holdControl(id, classes, rows, marker) {
 }
 
 function releaseControl() {
-  if (held?.holder.className === held?.classes) {
-    held.holder.className = held.drawn;
-    setMarker(held.holder, held.drawnMarker);
-  }
+  if (!held) return;
+  if (held.holder.className === held.classes) held.holder.className = held.drawn;
+  held.holder.style.removeProperty("--held-marker");
   held = null;
 }
 
@@ -45,8 +45,8 @@ export function drawnControl(rows) {
 }
 
 function setMarker(holder, marker) {
-  if (marker === "") holder.style.removeProperty("--marker");
-  else holder.style.setProperty("--marker", marker);
+  if (marker === "") holder.style.removeProperty("--held-marker");
+  else holder.style.setProperty("--held-marker", marker);
 }
 
 export function findControl(id) {

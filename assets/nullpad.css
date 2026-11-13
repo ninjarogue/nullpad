@@ -458,16 +458,17 @@ button[aria-pressed="true"] {
 }
 
 /* An item's marker sits in the list's gutter when drawn. In the field the
-   typed marker hangs left by its own width (`--marker`, set by `surface`),
-   so the item's words stay in place, on every wrapped line. */
+   typed marker hangs left by its own width (`--marker`, or `--held-marker`
+   until the render, set by `surface`), so the item's words stay in place,
+   on every wrapped line. */
 .editor.part.item {
   margin: 0.25rem 0;
-  margin-left: min(0px, var(--gutter) - var(--marker));
+  margin-left: min(0px, var(--gutter) - var(--held-marker, var(--marker)));
 }
 
 .editor.part.item > * {
-  padding-left: max(var(--gutter), var(--marker));
-  text-indent: calc(-1 * var(--marker));
+  padding-left: max(var(--gutter), var(--held-marker, var(--marker)));
+  text-indent: calc(-1 * var(--held-marker, var(--marker)));
 }
 
 .editor.part.task > * {
