@@ -248,8 +248,18 @@ fn on_shift_click(
   })
 }
 
-/// A file dragged in with no text. Dropped where nothing refuses it, the
-/// browser opens it in place of the app.
+/// A drag that carries a file, with or without text, over anywhere in the app
+/// is refused. Dropped where nothing refuses it, the browser opens the file
+/// in place of the app.
+pub fn files_refused(
+  on_event: fn(editor.Event) -> msg,
+) -> List(attribute.Attribute(msg)) {
+  [
+    event.advanced("dragover", refuse_file(on_event)),
+    event.advanced("drop", refuse_file(on_event)),
+  ]
+}
+
 fn refuse_file(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
@@ -261,9 +271,9 @@ fn refuse_file(
   let handler =
     on_event(editor.Released)
     |> event.handler(prevent_default: True, stop_propagation: False)
-  case list.contains(types, "Files") && !list.contains(types, "text/plain") {
+  case list.contains(types, "Files") {
     True -> decode.success(handler)
-    False -> decode.failure(handler, expected: "a file with no text")
+    False -> decode.failure(handler, expected: "a drag with a file")
   }
 }
 
@@ -292,7 +302,7 @@ fn on_drop(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
         |> decode.failure(expected: "text dropped beside the field")
     }
   }
-  event.advanced("drop", decode.one_of(text, [refuse_file(on_event)]))
+  event.advanced("drop", decode.one_of(refuse_file(on_event), [text]))
 }
 
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
