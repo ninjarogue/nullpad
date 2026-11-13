@@ -389,7 +389,8 @@ pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_t
 }
 
 fn settle(lines: List(String), visible: String, row: Int, col: Int) -> Int {
-  live.settle(lines, row: 0, visible:, at: Position(row:, col:)).col
+  let other = Position(row: row + 1, col: 0)
+  live.settle(lines, row: 0, visible:, at: Position(row:, col:), other:).col
 }
 
 /// Marks between two drawn letters all draw at one place, so a place among
@@ -412,11 +413,48 @@ pub fn the_marks_a_row_starts_with_keep_every_place_among_them_test() {
     == [0, 3, 6]
 }
 
-pub fn a_place_among_the_marks_between_two_cells_settles_in_the_next_test() {
+/// The marks between two cells are no pair, so a place among them stays.
+pub fn a_place_among_the_marks_between_two_cells_stays_test() {
   let lines = ["| a | b |", "|---|---|"]
-  assert list.map([3, 4, 5, 6], settle(lines, "ab", 0, _)) == [6, 6, 6, 6]
-  assert list.map([7, 8, 9], settle(lines, "ab", 0, _)) == [9, 9, 9]
+  assert list.map([3, 4, 5, 6], settle(lines, "ab", 0, _)) == [3, 4, 5, 6]
+  assert list.map([7, 8, 9], settle(lines, "ab", 0, _)) == [7, 8, 9]
   assert settle(lines, "ab", 1, 2) == 2
+  assert settle(["| **a** | b |"], "ab", 0, 5) == 7
+}
+
+/// A place settles where the line cut there draws what it drew whole, so a
+/// selection from it holds both marks of a pair or neither, as the parser
+/// pairs them: whatever letter follows the marks.
+pub fn a_place_settles_where_no_pair_of_marks_is_cut_test() {
+  assert settle(["今日は**重要**です。"], "今日は重要です。", 0, 7) == 9
+  assert settle(["今日は**重要**です。"], "今日は重要です。", 0, 5) == 3
+  assert settle(["**foo**bar"], "foobar", 0, 5) == 7
+  assert list.map([4, 5, 7], settle(["**b1***e1*"], "b1e1", 0, _)) == [6, 6, 6]
+}
+
+pub fn a_place_among_the_marks_a_row_starts_with_cuts_no_pair_test() {
+  assert settle(["**bold** text"], "bold text", 0, 2) == 0
+  assert settle(["- **bold** item"], "bold item", 0, 4) == 2
+  assert settle(["> *em*"], "em", 0, 3) == 2
+  assert settle(["# `code`"], "code", 0, 3) == 2
+  assert settle(["[link](#)"], "link", 0, 1) == 0
+}
+
+/// With both ends on one row, the line is cut at both.
+pub fn a_place_settles_with_the_other_end_on_its_row_test() {
+  let lines = ["**bold** text", "next"]
+  let at = fn(col, other) {
+    live.settle(
+      lines,
+      row: 0,
+      visible: "bold text\nnext",
+      at: Position(0, col),
+      other: Position(0, other),
+    ).col
+  }
+  assert at(2, 13) == 0
+  assert at(6, 0) == 8
+  assert at(2, 4) == 2
 }
 
 /// Settling never changes where a place is drawn, and a settled place stays.
@@ -428,12 +466,13 @@ pub fn a_settled_place_is_drawn_where_it_was_and_settles_no_further_test() {
     )
     use col <- list.filter_map(through(string.length(line)))
     let at = Position(row:, col:)
-    let settled = live.settle(lines, row: 0, visible:, at:)
+    let other = Position(row: row + 1, col: 0)
+    let settled = live.settle(lines, row: 0, visible:, at:, other:)
     let drawn = fn(at) { live.drawn(lines, row: 0, visible:, at:) }
     case
       settled.row == row
       && drawn(settled) == drawn(at)
-      && live.settle(lines, row: 0, visible:, at: settled) == settled
+      && live.settle(lines, row: 0, visible:, at: settled, other:) == settled
     {
       True -> Error(Nil)
       False -> Ok(line <> " at " <> int.to_string(col))
