@@ -400,6 +400,7 @@ pub fn sync(
             effect.from(fn(_) {
               write_control(control_id, text, start, end, backward)
               place_caret(control_id, x, y)
+              hold_page(control_id, live_class)
             }),
             effect.before_paint(fn(_, _) { focus_in_place(control_id) }),
           ])
@@ -692,6 +693,9 @@ fn released_on_selection(release: Dynamic) -> Int
 
 @external(javascript, "./surface.ffi.mjs", "placeCaret")
 fn place_caret(id: String, x: Float, y: Float) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "holdPage")
+fn hold_page(id: String, live_class: String) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "focusInPlace")
 fn focus_in_place(id: String) -> Nil

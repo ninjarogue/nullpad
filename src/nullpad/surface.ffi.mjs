@@ -39,6 +39,21 @@ export function focusControl(id, liveClass) {
   else if (below > 0) page.scrollTop += below;
 }
 
+// A press writes the field at once, but the page draws it where it was
+// pressed only on the next frame. A key, or the paste Linux does on a middle
+// release, before then scrolls the page to where the field was drawn, so the
+// page is held where it is until then.
+export function holdPage(id, liveClass) {
+  const page = document.getElementById(id)?.closest("." + liveClass);
+  if (!page) return;
+  const top = page.scrollTop;
+  const keep = () => {
+    page.scrollTop = top;
+  };
+  page.addEventListener("scroll", keep);
+  requestAnimationFrame(() => page.removeEventListener("scroll", keep));
+}
+
 export function focusInPlace(id) {
   document.getElementById(id)?.focus({ preventScroll: true });
 }
