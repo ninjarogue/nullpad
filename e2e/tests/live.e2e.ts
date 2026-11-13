@@ -1070,12 +1070,7 @@ test('code typed after an open fence at the end of the note is set as code from 
   }
 });
 
-test('a field that loses focus while its row is typed is still where typing goes when focus comes back', async ({
-  app,
-  browser,
-  disk,
-  page,
-}) => {
+test('a window switch while a row is typed keeps the page as it is', async ({ app, browser, disk, page }) => {
   await openLive({ app, disk, page }, '');
   await browser.keyboard.type('Hello\n-');
   await expect(page.text).toHaveValue('-');
@@ -1087,17 +1082,27 @@ test('a field that loses focus while its row is typed is still where typing goes
     return null;
   });
   await page.nextFrame();
-  await expect(page.preview.getByRole('heading')).toHaveText('Hello');
-  expect(await browser.evaluate(() => document.activeElement?.getAttribute('data-test-id') ?? null)).toBe('editor');
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+  await expect(page.text).toHaveValue('-');
 
   await browser.evaluate(() => {
     document.querySelector('[data-test-id="editor"]')!.dispatchEvent(new FocusEvent('focus'));
     return null;
   });
-  await expect(page.text).toHaveValue('Hello\n-');
   await browser.keyboard.type('-');
-  await expect(page.text).toHaveValue('Hello\n--');
-  await expect.poll(() => sizeOf(page)).toBe('24px');
+  await expect(page.text).toHaveValue('--');
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+
+  await browser.keyboard.press('Escape');
+  await expect(page.preview.getByRole('heading')).toHaveText('Hello');
+});
+
+test('a click on the title while a row is typed lays out the page', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('Hello\n-');
+  await expect(page.text).toHaveValue('-');
+  await page.title.tap();
+  await expect(page.preview.getByRole('heading')).toHaveText('Hello');
 });
 
 test('Escape after a selection across blocks keeps only the caret, so a key typed later replaces nothing', async ({
