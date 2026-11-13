@@ -302,3 +302,20 @@ test('an undo after steps that wait for the page, in the frame of a click, takes
 
   await expect(page.text).toHaveValue(expected);
 });
+
+test('steps after an undo, in one frame, each move a row, also those the field takes', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  const body = 'aaaa\naaaa\naaaa\naaaa\naaaa\naaaa';
+  const burst = [ctrl('z'), 'Shift+ArrowUp', 'Shift+ArrowUp', 'Shift+ArrowUp'];
+  await editor.seed(body);
+  const expected = await editor.plainField(body, body.length, ['Enter', ...burst], 'X');
+  await editor.show(body);
+  await editor.press(ctrl('End'), 'Enter');
+  await page.nextFrame();
+  await page.pressBeforeRedraw(...burst);
+  await browser.keyboard.type('X');
+  await page.markdown.tap();
+
+  await expect(page.text).toHaveValue(expected);
+});
