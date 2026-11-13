@@ -376,6 +376,14 @@ export async function withRawPage(origin: string, body: string, run: (page: RawP
   }
 }
 
+/** One double click on a spot, as a hand makes it: two presses, the second counted as the second of a series. */
+export async function doubleClick(page: RawPage, spot: Spot) {
+  const at = await page.evaluate(centreOf, spot);
+  if (!at) throw new Error(`"${spot.word}" is not drawn on the page`);
+  await page.mouse.click(at.x, at.y, { clickCount: 2 });
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+}
+
 /** A quick series of clicks on one spot: what a double or triple click is. A hand takes some time between two clicks, so the fast mode keeps that wait. */
 export async function clickSeries(page: RawPage, spot: Spot, count: number) {
   const at = await page.evaluate(centreOf, spot);

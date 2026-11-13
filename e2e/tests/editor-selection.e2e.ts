@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { clickSeries, ctrl, Editing, offsetOf, withRawPage } from './editing.ts';
+import { clickSeries, ctrl, doubleClick, Editing, offsetOf, withRawPage } from './editing.ts';
 import type { Spot } from './editing.ts';
 import { test } from './nullpad.ts';
 
@@ -252,6 +252,21 @@ for (const word of words) {
     const origin = new URL(await browser.url()).origin;
     await withRawPage(origin, marked, async (raw) => {
       await clickSeries(raw, word.spot, 2);
+      await raw.keyboard.press('Control+c');
+      const clipboard = await raw.evaluate(() => navigator.clipboard.readText());
+      expect(clipboard.trim()).toBe(word.selected);
+    });
+  });
+}
+
+for (const word of words) {
+  test(`one double click of two presses on a word in ${word.name}, with the whole note drawn, selects the word`, async ({ app, browser }) => {
+    await app.open('/blank');
+    const origin = new URL(await browser.url()).origin;
+    await withRawPage(origin, marked, async (raw) => {
+      await raw.keyboard.press('Escape');
+      await raw.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      await doubleClick(raw, word.spot);
       await raw.keyboard.press('Control+c');
       const clipboard = await raw.evaluate(() => navigator.clipboard.readText());
       expect(clipboard.trim()).toBe(word.selected);
