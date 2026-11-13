@@ -40,8 +40,8 @@ export function focusControl(id, liveClass, paintedClass) {
   const box = page.getBoundingClientRect();
   const above = Math.max(box.top, 0) - top;
   const below = top + line - Math.min(box.bottom, innerHeight);
-  if (above > 0) page.scrollTop -= above;
-  else if (below > 0) page.scrollTop += below;
+  if (above > 0) page.scrollTop -= Math.ceil(above);
+  else if (below > 0) page.scrollTop += Math.ceil(below);
 }
 
 // A press writes the field at once, but the page draws it where it was
@@ -866,8 +866,9 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, gr
       }
     }
     if (!landed) return answer(-2);
-    if (granularity === "line") landed = toward(selection, landed, columnLeft(page) + x, rowMark);
-    const place = placeOfPoint(landed, rowMark);
+    const line = granularity === "line";
+    if (line) landed = toward(selection, landed, columnLeft(page) + x, rowMark);
+    const place = placeOfPoint(landed, rowMark, line ? columnLeft(page) + x : Infinity);
     return place ? [...place, x] : answer(-1);
   } finally {
     control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
