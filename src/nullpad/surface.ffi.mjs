@@ -127,7 +127,6 @@ export function isDrawn() {
 
 export function setDrawn(value) {
   drawn = value;
-  if (value) landing = null;
 }
 
 export function blurControl(id) {
@@ -576,7 +575,7 @@ export function headLine(id, liveClass, paintedClass) {
 // browser names no place off the screen. A `page` step scrolls the page by a
 // window and takes the place that is then where the head was. A step taken
 // before the page has drawn the step before it starts where that step
-// landed, on the page as it is still drawn.
+// landed, on the page as it is still drawn, until the next frame.
 let landing = null;
 
 export function hasLanding() {
@@ -611,7 +610,13 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page, from
   };
   const middle = box.top + box.height / 2;
   const land = (place, y) => {
-    landing = place[0] >= 0 ? { scroller, y, scrollTop: scroller.scrollTop, line } : null;
+    const landed = place[0] >= 0 ? { scroller, y, scrollTop: scroller.scrollTop, line } : null;
+    landing = landed;
+    if (landed) {
+      requestAnimationFrame(() => {
+        if (landing === landed) landing = null;
+      });
+    }
     return place;
   };
   if (page) {

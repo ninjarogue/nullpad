@@ -328,7 +328,7 @@ pub fn sync(
         }
       }
       let step = fn(dispatch) { stepped(dispatch, measure(False)) }
-      case queued && has_landing(), is_drawn() {
+      case queued && has_landing(), !queued && is_drawn() {
         False, True ->
           effect.batch([
             effect.from(fn(dispatch) {
