@@ -25,99 +25,235 @@ type Cursor = {
   problem: string | null;
 };
 
-/**
- * The cursor of the text field, seen as a person sees it: its box is inside
- * the window and inside the page that scrolls, the field is not clipped
- * around it, and nothing is drawn over it. A text field cannot be asked where
- * its caret is, so a hidden copy of it is laid out at the same place and
- * asked instead. Runs in the page.
- */
-function cursorInPage(use: { placing: string[] }): Cursor {
-  const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
-  if (!field) return { at: null, problem: 'there is no text field' };
-  const rect = field.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return { at: null, problem: 'the text field has no size' };
-  const head = field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd;
-  const style = getComputedStyle(field);
-  const ruler = document.createElement('div');
-  ruler.setAttribute('aria-hidden', 'true');
-  ruler.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;visibility:hidden;pointer-events:none;overflow:hidden;box-sizing:border-box`;
-  for (const name of use.placing) ruler.style.setProperty(name, style.getPropertyValue(name));
-  const marker = document.createElement('span');
-  marker.textContent = '\u200b';
-  ruler.append(field.value.slice(0, head), marker, field.value.slice(head));
-  document.body.append(ruler);
-  const found = marker.getBoundingClientRect();
-  ruler.remove();
+type Cell = [number, number];
 
-  const left = found.left - field.scrollLeft;
-  const top = found.top - field.scrollTop;
-  const bottom = found.bottom - field.scrollTop;
-  const at = { x: left, top, bottom };
-  if (document.activeElement !== field) return { at, problem: 'the text field has no focus, so there is no cursor' };
+type Selection = { problem: string } | { value: string; first: number; anchor: Cell; head: Cell };
+
+/**
+ * The cursor and the selection as a person sees them. Runs in the page.
+ *
+ * While the text field is in sight, they are the field's. A text field cannot
+ * be asked where its caret is, so a hidden copy of it is laid out at the same
+ * place and asked instead. `lines` are the rows of the note as it should now
+ * be: the text field holds the rows between the part drawn above it and the
+ * part drawn below it, so the rows below fix where it starts.
+ *
+ * While a selection across blocks is painted on the drawn page, the field is
+ * out of sight, and they are read from the paint: the selection from the
+ * `nullpad-selection` highlight, the cursor from the `nullpad-head` one. A
+ * place on the drawn page stands for every place of the note drawn there,
+ * such as before and after the marks the page hides. Of those, the reader
+ * takes the one the text field holds, which is where typing goes, and names
+ * the problem when the field holds none of them.
+ */
+function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; lines: string[]; focus: boolean }): Cursor | Selection {
+  const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
+  if (!field) return use.want === 'cursor' ? { at: null, problem: 'there is no text field' } : { problem: 'there is no text field' };
+  const focused = document.activeElement === field;
+  const backward = field.selectionDirection === 'backward';
+  const fieldAt = (offset: number): Cell => {
+    const before = field.value.slice(0, offset);
+    return [before.split('\n').length - 1, offset - (before.lastIndexOf('\n') + 1)];
+  };
   const view = window.visualViewport;
-  const sheet = document.querySelector('.page')?.getBoundingClientRect();
+  const sheet = document.querySelector('.page');
+  const sheetBox = sheet?.getBoundingClientRect();
   const seen = {
-    left: Math.max(0, sheet?.left ?? 0),
-    top: Math.max(0, sheet?.top ?? 0),
-    right: Math.min(view?.width ?? innerWidth, sheet?.right ?? Infinity),
-    bottom: Math.min(view?.height ?? innerHeight, sheet?.bottom ?? Infinity),
+    left: Math.max(0, sheetBox?.left ?? 0),
+    top: Math.max(0, sheetBox?.top ?? 0),
+    right: Math.min(view?.width ?? innerWidth, sheetBox?.right ?? Infinity),
+    bottom: Math.min(view?.height ?? innerHeight, sheetBox?.bottom ?? Infinity),
   };
   const round = (value: number) => Math.round(value * 10) / 10;
-  const where = `the cursor is at y ${round(top)} to ${round(bottom)}, x ${round(left)}, and the page shows y ${round(seen.top)} to ${round(seen.bottom)}, x ${round(seen.left)} to ${round(seen.right)}`;
-  if (top < seen.top - 0.5 || bottom > seen.bottom + 0.5 || left < seen.left - 0.5 || left > seen.right + 0.5) {
-    return { at, problem: `${where}, so it is out of view` };
-  }
-  if (top < rect.top - 0.5 || bottom > rect.bottom + 0.5) {
-    return { at, problem: `${where}, and the text field's box ends at y ${round(rect.top)} to ${round(rect.bottom)}` };
-  }
-  const hit = document.elementFromPoint(left + 0.5, (top + bottom) / 2);
-  if (hit !== field) {
-    return { at, problem: `${where}, and ${hit ? `<${hit.tagName.toLowerCase()} class="${hit.className}">` : 'nothing'} is drawn over it` };
-  }
-  return { at, problem: null };
+  const where = (at: { x: number; top: number; bottom: number }) =>
+    `the cursor is at y ${round(at.top)} to ${round(at.bottom)}, x ${round(at.x)}, and the page shows y ${round(seen.top)} to ${round(seen.bottom)}, x ${round(seen.left)} to ${round(seen.right)}`;
+  const outOfView = (at: { x: number; top: number; bottom: number }) =>
+    at.top < seen.top - 0.5 || at.bottom > seen.bottom + 0.5 || at.x < seen.left - 0.5 || at.x > seen.right + 0.5;
+  const named = (element: Element | null) => (element ? `<${element.tagName.toLowerCase()} class="${element.className}">` : 'nothing');
+
+  const paintedRanges = (name: string) => [...((globalThis.CSS?.highlights?.get(name) as Iterable<AbstractRange> | undefined) ?? [])];
+  const [selected] = paintedRanges('nullpad-selection');
+  const [headMark] = paintedRanges('nullpad-head');
+  const fieldSeen = field.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+
+  const both = (problem: string) => (use.want === 'cursor' ? { at: null, problem } : { problem });
+
+  const fieldCursor = (): Cursor => {
+    const rect = field.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return { at: null, problem: 'the text field has no size' };
+    const head = backward ? field.selectionStart : field.selectionEnd;
+    const style = getComputedStyle(field);
+    const ruler = document.createElement('div');
+    ruler.setAttribute('aria-hidden', 'true');
+    ruler.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;visibility:hidden;pointer-events:none;overflow:hidden;box-sizing:border-box`;
+    for (const name of use.placing) ruler.style.setProperty(name, style.getPropertyValue(name));
+    const marker = document.createElement('span');
+    marker.textContent = '​';
+    ruler.append(field.value.slice(0, head), marker, field.value.slice(head));
+    document.body.append(ruler);
+    const found = marker.getBoundingClientRect();
+    ruler.remove();
+
+    const at = { x: found.left - field.scrollLeft, top: found.top - field.scrollTop, bottom: found.bottom - field.scrollTop };
+    if (!focused) return { at, problem: 'the text field has no focus, so there is no cursor' };
+    if (outOfView(at)) return { at, problem: `${where(at)}, so it is out of view` };
+    if (at.top < rect.top - 0.5 || at.bottom > rect.bottom + 0.5) {
+      return { at, problem: `${where(at)}, and the text field's box ends at y ${round(rect.top)} to ${round(rect.bottom)}` };
+    }
+    const hit = document.elementFromPoint(at.x + 0.5, (at.top + at.bottom) / 2);
+    if (hit !== field) return { at, problem: `${where(at)}, and ${named(hit)} is drawn over it` };
+    return { at, problem: null };
+  };
+
+  const fieldSelection = (): Selection => {
+    if (use.focus && !focused) return { problem: 'the text field has no focus' };
+    const held = field.value.split('\n');
+    const below = document.querySelector<HTMLElement>('[data-test-id="live-below"] [data-row]');
+    const fenceBefore = (row: number) => /^[\s>]*(?:(?:[-*+]|\d+[.)])\s+)*(?:`{3,}|~{3,})/.test(use.lines[row - 1] ?? '');
+    const firstBelow = below
+      ? Number(below.dataset['row']) - (below.tagName === 'PRE' && fenceBefore(Number(below.dataset['row'])) ? 1 : 0)
+      : use.lines.length;
+    const first = firstBelow - held.length;
+    const shift = ([row, col]: Cell): Cell => [first + row, col];
+    const [start, end] = [shift(fieldAt(field.selectionStart)), shift(fieldAt(field.selectionEnd))];
+    return { value: field.value, first, anchor: backward ? end : start, head: backward ? start : end };
+  };
+
+  /** The box of a caret at `range`: the letter after it, else the letter before it, else the element it is in. */
+  const caretBox = (range: AbstractRange) => {
+    const node = range.startContainer;
+    const offset = range.startOffset;
+    if (node instanceof Text) {
+      const one = document.createRange();
+      if (offset < node.data.length && node.data[offset] !== '\n') {
+        one.setStart(node, offset);
+        one.setEnd(node, offset + 1);
+        const after = one.getClientRects()[0];
+        if (after) return { x: after.left, top: after.top, bottom: after.bottom };
+      }
+      if (offset > 0) {
+        one.setStart(node, offset - 1);
+        one.setEnd(node, offset);
+        const before = [...one.getClientRects()].pop();
+        if (before) return { x: before.right, top: before.top, bottom: before.bottom };
+      }
+    }
+    const element = node instanceof Element ? node : node.parentElement!;
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const line = parseFloat(style.lineHeight) || 1.2 * parseFloat(style.fontSize);
+    return { x: box.left, top: box.top, bottom: box.top + Math.min(box.height, line) };
+  };
+
+  const paintedCursor = (head: AbstractRange): Cursor => {
+    const at = caretBox(head);
+    if (outOfView(at)) return { at, problem: `${where(at)}, so it is out of view` };
+    const node = head.startContainer;
+    const owner = (node instanceof Element ? node : node.parentElement!).closest('[data-row]') ?? node.parentElement!;
+    const hit = document.elementFromPoint(at.x + 0.5, (at.top + at.bottom) / 2);
+    if (!hit || !(owner.contains(hit) || hit.contains(owner))) return { at, problem: `${where(at)}, and ${named(hit)} is drawn over it` };
+    return { at, problem: null };
+  };
+
+  const paintedSelection = (range: AbstractRange, head: AbstractRange): Selection => {
+    const lines = use.lines;
+    const marks = sheet ? [...sheet.querySelectorAll<HTMLElement>('[data-row]:not(textarea)')] : [];
+    const rowOf = (mark: HTMLElement) => Number(mark.dataset['row']);
+    const holderOf = (row: number) => marks.filter((mark) => rowOf(mark) <= row).pop();
+    const segmenter = new Intl.Segmenter();
+    const letters = (text: string) => [...segmenter.segment(text)].map((piece) => piece.segment);
+
+    /** The drawn text from the start of `holder` to where the page draws `col` of `row`, which `holder` draws. */
+    const drawnTo = (holder: HTMLElement, row: number, col: number) => {
+      const visible = holder.textContent ?? '';
+      const drawnRows = visible.split('\n');
+      const index = row - rowOf(holder);
+      if (index >= drawnRows.length) return visible;
+      const typed = letters(lines[row] ?? '');
+      const shown = letters(drawnRows[index]!);
+      let left = letters((lines[row] ?? '').slice(0, col)).length;
+      let taken = '';
+      for (let t = 0, s = 0; left > 0 && t < typed.length && s < shown.length; t++, left--) {
+        if (typed[t] === shown[s]) taken += shown[s++];
+      }
+      return [...drawnRows.slice(0, index), taken].join('\n');
+    };
+
+    /** Every place of the note that is drawn at the boundary point `node`, `offset`. */
+    const placesAt = (node: Node, offset: number) => {
+      const found: Cell[] = [];
+      for (let row = 0; row < lines.length; row++) {
+        const holder = holderOf(row);
+        if (!holder || !holder.contains(node)) continue;
+        const span = document.createRange();
+        span.setStart(holder, 0);
+        span.setEnd(node, offset);
+        const painted = span.toString();
+        const line = lines[row]!;
+        for (let col = 0; col <= line.length; col++) if (drawnTo(holder, row, col) === painted) found.push([row, col]);
+      }
+      return found;
+    };
+
+    const show = (cells: Cell[]) => (cells.length === 0 ? 'nowhere in the note' : cells.map(([row, col]) => `row ${row} column ${col}`).join(' or '));
+    const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
+    const point = document.createRange();
+    point.setStart(head.startContainer, head.startOffset);
+    const startRange = document.createRange();
+    startRange.setStart(range.startContainer, range.startOffset);
+    const atStart = startRange.compareBoundaryPoints(Range.START_TO_START, point) === 0;
+    const endRange = document.createRange();
+    endRange.setStart(range.endContainer, range.endOffset);
+    const atEnd = endRange.compareBoundaryPoints(Range.START_TO_START, point) === 0;
+    if (!atStart && !atEnd) return { problem: 'the head of the painted selection is not at either of its ends' };
+    const headPlaces = placesAt(head.startContainer, head.startOffset);
+    const anchorPlaces = atStart ? placesAt(range.endContainer, range.endOffset) : placesAt(range.startContainer, range.startOffset);
+
+    const held = field.value.split('\n');
+    const firsts = lines.flatMap((_, first) => (lines.slice(first, first + held.length).join('\n') === field.value ? [first] : []));
+    const ends = (first: number) => {
+      const shift = ([row, col]: Cell): Cell => [first + row, col];
+      const [start, end] = [shift(fieldAt(field.selectionStart)), shift(fieldAt(field.selectionEnd))];
+      return { anchor: backward ? end : start, head: backward ? start : end };
+    };
+    const painted = `the selection is painted from ${show(anchorPlaces)} to ${show(headPlaces)}`;
+    if (firsts.length === 0) return { problem: `${painted}, and the text field holds ${JSON.stringify(field.value)}, which is not rows of the note` };
+    for (const first of firsts) {
+      const { anchor, head } = ends(first);
+      if (anchorPlaces.some((cell) => same(cell, anchor)) && headPlaces.some((cell) => same(cell, head))) {
+        return { value: field.value, first, anchor, head };
+      }
+    }
+    const { anchor, head: fieldHead } = ends(firsts[0]!);
+    return { problem: `${painted}, and the text field has it from ${show([anchor])} to ${show([fieldHead])}, where typing would go` };
+  };
+
+  if (!selected && !headMark) return use.want === 'cursor' ? fieldCursor() : fieldSelection();
+  if (!selected || !headMark) return both(`only the ${selected ? 'selection' : 'head'} of a selection is painted on the page`);
+  if (fieldSeen) return both('a selection is painted on the page while the text field is in sight too');
+  if (!selected.startContainer.isConnected || !headMark.startContainer.isConnected) return both('the selection is painted on text the page no longer draws');
+  if (!focused) return both('the text field has no focus, so there is no cursor');
+  return use.want === 'cursor' ? paintedCursor(headMark) : paintedSelection(selected, headMark);
 }
 
 /** Looks at the cursor and names the key after which it was out of view. Null when it is in view. */
 export async function cursorProblem(browser: Browser, after: string) {
-  const { problem } = await browser.evaluate(cursorInPage, { placing });
+  const { problem } = (await browser.evaluate(lookInPage, { want: 'cursor', placing, lines: [], focus: true })) as Cursor;
   return problem === null ? null : `after ${after}: ${problem}`;
 }
 
 /** Where the cursor is in the window, or null when there is none. */
 export async function cursorAt(browser: Browser) {
-  return (await browser.evaluate(cursorInPage, { placing })).at;
+  return ((await browser.evaluate(lookInPage, { want: 'cursor', placing, lines: [], focus: true })) as Cursor).at;
 }
 
 /**
- * The selection of the open text field as rows and columns of the note, and
- * what the field holds. `lines` are the rows of the note as it should now be:
- * the text field holds the rows between the part drawn above it and the part
- * drawn below it, so the rows below fix where it starts. Runs in the page.
+ * The selection as rows and columns of the note, and what the text field
+ * holds. `lines` are the rows of the note as it should now be. `focus: false`
+ * reads it even when the field has no focus.
  */
-function selectionInPage(model: { lines: string[] }): { problem: string } | { value: string; first: number; anchor: [number, number]; head: [number, number] } {
-  const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
-  if (!field) return { problem: 'there is no text field' };
-  if (document.activeElement !== field) return { problem: 'the text field has no focus' };
-  const held = field.value.split('\n');
-  const below = document.querySelector<HTMLElement>('[data-test-id="live-below"] [data-row]');
-  const fenceBefore = (row: number) => /^[\s>]*(?:(?:[-*+]|\d+[.)])\s+)*(?:`{3,}|~{3,})/.test(model.lines[row - 1] ?? '');
-  const firstBelow = below
-    ? Number(below.dataset['row']) - (below.tagName === 'PRE' && fenceBefore(Number(below.dataset['row'])) ? 1 : 0)
-    : model.lines.length;
-  const first = firstBelow - held.length;
-  const at = (offset: number): [number, number] => {
-    const before = field.value.slice(0, offset);
-    return [first + before.split('\n').length - 1, offset - (before.lastIndexOf('\n') + 1)];
-  };
-  const backward = field.selectionDirection === 'backward';
-  const [start, end] = [at(field.selectionStart), at(field.selectionEnd)];
-  return { value: field.value, first, anchor: backward ? end : start, head: backward ? start : end };
-}
-
-/** The selection of the open text field, or what is wrong with it. */
-export function selectionOf(browser: Browser, lines: string[]) {
-  return browser.evaluate(selectionInPage, { lines });
+export async function selectionOf(browser: Browser, lines: string[], focus = true) {
+  return (await browser.evaluate(lookInPage, { want: 'selection', placing, lines, focus })) as Selection;
 }
 
 export type Box = { left: number; top: number; right: number; bottom: number };

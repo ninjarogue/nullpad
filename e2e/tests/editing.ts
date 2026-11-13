@@ -3,7 +3,7 @@ import { expect } from 'e2e';
 import type { App } from 'e2e';
 import { chromium } from 'playwright-core';
 import type { Page as RawPage } from 'playwright-core';
-import { cursorProblem, fast } from './guards.ts';
+import { cursorProblem, fast, selectionOf } from './guards.ts';
 import type { Disk, Page } from './nullpad.ts';
 
 /** Where a person aims the pointer: the gap before character `at` of the first `word` drawn on the page. */
@@ -39,29 +39,20 @@ function centreOf(spot: Spot) {
   return null;
 }
 
-/** The note as the page shows it: the part above the text field, the field, and the part below. */
+/**
+ * The note as the page shows it: the part drawn above the text field, the
+ * field while it is in sight, and the part drawn below.
+ */
 function shownInPage() {
+  const sheet = document.querySelector('.page')!;
   const rows = (part: Element | null) => (part ? [...part.children].map((row) => row.textContent ?? '') : []);
   const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+  const seen = field.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && field.getBoundingClientRect().height > 0;
   return [
-    ...rows(document.querySelector('[data-test-id="live-above"]')),
-    field.value,
-    ...rows(document.querySelector('[data-test-id="live-below"]')),
+    ...rows(sheet.querySelector('[data-test-id="live-above"], [data-test-id="preview"]')),
+    ...(seen ? [field.value] : []),
+    ...rows(sheet.querySelector('[data-test-id="live-below"]')),
   ].join('\n');
-}
-
-function caretInPage(model: { lines: string[] }) {
-  const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
-  const held = field.value.split('\n');
-  const below = document.querySelector<HTMLElement>('[data-test-id="live-below"] [data-row]');
-  const fenceBefore = (row: number) => /^[\s>]*(?:(?:[-*+]|\d+[.)])\s+)*(?:`{3,}|~{3,})/.test(model.lines[row - 1] ?? '');
-  const firstBelow = below
-    ? Number(below.dataset['row']) - (below.tagName === 'PRE' && fenceBefore(Number(below.dataset['row'])) ? 1 : 0)
-    : model.lines.length;
-  const first = firstBelow - held.length;
-  const before = field.value.slice(0, field.selectionStart);
-  const rowsBefore = before.split('\n');
-  return { row: first + rowsBefore.length - 1, col: rowsBefore[rowsBefore.length - 1]!.length, selected: field.selectionStart !== field.selectionEnd };
 }
 
 /** Drives the page view of one note the way a person does: the pointer, the keyboard and the clipboard. */
@@ -309,11 +300,14 @@ export class Editing {
     return this.fixtures.browser.evaluate(shownInPage);
   }
 
-  /** Where the caret is, from the page alone. `note` is what the page shows. */
+  /** Where the caret is, from the page alone: the start of the selection. `note` is what the page shows. */
   async caret(note: string) {
     await this.fixtures.page.nextFrame();
     if (fast) await this.seeCursor('the keys pressed');
-    return this.fixtures.browser.evaluate(caretInPage, { lines: note.split('\n') });
+    const got = await selectionOf(this.fixtures.browser, note.split('\n'), false);
+    if ('problem' in got) throw new Error(`the caret cannot be read: ${got.problem}`);
+    const [start] = [got.anchor, got.head].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return { row: start![0], col: start![1], selected: got.anchor[0] !== got.head[0] || got.anchor[1] !== got.head[1] };
   }
 
   async clipboard() {
