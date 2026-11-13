@@ -1258,6 +1258,8 @@ test('Shift and an arrow, Home or End pressed before the page draws act on the c
     ['ControlOrMeta+a', ['X', 'Y', 'End', 'Shift+ArrowLeft', 'Z'], 'XZ'],
     ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'Enter', 'W', 'ArrowLeft', 'Shift+End', 'Z'], 'X\nY\nZ'],
     ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'Enter', 'W', 'Home', 'Shift+ArrowRight', 'Z'], 'X\nY\nZ'],
+    ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'ControlOrMeta+a', 'Shift+ArrowLeft', 'Z'], 'ZY'],
+    ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'ControlOrMeta+a', 'Shift+Home', 'Z'], 'ZY'],
     ['ControlOrMeta+End', ['X', 'Y', 'Home', 'Shift+End', 'Z'], 'one\n\ntwo\n\nZ'],
     ['ControlOrMeta+End', ['Enter', 'X', 'Home', 'Shift+ArrowRight', 'Z'], 'one\n\ntwo\n\nthree\nZ'],
     ['ControlOrMeta+End', ['Enter', 'X', 'Enter', 'Y', 'ArrowLeft', 'Shift+End', 'Z'], 'one\n\ntwo\n\nthree\nX\nZ'],

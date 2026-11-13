@@ -118,6 +118,30 @@ test('ArrowDown from the end of a long row lands at the end of a shorter block',
   expect(await editor.caret(body)).toMatchObject({ row: 2, col: 5 });
 });
 
+test('ArrowDown keeps the column of keys pressed after an ArrowUp the page has not drawn yet', async (fixtures) => {
+  const body = '# Title\n\nlong row of xxxxxxxxxxxxxxxxxxxxxxxx';
+  const typed = body.replace('Title', 'TitleY');
+  const landing = async (held: boolean) => {
+    const editor = new Editing(fixtures);
+    await editor.open(body);
+    await editor.click({ word: 'long', at: 1 });
+    const press = async () => {
+      for (const key of ['ArrowUp', 'ArrowUp', 'End']) await fixtures.browser.keyboard.press(key);
+      await fixtures.browser.keyboard.type('Y');
+    };
+    if (held) await fixtures.page.beforeRedraw(press);
+    else {
+      await editor.press('ArrowUp', 'ArrowUp', 'End');
+      await editor.type('Y');
+    }
+    await editor.press('ArrowDown', 'ArrowDown');
+    return editor.caret(typed);
+  };
+  const slow = await landing(false);
+  expect(slow.col).toBeGreaterThan(10);
+  expect(await landing(true)).toEqual(slow);
+});
+
 test('ArrowDown from the start of a row lands at the start of the row below', async (fixtures) => {
   const items = '- xxxxa first\n- xxxxb second\n- xxxxc third';
   const editor = new Editing(fixtures);
