@@ -49,7 +49,7 @@ pub fn a_quote_puts_its_blocks_on_lines_of_their_own_test() {
 
 pub fn a_tight_item_shows_its_paragraphs_as_bare_text_test() {
   let nested = Block(1, 1, BulletList(Tight, [item(1, "b")]))
-  let first = Item(0, None, [Block(0, 0, Paragraph([Text("a")])), nested])
+  let first = Item(0, 2, None, [Block(0, 0, Paragraph([Text("a")])), nested])
   assert render.html([Block(0, 1, BulletList(Tight, [first]))])
     == "<ul>\n<li>a\n<ul>\n<li>b</li>\n</ul>\n</li>\n</ul>\n"
 }
@@ -69,13 +69,15 @@ pub fn an_ordered_list_names_its_start_unless_it_is_one_test() {
 }
 
 pub fn an_empty_item_is_an_empty_li_test() {
-  assert render.html([Block(0, 0, BulletList(Tight, [Item(0, None, [])]))])
+  assert render.html([Block(0, 0, BulletList(Tight, [Item(0, 2, None, [])]))])
     == "<ul>\n<li></li>\n</ul>\n"
 }
 
 pub fn a_task_starts_its_item_with_a_disabled_checkbox_test() {
   let task = fn(checked) {
-    Item(0, Some(Task(checked, 0, 3)), [Block(0, 0, Paragraph([Text("a")]))])
+    Item(0, 6, Some(Task(checked, 0, 3)), [
+      Block(0, 0, Paragraph([Text("a")])),
+    ])
   }
   assert render.html([Block(0, 0, BulletList(Tight, [task(False)]))])
     == "<ul>\n<li><input type=\"checkbox\" disabled=\"\" /> a</li>\n</ul>\n"
@@ -108,7 +110,7 @@ pub fn a_column_names_its_alignment_on_every_cell_it_has_test() {
 }
 
 fn item(row: Int, text: String) -> markdown.Item {
-  Item(row, None, [Block(row, row, Paragraph([Text(text)]))])
+  Item(row, 2, None, [Block(row, row, Paragraph([Text(text)]))])
 }
 
 pub fn code_is_escaped_inside_pre_and_code_test() {

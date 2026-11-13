@@ -73,9 +73,12 @@ pub type Spacing {
 
 /// An item is a list of blocks, so a nested list is just a list block inside
 /// an item: nesting falls out of the recursion. `row` is the item's first
-/// line, the one that holds its marker.
+/// line, the one that holds its marker. `content_col` counts the code points
+/// of that line before the item's content: its indentation, the marker, the
+/// box of a task and the spaces after them, or the whole line when nothing
+/// follows the marker. Like `Task.col`, from the start of the line.
 pub type Item {
-  Item(row: Int, task: Option(Task), blocks: List(Block))
+  Item(row: Int, content_col: Int, task: Option(Task), blocks: List(Block))
 }
 
 /// The box of a task item: `[ ]`, or `[x]` when `checked`, at the start of
@@ -283,7 +286,7 @@ type OpenList {
 }
 
 type OpenItem {
-  OpenItem(row: Int, width: Int, task: Option(Task))
+  OpenItem(row: Int, width: Int, content_col: Int, task: Option(Task))
 }
 
 type Marker {
@@ -469,12 +472,15 @@ fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
       |> start_blocks(matched + 1, rest)
     NextItem(width:, rest:), _ ->
       close_to(open, matched + 1, row)
-      |> next_item(row, width)
+      |> next_item(row, width, content_col(rest))
       |> start_blocks(matched + 1, rest)
     ListStart(marker:, number:, width:, rest:), _ -> {
       let of = OpenList(row, row, marker, number, [], Tight)
       close_to(open, matched, row)
-      |> push_frame(InList(of, Some(OpenItem(row, width, None))))
+      |> push_frame(InList(
+        of,
+        Some(OpenItem(row, width, content_col(rest), None)),
+      ))
       |> start_blocks(matched + 1, rest)
     }
     HeadingStart(level, text), _ ->
@@ -557,6 +563,13 @@ fn item_start(open: Open, matched: Int, line: Line) -> Start {
         spaces -> item(line.indent + length + spaces, skip_margin(after))
       }
     }
+  }
+}
+
+fn content_col(rest: Line) -> Int {
+  case rest.text {
+    [] -> rest.offset + list.length(rest.margin)
+    _ -> rest.offset
   }
 }
 
@@ -673,9 +686,13 @@ fn open_paragraph(open: Open, line: Line) -> Open {
   }
   case open.frames, task_box(line) {
     [Frame(InList(of, Some(OpenItem(task: None, ..) as item)), []), ..outer],
-      Ok(#(task, rest))
+      Ok(#(task, content_col, rest))
     -> {
-      let item = OpenItem(..item, task: Some(task))
+      let content_col = case line.row == item.row {
+        True -> content_col
+        False -> item.content_col
+      }
+      let item = OpenItem(..item, content_col:, task: Some(task))
       let open =
         Open(..open, frames: [Frame(InList(of, Some(item)), []), ..outer])
       case rest {
@@ -687,12 +704,15 @@ fn open_paragraph(open: Open, line: Line) -> Open {
   }
 }
 
-fn task_box(line: Line) -> Result(#(Task, List(String)), Nil) {
+fn task_box(line: Line) -> Result(#(Task, Int, List(String)), Nil) {
   case line.text {
     ["[", mark, "]", ..after] if mark == " " || mark == "x" || mark == "X" ->
       case after {
-        [] | [" ", ..] | ["\t", ..] ->
-          Ok(#(Task(mark != " ", line.row, line.offset + 1), drop_spaces(after)))
+        [] | [" ", ..] | ["\t", ..] -> {
+          let #(spaces, rest) = list.split_while(after, is_space_or_tab)
+          let task = Task(mark != " ", line.row, line.offset + 1)
+          Ok(#(task, line.offset + 3 + list.length(spaces), rest))
+        }
         _ -> Error(Nil)
       }
     _ -> Error(Nil)
@@ -753,18 +773,22 @@ fn end_item(of: OpenList, item: OpenItem, blocks: List(Block)) -> OpenList {
   OpenList(
     ..of,
     last_row:,
-    items: [Item(item.row, item.task, list.reverse(blocks)), ..of.items],
+    items: [
+      Item(item.row, item.content_col, item.task, list.reverse(blocks)),
+      ..of.items
+    ],
     spacing: loosen(of.spacing, has_gap(blocks)),
   )
 }
 
-fn next_item(open: Open, row: Int, width: Int) -> Open {
+fn next_item(open: Open, row: Int, width: Int, content_col: Int) -> Open {
   case open.frames {
     [Frame(InList(of, item), blocks), ..outer] -> {
       let of = end_open_item(of, item, blocks)
       let of =
         OpenList(..of, spacing: loosen(of.spacing, row > of.last_row + 1))
-      let frame = Frame(InList(of, Some(OpenItem(row, width, None))), [])
+      let item = OpenItem(row, width, content_col, None)
+      let frame = Frame(InList(of, Some(item)), [])
       Open(..open, frames: [frame, ..outer])
     }
     _ -> open

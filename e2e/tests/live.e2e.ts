@@ -309,31 +309,47 @@ test('coming back from the title to the note does not scroll the page', async ({
 });
 
 
-test('the words of a list item stay where they are when the cursor reaches it', async ({
-  app,
-  browser,
-  disk,
-  page,
-}) => {
-  const long = `long ${'wrap '.repeat(60)}tail`;
-  const items = ['- bullet', `- ${long}`, '1. first', '12. twelfth', '- [ ] task', '- [x] done'];
-  const words = ['bullet', 'long', 'tail', 'first', 'twelfth', 'task', 'done'];
-  await openLive({ app, disk, page }, `top\n\n${items.join('\n')}`);
-  const drawn = new Map<string, { left: number; top: number } | null>();
-  for (const word of words) drawn.set(word, await page.placeOf(word));
+const longItem = `long ${'wrap '.repeat(60)}tail`;
+const marked = [
+  {
+    title: 'when the cursor reaches it',
+    items: ['- bullet', `- ${longItem}`, '1. first', '12. twelfth', '- [ ] task', '- [x] done'],
+    words: ['bullet', 'long', 'tail', 'first', 'twelfth', 'task', 'done'],
+    between: '\n',
+  },
+  {
+    title: 'however its marker is typed',
+    items: ['* star', '+ plus', '3) paren', '-  roomy', '  - indented', '   1. deeper', '- [ ]  boxed'],
+    words: ['star', 'plus', 'paren', 'roomy', 'indented', 'deeper', 'boxed'],
+    between: '\n\n',
+  },
+  {
+    title: 'when a box has no space after it, so it is no box',
+    items: ['- [ ]zulu', '1. [x]yankee'],
+    words: ['zulu', 'yankee'],
+    between: '\n\n',
+  },
+];
 
-  for (const item of items) {
-    while ((await page.text.inputValue()) !== item) {
-      await browser.keyboard.press('ArrowDown');
-      await pause(60);
+for (const { title, items, words, between } of marked) {
+  test(`the words of a list item stay where they are ${title}`, async ({ app, browser, disk, page }) => {
+    await openLive({ app, disk, page }, `top\n\n${items.join(between)}`);
+    const drawn = new Map<string, { left: number; top: number } | null>();
+    for (const word of words) drawn.set(word, await page.placeOf(word));
+
+    for (const item of items) {
+      while ((await page.text.inputValue()) !== item) {
+        await browser.keyboard.press('ArrowDown');
+        await pause(60);
+      }
+      for (const word of words.filter((word) => item.includes(word))) {
+        const was = drawn.get(word)!;
+        const now = (await page.placeOf(word))!;
+        expect({ word, left: Math.round(now.left - was.left), top: Math.round(now.top - was.top) }).toEqual({ word, left: 0, top: 0 });
+      }
     }
-    for (const word of words.filter((word) => item.includes(word))) {
-      const was = drawn.get(word)!;
-      const now = (await page.placeOf(word))!;
-      expect({ word, left: Math.round(now.left - was.left), top: Math.round(now.top - was.top) }).toEqual({ word, left: 0, top: 0 });
-    }
-  }
-});
+  });
+}
 
 test('the words of a list with blank lines in it do not move as the cursor walks through', async ({
   app,
