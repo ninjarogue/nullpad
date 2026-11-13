@@ -557,3 +557,161 @@ test('a click on a fence with no code puts the caret after the fence, where code
   await browser.keyboard.type('let a = 1;');
   await expect(page.text).toHaveValue('```js\nlet a = 1;');
 });
+
+test('a mouse drag from a paragraph into a later block selects the rows between', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+
+  await page.drag(await page.pointAt('hotel'), await page.pointAt('Shoes'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
+    selected: 'hotel is *not*.\n\n- [ ] Passport\n',
+    backward: false,
+  });
+});
+
+test('a mouse drag up into an earlier block selects backwards', async ({ app, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+
+  await page.drag(await page.pointAt('last'), await page.pointAt('booked'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: `${paragraph}\n\n- [ ] Passport\n- Shoes\n\nlast`,
+    selected: '**booked** and the hotel is *not*.\n\n- [ ] Passport\n- Shoes\n\n',
+    backward: true,
+  });
+});
+
+test('a mouse drag that starts in the text field selects past it', async ({ app, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('em').tap();
+  await expect(page.text).toHaveValue(paragraph);
+
+  await page.drag(await page.pointAt('booked'), await page.pointAt('Shoes'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
+    selected: 'booked** and the hotel is *not*.\n\n- [ ] Passport\n',
+    backward: false,
+  });
+});
+
+test('Shift and a click select from where the caret is to the place clicked', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('em').tap();
+  await browser.keyboard.press('End');
+
+  const shoes = await page.pointAt('Shoes');
+  await browser.keyboard.down('Shift');
+  await browser.mouse.move(shoes.x, shoes.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await browser.keyboard.up('Shift');
+  await expect.poll(() => page.selection()).toEqual({
+    text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
+    selected: '\n\n- [ ] Passport\n',
+    backward: false,
+  });
+});
+
+test('Shift+ArrowDown selects into the blocks below, and a letter replaces the selection', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await browser.keyboard.press('End');
+
+  for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('Shift+ArrowDown');
+  await expect.poll(() => page.selection()).toEqual({
+    text: `# Trip\n\n${paragraph}\n`,
+    selected: `\n\n${paragraph}\n`,
+    backward: false,
+  });
+
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('# TripX');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('# TripX\n- [ ] Passport\n- Shoes\n\nlast');
+});
+
+test('Shift+ArrowUp selects into the blocks above, and Backspace deletes the selection', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('p').last().tap();
+  await expect(page.text).toHaveValue('last');
+  await browser.keyboard.press('Home');
+
+  await browser.keyboard.press('Shift+ArrowUp');
+  await browser.keyboard.press('Shift+ArrowUp');
+  await expect.poll(() => page.selection()).toEqual({
+    text: '- Shoes\n\nlast',
+    selected: '- Shoes\n\n',
+    backward: true,
+  });
+
+  await browser.keyboard.press('Backspace');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(`# Trip\n\n${paragraph}\n\n- [ ] Passport\nlast`);
+});
+
+test('Ctrl+A selects the whole note, and copying it copies the markdown', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.selection()).toEqual({ text: body, selected: body, backward: false });
+
+  await browser.evaluate(() => {
+    document.addEventListener('copy', (event) => {
+      const field = event.target as HTMLTextAreaElement;
+      (globalThis as { copied?: string }).copied = field.value.slice(field.selectionStart, field.selectionEnd);
+    });
+    return null;
+  });
+  await browser.keyboard.press('ControlOrMeta+c');
+  expect(await browser.evaluate(() => (globalThis as { copied?: string }).copied ?? null)).toBe(body);
+});
+
+test('a click after a selection across blocks puts one block back in the field', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect(page.text).toHaveValue(body);
+
+  const shoes = await page.pointAt('Shoes');
+  await browser.mouse.move(shoes.x, shoes.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(page.text).toHaveValue('- Shoes');
+  await expect(page.drawn('h1')).toHaveText('Trip');
+});
+
+test('a double-click in the text field still selects one word', async ({ app, disk, page }) => {
+  const long = 'word '.repeat(80).trim();
+  await openLive({ app, disk, page }, `# Trip\n\n${long}`);
+  await page.drawn('p').tap();
+  await expect(page.text).toHaveValue(long);
+
+  await page.text.dblclick();
+  await expect.poll(async () => (await page.selection()).selected).toBe('word');
+});

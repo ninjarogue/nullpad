@@ -42,14 +42,28 @@ pub type Event {
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
   EscapePressed(shown: Buffer)
   Pointed(row: Int, visible: String, at_end: Bool)
+  /// Shift and a press: the head moves there and the anchor stays where
+  /// `shown`, the field as it is now, has it.
+  ShiftPointed(row: Int, visible: String, at_end: Bool, shown: Buffer)
+  Dragged(row: Int, visible: String, at_end: Bool)
+  Released
   FocusChanged(focused: Bool)
 }
 
+/// A key that reaches past the rows the field holds. The `Select` keys move
+/// the head and keep the anchor.
 pub type Edge {
   Up
   Down
   JoinBefore
   JoinAfter
+  SelectUp
+  SelectDown
+  SelectBefore
+  SelectAfter
+  SelectToStart
+  SelectToEnd
+  SelectAll
 }
 
 pub type Sync {
@@ -146,6 +160,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       |> realign
       |> write_and_focus
     }
+    ShiftPointed(..) | Dragged(..) | Released ->
+      Outcome(editor:, sync: InSync, requests: [])
     FocusChanged(focused:) ->
       Outcome(editor: Editor(..editor, focused:), sync: InSync, requests: [])
   }
@@ -225,7 +241,17 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       let to = Position(row: cursor.row + 1, col: 0)
       #(buffer.replace(base, from:, to:, with: ""), None)
     }
-    Up | Down | JoinBefore | JoinAfter -> #(base, None)
+    Up
+    | Down
+    | JoinBefore
+    | JoinAfter
+    | SelectUp
+    | SelectDown
+    | SelectBefore
+    | SelectAfter
+    | SelectToStart
+    | SelectToEnd
+    | SelectAll -> #(base, None)
   }
   let editor = edit(editor, wanted) |> realign
   let wanted_shown = field_buffer(editor)

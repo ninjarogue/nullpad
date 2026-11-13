@@ -347,6 +347,45 @@ class Page {
     );
   }
 
+  /** A point near the left edge of the first letter of `word`, in the window, drawn or in the text field. */
+  pointAt(word: string) {
+    return this.browser.evaluate((word: string) => {
+      const texts = document.createTreeWalker(document.querySelector('.page')!, NodeFilter.SHOW_TEXT);
+      for (let text = texts.nextNode() as Text | null; text; text = texts.nextNode() as Text | null) {
+        const at = text.data.indexOf(word);
+        if (at < 0 || text.parentElement!.closest('textarea')) continue;
+        const range = document.createRange();
+        range.setStart(text, at);
+        range.setEnd(text, at + 1);
+        const box = range.getBoundingClientRect();
+        return { x: box.left + 2, y: box.top + box.height / 2 };
+      }
+      throw new Error(`"${word}" is not on the page`);
+    }, word);
+  }
+
+  /** Presses the mouse at one point, moves it to another and lets go. */
+  async drag(from: { x: number; y: number }, to: { x: number; y: number }) {
+    await this.browser.mouse.move(from.x, from.y);
+    await this.browser.mouse.down();
+    await this.nextFrame();
+    await this.browser.mouse.move(to.x, to.y);
+    await this.nextFrame();
+    await this.browser.mouse.up();
+  }
+
+  /** The text field's text, the part of it selected, and whether it was selected backwards. */
+  selection() {
+    return this.browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      return {
+        text: field.value,
+        selected: field.value.slice(field.selectionStart, field.selectionEnd),
+        backward: field.selectionDirection === 'backward',
+      };
+    });
+  }
+
   /** The text field's text with `|` where the caret is. */
   caret() {
     return this.browser.evaluate(() => {
