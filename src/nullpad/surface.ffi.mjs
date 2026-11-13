@@ -346,7 +346,16 @@ function caretBox(range) {
   return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));
 }
 
-function paintedHead() {
+// The element the head of a painted selection is drawn in, and its text.
+export function paintedHead(id, rowMark, paintedClass) {
+  const painted = document.getElementById(id)?.closest("." + paintedClass);
+  const head = painted && [...(globalThis.CSS?.highlights?.get(HEAD) ?? [])][0];
+  const node = head?.startContainer;
+  const holder = (node instanceof Element ? node : node?.parentElement)?.closest(`[data-${rowMark}]`);
+  return holder ? [Number(holder.dataset[rowMark]), holder.textContent] : [-1, ""];
+}
+
+function headPlace() {
   const marker = globalThis.CSS?.highlights?.get(HEAD);
   const head = marker && [...marker][0];
   if (!head) return null;
@@ -372,7 +381,7 @@ export function headLine(id, liveClass, paintedClass) {
   const page = control?.closest("." + liveClass);
   if (!page) return [false, false, 0];
   if (control.closest("." + paintedClass)) {
-    const head = paintedHead();
+    const head = headPlace();
     return head ? [true, true, head.box.left - columnLeft(page)] : [false, false, 0];
   }
   const [first, last, x] = caretLine(id);
@@ -389,7 +398,7 @@ export function stepHead(id, liveClass, rowMark, paintedClass, x, up) {
   const page = control?.closest("." + liveClass);
   if (!page) return none;
   const painted = control.closest("." + paintedClass) !== null;
-  const head = () => (painted ? paintedHead() : fieldCaret(control));
+  const head = () => (painted ? headPlace() : fieldCaret(control));
   const before = head();
   if (!before) return none;
   const view = page.getBoundingClientRect();

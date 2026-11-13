@@ -276,7 +276,18 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         }
       }
     }
-    Nudged(..) -> Outcome(editor:, sync: InSync, requests: [])
+    Nudged(forward:, row:, visible:, shown:) -> {
+      let base = base(editor, shown)
+      let #(anchor, head) = buffer.selection(base)
+      let head =
+        live.nudge(buffer.lines(base), row:, visible:, at: head, forward:)
+      let editor = edit(editor, buffer.select(base, anchor:, head:)) |> realign
+      let sync = case field_buffer(editor) == shown {
+        True -> InSync
+        False -> Write(field_buffer(editor))
+      }
+      Outcome(editor:, sync:, requests: [])
+    }
     Released -> {
       let focus = case editor.focus {
         Pressing | Focused -> Focused

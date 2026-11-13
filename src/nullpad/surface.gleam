@@ -471,15 +471,31 @@ fn edge_decoder(
       | editor.SelectAll -> Ok(#(edge, 0.0))
     }
   }
-  case edge {
-    Ok(#(edge, x)) ->
-      on_event(editor.EdgePressed(edge:, x:, shown:))
+  let pressed = case edge, name {
+    Ok(#(edge, x)), _ -> Ok(editor.EdgePressed(edge:, x:, shown:))
+    Error(Nil), "ArrowLeft" if shifted -> nudged(False, shown)
+    Error(Nil), "ArrowRight" if shifted -> nudged(True, shown)
+    Error(Nil), _ -> Error(Nil)
+  }
+  case pressed {
+    Ok(pressed) ->
+      on_event(pressed)
       |> event.handler(prevent_default: True, stop_propagation: False)
       |> decode.success
     Error(Nil) ->
       on_event(editor.ControlChanged(shown:))
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key at the edge of the field")
+  }
+}
+
+/// Shift and an arrow left or right over a painted selection go through
+/// the editor, which knows what the page draws of the markdown.
+fn nudged(forward: Bool, shown: Buffer) -> Result(editor.Event, Nil) {
+  case painted_head(control_id, live.row_mark, painted_class) {
+    #(row, visible) if row >= 0 ->
+      Ok(editor.Nudged(forward:, row:, visible:, shown:))
+    _ -> Error(Nil)
   }
 }
 
@@ -560,6 +576,13 @@ fn step_head(
   x: Float,
   up: Bool,
 ) -> #(Int, String, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "paintedHead")
+fn painted_head(
+  id: String,
+  row_mark: String,
+  painted_class: String,
+) -> #(Int, String)
 
 @external(javascript, "./surface.ffi.mjs", "holderText")
 fn holder_text(

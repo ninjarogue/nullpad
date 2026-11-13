@@ -178,11 +178,67 @@ fn unmatch(
 /// the start of the row, to the row beyond. `row` and `visible` are as for
 /// `drawn`, for the element `at` is drawn in.
 pub fn nudge(
-  _lines: List(String),
-  row _row: Int,
-  visible _visible: String,
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
   at at: Position,
-  forward _forward: Bool,
+  forward forward: Bool,
 ) -> Position {
-  at
+  let line = fn(at_row) {
+    case at_row >= 0 {
+      True -> lines |> list.drop(at_row) |> list.first
+      False -> Error(Nil)
+    }
+  }
+  let index = at.row - row
+  let here = case index >= 0 {
+    True -> string.split(visible, "\n") |> list.drop(index) |> list.first
+    False -> Error(Nil)
+  }
+  let typed = line(at.row) |> result.unwrap("") |> string.to_graphemes
+  let length = list.length(typed)
+  let drawn = here |> result.unwrap("") |> string.to_graphemes
+  case forward, line(at.row + 1), line(at.row - 1) {
+    True, Ok(_), _ if at.col >= length -> Position(row: at.row + 1, col: 0)
+    False, _, Ok(above) if at.col <= 0 ->
+      Position(row: at.row - 1, col: string.length(above))
+    True, _, _ -> {
+      let #(typed, drawn, _) = walk(typed, drawn, 0, at.col, 0)
+      Position(..at, col: next_drawn(typed, drawn, int.max(at.col, 0)))
+    }
+    False, _, _ -> {
+      let #(_, _, last) = walk(typed, drawn, 0, at.col, 0)
+      Position(..at, col: last)
+    }
+  }
+}
+
+/// Matches `typed` against `drawn` the way `column` does, up to column
+/// `until`: what is left of each, and the column of the last character
+/// matched, or 0.
+fn walk(
+  typed: List(String),
+  drawn: List(String),
+  col: Int,
+  until: Int,
+  last: Int,
+) -> #(List(String), List(String), Int) {
+  case typed, drawn {
+    _, _ if col >= until -> #(typed, drawn, last)
+    [], _ -> #(typed, drawn, last)
+    [one, ..typed], [next, ..rest] if one == next ->
+      walk(typed, rest, col + 1, until, col)
+    [_, ..typed], _ -> walk(typed, drawn, col + 1, until, last)
+  }
+}
+
+/// The column just after the next character of `drawn` in `typed`, or the
+/// end of `typed` when nothing more of it is drawn.
+fn next_drawn(typed: List(String), drawn: List(String), col: Int) -> Int {
+  case typed, drawn {
+    [one, ..], [next, ..] if one == next -> col + 1
+    [_, ..typed], [_, ..] -> next_drawn(typed, drawn, col + 1)
+    [], _ -> col
+    _, [] -> col + list.length(typed)
+  }
 }
