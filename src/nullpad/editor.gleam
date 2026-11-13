@@ -38,6 +38,9 @@ type Press {
   /// A second press in a row selected this word: a drag selects whole words,
   /// and always this one.
   PressedOnWord(start: Position, end: Position)
+  /// A third press in a row selected this line: a drag selects whole lines,
+  /// and always this one.
+  PressedOnLine(start: Position, end: Position)
   /// A press on a painted selection, which drags it: let go where it was
   /// pressed, it puts the caret there.
   PressedOnSelection(Position)
@@ -113,6 +116,16 @@ pub type Event {
   )
   /// The second press of a double click: selects the word there.
   WordPointed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
+  /// The third press of a triple click: selects the line there, as a text
+  /// field does.
+  LinePointed(
     row: Int,
     visible: String,
     at_end: Bool,
@@ -355,6 +368,24 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     }
+    LinePointed(row:, visible:, at_end:, next:, x:, y:) -> {
+      let at = place(editor.buffer, row:, visible:, at_end:, next:)
+      let #(start, end) = line_at(editor, at.row)
+      let editor =
+        Editor(
+          ..editor,
+          focus: Focused,
+          press: Some(PressedOnLine(start:, end:)),
+          waiting: [],
+        )
+        |> edit(buffer.select(editor.buffer, anchor: start, head: end))
+        |> realign
+      Outcome(
+        editor:,
+        sync: Press(Some(field_buffer(editor)), x:, y:),
+        requests: [],
+      )
+    }
     ShiftPointed(row:, visible:, at_end:, next:, shown:, x:, y:) -> {
       let from = base(editor, shown)
       let #(anchor, _) = buffer.selection(from)
@@ -445,6 +476,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         Some(PressedOnSelection(_)), True
         | Some(PressedAt(_)), _
         | Some(PressedOnWord(..)), _
+        | Some(PressedOnLine(..)), _
         | None, _
         -> Outcome(editor: let_go, sync: InSync, requests: [])
       }
@@ -531,7 +563,31 @@ fn stretch(in: Buffer, press: Press, to at: Position) -> #(Position, Position) {
         _, order.Gt -> #(start, buffer.word_at(in, at).1)
         order.Eq, _ | order.Gt, order.Lt | order.Gt, order.Eq -> #(start, end)
       }
+    PressedOnLine(start:, end:) ->
+      case buffer.compare(at, start), buffer.compare(at, end) {
+        order.Lt, _ -> #(end, Position(row: at.row, col: 0))
+        _, order.Gt -> #(start, line_end(in, at.row))
+        order.Eq, _ | order.Gt, order.Lt | order.Gt, order.Eq -> #(start, end)
+      }
   }
+}
+
+/// What a third click in the field selects on `row`: the row, and the line
+/// break after it when the field would hold the row below too.
+fn line_at(editor: Editor, row: Int) -> #(Position, Position) {
+  let last = case editor.field {
+    Whole -> list.length(buffer.lines(editor.buffer)) - 1
+    Part(drawn:, ..) -> live.reveal(drawn, from: row, to: row).last_row
+  }
+  case row < last {
+    True -> #(Position(row:, col: 0), Position(row: row + 1, col: 0))
+    False -> #(Position(row:, col: 0), line_end(editor.buffer, row))
+  }
+}
+
+fn line_end(in: Buffer, row: Int) -> Position {
+  let line = buffer.lines(in) |> list.drop(row) |> list.first
+  Position(row:, col: string.length(result_or_empty(line)))
 }
 
 fn place(

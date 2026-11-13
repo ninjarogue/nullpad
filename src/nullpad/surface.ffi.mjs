@@ -44,6 +44,21 @@ export function focusControl(id, liveClass, paintedClass) {
   else if (below > 0) page.scrollTop += below;
 }
 
+// A press writes the field at once, but the page draws it where it was
+// pressed only on the next frame. A key, or the paste Linux does on a middle
+// release, before then scrolls the page to where the field was drawn, so the
+// page is held where it is until then.
+export function holdPage(id, liveClass) {
+  const page = document.getElementById(id)?.closest("." + liveClass);
+  if (!page) return;
+  const top = page.scrollTop;
+  const keep = () => {
+    page.scrollTop = top;
+  };
+  page.addEventListener("scroll", keep);
+  requestAnimationFrame(() => page.removeEventListener("scroll", keep));
+}
+
 export function focusInPlace(id) {
   document.getElementById(id)?.focus({ preventScroll: true });
 }
@@ -426,7 +441,14 @@ function drawnAt(x, y, rowMark, pointer = x) {
   range.setStart(holder, 0);
   range.setEnd(point.node, point.offset);
   const visible = range.toString();
-  let next = characterAt(holder.textContent, visible.length);
+  // A table row draws its cells with nothing between them, so the end of
+  // one cell and the start of the next are told apart by the cell.
+  const cell = inside.closest("td, th") ?? holder;
+  const after = document.createRange();
+  after.setStart(point.node, point.offset);
+  after.setEnd(cell, cell.childNodes.length);
+  const rest = after.toString();
+  let next = rest !== "" ? characterAt(rest, 0) : cell === holder ? "\n" : "";
   const rowStart = visible === "" || visible.endsWith("\n");
   if (rowStart && holder.closest("li")) {
     const box = letterAfter(holder, point.node, point.offset);
