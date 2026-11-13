@@ -1721,3 +1721,32 @@ test('Shift and a click on a link or a box select to it, and neither opens the l
   await page.showMarkdown();
   await expect(page.text).toHaveValue('alpha beta gamma\n\nsee the [long link text](https://example.com/x) tail\n\n- [ ] box item');
 });
+
+test('a middle click on the drawn page puts the caret where it clicked, where Linux pastes', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'first line\n\nsecond paragraph\n\nA [link](https://example.com) here');
+  await browser.keyboard.press('End');
+  const middleClick = (point: { x: number; y: number }) =>
+    browser.evaluate((at: { x: number; y: number }) => {
+      const target = document.elementFromPoint(at.x, at.y)!;
+      const press = { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, button: 1 };
+      target.dispatchEvent(new MouseEvent('mousedown', { ...press, buttons: 4 }));
+      target.dispatchEvent(new MouseEvent('mouseup', press));
+      target.dispatchEvent(new MouseEvent('auxclick', press));
+      return null;
+    }, point);
+
+  await middleClick(await page.pointAt('econd'));
+  await expect.poll(() => page.caret()).toBe('s|econd paragraph');
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('sXecond paragraph');
+
+  await middleClick(await page.pointAt('link'));
+  await page.nextFrame();
+  expect(await page.caret()).toBe('sX|econd paragraph');
+});
