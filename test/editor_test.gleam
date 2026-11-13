@@ -805,7 +805,7 @@ pub fn shift_and_an_arrow_left_or_right_on_a_painted_selection_skip_hidden_marks
     == editor.Write(selected(
       "# Trip\n\nFlights are **booked**.",
       from: Position(0, 4),
-      to: Position(2, 14),
+      to: Position(2, 12),
     ))
   assert editor.text(ed) == live_note
 }

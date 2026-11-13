@@ -2,7 +2,7 @@
 
 import gleam/int
 import gleam/list
-import gleam/option
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
@@ -174,9 +174,12 @@ fn unmatch(
 
 /// One character drawn on the page from `at`, along its row, past the marks
 /// the page does not draw: forward to just after the next drawn character,
-/// back to just after the drawn character before the last. Past the end or
-/// the start of the row, to the row beyond. `row` and `visible` are as for
-/// `drawn`, for the element `at` is drawn in.
+/// back to just before the last. Marks between two drawn characters go with
+/// the one before them when they close what it is in, and with the one after
+/// them when they open what it is in, so a selection that ends there holds
+/// both marks of a pair or neither. Past the end or the start of the row, to
+/// the row beyond. `row` and `visible` are as for `drawn`, for the element
+/// `at` is drawn in.
 pub fn nudge(
   lines: List(String),
   row row: Int,
@@ -203,13 +206,11 @@ pub fn nudge(
     False, _, Ok(above) if at.col <= 0 ->
       Position(row: at.row - 1, col: string.length(above))
     True, _, _ -> {
-      let #(typed, drawn, _) = walk(typed, drawn, 0, at.col, 0)
+      let #(typed, drawn) = walk(typed, drawn, 0, at.col)
       Position(..at, col: next_drawn(typed, drawn, int.max(at.col, 0)))
     }
-    False, _, _ -> {
-      let #(_, _, last) = walk(typed, drawn, 0, at.col, 0)
-      Position(..at, col: last)
-    }
+    False, _, _ ->
+      Position(..at, col: last_drawn(typed, drawn, 0, at.col, None, None))
   }
 }
 
@@ -218,25 +219,84 @@ fn walk(
   drawn: List(String),
   col: Int,
   until: Int,
-  last: Int,
-) -> #(List(String), List(String), Int) {
+) -> #(List(String), List(String)) {
   case typed, drawn {
-    _, _ if col >= until -> #(typed, drawn, last)
-    [], _ -> #(typed, drawn, last)
+    _, _ if col >= until -> #(typed, drawn)
+    [], _ -> #(typed, drawn)
     [one, ..typed], [next, ..rest] if one == next ->
-      walk(typed, rest, col + 1, until, col)
-    [_, ..typed], _ -> walk(typed, drawn, col + 1, until, last)
+      walk(typed, rest, col + 1, until)
+    [_, ..typed], _ -> walk(typed, drawn, col + 1, until)
   }
 }
 
 fn next_drawn(typed: List(String), drawn: List(String), col: Int) -> Int {
   case typed, drawn {
-    [one, ..], [next, ..] if one == next -> col + 1
+    [one, ..typed], [next, ..drawn] if one == next ->
+      case drawn {
+        [] -> col + 1 + list.length(typed)
+        [after, ..] ->
+          case closes(Some(one), after) {
+            True -> skip_to(typed, after, col + 1)
+            False -> col + 1
+          }
+      }
     [_, ..typed], [_, ..] -> next_drawn(typed, drawn, col + 1)
     [], _ -> col
     _, [] -> col + list.length(typed)
   }
 }
+
+fn skip_to(typed: List(String), drawn: String, col: Int) -> Int {
+  case typed {
+    [one, ..] if one == drawn -> col
+    [_, ..typed] -> skip_to(typed, drawn, col + 1)
+    [] -> col
+  }
+}
+
+/// `last` and `before` are the last two drawn characters passed, with their
+/// columns.
+fn last_drawn(
+  typed: List(String),
+  drawn: List(String),
+  col: Int,
+  until: Int,
+  last: Option(#(Int, String)),
+  before: Option(#(Int, String)),
+) -> Int {
+  case typed, drawn {
+    [one, ..typed], [next, ..drawn] if one == next && col < until ->
+      last_drawn(typed, drawn, col + 1, until, Some(#(col, one)), last)
+    [_, ..typed], _ if col < until ->
+      last_drawn(typed, drawn, col + 1, until, last, before)
+    _, _ ->
+      case last, before {
+        None, _ -> 0
+        Some(#(at, _)), None -> at
+        Some(#(at, one)), Some(#(left, previous)) ->
+          case closes(Some(previous), one) {
+            True -> at
+            False -> left + 1
+          }
+      }
+  }
+}
+
+/// Whether the marks between two drawn characters close what the first is
+/// in, judged the way CommonMark tells a closing run from an opening one: a
+/// run before a space or a punctuation mark closes, a run after a space
+/// opens. At the start of a row the marks before the first character go
+/// with it.
+fn closes(before: Option(String), after: String) -> Bool {
+  case before {
+    _ if after == " " || after == "\t" -> True
+    None -> True
+    Some(" ") | Some("\t") -> False
+    Some(_) -> string.contains(punctuation, after)
+  }
+}
+
+const punctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 /// The blocks as drawn, after the rows `from` became the rows `to`, which
 /// start at the same row: the rows below move with them, and the rows that
