@@ -29,7 +29,7 @@ export function focusControl(id, liveClass, paintedClass) {
   }
   control.focus({ preventScroll: true });
   const painted = control.closest("." + paintedClass) ? headPlace() : null;
-  let top = painted?.box.top;
+  let top = painted && painted.box.top + (painted.box.height - painted.line) / 2;
   let line = painted?.line;
   if (!painted) {
     const place = measure(control);
