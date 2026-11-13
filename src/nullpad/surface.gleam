@@ -92,7 +92,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.on("dragend", decode.success(on_event(editor.Released))),
         // The page cancels `dragover` to take drops beside the field, and a
         // cancelled one would stop the browser dropping on the field.
-        event.on("dragover", decode.failure(on_event(editor.Released), "none"))
+        event.advanced("dragover", refuse_file(on_event))
           |> event.stop_propagation,
         event.on("focus", focus_changed(True)),
         // Another window taking the focus blurs the field but leaves it
@@ -239,10 +239,29 @@ fn on_shift_click(
   })
 }
 
+/// A file dragged in with no text. Dropped where nothing refuses it, the
+/// browser opens it in place of the app.
+fn refuse_file(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use types <- decode.then(decode.optionally_at(
+    ["dataTransfer", "types"],
+    [],
+    decode.list(decode.string),
+  ))
+  let handler =
+    on_event(editor.Released)
+    |> event.handler(prevent_default: True, stop_propagation: False)
+  case list.contains(types, "Files") && !list.contains(types, "text/plain") {
+    True -> decode.success(handler)
+    False -> decode.failure(handler, expected: "a file with no text")
+  }
+}
+
 /// Text dropped on the page beside the field. The browser drops what lands
 /// on the field itself.
 fn on_drop(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
-  event.advanced("drop", {
+  let text = {
     use drop <- decode.then(decode.dynamic)
     let shown = decode.run(find_control(control_id), control_decoder())
     case dropped(drop, live.row_mark), shown {
@@ -263,7 +282,8 @@ fn on_drop(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
         |> event.handler(prevent_default: False, stop_propagation: False)
         |> decode.failure(expected: "text dropped beside the field")
     }
-  })
+  }
+  event.advanced("drop", decode.one_of(text, [refuse_file(on_event)]))
 }
 
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
