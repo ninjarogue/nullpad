@@ -890,16 +890,18 @@ function caretBox(node, offset) {
   return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));
 }
 
-// Whether the editor paints its selection, as the last message left it. A
-// key pressed before the next render acts on that, not on the frame drawn.
+// Whether the editor paints its selection, as the last message left it. The
+// page shows the paint of the last frame drawn, which keys pressed since may
+// have taken off, so a key steps over the paint only when both say so, and
+// the field takes it otherwise.
 let painted = false;
 
 export function notePainted(value) {
   painted = value;
 }
 
-export function isPainted() {
-  return painted;
+export function isPainted(id, paintedClass) {
+  return painted && document.getElementById(id)?.closest("." + paintedClass) != null;
 }
 
 function headPlace() {
@@ -922,11 +924,11 @@ function fieldCaret(control) {
 // Where the head of the selection is drawn: on the first line of the field,
 // on its last line, and how far from the left of the text. A painted head is
 // on both, so every step is taken on the drawn page.
-export function headLine(id, liveClass) {
+export function headLine(id, liveClass, paintedClass) {
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
   if (!page) return [false, false, 0];
-  const head = painted && headPlace();
+  const head = isPainted(id, paintedClass) && headPlace();
   if (head) return [true, true, head.box.left - columnLeft(page)];
   if (undrawn(control)) return [true, true, 0];
   const [first, last, x] = caretLine(id);

@@ -887,7 +887,7 @@ fn edge_decoder(
       False -> x
     }
   }
-  let painted = shifted && is_painted()
+  let painted = shifted && is_painted(control_id, painted_class)
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
@@ -947,22 +947,22 @@ fn edge_decoder(
       // The step takes its place across from the caret once it is drawn.
       editor.Line(..) if pending -> Ok(#(edge, 0.0))
       editor.Line(up: True, select: True) ->
-        case head_line(control_id, live_class) {
+        case head_line(control_id, live_class, painted_class) {
           #(True, _, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
       editor.Line(up: False, select: True) ->
-        case head_line(control_id, live_class) {
+        case head_line(control_id, live_class, painted_class) {
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
       editor.Line(select: False, ..) -> Error(Nil)
       editor.Beside(..) -> {
-        let #(_, _, x) = head_line(control_id, live_class)
+        let #(_, _, x) = head_line(control_id, live_class, painted_class)
         Ok(#(edge, x))
       }
       editor.Page(..) -> {
-        let #(_, _, x) = head_line(control_id, live_class)
+        let #(_, _, x) = head_line(control_id, live_class, painted_class)
         Ok(#(edge, x))
       }
       editor.JoinBefore
@@ -1146,7 +1146,11 @@ fn drawn_in_page(id: String, live_class: String) -> Bool
 fn caret_line(id: String) -> #(Bool, Bool, Float)
 
 @external(javascript, "./surface.ffi.mjs", "headLine")
-fn head_line(id: String, live_class: String) -> #(Bool, Bool, Float)
+fn head_line(
+  id: String,
+  live_class: String,
+  painted_class: String,
+) -> #(Bool, Bool, Float)
 
 @external(javascript, "./surface.ffi.mjs", "stepHead")
 fn step_head(
@@ -1169,7 +1173,7 @@ fn hold_step(held: Bool) -> Nil
 fn take_held_step() -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "isPainted")
-fn is_painted() -> Bool
+fn is_painted(id: String, painted_class: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "notePainted")
 fn note_painted(painted: Bool) -> Nil
