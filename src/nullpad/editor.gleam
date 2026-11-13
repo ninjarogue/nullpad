@@ -9,16 +9,17 @@ import nullpad/live.{type Region, Region}
 import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
-/// Every change to `buffer` goes through `edit`.
+/// Every change to `buffer` goes through `edit` or `compose`.
 pub opaque type Editor {
   Editor(buffer: Buffer, keys: Keys, field: Field, focused: Bool)
 }
 
 type Field {
   Whole
-  /// Invariants: the rows exist in `buffer`, and
-  /// `blocks` is the text of `buffer` parsed.
-  Part(rows: Region, blocks: List(Block))
+  /// Invariants: the rows exist in `buffer`, and `blocks` is the text of
+  /// `buffer` parsed. While `composing`, `blocks` is the text from before
+  /// the composition, which differs only inside `rows`.
+  Part(rows: Region, blocks: List(Block), composing: Bool)
 }
 
 type Keys {
@@ -74,7 +75,7 @@ pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
     buffer:,
     keys: fresh_keys(vim_enabled),
     field: case live {
-      True -> Part(Region(0, 0), parse(buffer))
+      True -> Part(Region(0, 0), parse(buffer), composing: False)
       False -> Whole
     },
     focused: False,
@@ -104,7 +105,10 @@ fn write_and_focus(editor: Editor) -> Outcome {
 pub fn set_live(editor: Editor, on: Bool) -> Outcome {
   let editor = case on {
     True ->
-      Editor(..editor, field: Part(Region(0, 0), parse(editor.buffer)))
+      Editor(
+        ..editor,
+        field: Part(Region(0, 0), parse(editor.buffer), composing: False),
+      )
       |> realign
     False -> Editor(..editor, field: Whole)
   }
@@ -122,7 +126,7 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 pub fn update(editor: Editor, event: Event) -> Outcome {
   case event {
     ControlChanged(shown:) -> typed(editor, shown, None, realign)
-    Composing(shown:) -> typed(editor, shown, None, hold_rows(_, shown))
+    Composing(shown:) -> compose(editor, shown)
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
     EscapePressed(shown:) -> {
@@ -170,6 +174,27 @@ fn typed(
   Outcome(editor:, sync:, requests:)
 }
 
+/// An IME redraws its own text in the control, so the control is not
+/// written to, and the blocks around the field stay as they were drawn.
+fn compose(editor: Editor, shown: Buffer) -> Outcome {
+  let composed = base(editor, shown)
+  let rows_kept =
+    list.length(buffer.lines(composed))
+    == list.length(buffer.lines(editor.buffer))
+  case editor.field, rows_kept {
+    Part(rows:, blocks:, ..), True -> {
+      let field = Part(rows:, blocks:, composing: True)
+      Outcome(
+        editor: Editor(..editor, buffer: composed, field:),
+        sync: InSync,
+        requests: [],
+      )
+    }
+    Part(..), False | Whole, _ ->
+      typed(editor, shown, None, hold_rows(_, shown))
+  }
+}
+
 fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let base = base(editor, shown)
   let cursor = buffer.cursor(base)
@@ -200,9 +225,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       let to = Position(row: cursor.row + 1, col: 0)
       #(buffer.replace(base, from:, to:, with: ""), None)
     }
-    Up -> #(buffer.move_to(base, Position(row: cursor.row, col: 0)), None)
-    Down -> #(buffer.move_to(base, end_of_row(cursor.row)), None)
-    JoinBefore | JoinAfter -> #(base, None)
+    Up | Down | JoinBefore | JoinAfter -> #(base, None)
   }
   let editor = edit(editor, wanted) |> realign
   let wanted_shown = field_buffer(editor)
@@ -274,11 +297,15 @@ pub fn field_buffer(editor: Editor) -> Buffer {
 fn edit(editor: Editor, buffer: Buffer) -> Editor {
   let field = case editor.field {
     Whole -> Whole
-    Part(rows:, blocks:) ->
-      case same_lines(buffer.lines(buffer), buffer.lines(editor.buffer)) {
-        True -> Part(rows:, blocks:)
-        False -> Part(rows:, blocks: parse(buffer))
+    Part(rows:, blocks:, composing:) -> {
+      let parsed =
+        !composing
+        && same_lines(buffer.lines(buffer), buffer.lines(editor.buffer))
+      case parsed {
+        True -> Part(rows:, blocks:, composing: False)
+        False -> Part(rows:, blocks: parse(buffer), composing: False)
       }
+    }
   }
   Editor(..editor, buffer:, field:)
 }
@@ -299,10 +326,10 @@ fn same_lines(lines: List(String), others: List(String)) -> Bool {
 fn realign(editor: Editor) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(blocks:, ..) -> {
+    Part(blocks:, composing:, ..) -> {
       let #(anchor, head) = buffer.selection(editor.buffer)
       let rows = live.reveal(blocks, from: anchor.row, to: head.row)
-      Editor(..editor, field: Part(rows:, blocks:))
+      Editor(..editor, field: Part(rows:, blocks:, composing:))
     }
   }
 }
@@ -310,10 +337,10 @@ fn realign(editor: Editor) -> Editor {
 fn hold_rows(editor: Editor, shown: Buffer) -> Editor {
   case editor.field {
     Whole -> editor
-    Part(rows: Region(first_row:, ..), blocks:) -> {
+    Part(rows: Region(first_row:, ..), blocks:, composing:) -> {
       let count = list.length(buffer.lines(shown))
       let rows = Region(first_row:, last_row: first_row + count - 1)
-      Editor(..editor, field: Part(rows:, blocks:))
+      Editor(..editor, field: Part(rows:, blocks:, composing:))
     }
   }
 }

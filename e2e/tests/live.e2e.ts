@@ -462,3 +462,98 @@ test('the words of a list with blank lines in it do not move as the cursor walks
     expect({ row, ...(await places()) }).toEqual({ row, ...still });
   }
 });
+
+test('an arrow at the first line of the note stays put and keeps its column', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'abcdef\nabcdef\n\nlast');
+  await expect(page.text).toHaveValue('abcdef\nabcdef');
+
+  await browser.keyboard.press('ArrowDown');
+  for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('ArrowRight');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('ArrowUp');
+  await expect.poll(() => page.caret()).toBe('abc|def\nabcdef');
+  await browser.keyboard.press('ArrowDown');
+  await expect.poll(() => page.caret()).toBe('abcdef\nabc|def');
+});
+
+test('an arrow at the last line of the note stays put and keeps its column', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'first\n\nabcdef\nabcdef');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('abcdef\nabcdef');
+
+  for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('ArrowRight');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect.poll(() => page.caret()).toBe('abcdef\nabc|def');
+  await browser.keyboard.press('ArrowUp');
+  await expect.poll(() => page.caret()).toBe('abc|def\nabcdef');
+});
+
+test('a key pressed right after Escape, before the page redraws, is not typed into the note', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Trip\n\nwords');
+
+  await page.pressBeforeRedraw('Escape', 'x', 'y');
+  await expect(page.drawn('h1')).toHaveText('Trip');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue('# Trip\n\nwords');
+});
+
+test('composing with an IME on a blank row keeps the blocks around it drawn', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'first paragraph\n\nsecond paragraph');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('');
+
+  await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    field.value = 'wo';
+    field.setSelectionRange(2, 2);
+    field.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+    return null;
+  });
+  await page.nextFrame();
+  await expect(page.above).toHaveText('first paragraph');
+  await expect(page.below).toHaveText('second paragraph');
+
+  await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    return null;
+  });
+  await expect(page.text).toHaveValue('first paragraph\nwo\nsecond paragraph');
+});
+
+test('a click on a fence with no code puts the caret after the fence, where code is typed', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'Steps\n\n```js');
+
+  await page.drawnIn('live-below', 'pre').tap();
+  await expect.poll(() => page.caret()).toBe('```js|');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('let a = 1;');
+  await expect(page.text).toHaveValue('```js\nlet a = 1;');
+});
