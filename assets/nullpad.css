@@ -350,6 +350,7 @@ button[aria-pressed="true"] {
 }
 
 .page.live .preview > :is(p, ul, ol, blockquote, .table-scroll),
+.page.live .preview blockquote > :is(p, ul, ol, blockquote, .table-scroll),
 .page.live .preview li > p {
   margin-block: 0;
 }
@@ -357,6 +358,10 @@ button[aria-pressed="true"] {
 .page.live .preview > :is(h1, h2, h3, h4, h5, h6),
 .editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) {
   margin: 0.4rem 0 0;
+}
+
+.page.live .preview :is(h1, h2, h3, h4, h5, h6):empty {
+  min-height: 1lh;
 }
 
 .page.live .preview:first-child > :is(h1, h2, h3, h4, h5, h6):first-child,

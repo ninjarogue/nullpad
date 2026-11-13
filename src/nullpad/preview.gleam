@@ -164,7 +164,16 @@ fn block(
     Paragraph(text) -> html.p(here, inlines(text))
     Rule -> html.hr(here)
     Quote(blocks) ->
-      html.blockquote(here, list.map(blocks, block(_, rows, on_task)))
+      html.blockquote(
+        here,
+        spaced(
+          blocks,
+          from: shown.first_row,
+          to: shown.last_row + 1,
+          rows:,
+          draw: fn(child) { [block(child, rows, on_task)] },
+        ),
+      )
     BulletList(spacing, items) -> html.ul(here, list_items(items, spacing))
     OrderedList(1, spacing, items) -> html.ol(here, list_items(items, spacing))
     OrderedList(start, spacing, items) ->
