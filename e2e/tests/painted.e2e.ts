@@ -426,3 +426,26 @@ test('each Shift and arrow that crosses a line break into the next block paints 
   await expect.poll(() => page.paintedBlanks()).toEqual([3]);
   expect(await page.paintedBreaks()).toEqual([2]);
 });
+
+test('a drag to the start of an item or a heading reaches its text, past the marks it starts with', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('hotel'), await page.pointAt('Shoes'));
+  await expect.poll(() => page.painted()).toBe('hotel is not.Passport');
+  await expect.poll(async () => (await page.selection()).selected).toBe('hotel is *not*.\n\n- [ ] Passport\n- ');
+  await browser.keyboard.type('X');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(`# Trip\n\nFlights are **booked** and the XShoes\n\nlast`);
+
+  await page.showPage();
+  await page.drag(await page.pointAt('XShoes'), await page.pointAt('Trip'));
+  await expect.poll(async () => (await page.selection()).selected).toBe('Trip\n\nFlights are **booked** and the ');
+  await browser.keyboard.type('Y');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(`# YXShoes\n\nlast`);
+});
