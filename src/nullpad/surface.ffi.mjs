@@ -11,6 +11,17 @@ export function writeControl(id, text, start, end, backward) {
   }
 }
 
+let focusAsked = null;
+
+export function askFocus() {
+  focusAsked = document.activeElement;
+}
+
+export function focusStayed(id) {
+  const active = document.activeElement;
+  return !active || active === document.body || active.id === id || active === focusAsked;
+}
+
 export function findControl(id) {
   return document.getElementById(id);
 }
