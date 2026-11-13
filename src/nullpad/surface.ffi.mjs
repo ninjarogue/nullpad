@@ -597,12 +597,11 @@ export function paintSelection(
   id, liveClass, rowMark, anchorRow, anchorOffset, anchorOnward, headRow, headOffset, headOnward,
   firstBreak, lastBreak,
 ) {
-  clearBreaks();
   const marks = drawnMarks(id, liveClass, rowMark);
   const holder = (row) => marks[lastAtOrBefore(marks, row, rowMark)];
   const anchorHolder = holder(anchorRow);
   const headHolder = holder(headRow);
-  if (!anchorHolder || !headHolder || typeof Highlight !== "function") return;
+  if (!anchorHolder || !headHolder || typeof Highlight !== "function") return clearBreaks();
   const [anchorNode, anchorAt] = pointIn(anchorHolder, anchorOffset, anchorOnward);
   const [headNode, headAt] = pointIn(headHolder, headOffset, headOnward);
   const range = document.createRange();
@@ -615,18 +614,107 @@ export function paintSelection(
   CSS.highlights.set(SELECTION, new Highlight(range));
   CSS.highlights.set(HEAD, new Highlight(head));
   underStart(document.getElementById(id), range);
-  for (let row = firstBreak; row <= lastBreak; row++) {
-    const here = holder(row);
-    if (!here || here === holder(row + 1)) continue;
-    const blank = here.classList.contains("blank");
-    here.classList.add(blank ? SELECTED : BREAK_SELECTED);
-    selectedBreaks.push(here);
+  paintBreaks(marks, rowMark, firstBreak, lastBreak);
+  paintCode(document.getElementById(id).closest("." + liveClass), range);
+}
+
+// The element that draws the last of each row from `first` to `last` takes
+// a class that paints its line break. An element with rows of its own
+// drawn inside it, such as a list item with a list in it, is told where
+// its own text ends.
+function paintBreaks(marks, rowMark, first, last) {
+  const rowAt = (index) => Number(marks[index].dataset[rowMark]);
+  const ends = new Set();
+  let index = lastAtOrBefore(marks, first, rowMark);
+  for (let row = first; row <= last; ) {
+    while (index + 1 < marks.length && rowAt(index + 1) <= row) index++;
+    const following = index + 1 < marks.length ? rowAt(index + 1) : Infinity;
+    if (index >= 0 && following - 1 <= last) ends.add(index);
+    row = following;
+  }
+  const kept = new Set();
+  for (const index of ends) {
+    const mark = marks[index];
+    kept.add(mark);
+    const blank = mark.classList.contains("blank");
+    if (!mark.classList.contains(blank ? SELECTED : BREAK_SELECTED)) {
+      mark.classList.add(blank ? SELECTED : BREAK_SELECTED);
+    }
+    if (index + 1 < marks.length && mark.contains(marks[index + 1])) ownEnd(mark, rowMark);
+  }
+  for (const mark of selectedBreaks) {
+    if (!kept.has(mark)) unpaintBreak(mark);
+  }
+  selectedBreaks = [...kept];
+}
+
+function ownEnd(mark, rowMark) {
+  const texts = document.createTreeWalker(mark, NodeFilter.SHOW_TEXT);
+  let own = null;
+  for (let text = texts.nextNode(); text; text = texts.nextNode()) {
+    if (text.parentElement.closest(`[data-${rowMark}]`) === mark) own = text;
+  }
+  if (!own) return;
+  const end = caretBox(own, own.data.length);
+  const box = mark.getBoundingClientRect();
+  mark.style.setProperty("--break-left", `${end.left - box.left - mark.clientLeft}px`);
+  mark.style.setProperty("--break-top", `${end.top - box.top - mark.clientTop}px`);
+}
+
+function unpaintBreak(mark) {
+  mark.classList.remove(SELECTED, BREAK_SELECTED);
+  mark.style.removeProperty("--break-left");
+  mark.style.removeProperty("--break-top");
+}
+
+// The Highlight API paints no line break, so each one selected inside a
+// code block, but for its last, is painted as a bar behind the text where
+// it ends a line.
+let paintedCode = [];
+
+function paintCode(page, range) {
+  clearCode();
+  for (const pre of page?.querySelectorAll("pre") ?? []) {
+    if (!range.intersectsNode(pre)) continue;
+    const text = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT).nextNode();
+    if (!text) continue;
+    const from = range.startContainer === text ? range.startOffset : 0;
+    const to = range.endContainer === text ? range.endOffset : text.data.length;
+    const box = pre.getBoundingClientRect();
+    const letter = document.createRange();
+    const at = [];
+    const size = [];
+    for (let index = text.data.indexOf("\n", from); index >= 0 && index < Math.min(to, text.data.length - 1); index = text.data.indexOf("\n", index + 1)) {
+      letter.setStart(text, index);
+      letter.setEnd(text, index + 1);
+      const end = letter.getClientRects()[0];
+      if (!end) continue;
+      at.push(`${end.left - box.left - pre.clientLeft + pre.scrollLeft}px ${end.top - box.top - pre.clientTop + pre.scrollTop}px`);
+      size.push(`0.5em ${end.height}px`);
+    }
+    if (at.length === 0) continue;
+    pre.style.backgroundImage = at.map(() => "linear-gradient(Highlight, Highlight)").join(", ");
+    pre.style.backgroundPosition = at.join(", ");
+    pre.style.backgroundSize = size.join(", ");
+    pre.style.backgroundRepeat = "no-repeat";
+    pre.style.backgroundAttachment = "local";
+    paintedCode.push(pre);
   }
 }
 
+function clearCode() {
+  for (const pre of paintedCode) {
+    for (const property of ["background-image", "background-position", "background-size", "background-repeat", "background-attachment"]) {
+      pre.style.removeProperty(property);
+    }
+  }
+  paintedCode = [];
+}
+
 function clearBreaks() {
-  for (const mark of selectedBreaks) mark.classList.remove(SELECTED, BREAK_SELECTED);
+  for (const mark of selectedBreaks) unpaintBreak(mark);
   selectedBreaks = [];
+  clearCode();
 }
 
 // An IME opens its window at the caret of the field, which typing over the
@@ -803,16 +891,30 @@ function step(selection, page, rowMark, granularity, forward) {
     if (stuck || !page.contains(now.node)) return granularity === "lineboundary" ? from : null;
     if (!holds(now, rowMark)) continue;
     if (granularity === "lineboundary") return now;
-    const box = caretBox(now.node, now.offset);
-    const moved =
-      granularity === "line"
-        ? forward
-          ? middle(box) > start.bottom - 1
-          : middle(box) < start.top + 1
-        : Math.round(box.left) !== Math.round(start.left) || Math.round(box.top) !== Math.round(start.top);
-    if (moved) return now;
+    if (granularity === "character" ? shows(from, now, rowMark) : beyond(now, start, forward)) return now;
   }
   return null;
+}
+
+function beyond(point, start, forward) {
+  const box = caretBox(point.node, point.offset);
+  return forward ? middle(box) > start.bottom - 1 : middle(box) < start.top + 1;
+}
+
+// Whether a head moved from one place to the other paints something else:
+// the text between them, or the line break of another row.
+function shows(from, to, rowMark) {
+  const between = document.createRange();
+  between.setStart(from.node, from.offset);
+  between.setEnd(from.node, from.offset);
+  if (between.comparePoint(to.node, to.offset) >= 0) between.setEnd(to.node, to.offset);
+  else between.setStart(to.node, to.offset);
+  if (between.toString() !== "") return true;
+  const row = (point) => {
+    const place = placeOfPoint(point, rowMark);
+    return place ? place[0] + place[1].split("\n").length - 1 : -1;
+  };
+  return row(from) !== row(to);
 }
 
 // Along the line `landed` is drawn on, the place nearest `goal`.
