@@ -803,8 +803,16 @@ export function headLine(id, liveClass, paintedClass) {
     const head = headPlace();
     return head ? [true, true, head.box.left - columnLeft(page)] : [false, false, 0];
   }
+  if (undrawn(control)) return [true, true, 0];
   const [first, last, x] = caretLine(id);
   return [first, last, control.getBoundingClientRect().left + x - columnLeft(page)];
+}
+
+// The field's text has changed since the page was drawn, so its lines are
+// not the lines the reader sees, and its own steps would miss them.
+function undrawn(control) {
+  const mirror = control.parentElement.querySelector(".mirror")?.firstChild;
+  return mirror != null && mirror.data.slice(0, -1) !== control.value;
 }
 
 // The head steps over the drawn page as the browser moves a caret over it,
@@ -812,23 +820,25 @@ export function headLine(id, liveClass, paintedClass) {
 // drawn. It is stepped from where it is drawn, or from the edge of the field
 // when it is in the field, and a step of a line then goes to the place on
 // that line nearest `x` from the left of the text, or nearest where the head
-// is drawn when `x` is below 0. The browser's selection is put back in the
-// field after. A step returns the place it reaches and the `x` it aimed at,
-// or a row of -1 for no page, -2 for nothing past the head, -3 when the
-// page must be drawn first, as the field holds rows the page does not draw
-// and has moved since it was drawn, and -4 when the head was in the field
-// and the field took the step.
+// is drawn when `x` is below 0. A line step into the rows the field holds,
+// which the browser does not step into, lands on the line of the field's
+// mirror that it reaches: the mirror holds the field's text as last drawn.
+// The browser's selection is put back in the field after. A step returns
+// the place it reaches and the `x` it aimed at, or a row of -1 for no page,
+// -2 for nothing past the head, -3 when the page must be drawn first, as
+// the field's text changed since it was drawn, and -4 when the head was in
+// the field and the field took the step.
 export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, granularity, forward, x) {
   const answer = (row, place = ["", false, ""]) => [row, ...place, x];
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
   if (!page) return answer(-1);
   const part = control.parentElement;
+  const mirror = part.querySelector(".mirror")?.firstChild;
   const first = control.dataset[rowMark];
-  const count = part.querySelector(".mirror")?.textContent.split("\n").length ?? 0;
-  const held = first === undefined ? null : [Number(first), Number(first) + count - 1];
+  const held = first === undefined || !mirror ? null : [Number(first), Number(first) + mirror.data.split("\n").length - 1];
   const inField = held !== null && headRow >= held[0] && headRow <= held[1];
-  if (inField && !drawn) return answer(-3);
+  if (inField && undrawn(control)) return answer(-3);
   if (inField && granularity !== "line") {
     getSelection().modify("extend", forward ? "forward" : "backward", granularity);
     return answer(-4);
@@ -851,7 +861,9 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, gr
       if (x < 0) x = caretBox(node, offset).left - columnLeft(page);
       selection.collapse(node, offset);
       landed = step(selection, page, rowMark, granularity, forward);
-      if (landed && held && !drawn && crosses(part, { node, offset }, landed)) return answer(-3);
+      if (landed && held && granularity === "line" && crosses(part, { node, offset }, landed)) {
+        return [held[0], ...mirrorPlace(mirror, !forward, columnLeft(page) + x), x];
+      }
     }
     if (!landed) return answer(-2);
     if (granularity === "line") landed = toward(selection, landed, columnLeft(page) + x, rowMark);
@@ -860,6 +872,27 @@ export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, gr
   } finally {
     control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
   }
+}
+
+// The place on the mirror's last line, or its first, nearest `goal`, named
+// as for `placeOfPoint` from the first row the field holds. The mirror ends
+// in a character of its own that gives the end of the text a place.
+function mirrorPlace(mirror, last, goal) {
+  const letter = document.createRange();
+  const box = (offset) => {
+    letter.setStart(mirror, offset);
+    letter.setEnd(mirror, offset + 1);
+    return letter.getClientRects()[0] ?? letter.getBoundingClientRect();
+  };
+  const end = mirror.data.length - 1;
+  const top = Math.round(box(last ? end : 0).top);
+  let best = last ? end : 0;
+  for (let offset = best; offset >= 0 && offset <= end; offset += last ? -1 : 1) {
+    const here = box(offset);
+    if (Math.round(here.top) !== top) break;
+    if (Math.abs(here.left - goal) < Math.abs(box(best).left - goal)) best = offset;
+  }
+  return [mirror.data.slice(0, best), false, ""];
 }
 
 function here(selection) {
