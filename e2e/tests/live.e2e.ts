@@ -557,3 +557,43 @@ test('a click on a fence with no code puts the caret after the fence, where code
   await browser.keyboard.type('let a = 1;');
   await expect(page.text).toHaveValue('```js\nlet a = 1;');
 });
+
+test('a dash typed under a paragraph keeps its size until the caret leaves that row', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const words = '~~wow cool this feels great~~';
+  const fontSize = async () => {
+    await page.nextFrame();
+    return browser.evaluate(
+      () => getComputedStyle(document.querySelector('[data-test-id="editor"]')!).fontSize,
+    );
+  };
+  await openLive({ app, disk, page }, '');
+
+  await browser.keyboard.type(words);
+  await expect(page.text).toHaveValue(words);
+  const body = await fontSize();
+
+  await browser.keyboard.type('\n-');
+  await expect(page.text).toHaveValue(`${words}\n-`);
+  expect(await fontSize()).toBe(body);
+
+  await browser.keyboard.press('ArrowUp');
+  await expect.poll(fontSize).toBe('24px');
+
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('End');
+  expect(await page.caret()).toBe(`${words}\n-|`);
+  expect(await fontSize()).toBe(body);
+
+  await browser.keyboard.type(' ');
+  await expect(page.text).toHaveValue(`${words}\n- `);
+  expect(await fontSize()).toBe(body);
+
+  await browser.keyboard.type('item');
+  await expect(page.text).toHaveValue('- item');
+  expect(await fontSize()).toBe(body);
+});

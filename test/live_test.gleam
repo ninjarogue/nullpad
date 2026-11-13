@@ -56,9 +56,7 @@ pub fn a_row_past_the_note_is_kept_as_asked_test() {
 
 /// How the field is set while it holds all of `text`.
 fn kind_of(text: String) -> live.Kind {
-  let lines = string.split(text, "\n")
-  let field = Region(0, list.length(lines) - 1)
-  live.kind(markdown.parse(text), field:, caret_row: 0, lines:)
+  kind_at(text, 0)
 }
 
 pub fn the_field_is_set_like_the_block_it_holds_test() {
@@ -118,6 +116,27 @@ pub fn a_blank_row_between_two_items_is_set_as_body_text_test() {
     == live.Body
   assert live.kind(blocks, field: Region(1, 2), caret_row: 1, lines:)
     == live.ListItem(task: False, marker: "- ")
+}
+
+/// How the field is set while it holds all of `text` and the caret is on
+/// `caret_row`.
+fn kind_at(text: String, caret_row: Int) -> live.Kind {
+  let lines = string.split(text, "\n")
+  let field = Region(0, list.length(lines) - 1)
+  live.kind(markdown.parse(text), field:, caret_row:, lines:)
+}
+
+pub fn a_setext_heading_is_set_as_body_text_while_the_caret_is_on_its_underline_test() {
+  assert kind_at("~~wow cool this feels great~~\n-", 1) == live.Body
+  assert kind_at("~~wow cool this feels great~~\n- ", 1) == live.Body
+  assert kind_at("Title\non two rows\n===", 2) == live.Body
+}
+
+pub fn a_setext_heading_is_set_as_a_heading_once_the_caret_leaves_its_underline_test() {
+  assert kind_at("~~wow cool this feels great~~\n-", 0)
+    == live.Title(markdown.H2)
+  assert kind_at("Title\non two rows\n===", 1) == live.Title(markdown.H1)
+  assert kind_at("## Packing", 0) == live.Title(markdown.H2)
 }
 
 fn marker(field_text: String) -> String {
