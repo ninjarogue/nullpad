@@ -1219,6 +1219,55 @@ test('keys pressed before the page draws act on the selection the keys before th
   );
 });
 
+test('Shift and an arrow, Home or End pressed before the page draws act on the caret the keys before them left, once the paint is gone', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'one\n\ntwo\n\nthree';
+  const typedAfter = async (paint: string, keys: string[], held: boolean) => {
+    await openLive({ app, disk, page }, note);
+    await page.stopEditing();
+    const two = await page.pointAt('two');
+    await browser.mouse.move(two.x + 6, two.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await page.nextFrame();
+    await browser.keyboard.press(paint);
+    await page.nextFrame();
+    const press = async () => {
+      for (const key of keys) {
+        if (key.length === 1) await browser.keyboard.type(key);
+        else await browser.keyboard.press(key);
+        if (!held) await page.nextFrame();
+      }
+    };
+    if (held) await page.beforeRedraw(press);
+    else await press();
+    await page.nextFrame();
+    await page.markdown.tap();
+    return page.text.inputValue();
+  };
+  const cases = [
+    ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'ArrowLeft', 'Shift+End', 'Z'], 'X\nZ'],
+    ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'Home', 'Shift+ArrowRight', 'Z'], 'X\nZ'],
+    ['ControlOrMeta+a', ['X', 'Y', 'End', 'Shift+Home', 'Z'], 'Z'],
+    ['ControlOrMeta+a', ['X', 'Y', 'End', 'Shift+ArrowLeft', 'Z'], 'XZ'],
+    ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'Enter', 'W', 'ArrowLeft', 'Shift+End', 'Z'], 'X\nY\nZ'],
+    ['ControlOrMeta+a', ['X', 'Enter', 'Y', 'Enter', 'W', 'Home', 'Shift+ArrowRight', 'Z'], 'X\nY\nZ'],
+    ['ControlOrMeta+End', ['X', 'Y', 'Home', 'Shift+End', 'Z'], 'one\n\ntwo\n\nZ'],
+    ['ControlOrMeta+End', ['Enter', 'X', 'Home', 'Shift+ArrowRight', 'Z'], 'one\n\ntwo\n\nthree\nZ'],
+    ['ControlOrMeta+End', ['Enter', 'X', 'Enter', 'Y', 'ArrowLeft', 'Shift+End', 'Z'], 'one\n\ntwo\n\nthree\nX\nZ'],
+    ['ControlOrMeta+End', ['Enter', 'X', 'Y', 'ArrowLeft', 'Shift+ArrowLeft', 'Z'], 'one\n\ntwo\n\nthree\nZY'],
+  ] as const;
+  const typed = [];
+  for (const [paint, keys] of cases) {
+    typed.push({ keys, slow: await typedAfter(paint, [...keys], false), held: await typedAfter(paint, [...keys], true) });
+  }
+  expect(typed).toEqual(cases.map(([, keys, text]) => ({ keys, slow: text, held: text })));
+});
+
 test('without the Highlight API Shift+ArrowDown on the last row keeps the selection', async ({
   app,
   browser,
