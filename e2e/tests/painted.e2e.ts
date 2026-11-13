@@ -870,3 +870,173 @@ test('a drag from between the hidden marks of a bold word to another block holds
   await browser.keyboard.type('X');
   await expect(page.text).toHaveValue('Some Xitem one');
 });
+
+const paintedHeadBox = (browser: { evaluate<T>(run: () => T): Promise<T> }) =>
+  browser.evaluate(() => {
+    const head = [...(CSS.highlights.get('nullpad-head') ?? [])][0] as Range | undefined;
+    if (!head) return null;
+    const node = head.startContainer;
+    const text = node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
+    const letter = document.createRange();
+    const at = (from: number) => {
+      letter.setStart(text!, from);
+      letter.setEnd(text!, from + 1);
+      return [...letter.getClientRects()];
+    };
+    let box: { left: number; top: number } | undefined;
+    if (text && head.startOffset < text.length) box = at(head.startOffset)[0];
+    if (!box && text && head.startOffset > 0) {
+      const before = at(head.startOffset - 1).pop();
+      if (before) box = { left: before.right, top: before.top };
+    }
+    box ??= (node instanceof Element ? node : node.parentElement!).getBoundingClientRect();
+    return `${Math.round(box.left)},${Math.round(box.top)}`;
+  });
+
+async function stepsSelect(
+  browser: { keyboard: { press(key: string): Promise<unknown> } },
+  page: { selection(): Promise<{ selected: string }> },
+  key: string,
+  steps: string[],
+) {
+  for (const [step, selected] of steps.entries()) {
+    await browser.keyboard.press(key);
+    await expect
+      .poll(async () => ({ step, selected: (await page.selection()).selected }))
+      .toEqual({ step, selected });
+  }
+}
+
+test('Shift+ArrowDown steps a painted head onto each drawn line: into a table from its first column, onto a blank line of code, and to the end of the note', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const table = '| a | b |\n|---|---|\n| c1 | d1 |';
+  await openLive({ app, disk, page }, `Start\n\n${table}\n\n\`\`\`\none\n\nthree\n\`\`\`\n\nlast words`);
+  const above = `Start\n\n${table}\n\n\`\`\`\n`;
+  await stepsSelect(browser, page, 'Shift+ArrowDown', [
+    'Start\n',
+    'Start\n\n| ',
+    'Start\n\n| a | b |\n|---|---|\n| ',
+    `Start\n\n${table}\n`,
+    above,
+    `${above}one\n`,
+    `${above}one\n\n`,
+    `${above}one\n\nthree\n\`\`\`\n`,
+    `${above}one\n\nthree\n\`\`\`\n\n`,
+    `${above}one\n\nthree\n\`\`\`\n\nlast words`,
+    `${above}one\n\nthree\n\`\`\`\n\nlast words`,
+  ]);
+});
+
+test('Shift and an arrow up or down step a painted head over lines that start with hidden marks, both ways', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const soft = 'soft line one\n*em* starts two\n**b** line three';
+  await openLive({ app, disk, page }, `Intro\n\n${soft}\n\nend`);
+  await stepsSelect(browser, page, 'Shift+ArrowDown', [
+    'Intro\n',
+    'Intro\n\n',
+    'Intro\n\nsoft line one\n',
+    'Intro\n\nsoft line one\n*em* starts two\n',
+    `Intro\n\n${soft}\n`,
+    `Intro\n\n${soft}\n\n`,
+    `Intro\n\n${soft}\n\nend`,
+  ]);
+
+  await page.drag(await page.pointAt('end'), await page.pointAt('end'));
+  await browser.keyboard.press('Home');
+  await stepsSelect(browser, page, 'Shift+ArrowUp', [
+    '\n',
+    '**b** line three\n\n',
+    '*em* starts two\n**b** line three\n\n',
+    `${soft}\n\n`,
+    `\n${soft}\n\n`,
+    `Intro\n\n${soft}\n\n`,
+    `Intro\n\n${soft}\n\n`,
+  ]);
+});
+
+test('Shift+End and Shift+Home move a painted head along the line it is drawn on', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const long = 'Words that wrap across the page. '.repeat(12).trim();
+  await openLive({ app, disk, page }, `Start\n\n${long}\n\nend`);
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await expect.poll(async () => (await page.selection()).selected).toMatch(/^\n\nW/);
+
+  const lines = await browser.evaluate(() => {
+    const paragraph = [...document.querySelectorAll('.page.live .part p')].find((p) =>
+      p.textContent!.startsWith('Words'),
+    )!;
+    const text = paragraph.firstChild as Text;
+    const letter = document.createRange();
+    const ends: number[] = [];
+    let top = -1;
+    for (let at = 0; at < text.length; at++) {
+      letter.setStart(text, at);
+      letter.setEnd(text, at + 1);
+      const box = letter.getClientRects()[0];
+      if (box && Math.round(box.top) !== top) {
+        if (top >= 0) ends.push(at);
+        top = Math.round(box.top);
+      }
+    }
+    return ends;
+  });
+  expect(lines.length).toBeGreaterThan(1);
+  const firstLine = long.slice(0, lines[0]).trimEnd();
+  const secondLine = long.slice(0, lines[1]).trimEnd();
+
+  await browser.keyboard.press('Shift+End');
+  await expect.poll(() => page.painted()).toBe(firstLine);
+  expect(await paintedHeadInView(browser)).toBe(true);
+  await browser.keyboard.press('Shift+Home');
+  await expect.poll(() => page.painted()).toBe('');
+  await browser.keyboard.press('Shift+ArrowDown');
+  await browser.keyboard.press('Shift+End');
+  await expect.poll(() => page.painted()).toBe(secondLine);
+  await browser.keyboard.press('Shift+Home');
+  await expect.poll(() => page.painted()).toBe(long.slice(0, lines[0]));
+});
+
+test('each Shift and arrow left or right moves a painted head to another drawn place, over every kind of block', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = 'Start\n\n| a | b |\n|---|---|\n| c | d |\n\n```\nx\n\ny\n```\n\n> q\n\n>\n\n- i\n\n# h\n\nend';
+  await openLive({ app, disk, page }, note);
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => paintedHeadBox(browser)).not.toBeNull();
+  const walk = async (key: string, done: (selected: string) => boolean) => {
+    let last = await paintedHeadBox(browser);
+    for (let press = 0; press < 60; press++) {
+      const before = (await page.selection()).selected;
+      if (done(before)) return;
+      await browser.keyboard.press(key);
+      await expect.poll(async () => (await page.selection()).selected).not.toBe(before);
+      await page.nextFrame();
+      const now = await paintedHeadBox(browser);
+      expect({ press, key, selected: (await page.selection()).selected, moved: now !== last }).toMatchObject({
+        moved: true,
+      });
+      last = now;
+    }
+    throw new Error(`${key} did not get there`);
+  };
+  await walk('Shift+ArrowRight', (selected) => selected.endsWith('end'));
+  await walk('Shift+ArrowLeft', (selected) => selected.length <= 2);
+});
