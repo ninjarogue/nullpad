@@ -260,7 +260,8 @@ test('Delete at the end of the field joins the row below to it', async ({
 }) => {
   await openLive({ app, disk, page }, 'one\ntwo\n\nthree');
 
-  await browser.keyboard.press('ControlOrMeta+End');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('End');
   await browser.keyboard.press('Delete');
   await browser.keyboard.press('Delete');
   await expect(page.text).toHaveValue('one\ntwothree');
@@ -463,7 +464,7 @@ test('the words of a list with blank lines in it do not move as the cursor walks
   }
 });
 
-test('an arrow at the first line of the note stays put and keeps its column', async ({
+test('an arrow at the first line of the note goes to its start and keeps its column, as in a text field', async ({
   app,
   browser,
   disk,
@@ -476,12 +477,12 @@ test('an arrow at the first line of the note stays put and keeps its column', as
   for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('ArrowRight');
   await browser.keyboard.press('ArrowUp');
   await browser.keyboard.press('ArrowUp');
-  await expect.poll(() => page.caret()).toBe('abc|def\nabcdef');
+  await expect.poll(() => page.caret()).toBe('|abcdef\nabcdef');
   await browser.keyboard.press('ArrowDown');
   await expect.poll(() => page.caret()).toBe('abcdef\nabc|def');
 });
 
-test('an arrow at the last line of the note stays put and keeps its column', async ({
+test('an arrow at the last line of the note goes to its end and keeps its column, as in a text field', async ({
   app,
   browser,
   disk,
@@ -495,7 +496,7 @@ test('an arrow at the last line of the note stays put and keeps its column', asy
   for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('ArrowRight');
   await browser.keyboard.press('ArrowDown');
   await browser.keyboard.press('ArrowDown');
-  await expect.poll(() => page.caret()).toBe('abcdef\nabc|def');
+  await expect.poll(() => page.caret()).toBe('abcdef\nabcdef|');
   await browser.keyboard.press('ArrowUp');
   await expect.poll(() => page.caret()).toBe('abc|def\nabcdef');
 });
