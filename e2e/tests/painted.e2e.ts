@@ -1,5 +1,6 @@
 import { expect } from 'e2e';
 import type { App, Locator } from 'e2e';
+import type { Browser } from '@e2e-dev/web';
 import { test } from './nullpad.ts';
 import type { Note, Placed } from './nullpad.ts';
 
@@ -792,4 +793,73 @@ test('a triple click inside a painted selection selects the line clicked, and a 
   await send('mouseup', 0);
   await expect.poll(async () => (await page.selection()).selected).toMatch(/^some words here\n[^]*last line$/);
   await expect.poll(() => page.painted()).toBe('some words herePassportShoeslast line');
+});
+
+// The mouse of a test presses once at a time, so a press that counts as the
+// second of a double-click is sent from the page.
+async function pressAndDrag(
+  { browser, page }: { browser: Browser; page: { nextFrame(): Promise<null> } },
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  detail: number,
+) {
+  const send = (type: string, at: { x: number; y: number }) =>
+    browser.evaluate(
+      (event: { type: string; x: number; y: number; detail: number }) => {
+        const target = document.elementFromPoint(event.x, event.y)!;
+        const init = { bubbles: true, cancelable: true, clientX: event.x, clientY: event.y, detail: event.detail };
+        target.dispatchEvent(new MouseEvent(event.type, { ...init, button: 0, buttons: event.type === 'mouseup' ? 0 : 1 }));
+        return null;
+      },
+      { type, ...at, detail },
+    );
+  await send('mousedown', from);
+  await page.nextFrame();
+  for (let step = 1; step <= 6; step++) {
+    await send('mousemove', { x: from.x + ((to.x - from.x) * step) / 6, y: from.y + ((to.y - from.y) * step) / 6 });
+    await page.nextFrame();
+  }
+  await send('mouseup', to);
+  await page.nextFrame();
+}
+
+/** Where `before` ends on the first line of the text field. */
+function inField(browser: Browser, before: string) {
+  return browser.evaluate((before: string) => {
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const style = getComputedStyle(field);
+    const pen = document.createElement('canvas').getContext('2d')!;
+    pen.font = style.font;
+    const x = box.left + parseFloat(style.paddingLeft) + pen.measureText(before).width;
+    return { x, y: box.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2 };
+  }, before);
+}
+
+const boldNote = 'Some **bold** words\n\n- item one\n\nend';
+
+test('a double-click on a bold word held and dragged to another block holds both its marks once painted', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, boldNote);
+  await pressAndDrag({ browser, page }, await inField(browser, 'Some **bo'), await page.pointAt('item'), 2);
+  await expect.poll(() => page.painted()).toBe('bold wordsitem');
+  await expect.poll(async () => (await page.selection()).selected).toBe('**bold** words\n\n- item');
+  await browser.keyboard.press('Backspace');
+  await expect(page.text).toHaveValue('Some  one');
+});
+
+test('a drag from between the marks of a bold word to another block holds both its marks once painted', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, boldNote);
+  await pressAndDrag({ browser, page }, await inField(browser, 'Some *'), await page.pointAt('item'), 1);
+  await expect.poll(() => page.painted()).toBe('bold words');
+  await expect.poll(async () => (await page.selection()).selected).toBe('**bold** words\n\n- ');
 });
