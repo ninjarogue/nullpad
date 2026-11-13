@@ -1819,3 +1819,70 @@ test('at the end of a wrapped line the arrows move from that line, as a text fie
   expect(up.selected).toMatch(/^\nword0 word1 /);
   expect(up.selected).not.toContain('word39');
 });
+
+test('a double-click held and dragged into another block selects whole words, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsecond para here');
+  // The mouse of a test presses once at a time, so the second press of a
+  // double-click is sent from the page.
+  const send = (type: string, at: { x: number; y: number }, detail: number) =>
+    browser.evaluate(
+      (event: { type: string; x: number; y: number; detail: number }) => {
+        const target = document.elementFromPoint(event.x, event.y)!;
+        const pressed = event.type === 'mouseup' ? 0 : 1;
+        target.dispatchEvent(
+          new MouseEvent(event.type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: event.x,
+            clientY: event.y,
+            detail: event.detail,
+            button: 0,
+            buttons: pressed,
+          }),
+        );
+        return null;
+      },
+      { type, ...at, detail },
+    );
+  const doubleDrag = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await send('mousedown', from, 2);
+    await page.nextFrame();
+    for (let step = 1; step <= 6; step++) {
+      await send('mousemove', { x: from.x + ((to.x - from.x) * step) / 6, y: from.y + ((to.y - from.y) * step) / 6 }, 0);
+      await page.nextFrame();
+    }
+    await send('mouseup', to, 2);
+    await page.nextFrame();
+  };
+  const inField = (before: string) =>
+    browser.evaluate((before: string) => {
+      const field = document.querySelector('[data-test-id="editor"]')!;
+      const box = field.getBoundingClientRect();
+      const style = getComputedStyle(field);
+      const pen = document.createElement('canvas').getContext('2d')!;
+      pen.font = style.font;
+      const x = box.left + parseFloat(style.paddingLeft) + pen.measureText(before).width;
+      return { x, y: box.top + parseFloat(style.paddingTop) + parseFloat(style.lineHeight) / 2 };
+    }, before);
+
+  await doubleDrag(await inField('al'), await page.pointAt('ara here'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: 'alpha beta gamma\n\nsecond para here',
+    selected: 'alpha beta gamma\n\nsecond para',
+    backward: false,
+  });
+
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('second para here');
+  await doubleDrag(await inField('second pa'), await page.pointAt('eta'));
+  await expect.poll(() => page.selection()).toEqual({
+    text: 'alpha beta gamma\n\nsecond para here',
+    selected: 'beta gamma\n\nsecond para',
+    backward: true,
+  });
+});
