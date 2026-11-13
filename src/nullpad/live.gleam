@@ -213,9 +213,6 @@ pub fn nudge(
   }
 }
 
-/// Matches `typed` against `drawn` the way `column` does, up to column
-/// `until`: what is left of each, and the column of the last character
-/// matched, or 0.
 fn walk(
   typed: List(String),
   drawn: List(String),
@@ -232,8 +229,6 @@ fn walk(
   }
 }
 
-/// The column just after the next character of `drawn` in `typed`, or the
-/// end of `typed` when nothing more of it is drawn.
 fn next_drawn(typed: List(String), drawn: List(String), col: Int) -> Int {
   case typed, drawn {
     [one, ..], [next, ..] if one == next -> col + 1

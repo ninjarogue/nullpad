@@ -495,8 +495,6 @@ fn edge_decoder(
   }
 }
 
-/// Shift and an arrow left or right over a painted selection go through
-/// the editor, which knows what the page draws of the markdown.
 fn nudged(forward: Bool, shown: Buffer) -> Result(editor.Event, Nil) {
   case painted_head(control_id, live.row_mark, painted_class) {
     #(row, visible) if row >= 0 ->
