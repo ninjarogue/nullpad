@@ -353,6 +353,12 @@ fn note_row(model: Model, summary: Summary) -> Element(Msg) {
       attribute.data("test-id", "note-" <> storage.id_text(summary.id)),
       attribute.aria_current(current),
       event.on_click(ToLibrary(library.UserPickedNote(summary.id))),
+      // The text field keeps the focus, so that keys typed while the note
+      // loads are typed into a note and not lost on the button.
+      event.prevent_default(event.on(
+        "mousedown",
+        decode.failure(UserClosedMenu, expected: ""),
+      )),
       // A right-click, a long press where the browser makes it one, and the
       // keyboard's menu key.
       event.advanced("contextmenu", {
