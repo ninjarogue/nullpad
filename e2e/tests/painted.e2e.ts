@@ -449,3 +449,42 @@ test('a drag to the start of an item or a heading reaches its text, past the mar
   await page.markdown.tap();
   await expect(page.text).toHaveValue(`# YXShoes\n\nlast`);
 });
+
+test('the hidden field keeps its caret where a painted selection starts, so an IME opens there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('booked'), await page.pointAt('Shoes'));
+  await expect.poll(() => page.painted()).toBe('booked and the hotel is not.Passport');
+  await page.nextFrame();
+  const places = await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    const mirror = field.parentElement!.querySelector('.mirror')!;
+    const text = mirror.firstChild as Text;
+    const letter = document.createRange();
+    letter.setStart(text, field.selectionStart);
+    letter.setEnd(text, field.selectionStart + 1);
+    const inMirror = letter.getClientRects()[0];
+    const mirrorBox = mirror.getBoundingClientRect();
+    const fieldBox = field.getBoundingClientRect();
+    const caret = {
+      x: fieldBox.left + inMirror.left - mirrorBox.left,
+      y: fieldBox.top + inMirror.top - mirrorBox.top - field.scrollTop + inMirror.height / 2,
+    };
+    const painted = [...CSS.highlights.get('nullpad-selection')!][0] as Range;
+    const node = painted.startContainer as Text;
+    const at = painted.startOffset;
+    const start = document.createRange();
+    const after = at < node.length;
+    start.setStart(node, after ? at : at - 1);
+    start.setEnd(node, after ? at + 1 : at);
+    const drawn = start.getClientRects()[0];
+    return { caret, start: { x: after ? drawn.left : drawn.right, y: drawn.top + drawn.height / 2 } };
+  });
+  expect(Math.abs(places.caret.x - places.start.x)).toBeLessThan(2);
+  expect(Math.abs(places.caret.y - places.start.y)).toBeLessThan(4);
+});
