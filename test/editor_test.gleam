@@ -283,6 +283,24 @@ pub fn an_arrow_with_no_row_to_go_to_leaves_the_caret_where_it_is_test() {
   assert sync == editor.InSync
 }
 
+pub fn an_arrow_with_no_row_to_go_to_ends_a_selection_at_the_start_or_end_test() {
+  let held =
+    selected(
+      "abc def",
+      from: Position(row: 0, col: 7),
+      to: Position(row: 0, col: 4),
+    )
+  let Outcome(sync:, ..) =
+    live("abc def")
+    |> editor.update(editor.EdgePressed(editor.Up, x: 30.0, shown: held))
+  assert sync == editor.Write(caret("abc def", 0, 0))
+
+  let Outcome(sync:, ..) =
+    live("abc def")
+    |> editor.update(editor.EdgePressed(editor.Down, x: 30.0, shown: held))
+  assert sync == editor.Write(caret("abc def", 0, 7))
+}
+
 pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
   let note = "first\n\nsecond"
   let Outcome(editor: ed, ..) =
@@ -1456,4 +1474,17 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
   assert editor.text(ed) == "para oneか# Head\ntext under head\n\nend"
   assert editor.region(ed) == Some(Region(0, 0))
   assert list.contains(rows_of(ed), #(1, 1))
+}
+
+pub fn a_row_typed_as_another_block_keeps_the_frame_of_the_row_laid_out_test() {
+  let ed = live("top\n\n\n\nbelow") |> point(2)
+  assert editor.frame(ed) == Some(live.Body)
+
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("- x", 0, 3)))
+  assert editor.kind(ed) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(ed) == Some(live.Body)
+
+  let ed = ed |> point(4) |> point(2)
+  assert editor.frame(ed) == Some(live.ListItem(task: False, marker: "- "))
 }

@@ -134,23 +134,51 @@ fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
 }
 
 fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
-  case kind, editor.is_idle(editor), editor.is_painted(editor) {
-    None, _, _ -> "editor"
-    Some(_), True, _ -> "editor part idle"
-    Some(_), False, True -> "editor part " <> painted_class
-    Some(kind), False, False ->
-      case kind {
-        live.Body -> "editor part"
-        live.Mono -> "editor part mono"
-        live.ListItem(task: False, ..) -> "editor part item"
-        live.ListItem(task: True, ..) -> "editor part item task"
-        live.Title(markdown.H1) -> "editor part h1"
-        live.Title(markdown.H2) -> "editor part h2"
-        live.Title(markdown.H3) -> "editor part h3"
-        live.Title(markdown.H4) -> "editor part h4"
-        live.Title(markdown.H5) -> "editor part h5"
-        live.Title(markdown.H6) -> "editor part h6"
+  case
+    kind,
+    editor.frame(editor),
+    editor.is_idle(editor),
+    editor.is_painted(editor)
+  {
+    None, _, _, _ | _, None, _, _ -> "editor"
+    Some(_), Some(_), True, _ -> "editor part idle"
+    Some(_), Some(_), False, True -> "editor part " <> painted_class
+    Some(kind), Some(frame), False, False ->
+      case rows_of(frame) == rows_of(kind) {
+        True -> set_as(kind)
+        False -> set_as(kind) <> " framed framed-" <> rows_of(frame)
       }
+  }
+}
+
+/// What sets the height and margins of rows of a kind.
+fn rows_of(kind: live.Kind) -> String {
+  case kind {
+    live.Body -> "body"
+    live.Mono -> "mono"
+    live.ListItem(task: False, ..) -> "item"
+    live.ListItem(task: True, ..) -> "task"
+    live.Title(markdown.H1) -> "h1"
+    live.Title(markdown.H2) -> "h2"
+    live.Title(markdown.H3) -> "h3"
+    live.Title(markdown.H4) -> "h4"
+    live.Title(markdown.H5) -> "h5"
+    live.Title(markdown.H6) -> "h6"
+  }
+}
+
+fn set_as(kind: live.Kind) -> String {
+  case kind {
+    live.Body -> "editor part"
+    live.Mono -> "editor part mono"
+    live.ListItem(task: False, ..) -> "editor part item"
+    live.ListItem(task: True, ..) -> "editor part item task"
+    live.Title(markdown.H1) -> "editor part h1"
+    live.Title(markdown.H2) -> "editor part h2"
+    live.Title(markdown.H3) -> "editor part h3"
+    live.Title(markdown.H4) -> "editor part h4"
+    live.Title(markdown.H5) -> "editor part h5"
+    live.Title(markdown.H6) -> "editor part h6"
   }
 }
 
@@ -167,6 +195,12 @@ pub fn page(
 fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
     use shift <- decode.field("shiftKey", decode.bool)
+    use button <- decode.field("button", decode.int)
+    use target <- decode.then(decode.optionally_at(
+      ["target", "id"],
+      "",
+      decode.string,
+    ))
     use x <- decode.field("clientX", decode.float)
     use y <- decode.field("clientY", decode.float)
     use press <- decode.then(decode.dynamic)
@@ -192,10 +226,15 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
           y:,
         ))
       // A press the browser keeps also ends a press the editor took, whose
-      // release the page does not hear when it happens off the page.
+      // release the page does not hear when it happens off the page. A
+      // press of another button would take the focus to the page, but
+      // still opens its menu.
       _, _, _ ->
         on_event(editor.Released)
-        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> event.handler(
+          prevent_default: button != 0 && target != control_id,
+          stop_propagation: False,
+        )
         |> decode.success
     }
   })

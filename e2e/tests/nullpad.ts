@@ -320,8 +320,8 @@ class Page {
    * Presses `keys` one after another while the page draws nothing, as on a
    * device too busy to draw between two key presses. Then lets it draw.
    */
-  pressBeforeRedraw(...keys: string[]) {
-    return this.beforeRedraw(async () => {
+  async pressBeforeRedraw(...keys: string[]) {
+    await this.beforeRedraw(async () => {
       for (const key of keys) await this.browser.keyboard.press(key);
     });
   }

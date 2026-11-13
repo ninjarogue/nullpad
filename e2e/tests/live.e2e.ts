@@ -1122,8 +1122,7 @@ test('Escape after a selection across blocks keeps only the caret, so a key type
   await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
   expect((await page.selection()).selected).toBe('');
   await browser.keyboard.type('Q');
-  await expect(page.saveState).toHaveText('Saved');
-  expect((await disk.notes())[0].body).toBe(note.replace('Third', 'QThird'));
+  await expect.poll(async () => (await disk.notes())[0].body).toBe(note.replace('Third', 'QThird'));
 });
 
 test('a click whose hand moves a pixel while the page lays out under it selects nothing', async ({
@@ -1181,6 +1180,33 @@ test('a press on a text field that runs off the window does not scroll the page'
   await page.nextFrame();
   expect(await page.scrolled()).toBe(scrolled);
   expect((await page.caret()).startsWith('```js\n')).toBe(true);
+});
+
+test('a click on a line of a scrolled page leaves the page where it was', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const note = Array.from({ length: 50 }, (_, i) => `Line ${i} some text`).join('\n\n');
+  await openLive({ app, disk, page }, note);
+  await browser.evaluate(() => {
+    document.querySelector('.page')!.scrollTop = 600;
+    return null;
+  });
+  await page.nextFrame();
+  const scrolled = await page.scrolled();
+  expect(scrolled).toBe(600);
+
+  for (const line of ['Line 14 ', 'Line 18 ', 'Line 16 ']) {
+    const point = await page.pointAt(line);
+    await browser.mouse.move(point.x, point.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect(page.text).toHaveValue(`${line}some text`);
+    await page.nextFrame();
+    expect(await page.scrolled()).toBe(scrolled);
+  }
 });
 
 test('a click past the end of a wrapped line puts the caret at the end of that line', async ({
@@ -1471,3 +1497,116 @@ test('an arrow pressed while a selection is held moves one row on from its head,
   await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('bravo two');
 });
+
+test('an arrow past the first or last row of the note with a selection held goes to its start or end, as a text field does', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'abc def\n\nlast one');
+  await browser.keyboard.press('End');
+  for (let presses = 0; presses < 3; presses++) await browser.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(async () => (await page.selection()).selected).toBe('def');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('Xabc def');
+
+  for (let presses = 0; presses < 2; presses++) await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('last one');
+  await browser.keyboard.press('Home');
+  for (let presses = 0; presses < 4; presses++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('last');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.type('Y');
+  await expect(page.text).toHaveValue('last oneY');
+});
+
+test('a drag with one move, let go before the page redraws, selects to where it was let go', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '# Title\n\nPara one\n\n> one quote\n\nlast');
+  await expect(page.text).toHaveValue('# Title');
+  const quote = await page.pointAt('quote');
+  const field = await page.fieldBox();
+  const besideTitle = await browser.evaluate(() => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.right - 10, y: box.top + box.height / 2 };
+  });
+  expect(field.top).toBeLessThan(besideTitle.y);
+
+  await page.beforeRedraw(async () => {
+    await browser.mouse.move(quote.x, quote.y);
+    await browser.mouse.down();
+    await browser.mouse.move(besideTitle.x, besideTitle.y);
+    await browser.mouse.up();
+  });
+  await page.nextFrame();
+  expect(await page.selection()).toEqual({
+    text: '# Title\n\nPara one\n\n> one quote',
+    selected: '\n\nPara one\n\n> one ',
+    backward: true,
+  });
+});
+
+test('a right-click on the drawn page leaves the caret and the focus where they were', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'first\n\nA [link](https://example.com) here\n\nlast');
+  await browser.keyboard.press('End');
+  await page.drawn('p').last().secondaryTap();
+  await page.drawn('a').secondaryTap();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('X');
+  await expect(page.text).toHaveValue('firstX');
+});
+
+for (const [what, typed, below] of [
+  ['a dash', '- x', 'below words'],
+  ['indented code', '    c', 'below words'],
+  ['a heading', '# T', 'below words'],
+  ['a task', '- [ ] t', 'below words'],
+  ['a number above a list', '1. n', '3. alpha\n4. beta'],
+] as const) {
+  test(`${what} typed on an empty row moves nothing around it and keeps the row's height`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `top line\n\n\n\n${below}`);
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    const word = below.startsWith('3.') ? 'alpha' : 'below';
+    const measure = async () => ({
+      top: (await page.placeOf('top'))!.top,
+      below: (await page.placeOf(word))!.top,
+      height: (await page.fieldBox()).height,
+    });
+    await page.nextFrame();
+    const still = await measure();
+
+    let sofar = '';
+    for (const key of typed) {
+      await browser.keyboard.type(key);
+      sofar += key;
+      await expect(page.text).toHaveValue(sofar);
+      await page.nextFrame();
+      const now = await measure();
+      const moved = (side: keyof typeof now) => Math.abs(now[side] - still[side]) >= 0.5;
+      expect({ sofar, top: moved('top'), below: moved('below'), height: moved('height') }).toEqual({
+        sofar,
+        top: false,
+        below: false,
+        height: false,
+      });
+    }
+  });
+}

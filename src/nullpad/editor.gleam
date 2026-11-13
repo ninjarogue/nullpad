@@ -483,6 +483,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       let to = Position(row: cursor.row + 1, col: 0)
       #(buffer.replace(base, from:, to:, with: ""), Done)
     }
+    Up if live && anchor != cursor -> #(buffer.move_to(base, start), Done)
+    Down if live && anchor != cursor -> #(buffer.move_to(base, end), Done)
     SelectUp if live -> #(base, StepLine(up: True))
     SelectDown if live -> #(base, StepLine(up: False))
     SelectBefore if row_above -> reach(end_of_row(cursor.row - 1))
@@ -738,6 +740,17 @@ pub fn kind(editor: Editor) -> Option(live.Kind) {
         False, _ -> live.kind(drawn, field: rows, lines:)
       })
     }
+  }
+}
+
+/// The kind of the field's rows as the page was laid out. The field keeps
+/// their height and margins while a row is typed as another kind, so the
+/// page around it does not move. None while the field holds the whole note.
+pub fn frame(editor: Editor) -> Option(live.Kind) {
+  case editor.field {
+    Whole -> None
+    Part(rows:, drawn:, ..) ->
+      Some(live.kind(drawn, field: rows, lines: buffer.lines(editor.buffer)))
   }
 }
 

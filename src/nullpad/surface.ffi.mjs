@@ -49,7 +49,9 @@ export function placeCaret(id, paintedClass, x, y) {
 // Follows the pointer of a press on the page until it is let go. Once it
 // has moved `distance` away from where it was pressed, each move, and each
 // scroll of the page under it, names the place it is over. Held near the
-// top or bottom of the page, it scrolls the page.
+// top or bottom of the page, it scrolls the page. A place the page has not
+// yet drawn, such as the rows a press has just put in the field, is named
+// once it is drawn, and a release waits for that.
 let following = false;
 
 export function follow(id, liveClass, rowMark, x, y, distance, moved, released) {
@@ -58,13 +60,17 @@ export function follow(id, liveClass, rowMark, x, y, distance, moved, released) 
   following = true;
   let pointer = { x, y };
   let dragging = false;
+  let unnamed = false;
+  let letGo = false;
   let frame = 0;
   const report = () => {
     if (!page.isConnected) return;
     const [row, visible, atEnd, next] = placeAt(page, pointer.x, pointer.y, rowMark);
-    if (row >= 0) moved(row, visible, atEnd, next);
+    unnamed = row < 0;
+    if (!unnamed) moved(row, visible, atEnd, next);
   };
   const move = (event) => {
+    if (letGo) return;
     if ((event.buttons & 1) === 0) return stop();
     pointer = { x: event.clientX, y: event.clientY };
     dragging ||= Math.hypot(pointer.x - x, pointer.y - y) > distance;
@@ -74,10 +80,14 @@ export function follow(id, liveClass, rowMark, x, y, distance, moved, released) 
     if (dragging) report();
   };
   const up = (event) => {
-    if (event.button === 0) stop();
+    if (event.button !== 0) return;
+    letGo = true;
+    if (!unnamed) stop();
   };
   const step = () => {
     frame = requestAnimationFrame(step);
+    if (unnamed) report();
+    if (letGo) return stop();
     if (!dragging || !page.isConnected) return;
     const box = page.getBoundingClientRect();
     const by = edgeSpeed(pointer.y, Math.max(box.top, 0), Math.min(box.bottom, innerHeight));

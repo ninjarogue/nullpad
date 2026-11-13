@@ -317,9 +317,13 @@ button[aria-pressed="true"] {
 /* Live view: the page scrolls, the note is drawn in two parts, and between
    them the text field holds the block being edited. The mirror holds the
    same text in the flow, so the field is exactly as tall as its text. */
+/* The rows a moving field leaves are drawn again in elements that held
+   other rows, so the browser, which anchors the scroll to an element in view,
+   would scroll by every row the field moved. */
 .page.live {
   cursor: text;
   display: block;
+  overflow-anchor: none;
   overflow-y: auto;
   padding: 1.25rem max(1.25rem, calc((100% - 46rem) / 2));
 }
@@ -488,6 +492,79 @@ button[aria-pressed="true"] {
 .editor.part.h6 > * {
   font-size: 0.875rem;
   letter-spacing: 0.05em;
+}
+
+/* A row typed as another kind of block than the page laid it out as keeps
+   the height and margins it was laid out with, so nothing around it moves. */
+.editor.part.framed {
+  margin-block: 0;
+}
+
+.editor.part.framed > * {
+  line-height: var(--frame-line);
+  padding-block: 0;
+}
+
+.editor.part:is(.framed-body, .framed-item, .framed-task) {
+  --frame-line: 1.7rem;
+}
+
+.editor.part:is(.framed-item, .framed-task) {
+  margin-block: 0.25rem;
+}
+
+.editor.part.framed-task > * {
+  padding-block: var(--task-pad);
+}
+
+.editor.part.framed-mono {
+  --frame-line: 1.3125rem;
+}
+
+.editor.part:is(.framed-h1, .framed-h2, .framed-h3, .framed-h4, .framed-h5, .framed-h6) {
+  margin-top: 0.4rem;
+}
+
+.editor.part.framed-h1 {
+  --frame-line: 2.5rem;
+}
+
+.editor.part.framed-h2 {
+  --frame-line: 1.875rem;
+}
+
+.editor.part.framed-h3 {
+  --frame-line: 1.5625rem;
+}
+
+.editor.part.framed-h4 {
+  --frame-line: 1.40625rem;
+}
+
+.editor.part.framed-h5 {
+  --frame-line: 1.25rem;
+}
+
+.editor.part.framed-h6 {
+  --frame-line: 1.09375rem;
+}
+
+/* A heading typed on such a row is as large as the row lets it be, because
+   the text field clips what reaches past its lines. */
+.editor.part.framed.h1 > * {
+  font-size: min(2rem, var(--frame-line) / 1.25);
+}
+
+.editor.part.framed.h2 > * {
+  font-size: min(1.5rem, var(--frame-line) / 1.25);
+}
+
+.editor.part.framed.h3 > * {
+  font-size: min(1.25rem, var(--frame-line) / 1.25);
+}
+
+.editor.part.framed.h4 > * {
+  font-size: min(1.125rem, var(--frame-line) / 1.25);
 }
 
 .page.live > .editor.part:first-child,
