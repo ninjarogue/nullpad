@@ -2257,3 +2257,44 @@ test('text selected by a drag across blocks dragged onto another block moves the
   const at = left.lastIndexOf('para.');
   await expect(page.text).toHaveValue(left.slice(0, at) + moved + left.slice(at));
 });
+
+for (const [cell, row] of [
+  ['1', '| alpha1 | 2 |'],
+  ['2', '| 1 | alpha2 |'],
+]) {
+  test(`selected text dragged onto the start of a drawn table's cell ${cell} lands in that cell`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    const note = 'Para alpha beta.\n\n| a | b |\n|-|-|\n| 1 | 2 |\n\nEnd.';
+    await openLive({ app, disk, page }, note);
+    await expect(page.text).toHaveValue('Para alpha beta.');
+    await browser.keyboard.press('Home');
+    for (let step = 0; step < 5; step++) await browser.keyboard.press('ArrowRight');
+    for (let step = 0; step < 5; step++) await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+    const from = await page.pointAt('lpha');
+    const to = await browser.evaluate((cell: string) => {
+      const text = [...document.querySelectorAll('.page.live td')].find((td) => td.textContent === cell)!.firstChild!;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 1);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + box.width / 3, y: box.top + box.height / 2 };
+    }, cell);
+
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    for (let step = 1; step <= 10; step++) {
+      await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.nextFrame();
+    }
+    await browser.mouse.up();
+    await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+    await browser.keyboard.press('Escape');
+    await page.showMarkdown();
+    await expect(page.text).toHaveValue(`Para  beta.\n\n| a | b |\n|-|-|\n${row}\n\nEnd.`);
+  });
+}
