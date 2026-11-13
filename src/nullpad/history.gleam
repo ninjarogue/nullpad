@@ -91,13 +91,7 @@ pub fn record(history: History, buffer: Buffer, at at: Int) -> History {
       let change = change(present, buffer, rows)
       let past = case joins(run, change, at), past {
         True, [first, ..past] -> {
-          let rows =
-            joined(
-              first.rows,
-              rows,
-              buffer.lines(present),
-              buffer.lines(buffer),
-            )
+          let rows = joined(first.rows, buffer.lines(buffer))
           [Step(..first, rows:, after: selection), ..past]
         }
         True, [] | False, _ -> {
@@ -249,28 +243,12 @@ fn same_count(
   }
 }
 
-/// One step's rows, then the next change's on the note between them, as
-/// one change. `between` and `after` are the note's rows between the two
-/// and after both.
-fn joined(
-  first: Rows,
-  next: Rows,
-  between: List(String),
-  after: List(String),
-) -> Rows {
-  let first_end = first.row + list.length(first.inserted)
-  let next_end = next.row + list.length(next.removed)
-  let row = int.min(first.row, next.row)
-  let end = int.max(first_end, next_end)
-  let removed =
-    list.flatten([
-      slice(between, row, first.row - row) |> kept,
-      first.removed,
-      slice(between, first_end, end - first_end) |> kept,
-    ])
-  let after_end = end - next_end + next.row + list.length(next.inserted)
-  let inserted = slice(after, row, after_end - row) |> kept
-  Rows(row:, removed:, inserted:)
+/// The step's rows after one more typed or erased grapheme. That grapheme
+/// is on the row the caret is on, which is the step's first row, so the
+/// step keeps its rows removed and takes its inserted rows from `after`.
+fn joined(first: Rows, after: List(String)) -> Rows {
+  let inserted = slice(after, first.row, list.length(first.inserted)) |> kept
+  Rows(..first, inserted:)
 }
 
 fn slice(lines: List(String), from: Int, count: Int) -> List(String) {

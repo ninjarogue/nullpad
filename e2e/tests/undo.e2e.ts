@@ -502,3 +502,74 @@ test('typing over a selected word is undone in one step, back to the word select
   await editor.type('X');
   await editor.expectNote('alpha one\n\nbravo X words\n\ncharlie three');
 });
+
+type Chord = { key: string; code: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; isComposing?: boolean };
+
+async function keydown({ browser, page }: Fixtures, chord: Chord) {
+  await browser.evaluate((init: Chord) => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    field.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true }));
+    return null;
+  }, chord);
+  await page.nextFrame();
+}
+
+test('Cmd+Y without Ctrl does not redo', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  await editor.open('alpha');
+  await editor.press(ctrl('End'));
+  await editor.type('X');
+  await editor.press(ctrl('z'));
+  await editor.expectNote('alpha');
+
+  await keydown(fixtures, { key: 'y', code: 'KeyY', metaKey: true });
+  await editor.expectNote('alpha');
+  await editor.press(ctrl('y'));
+  await editor.expectNote('alphaX');
+});
+
+test('Ctrl+Alt+Z does not undo', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  await editor.open('alpha');
+  await editor.press(ctrl('End'));
+  await editor.type('X');
+
+  await keydown(fixtures, { key: 'z', code: 'KeyZ', ctrlKey: true, altKey: true });
+  await editor.expectNote('alphaX');
+  await editor.press(ctrl('z'));
+  await editor.expectNote('alpha');
+});
+
+test('Ctrl+Z pressed while a composition is under way is left to the browser, not taken as an undo', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  await editor.open('alpha');
+  await editor.press(ctrl('End'));
+  await editor.type('X');
+
+  await keydown(fixtures, { key: 'z', code: 'KeyZ', ctrlKey: true, isComposing: true });
+  await editor.expectNote('alphaX');
+  await editor.press(ctrl('z'));
+  await editor.expectNote('alpha');
+});
+
+test('a redo from the Edit menu gives back one step, once', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await editor.open('alpha');
+  await editor.press(ctrl('End'));
+  await editor.type('X');
+  await editor.press('Enter');
+  await editor.type('Y');
+  await editor.press(ctrl('z'), ctrl('z'), ctrl('z'));
+  await editor.expectNote('alpha');
+
+  await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'historyRedo' }));
+    return null;
+  });
+  await page.nextFrame();
+  await editor.expectNote('alphaX');
+  await editor.press(ctrl('z'));
+  await editor.expectNote('alpha');
+});

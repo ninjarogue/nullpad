@@ -233,6 +233,45 @@ pub fn a_pause_while_erasing_starts_a_new_step_test() {
   assert shown(undone(undone(erased))) == "abcd"
 }
 
+pub fn a_gap_of_exactly_the_pause_while_erasing_does_not_end_a_step_test() {
+  let erased =
+    history.new(at("abc", 3))
+    |> record_at([#(at("ab", 2), 0), #(at("a", 1), 1000)])
+  assert shown(undone(erased)) == "abc"
+
+  let paused =
+    history.new(at("abc", 3))
+    |> record_at([#(at("ab", 2), 0), #(at("a", 1), 1001)])
+  assert shown(undone(paused)) == "ab"
+}
+
+pub fn backspace_then_delete_are_two_steps_test() {
+  let erased =
+    history.new(at("abcd", 2))
+    |> record_all([at("acd", 1), at("ad", 1)])
+
+  assert shown(undone(erased)) == "acd"
+  assert shown(undone(undone(erased))) == "abcd"
+}
+
+pub fn delete_then_backspace_are_two_steps_test() {
+  let erased =
+    history.new(at("abcd", 2))
+    |> record_all([at("abd", 2), at("ad", 1)])
+
+  assert shown(undone(erased)) == "abd"
+  assert shown(undone(undone(erased))) == "abcd"
+}
+
+pub fn a_tab_typed_after_a_word_starts_a_new_step_like_a_space_test() {
+  let typed =
+    history.new(at("", 0))
+    |> record_all([at("a", 1), at("ab", 2), at("ab\t", 3), at("ab\t ", 4)])
+
+  assert shown(undone(typed)) == "ab"
+  assert shown(undone(undone(typed))) == ""
+}
+
 pub fn a_pause_before_a_character_typed_after_a_caret_move_changes_nothing_test() {
   let typed =
     history.new(at("xy", 0))
