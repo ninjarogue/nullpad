@@ -100,6 +100,13 @@ pub fn moving_the_selection_takes_it_to_a_place_and_selects_it_there_test() {
     == #("betaalpha \ngamma delta", #(Position(0, 0), Position(0, 4)))
   assert moved(Position(0, 8)) == #(buffer.text(note), buffer.selection(note))
 
+  let word =
+    buffer.from_text("alpha beta gamma")
+    |> buffer.select(anchor: Position(0, 0), head: Position(0, 5))
+    |> buffer.move_selection(to: Position(0, 11))
+  assert buffer.text(word) == " beta alphagamma"
+  assert buffer.selection(word) == #(Position(0, 6), Position(0, 11))
+
   let across =
     buffer.from_text("ab\ncd\nef")
     |> buffer.select(anchor: Position(1, 1), head: Position(0, 1))
