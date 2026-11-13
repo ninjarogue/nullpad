@@ -1297,3 +1297,40 @@ test('the wheel turned during a drag keeps the end of the selection under the po
   expect(lines.head).toBeGreaterThan(8);
   expect(Math.abs(lines.head - lines.pointer)).toBeLessThanOrEqual(1);
 });
+
+test('a tap in the text field that moves the caret to another row is seen before the next key', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '| a | b |\n|-|-|\n| 1 | 2 |\n\nafter');
+  await expect(page.text).toHaveValue('| a | b |\n|-|-|\n| 1 | 2 |');
+  expect((await page.fieldFont()).size).toBe('14px');
+
+  // A touch sends its pointer events first, then the mouse events, and the
+  // browser moves the caret between the mouse press and its release, with
+  // no select event, which setting the caret from a script would send.
+  await browser.evaluate(() => {
+    addEventListener('select', (event) => event.stopImmediatePropagation(), { capture: true });
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    const box = field.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: box.left + 60, clientY: box.top + 30 };
+    const touch = { ...at, pointerType: 'touch', isPrimary: true };
+    const capabilities = (globalThis as unknown as { InputDeviceCapabilities: new (init: object) => object })
+      .InputDeviceCapabilities;
+    const fromTouch = { sourceCapabilities: new capabilities({ firesTouchEvents: true }) };
+    field.dispatchEvent(new PointerEvent('pointerdown', touch));
+    field.dispatchEvent(new PointerEvent('pointerup', touch));
+    field.dispatchEvent(new MouseEvent('mousedown', { ...at, ...fromTouch, buttons: 1 }));
+    field.setSelectionRange(15, 15);
+    field.dispatchEvent(new MouseEvent('mouseup', { ...at, ...fromTouch }));
+    field.dispatchEvent(new MouseEvent('click', { ...at, ...fromTouch }));
+    return null;
+  });
+  await page.nextFrame();
+  await browser.keyboard.type('x');
+  await expect(page.text).toHaveValue('| a | b |\n|-|-|x\n| 1 | 2 |');
+  expect((await page.fieldFont()).size).toBe('14px');
+  await expect(page.drawnIn('live-below', 'p')).toHaveText('after');
+});
