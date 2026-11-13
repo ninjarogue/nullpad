@@ -1,6 +1,7 @@
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import type { Locator } from 'e2e';
+import { cursorProblem } from './guards.ts';
 
 /**
  * Types sample notes into the page view one key at a time, and after every
@@ -23,6 +24,9 @@ import type { Locator } from 'e2e';
  * delimiter row, a paragraph line becomes a list). That move is the commit.
  * After it, and after any move that has had no typing before it, the rule
  * holds again.
+ *
+ * After every key it also looks at the cursor, as `cursorProblem` does: its
+ * box must be inside the window and inside the page that scrolls.
  *
  * A row is shown by the drawn element that carries its `data-row`, or, while
  * the caret's block is open, by the text field. A row with no element of its
@@ -391,6 +395,7 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
   const rowAt = (index: number) => text.slice(0, index).split('\n').length - 1;
   let caret = 0;
   let uncommitted = false;
+  let lostCursor = 0;
 
   let was = await browser.evaluate(snapshotInPage, { lines: lines() });
   const hits: Hit[] = [];
@@ -432,6 +437,8 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
       problems.push(`${name}: the caret is at row ${now.caret.row} column ${now.caret.col}, the typed text puts it at offset ${caret}`);
     }
     for (const problem of now.problems) problems.push(`${name}: ${problem}`);
+    const lost = await cursorProblem(browser, name);
+    if (lost !== null && lostCursor++ < 3) problems.push(lost);
 
     const rowNow = now.caret.row;
     const stays = rowNow === rowBefore;

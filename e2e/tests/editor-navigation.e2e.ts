@@ -236,7 +236,7 @@ test('Ctrl+End goes to the end of a note longer than the window and scrolls the 
   await editor.press(ctrl('End'));
   await editor.type('X');
 
-  expect.soft(await editor.fieldInView(), 'the text field is in the window').toBe(true);
+  expect.soft(await editor.cursorInView(), 'the cursor is in view').toBe(true);
   await editor.expectNote(`${long}X`);
 });
 
@@ -246,10 +246,10 @@ test('ArrowDown through a note longer than the window keeps the caret in view', 
   const lost: number[] = [];
   for (let press = 1; press <= 60; press++) {
     await editor.press('ArrowDown');
-    if (!(await editor.fieldInView())) lost.push(press);
+    if (!(await editor.cursorInView())) lost.push(press);
   }
 
-  expect(lost, 'presses after which the caret is out of the window').toEqual([]);
+  expect(lost, 'presses after which the cursor is out of view').toEqual([]);
 });
 
 test('ArrowUp from the end of a note longer than the window keeps the caret in view', async (fixtures) => {
@@ -258,10 +258,10 @@ test('ArrowUp from the end of a note longer than the window keeps the caret in v
   const lost: number[] = [];
   for (let press = 1; press <= 60; press++) {
     await editor.press('ArrowUp');
-    if (!(await editor.fieldInView())) lost.push(press);
+    if (!(await editor.cursorInView())) lost.push(press);
   }
 
-  expect(lost, 'presses after which the caret is out of the window').toEqual([]);
+  expect(lost, 'presses after which the cursor is out of view').toEqual([]);
 });
 
 test('Enter at the end of a note longer than the window keeps the caret in view', async (fixtures) => {
@@ -270,10 +270,10 @@ test('Enter at the end of a note longer than the window keeps the caret in view'
   const lost: number[] = [];
   for (let press = 1; press <= 25; press++) {
     await editor.press('Enter');
-    if (!(await editor.fieldInView())) lost.push(press);
+    if (!(await editor.cursorInView())) lost.push(press);
   }
 
-  expect(lost, 'presses after which the caret is out of the window').toEqual([]);
+  expect(lost, 'presses after which the cursor is out of view').toEqual([]);
 });
 
 test('typing a long paragraph at the end of a long note keeps the caret in view', async (fixtures) => {
@@ -281,7 +281,7 @@ test('typing a long paragraph at the end of a long note keeps the caret in view'
   await openAtTheEnd(editor);
   await editor.type(` ${'more words '.repeat(60)}`);
 
-  expect(await editor.fieldInView(), 'the text field is in the window').toBe(true);
+  expect(await editor.cursorInView(), 'the cursor is in view').toBe(true);
 });
 
 test('Ctrl+Home scrolls back to the start of the note', async (fixtures) => {
@@ -300,7 +300,7 @@ test('PageDown moves the caret down by about a window', async (fixtures) => {
 
   const caret = await editor.caret(long);
   expect(caret.row, 'the row the caret is on after PageDown').toBeGreaterThan(10);
-  expect(await editor.fieldInView(), 'the text field is in the window').toBe(true);
+  expect(await editor.cursorInView(), 'the cursor is in view').toBe(true);
 });
 
 test('PageUp moves the caret up by about a window', async (fixtures) => {
@@ -310,7 +310,7 @@ test('PageUp moves the caret up by about a window', async (fixtures) => {
 
   const caret = await editor.caret(long);
   expect(caret.row, 'the row the caret is on after PageUp').toBeLessThan(long.split('\n').length - 10);
-  expect(await editor.fieldInView(), 'the text field is in the window').toBe(true);
+  expect(await editor.cursorInView(), 'the cursor is in view').toBe(true);
 });
 
 test('a block the caret reaches with the keys is where the caret is when typed into', async (fixtures) => {

@@ -3,6 +3,7 @@ import { expect } from 'e2e';
 import type { App } from 'e2e';
 import { chromium } from 'playwright-core';
 import type { Page as RawPage } from 'playwright-core';
+import { cursorProblem } from './guards.ts';
 import type { Disk, Page } from './nullpad.ts';
 
 /** Where a person aims the pointer: the gap before character `at` of the first `word` drawn on the page. */
@@ -65,6 +66,8 @@ function caretInPage(model: { lines: string[] }) {
 
 /** Drives the page view of one note the way a person does: the pointer, the keyboard and the clipboard. */
 export class Editing {
+  private lost = 0;
+
   constructor(readonly fixtures: Fixtures) {}
 
   /** Seeds the note and leaves the browser on a blank page, where `plainField` can run. */
@@ -142,13 +145,28 @@ export class Editing {
     return box!;
   }
 
+  /**
+   * Waits for the page to draw what was just done, and checks that the cursor
+   * can be seen. A test fails, after it has run on, for each of the first few
+   * actions after which it cannot.
+   */
+  async settle(after: string) {
+    await this.fixtures.page.nextFrame();
+    await this.seeCursor(after);
+  }
+
+  async seeCursor(after: string) {
+    const problem = await cursorProblem(this.fixtures.browser, after);
+    if (problem !== null && this.lost++ < 5) expect.soft(problem, 'the cursor is in view').toBeNull();
+  }
+
   /** Presses the pointer at a place in the window. */
   async clickAt(x: number, y: number) {
-    const { browser, page } = this.fixtures;
+    const { browser } = this.fixtures;
     await browser.mouse.move(x, y);
     await browser.mouse.down();
     await browser.mouse.up();
-    await page.nextFrame();
+    await this.settle(`a click at ${Math.round(x)}, ${Math.round(y)}`);
   }
 
   async click(spot: Spot) {
@@ -157,7 +175,7 @@ export class Editing {
     await browser.mouse.move(x, y);
     await browser.mouse.down();
     await browser.mouse.up();
-    await this.fixtures.page.nextFrame();
+    await this.settle(`a click on "${spot.word}"`);
   }
 
   async shiftClick(spot: Spot) {
@@ -168,7 +186,7 @@ export class Editing {
     await browser.mouse.down();
     await browser.mouse.up();
     await browser.keyboard.up('Shift');
-    await this.fixtures.page.nextFrame();
+    await this.settle(`a Shift+click on "${spot.word}"`);
   }
 
   async drag(from: Spot, to: Spot) {
@@ -181,17 +199,25 @@ export class Editing {
       await browser.mouse.move(start.x + ((end.x - start.x) * step) / 8, start.y + ((end.y - start.y) * step) / 8);
     }
     await browser.mouse.up();
-    await this.fixtures.page.nextFrame();
+    await this.settle(`a drag from "${from.word}" to "${to.word}"`);
   }
 
+  /** Escape leaves the text field, so after it there is no cursor to look at. */
   async press(...keys: string[]) {
-    for (const key of keys) await this.fixtures.browser.keyboard.press(key);
-    await this.fixtures.page.nextFrame();
+    for (const key of keys) {
+      await this.fixtures.browser.keyboard.press(key);
+      if (key === 'Escape') await this.fixtures.page.nextFrame();
+      else await this.settle(key);
+    }
   }
 
+  /** A word at a time, so that the cursor is looked at as the text grows. */
   async type(text: string) {
-    await this.fixtures.browser.keyboard.type(text);
-    await this.fixtures.page.nextFrame();
+    for (const piece of text.match(/\S*\s*/g) ?? []) {
+      if (piece === '') continue;
+      await this.fixtures.browser.keyboard.type(piece);
+      await this.settle(`typing "${piece}"`);
+    }
   }
 
   /** Enter is pressed for each "\n" in `text`, as a person would. */
@@ -200,7 +226,7 @@ export class Editing {
       if (index > 0) await this.fixtures.browser.keyboard.press('Enter');
       if (line !== '') await this.fixtures.browser.keyboard.type(line);
     }
-    await this.fixtures.page.nextFrame();
+    await this.settle('writing the note');
   }
 
   /** What the note is, as saved. */
@@ -241,14 +267,10 @@ export class Editing {
     }, text);
   }
 
-  /** Whether the text field is inside the page that scrolls, as the caret is when it can be seen. */
-  async fieldInView() {
+  /** Whether the cursor can be seen, as `cursorProblem` judges it. */
+  async cursorInView() {
     await this.fixtures.page.nextFrame();
-    return this.fixtures.browser.evaluate(() => {
-      const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
-      const sheet = document.querySelector('.page')!.getBoundingClientRect();
-      return box.top >= Math.max(sheet.top, 0) && box.bottom <= Math.min(sheet.bottom, innerHeight);
-    });
+    return (await cursorProblem(this.fixtures.browser, 'now')) === null;
   }
 
   /** Scrolls the page to its end with the wheel, as a person does before clicking in the last block. */
