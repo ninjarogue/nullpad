@@ -189,10 +189,10 @@ pub fn drawn(
   }
 }
 
-/// Where `at` lands when it is among marks the page hides between two drawn
-/// characters, or before the end of its row: where `position` puts a click
-/// on the place they are drawn at, so that a selection painted there holds
-/// what it shows. The marks a row starts with keep every place among them.
+/// Where `at` lands when it is between two marks the page hides, which it
+/// cannot draw: beside the drawn character they go with, as for `nudge`, so
+/// that a selection painted from there holds what it shows. A place beside
+/// the marks stays, as do the places among the marks a row starts with.
 /// `row` and `visible` are as for `drawn`.
 pub fn settle(
   lines: List(String),
@@ -207,20 +207,20 @@ pub fn settle(
   }
   case line, here {
     Ok(line), Ok(here) -> {
-      let shown =
-        shown(string.to_graphemes(line), string.to_graphemes(here), [])
-      let #(before, after) = list.split(shown, at.col)
+      let typed = string.to_graphemes(line)
+      let #(before, after) =
+        shown(typed, string.to_graphemes(here), []) |> list.split(at.col)
       let start = at.col - hidden_run(list.reverse(before), 0)
       let end = at.col + hidden_run(after, 0)
-      case start > 0 && start < end {
-        True -> {
-          let typed = string.to_graphemes(line)
-          let next =
-            typed |> list.drop(end) |> list.first |> result.unwrap("\n")
-          let place = drawn(lines, row:, visible:, at: Position(at.row, start))
-          position(lines, row:, visible: place, at_end: False, next:)
-        }
-        False -> at
+      let drawn_before = typed |> list.drop(start - 1) |> list.first
+      case start > 0 && start < at.col && at.col < end, list.drop(typed, end) {
+        False, _ -> at
+        True, [] -> Position(..at, col: start)
+        True, [next, ..] ->
+          case closes(option.from_result(drawn_before), next) {
+            True -> Position(..at, col: start)
+            False -> Position(..at, col: end)
+          }
       }
     }
     _, _ -> at
