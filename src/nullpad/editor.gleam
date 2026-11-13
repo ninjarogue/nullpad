@@ -136,6 +136,10 @@ pub type Event {
     x: Float,
     y: Float,
   )
+  /// The second press of a double click, at `x`, `y` in the window: selects
+  /// the word the first press put the caret in, wherever showing its block
+  /// moved that word.
+  WordPressed(x: Float, y: Float)
   /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool, next: String)
   /// Shift and an arrow up or down, taken by the surface: the head moves to
@@ -364,6 +368,25 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       Outcome(
         editor: Editor(..editor, press: Some(at)),
         sync: Press(None, x:, y:),
+        requests: [],
+      )
+    }
+    WordPressed(x:, y:) -> {
+      let #(start, end) =
+        buffer.word_at(editor.buffer, buffer.cursor(editor.buffer))
+      let editor =
+        Editor(
+          ..editor,
+          focus: Focused,
+          press: Some(start),
+          waiting: [],
+          goal: None,
+        )
+        |> edit(buffer.select(editor.buffer, anchor: start, head: end))
+        |> realign
+      Outcome(
+        editor:,
+        sync: Press(Some(field_buffer(editor)), x:, y:),
         requests: [],
       )
     }

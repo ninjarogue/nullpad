@@ -205,6 +205,7 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.advanced("mousedown", {
     use shift <- decode.field("shiftKey", decode.bool)
     use button <- decode.field("button", decode.int)
+    use clicks <- decode.field("detail", decode.int)
     use target <- decode.then(decode.optionally_at(
       ["target", "id"],
       "",
@@ -222,6 +223,9 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
     case locate(press, live.row_mark), shift, shown {
       #(row, visible, at_end, next, True), False, _ if row >= 0 ->
         taken(editor.Grabbed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, _, _, _, False), False, _
+        if clicks == 2 && button == 0 && { row >= 0 || target == control_id }
+      -> taken(editor.WordPressed(x:, y:))
       #(row, visible, at_end, next, False), False, _ if row >= 0 ->
         taken(editor.Pointed(row:, visible:, at_end:, next:, x:, y:))
       #(row, visible, at_end, next, False), True, Ok(shown) if row >= 0 ->

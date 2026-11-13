@@ -1631,3 +1631,13 @@ pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 1, col: 0), Position(row: 2, col: 0))
 }
+
+pub fn a_second_press_selects_the_word_the_first_put_the_caret_in_test() {
+  let ed = pressed("intro\n\n# Big title here", 2, "Big ti")
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 2, col: 8)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.WordPressed(x: 90.0, y: 40.0))
+  assert buffer.selection(editor.buffer(ed))
+    == #(Position(row: 2, col: 6), Position(row: 2, col: 11))
+  let assert editor.Press(write: Some(_), x: 90.0, y: 40.0) = sync
+}

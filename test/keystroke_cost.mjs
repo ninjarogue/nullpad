@@ -248,6 +248,7 @@ const events = {
     ["a row above", (field, row) => new editor.ShiftPointed(Math.max(0, row - 9), "", true, "", field, 0, 0)],
     ["a row below", (field, row) => new editor.ShiftPointed(row + 9, "", false, "", field, 0, 0)],
   ],
+  WordPressed: [["", () => new editor.WordPressed(0, 0)]],
   Grabbed: [
     ["a row above", (_, row) => new editor.Grabbed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.Grabbed(row + 9, "", false, "", 0, 0)],
