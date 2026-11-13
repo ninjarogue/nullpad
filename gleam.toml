@@ -20,6 +20,8 @@ lustre = ">= 5.7.1 and < 6.0.0"
 [dev_dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
 lustre_dev_tools = ">= 2.4.0 and < 3.0.0"
+glance = ">= 7.0.0 and < 8.0.0"
+simplifile = ">= 2.7.0 and < 3.0.0"
 
 [tools.lustre.html]
 title = "nullpad"

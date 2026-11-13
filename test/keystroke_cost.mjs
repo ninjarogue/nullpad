@@ -6,8 +6,9 @@
 //   gleam build && node test/keystroke_cost.mjs [build directory]
 //
 // Exits 1 when a typed character parses the note more than once, or a caret
-// move parses it at all. The times are printed, never checked: they are too
-// noisy for a gate.
+// move parses it at all, and then the same for every variant of
+// `editor.Event`. The times are printed, never checked: they are too noisy
+// for a gate.
 
 import { register } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -186,4 +187,103 @@ for (const kb of SIZES_KB) {
 
 console.table(rows);
 console.log(`${KEYS} keys of each kind after ${WARMUP} warm-up keys, one update and one view each`);
+
+// Every editor event, with vim off and on: one parse at most when the note
+// changed, none when it did not. A variant of `editor.Event` with no entry
+// here fails, so a new event cannot arrive unmeasured.
+const vim = await load("nullpad/nullpad/vim.mjs");
+
+// `surface.view` measures a list marker's width when the caret is in a list.
+globalThis.getComputedStyle = () => ({ fontSize: "16px", getPropertyValue: () => "" });
+globalThis.document = {
+  documentElement: {},
+  createElement: () => ({ getContext: () => ({ measureText: (text) => ({ width: text.length * 8 }) }) }),
+};
+const events = {
+  ControlChanged: [
+    ["typed", (field) => new editor.ControlChanged(typed(field))],
+    ["moved", (field) => new editor.ControlChanged(moved(field, 0))],
+  ],
+  Composing: [
+    ["typed", (field) => new editor.Composing(typed(field))],
+    ["moved", (field) => new editor.Composing(moved(field, 0))],
+  ],
+  KeyPressed: [
+    ["x", (field) => new editor.KeyPressed(new vim.Char("x"), field)],
+    ["l", (field) => new editor.KeyPressed(new vim.Char("l"), field)],
+    ["i", (field) => new editor.KeyPressed(new vim.Char("i"), field)],
+    ["Escape", (field) => new editor.KeyPressed(new vim.Escape(), field)],
+    ["Enter", (field) => new editor.KeyPressed(new vim.Enter(), field)],
+    ["Ctrl r", (field) => new editor.KeyPressed(new vim.Ctrl("r"), field)],
+  ],
+  EdgePressed: [
+    ["Up", (field) => new editor.EdgePressed(new editor.Up(), 0, field)],
+    ["Down", (field) => new editor.EdgePressed(new editor.Down(), 0, field)],
+    ["JoinBefore", (field) => new editor.EdgePressed(new editor.JoinBefore(), 0, field)],
+    ["JoinAfter", (field) => new editor.EdgePressed(new editor.JoinAfter(), 0, field)],
+  ],
+  EscapePressed: [["", (field) => new editor.EscapePressed(field)]],
+  Pointed: [
+    ["a row above", (_, row) => new editor.Pointed(Math.max(0, row - 9), "", true)],
+    ["a row below", (_, row) => new editor.Pointed(row + 9, "", false)],
+  ],
+  FocusChanged: [
+    ["blur", () => new editor.FocusChanged(false)],
+    ["focus", () => new editor.FocusChanged(true)],
+  ],
+};
+
+const { readFileSync } = await import("node:fs");
+const declared = readFileSync(new URL("../src/nullpad/editor.gleam", import.meta.url), "utf8")
+  .match(/pub type Event \{([^}]*)\}/)?.[1]
+  .split("\n")
+  .map((line) => line.trim().match(/^([A-Z]\w*)/)?.[1])
+  .filter(Boolean);
+if (!declared?.length) {
+  console.error("Could not read the variants of editor.Event.");
+  process.exit(1);
+}
+for (const variant of declared) {
+  if (!events[variant]) {
+    console.error(`editor.${variant} has no entry in test/keystroke_cost.mjs.`);
+    failed = true;
+  }
+}
+
+const every = [];
+for (const withVim of [false, true]) {
+  for (const variant of declared) {
+    for (const [label, make] of events[variant] ?? []) {
+      let model = opened(note(20));
+      if (withVim) {
+        model = model.withFields({ editor: editor.set_vim(model.editor, true).editor });
+      }
+      const field = editor.field_buffer(model.editor);
+      const row = editor.region(model.editor)[0]?.first_row ?? 0;
+      const text = editor.text(model.editor);
+      const count = globalThis.parses;
+      let next;
+      try {
+        [next] = app.update(model, new app.EditorSent(make(field, row)));
+        app.view(next);
+      } catch (error) {
+        if (error.gleam_error !== "todo") throw error;
+        every.push({ vim: withVim ? "on" : "off", event: `${variant} ${label}`.trim(), verdict: "not built yet" });
+        continue;
+      }
+      const parses = globalThis.parses - count;
+      const changed = editor.text(next.editor) !== text;
+      const budget = changed ? 1 : 0;
+      failed ||= parses > budget;
+      every.push({
+        vim: withVim ? "on" : "off",
+        event: `${variant} ${label}`.trim(),
+        "note changed": changed,
+        parses,
+        verdict: parses > budget ? `OVER BUDGET (${budget})` : "ok",
+      });
+    }
+  }
+}
+console.table(every);
 process.exit(failed ? 1 : 0);
