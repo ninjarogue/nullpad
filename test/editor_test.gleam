@@ -872,6 +872,33 @@ pub fn shift_and_an_arrow_left_or_right_on_a_painted_selection_skip_hidden_marks
   assert editor.text(ed) == live_note
 }
 
+pub fn a_painted_selection_settles_where_the_page_painted_it_test() {
+  let ed = pressed(live_note, 0, "Tr")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Dragged(row: 2, visible: "Flights are ", at_end: False, next: ""),
+    )
+  assert editor.is_painted(ed)
+  let from = #(Position(0, 4), Position(2, 12))
+  let to = #(Position(0, 4), Position(2, 14))
+
+  let Outcome(editor: stale, sync:, ..) =
+    editor.update(ed, editor.Settled(from: #(Position(0, 3), from.1), to:))
+  assert sync == editor.InSync
+  assert stale == ed
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Settled(from:, to:))
+  assert sync
+    == editor.WriteQuietly(selected(
+      "# Trip\n\nFlights are **booked**.",
+      from: to.0,
+      to: to.1,
+    ))
+  assert editor.text(ed) == live_note
+}
+
 pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     live(live_note)

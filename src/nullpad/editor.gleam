@@ -177,6 +177,10 @@ pub type Event {
   /// moves one character drawn on the page, past the marks it does not draw.
   /// `row` and `visible` are the element the head is drawn in.
   Nudged(forward: Bool, row: Int, visible: String, shown: Buffer)
+  /// The page painted a selection from `from`, whose ends it draws where
+  /// `live.settle` puts them, at `to`. Unless the selection has moved since,
+  /// it is taken there, so it holds what is painted.
+  Settled(from: #(Position, Position), to: #(Position, Position))
   Released
   /// The browser starts to drag the field's selection.
   DragStarted
@@ -465,6 +469,20 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
       Outcome(editor:, sync:, requests: [])
     }
+    Settled(from:, to: #(anchor, head)) ->
+      case is_painted(editor) && buffer.selection(editor.buffer) == from {
+        True -> {
+          let settled =
+            edit(editor, buffer.select(editor.buffer, anchor:, head:))
+            |> realign
+          Outcome(
+            editor: settled,
+            sync: WriteQuietly(field_buffer(settled)),
+            requests: [],
+          )
+        }
+        False -> Outcome(editor:, sync: InSync, requests: [])
+      }
     Released -> {
       let let_go = Editor(..editor, press: None, dragging: False)
       case editor.press, editor.dragging {

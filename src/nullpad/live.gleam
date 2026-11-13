@@ -189,6 +189,65 @@ pub fn drawn(
   }
 }
 
+/// Where `at` lands when it is among marks the page hides between two drawn
+/// characters, or before the end of its row: where `position` puts a click
+/// on the place they are drawn at, so that a selection painted there holds
+/// what it shows. The marks a row starts with keep every place among them.
+/// `row` and `visible` are as for `drawn`.
+pub fn settle(
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
+) -> Position {
+  let line = lines |> list.drop(at.row) |> list.first
+  let here = case at.row >= row {
+    True -> string.split(visible, "\n") |> list.drop(at.row - row) |> list.first
+    False -> Error(Nil)
+  }
+  case line, here {
+    Ok(line), Ok(here) -> {
+      let shown =
+        shown(string.to_graphemes(line), string.to_graphemes(here), [])
+      let #(before, after) = list.split(shown, at.col)
+      let start = at.col - hidden_run(list.reverse(before), 0)
+      let end = at.col + hidden_run(after, 0)
+      case start > 0 && start < end {
+        True -> {
+          let typed = string.to_graphemes(line)
+          let next =
+            typed |> list.drop(end) |> list.first |> result.unwrap("\n")
+          let place = drawn(lines, row:, visible:, at: Position(at.row, start))
+          position(lines, row:, visible: place, at_end: False, next:)
+        }
+        False -> at
+      }
+    }
+    _, _ -> at
+  }
+}
+
+/// Whether each character of `line` is drawn, matched as `drawn` matches.
+fn shown(
+  line: List(String),
+  visible: List(String),
+  taken: List(Bool),
+) -> List(Bool) {
+  case line, visible {
+    [], _ -> list.reverse(taken)
+    [typed, ..line], [drawn, ..rest] if typed == drawn ->
+      shown(line, rest, [True, ..taken])
+    [_, ..line], _ -> shown(line, visible, [False, ..taken])
+  }
+}
+
+fn hidden_run(shown: List(Bool), count: Int) -> Int {
+  case shown {
+    [False, ..shown] -> hidden_run(shown, count + 1)
+    _ -> count
+  }
+}
+
 fn unmatch(
   line: List(String),
   visible: List(String),

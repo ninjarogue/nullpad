@@ -498,3 +498,57 @@ pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_t
   assert at("a **b**", "a ", "b") == 2
   assert at("a \\| b", "a ", "|") == 2
 }
+
+fn settle(lines: List(String), visible: String, row: Int, col: Int) -> Int {
+  live.settle(lines, row: 0, visible:, at: Position(row:, col:)).col
+}
+
+/// A place among marks the page hides is drawn where the place before them
+/// is, so it goes where a click there lands: before marks that open what
+/// follows, past marks that close what came before.
+pub fn a_place_among_hidden_marks_settles_where_a_click_there_lands_test() {
+  let lines = ["Flights are **booked** and *not*."]
+  let visible = "Flights are booked and not."
+  assert list.map([12, 13, 14], settle(lines, visible, 0, _)) == [12, 12, 12]
+  assert list.map([20, 21, 22], settle(lines, visible, 0, _)) == [22, 22, 22]
+  assert list.map([27, 28], settle(lines, visible, 0, _)) == [27, 27]
+  assert list.map([31, 32], settle(lines, visible, 0, _)) == [32, 32]
+  assert settle(lines, visible, 0, 16) == 16
+  assert settle(lines, visible, 0, 33) == 33
+}
+
+pub fn the_marks_a_row_starts_with_keep_every_place_among_them_test() {
+  assert list.map([0, 1, 2], settle(["# Trip"], "Trip", 0, _)) == [0, 1, 2]
+  assert list.map([0, 3, 6], settle(["- [ ] Passport"], "Passport", 0, _))
+    == [0, 3, 6]
+}
+
+pub fn a_place_among_the_marks_between_two_cells_settles_in_the_next_test() {
+  let lines = ["| a | b |", "|---|---|"]
+  assert list.map([3, 4, 5, 6], settle(lines, "ab", 0, _)) == [6, 6, 6, 6]
+  assert list.map([7, 8, 9], settle(lines, "ab", 0, _)) == [9, 9, 9]
+  assert settle(lines, "ab", 1, 2) == 2
+}
+
+/// Settling never changes where a place is drawn, and a settled place stays.
+pub fn a_settled_place_is_drawn_where_it_was_and_settles_no_further_test() {
+  let wrong = {
+    use Drawn(lines:, visible:) <- list.flat_map(corpus)
+    use #(line, row) <- list.flat_map(
+      list.index_map(lines, fn(line, row) { #(line, row) }),
+    )
+    use col <- list.filter_map(through(string.length(line)))
+    let at = Position(row:, col:)
+    let settled = live.settle(lines, row: 0, visible:, at:)
+    let drawn = fn(at) { live.drawn(lines, row: 0, visible:, at:) }
+    case
+      settled.row == row
+      && drawn(settled) == drawn(at)
+      && live.settle(lines, row: 0, visible:, at: settled) == settled
+    {
+      True -> Error(Nil)
+      False -> Ok(line <> " at " <> int.to_string(col))
+    }
+  }
+  assert wrong == []
+}

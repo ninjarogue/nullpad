@@ -268,6 +268,16 @@ const events = {
     ["forward", (field, row) => new editor.Nudged(true, row, "", field)],
     ["back", (field, row) => new editor.Nudged(false, row, "", field)],
   ],
+  Settled: [
+    [
+      "",
+      (_, row) =>
+        new editor.Settled(
+          [new buffer.Position(row, 0), new buffer.Position(row + 9, 0)],
+          [new buffer.Position(row, 1), new buffer.Position(row + 9, 0)],
+        ),
+    ],
+  ],
   Released: [["", () => new editor.Released()]],
   DragStarted: [["", () => new editor.DragStarted()]],
   Dropped: [

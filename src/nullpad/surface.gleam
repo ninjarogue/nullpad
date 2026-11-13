@@ -381,11 +381,14 @@ pub fn sync(
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
   let undrawn = effect.from(fn(_) { set_drawn(False) })
+  let settled = fn(dispatch) {
+    fn(from, to) { dispatch(on_event(editor.Settled(from:, to:))) }
+  }
   let painted =
     effect.batch([
       undrawn,
-      effect.before_paint(fn(_, _) {
-        paint(editor)
+      effect.before_paint(fn(dispatch, _) {
+        paint(editor, settled(dispatch))
         set_drawn(True)
       }),
     ])
@@ -399,8 +402,8 @@ pub fn sync(
           write_now(buffer)
           focus_in_place(control_id)
         }),
-        effect.before_paint(fn(_, _) {
-          paint(editor)
+        effect.before_paint(fn(dispatch, _) {
+          paint(editor, settled(dispatch))
           set_drawn(True)
           focus_control(control_id, live_class, painted_class)
         }),
@@ -434,7 +437,7 @@ pub fn sync(
             write(buffer),
             undrawn,
             effect.before_paint(fn(dispatch, _) {
-              paint(editor)
+              paint(editor, settled(dispatch))
               set_drawn(True)
               step(dispatch)
             }),
@@ -539,16 +542,25 @@ pub fn sync(
 /// The selection is painted from where each of its ends is drawn, and the
 /// line break of each row from its start to the row before its end is
 /// painted too, where it ends a drawn element.
-fn paint(editor: Editor) -> Nil {
+fn paint(
+  editor: Editor,
+  settled: fn(#(Position, Position), #(Position, Position)) -> Nil,
+) -> Nil {
   case editor.is_painted(editor) {
     False -> clear_paint()
     True -> {
       let buffer = editor.buffer(editor)
       let lines = buffer.lines(buffer)
       let #(anchor, head) = buffer.selection(buffer)
+      let holder = fn(at: Position) {
+        holder_text(control_id, live_class, live.row_mark, at.row)
+      }
+      let settle = fn(at: Position) {
+        let #(row, visible) = holder(at)
+        live.settle(lines, row:, visible:, at:)
+      }
       let place = fn(at: Position) {
-        let #(row, visible) =
-          holder_text(control_id, live_class, live.row_mark, at.row)
+        let #(row, visible) = holder(at)
         #(row, utf16_length(live.drawn(lines, row:, visible:, at:)))
       }
       let #(start, end) = case
@@ -570,6 +582,11 @@ fn paint(editor: Editor) -> Nil {
         start.row,
         end.row - 1,
       )
+      let to = #(settle(anchor), settle(head))
+      case to == #(anchor, head) {
+        True -> Nil
+        False -> settled(#(anchor, head), to)
+      }
     }
   }
 }
