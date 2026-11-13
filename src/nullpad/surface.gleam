@@ -84,6 +84,9 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.on("compositionend", changed),
         event.on("select", changed),
         event.on("pointerup", changed),
+        // A touch sends `pointerup` before the mouse press that moves the
+        // caret.
+        event.on("mouseup", changed),
         event.on("keyup", moved),
         event.on("focus", focus_changed(True)),
         event.on("blur", focus_changed(False)),
