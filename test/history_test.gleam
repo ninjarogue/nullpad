@@ -245,3 +245,128 @@ pub fn a_pause_before_a_character_typed_after_a_caret_move_changes_nothing_test(
   assert history.present(undone(typed)) == at("axy", 3)
   assert history.present(undone(undone(typed))) == at("xy", 0)
 }
+
+pub fn typing_over_a_selection_is_one_step_with_the_typing_after_it_test() {
+  let selected =
+    buffer.from_text("an old word")
+    |> buffer.select(anchor: Position(0, 3), head: Position(0, 6))
+  let typed =
+    history.new(selected)
+    |> record_all([
+      at("an N word", 4),
+      at("an NE word", 5),
+      at("an NEW word", 6),
+    ])
+
+  assert history.present(undone(typed)) == selected
+  assert history.undo(undone(typed)) == Error(Nil)
+  assert history.present(redone(undone(typed))) == at("an NEW word", 6)
+}
+
+pub fn typing_over_a_selection_across_rows_is_one_step_test() {
+  let selected =
+    buffer.from_text("one\ntwo\nthree")
+    |> buffer.select(anchor: Position(1, 1), head: Position(0, 2))
+  let typed =
+    history.new(selected)
+    |> record_all([at("onXwo\nthree", 3), at("onXYwo\nthree", 4)])
+
+  assert history.present(undone(typed)) == selected
+  assert history.undo(undone(typed)) == Error(Nil)
+}
+
+pub fn typing_over_a_selection_across_rows_below_the_first_is_one_step_test() {
+  let selected =
+    buffer.from_text("zero\none\ntwo\nthree")
+    |> buffer.select(anchor: Position(1, 2), head: Position(2, 1))
+  let typed =
+    history.new(selected)
+    |> record_all([
+      buffer.from_text("zero\nonXwo\nthree") |> buffer.move_to(Position(1, 3)),
+      buffer.from_text("zero\nonXYwo\nthree") |> buffer.move_to(Position(1, 4)),
+    ])
+
+  assert history.present(undone(typed)) == selected
+  assert shown(redone(undone(typed))) == "zero\nonXYwo\nthree"
+}
+
+/// Edits of every kind at places all over a note, typed fast enough to join:
+/// each undo gives back a note that was, all of them the first note, and
+/// redoing all of them the last.
+pub fn undo_and_redo_give_back_each_note_exactly_test() {
+  let start =
+    buffer.from_text("alpha\nbravo two\n\ncharlie\ndelta echo\nfoxtrot")
+    |> buffer.move_to(Position(1, 2))
+  let #(history, seen, _) = {
+    use #(history, seen, seed), step <- int.range(0, 400, #(
+      history.new(start),
+      [buffer.text(start)],
+      7,
+    ))
+    let seed = { seed * 1_103_515_245 + 12_345 } % 2_147_483_648
+    let note = history.present(history)
+    let lines = buffer.lines(note)
+    let row = seed / 7 % list.length(lines)
+    let width = string.length(list.drop(lines, row) |> list.first |> unwrap)
+    let place = Position(row:, col: seed / 11 % { width + 1 })
+    let caret = buffer.cursor(note)
+    let next = case seed % 9 {
+      0 -> buffer.move_to(note, place)
+      1 -> buffer.replace(note, from: caret, to: caret, with: "\n")
+      2 -> buffer.select(note, anchor: caret, head: place)
+      3 ->
+        case caret.col > 0 {
+          True ->
+            buffer.replace(
+              note,
+              from: Position(..caret, col: caret.col - 1),
+              to: caret,
+              with: "",
+            )
+          False -> buffer.replace(note, from: place, to: caret, with: "")
+        }
+      4 -> buffer.replace(note, from: caret, to: caret, with: " ")
+      _ -> {
+        let #(anchor, head) = buffer.selection(note)
+        buffer.replace(note, from: anchor, to: head, with: "x")
+      }
+    }
+    let history = history.record(history, next, at: step * 150)
+    #(history, [buffer.text(next), ..seen], seed)
+  }
+  let end = history.present(history)
+  let #(first, undos) = undo_all(history, 0)
+
+  assert undos > 20
+  assert shown(first) == buffer.text(start)
+  assert list.all(texts_on_the_way(history), list.contains(seen, _))
+  assert buffer.text(history.present(redo_all(first))) == buffer.text(end)
+}
+
+fn unwrap(line: Result(String, Nil)) -> String {
+  case line {
+    Ok(line) -> line
+    Error(Nil) -> ""
+  }
+}
+
+fn undo_all(history: History, count: Int) -> #(History, Int) {
+  case history.undo(history) {
+    Ok(history) -> undo_all(history, count + 1)
+    Error(Nil) -> #(history, count)
+  }
+}
+
+fn redo_all(history: History) -> History {
+  case history.redo(history) {
+    Ok(history) -> redo_all(history)
+    Error(Nil) -> history
+  }
+}
+
+fn texts_on_the_way(history: History) -> List(String) {
+  case history.undo(history) {
+    Ok(history) -> [shown(history), ..texts_on_the_way(history)]
+    Error(Nil) -> []
+  }
+}

@@ -390,3 +390,115 @@ test('undo takes back a painted selection dragged onto another block in one step
   await editor.press(ctrl('z'));
   await editor.expectSaved(start);
 });
+
+test('an undo from the Edit menu in a note just made takes back nothing, and never the note before it', async (fixtures) => {
+  const { app, browser, disk, page } = fixtures;
+  await app.open('/');
+  await page.markdown.tap();
+  await page.text.click();
+  await browser.keyboard.type('secret of note A');
+  for (let i = 0; i < 16; i++) await browser.keyboard.press('Backspace');
+  await expect(page.text).toHaveValue('');
+  await page.newNote.click();
+  await expect.poll(async () => (await disk.notes()).length).toBe(2);
+  await page.text.click();
+
+  await undoFromMenu(fixtures);
+  await undoFromMenu(fixtures);
+  await expect(page.text).toHaveValue('');
+  await browser.keyboard.type('!');
+  await expect(page.text).toHaveValue('!');
+  await expect.poll(async () => (await disk.notes()).map((saved) => saved.body).sort()).toEqual(['', '!']);
+});
+
+test('Ctrl+Z and Ctrl+Y in the title take back and give back the title, never the note, and the focus stays there', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await editor.open('alpha');
+  await editor.press(ctrl('End'));
+  await editor.type(' two words');
+  await page.title.click();
+  await browser.keyboard.type('My title');
+
+  for (const key of [ctrl('z'), ctrl('z')]) await browser.keyboard.press(key);
+  await expect(page.title).toHaveValue('');
+  await expect(page.title).toBeFocused();
+  await editor.expectNote('alpha two words');
+
+  for (const key of [ctrl('y'), ctrl('y')]) await browser.keyboard.press(key);
+  await expect(page.title).toHaveValue('My title');
+  await expect(page.title).toBeFocused();
+  await editor.expectNote('alpha two words');
+  await editor.expectSaved('alpha two words');
+});
+
+test('Ctrl+Z and Ctrl+Shift+Z work on a keyboard laid out for another alphabet, on a box the page ticked', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await editor.open('- [ ] buy milk\n\nplain words');
+  await editor.click({ word: 'plain', at: 0 });
+  await page.above.getByRole('checkbox', 'buy milk').tap();
+  await editor.expectSaved('- [x] buy milk\n\nplain words');
+  const press = (key: string, shiftKey: boolean) =>
+    browser.evaluate(
+      (which: { key: string; shiftKey: boolean }) => {
+        const apple = /Mac|iPhone|iPad/.test(navigator.platform);
+        const init = { ...which, code: 'KeyZ', ctrlKey: !apple, metaKey: apple, bubbles: true, cancelable: true };
+        (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', init));
+        return null;
+      },
+      { key, shiftKey },
+    );
+
+  await press('я', false);
+  await editor.expectSaved('- [ ] buy milk\n\nplain words');
+  await press('Я', true);
+  await editor.expectSaved('- [x] buy milk\n\nplain words');
+});
+
+test('Ctrl+Z while a composition is under way leaves it be, and undo after it takes it back whole', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await editor.open('base text');
+  await editor.press('End');
+  await editor.type(' x');
+  const compose = (text: string, composing: boolean) =>
+    browser.evaluate(
+      (change: { text: string; composing: boolean }) => {
+        const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+        if (change.composing) field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+        field.value = 'base text x' + change.text;
+        field.setSelectionRange(field.value.length, field.value.length);
+        if (!change.composing) field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+        field.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: change.composing }));
+        return null;
+      },
+      { text, composing },
+    );
+
+  await compose('に', true);
+  await page.nextFrame();
+  await editor.press(ctrl('z'));
+  await expect(page.text).toHaveValue('base text xに');
+  await compose('日本', false);
+  await editor.expectNote('base text x日本');
+
+  await editor.press(ctrl('z'));
+  await editor.expectNote('base text x');
+  await editor.press(ctrl('z'));
+  await editor.expectNote('base text');
+});
+
+test('typing over a selected word is undone in one step, back to the word selected', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  await editor.open(note);
+  await editor.click({ word: 'two', at: 0 });
+  await editor.press('Shift+ArrowRight', 'Shift+ArrowRight', 'Shift+ArrowRight');
+  await editor.type('NEW');
+  await editor.expectNote('alpha one\n\nbravo NEW words\n\ncharlie three');
+
+  await editor.press(ctrl('z'));
+  await editor.expectNote(note);
+  await editor.type('X');
+  await editor.expectNote('alpha one\n\nbravo X words\n\ncharlie three');
+});

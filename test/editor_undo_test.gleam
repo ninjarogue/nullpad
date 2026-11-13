@@ -106,15 +106,82 @@ pub fn an_edit_after_undo_clears_redo_test() {
   let Outcome(editor: after, sync:, ..) = editor.update(ed, editor.RedoAsked)
 
   assert editor.text(after) == "one!"
-  assert sync == editor.InSync
+  assert sync == editor.WriteQuietly(editor.field_buffer(ed))
 }
 
-pub fn undo_with_nothing_to_undo_changes_nothing_test() {
+/// The browser may have undone the field by itself, from its Edit menu, so
+/// the field is put back as the editor has it.
+pub fn undo_or_redo_with_nothing_to_take_back_puts_the_field_back_test() {
   let ed = live("one\n\ntwo")
   let Outcome(editor: after, sync:, ..) = editor.update(ed, editor.UndoAsked)
-
-  assert sync == editor.InSync
+  assert sync == editor.WriteQuietly(editor.field_buffer(ed))
   assert editor.buffer(after) == editor.buffer(ed)
+
+  let Outcome(editor: after, sync:, ..) = editor.update(ed, editor.RedoAsked)
+  assert sync == editor.WriteQuietly(editor.field_buffer(ed))
+  assert editor.buffer(after) == editor.buffer(ed)
+}
+
+pub fn undo_and_redo_with_the_focus_elsewhere_leave_the_note_test() {
+  use ed <- list.each([live("one"), whole("one")])
+  let typed = ed |> point(0, True) |> type_in(" two")
+  let away = editor.update(typed, editor.FocusChanged(False)).editor
+
+  let Outcome(editor: after, sync:, ..) = editor.update(away, editor.UndoAsked)
+  assert editor.text(after) == "one two"
+  assert sync == editor.WriteQuietly(editor.field_buffer(after))
+  let Outcome(editor: after, sync:, ..) = editor.update(after, editor.RedoAsked)
+  assert editor.text(after) == "one two"
+  assert sync == editor.WriteQuietly(editor.field_buffer(after))
+
+  let back = editor.update(after, editor.FocusChanged(True)).editor
+  assert editor.text(undo(back)) == "one"
+}
+
+pub fn undo_while_composing_leaves_the_composition_and_the_history_test() {
+  use ed <- list.each([live("one"), whole("one")])
+  let typed = ed |> point(0, True) |> type_in(" two")
+  let composing =
+    editor.update(typed, editor.Composing(shown: caret("one twoに", 0, 8))).editor
+
+  let Outcome(editor: after, sync:, ..) =
+    editor.update(composing, editor.UndoAsked)
+  assert sync == editor.InSync
+  assert editor.text(after) == "one twoに"
+  let Outcome(editor: after, sync:, ..) = editor.update(after, editor.RedoAsked)
+  assert sync == editor.InSync
+
+  let ended =
+    editor.update(
+      after,
+      editor.ControlChanged(shown: caret("one two日本", 0, 9), at: 0),
+    ).editor
+  assert editor.text(undo(ended)) == "one two"
+  assert editor.text(undo(undo(ended))) == "one"
+}
+
+pub fn typing_over_a_selected_word_undoes_to_the_word_test() {
+  let ed = live("an old word") |> point(0, True)
+  let selected =
+    buffer.from_text("an old word")
+    |> buffer.select(anchor: Position(0, 3), head: Position(0, 6))
+  let ed =
+    editor.update(ed, editor.ControlChanged(shown: selected, at: 0)).editor
+  let over =
+    buffer.replace(
+      selected,
+      from: Position(0, 3),
+      to: Position(0, 6),
+      with: "N",
+    )
+  let typed =
+    editor.update(ed, editor.ControlChanged(shown: over, at: 0)).editor
+    |> type_in("EW")
+  assert editor.text(typed) == "an NEW word"
+
+  let back = undo(typed)
+  assert editor.text(back) == "an old word"
+  assert editor.field_buffer(back) == selected
 }
 
 pub fn opening_a_note_starts_a_fresh_history_test() {

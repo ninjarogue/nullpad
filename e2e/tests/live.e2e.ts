@@ -599,7 +599,7 @@ test('a mouse drag that starts in the text field selects past it', async ({ app,
   await page.drag(await page.pointAt('booked'), await page.pointAt('Shoes'));
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: 'booked** and the hotel is *not*.\n\n- [ ] Passport\n- ',
+    selected: '**booked** and the hotel is *not*.\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });
@@ -2462,14 +2462,14 @@ test('a file dropped on the page or the text field is refused, so the browser st
   page,
 }) => {
   await openLive({ app, disk, page }, '# Trip\n\nsome words here\n\nlast line');
-  const drop = (selector: string, file: boolean) =>
+  const drop = (selector: string, file: boolean, text = false) =>
     browser.evaluate(
-      ({ selector, file }: { selector: string; file: boolean }) => {
+      ({ selector, file, text }: { selector: string; file: boolean; text: boolean }) => {
         const target = document.querySelector(selector)!;
         const box = target.getBoundingClientRect();
         const carried = new DataTransfer();
         if (file) carried.items.add(new File(['words'], 'words.txt', { type: 'text/plain' }));
-        else carried.setData('text/plain', 'dropped ');
+        if (text || !file) carried.setData('text/plain', 'dropped ');
         const at = { bubbles: true, cancelable: true, dataTransfer: carried, clientX: box.left + 2, clientY: box.top + box.height / 2 };
         return ['dragenter', 'dragover', 'drop'].map((type) => {
           const event = new DragEvent(type, at);
@@ -2477,13 +2477,51 @@ test('a file dropped on the page or the text field is refused, so the browser st
           return event.defaultPrevented;
         });
       },
-      { selector, file },
+      { selector, file, text },
     );
 
   expect(await drop('.page.live .part p', true)).toEqual([false, true, true]);
   expect(await drop('[data-test-id="editor"]', true)).toEqual([false, true, true]);
+  expect(await drop('nav.sidebar', true)).toEqual([false, true, true]);
+  expect(await drop('[data-test-id="title"]', true)).toEqual([false, true, true]);
+  expect(await drop('.page.live .part p', true, true)).toEqual([false, true, true]);
+  expect(await drop('[data-test-id="editor"]', true, true)).toEqual([false, true, true]);
   await page.nextFrame();
   await expect(page.text).toHaveValue('# Trip');
   expect(await drop('.page.live .part p', false)).toEqual([false, true, true]);
   await expect(page.text).toHaveValue('dropped some words here');
+});
+
+for (const key of ['Enter', 'ArrowDown']) {
+  test(`focus moved to the title after ${key}, before the page redraws, stays there`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, body);
+
+    await page.beforeRedraw(async () => {
+      await browser.keyboard.press(key);
+      await page.title.focus();
+    });
+    await expect(page.title).toBeFocused();
+    await browser.keyboard.type('Plans');
+    await expect(page.title).toHaveValue('Plans');
+  });
+}
+
+test('focus moved to the note list before the page redraws stays there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+
+  await page.beforeRedraw(async () => {
+    await browser.keyboard.press('Enter');
+    await page.row('Trip').focus();
+  });
+  await expect(page.row('Trip')).toBeFocused();
 });

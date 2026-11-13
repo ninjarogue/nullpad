@@ -49,6 +49,17 @@ function setMarker(holder, marker) {
   else holder.style.setProperty("--held-marker", marker);
 }
 
+let focusAsked = null;
+
+export function askFocus() {
+  focusAsked = document.activeElement;
+}
+
+export function focusStayed(id) {
+  const active = document.activeElement;
+  return !active || active === document.body || active.id === id || active === focusAsked;
+}
+
 export function findControl(id) {
   return document.getElementById(id);
 }
@@ -209,12 +220,21 @@ function edgeSpeed(y, top, bottom) {
 // frame, after the effects of every message since the last.
 let drawn = true;
 
-export function isDrawn() {
-  return drawn;
-}
-
 export function setDrawn(value) {
   drawn = value;
+}
+
+// A step the page must draw before it is taken.
+let heldStep = false;
+
+export function holdStep(held) {
+  heldStep = held;
+}
+
+export function takeHeldStep() {
+  const held = heldStep;
+  heldStep = false;
+  return held;
 }
 
 export function blurControl(id) {
@@ -500,14 +520,21 @@ function placeOn(page, target, x, y, rowMark, press) {
     if (beside) return beside;
   }
   if (above) return [Number(nearest.dataset[rowMark]), "", false, characterAt(nearest.textContent, 0)];
-  return [Number(nearest.dataset[rowMark]), nearest.textContent.replace(/\n$/, ""), true, "\n"];
+  const drawn = nearest.textContent;
+  return [Number(nearest.dataset[rowMark]), drawn.endsWith("\n") ? drawn.slice(0, -1) : drawn, true, "\n"];
 }
 
 // Left of a list item's text, where its marker is drawn, no character is
 // named after the place.
 function drawnAt(x, y, rowMark, pointer = x) {
   const point = caretAt(x, y);
-  const inside = point && (point.node instanceof Element ? point.node : point.node.parentElement);
+  return point && placeOfPoint(point, rowMark, pointer);
+}
+
+// The place a point on the drawn page names, or null outside every element
+// that draws a row.
+function placeOfPoint(point, rowMark, pointer = Infinity) {
+  const inside = point.node instanceof Element ? point.node : point.node.parentElement;
   const holder = inside?.closest(`[data-${rowMark}]`);
   if (!holder || holder instanceof HTMLTextAreaElement) return null;
   const range = document.createRange();
@@ -608,19 +635,38 @@ const SELECTED = "selected";
 const BREAK_SELECTED = "break-selected";
 let selectedBreaks = [];
 
+// The elements drawn from rows, in the order of the page, and their rows,
+// which never go down. They are found again only once the page outside the
+// field has changed, so that a step over a long note does not read them all.
+let knownMarks = null;
+
 function drawnMarks(id, liveClass, rowMark) {
-  const page = document.getElementById(id)?.closest("." + liveClass);
-  return page ? [...page.querySelectorAll(`[data-${rowMark}]:not(textarea)`)] : [];
+  const control = document.getElementById(id);
+  const page = control?.closest("." + liveClass);
+  if (!page) return { marks: [], rows: [] };
+  const outside = (records) => records.some((record) => !control.parentElement?.contains(record.target));
+  const known = knownMarks;
+  if (known?.page === page && known.rowMark === rowMark && !known.stale && !outside(known.watch.takeRecords())) {
+    return known;
+  }
+  known?.watch.disconnect();
+  const marks = [...page.querySelectorAll(`[data-${rowMark}]:not(textarea)`)];
+  const watch = new MutationObserver((records) => {
+    if (outside(records)) entry.stale = true;
+  });
+  watch.observe(page, { childList: true, subtree: true, attributes: true, attributeFilter: [`data-${rowMark}`] });
+  const entry = { page, rowMark, marks, rows: marks.map((mark) => Number(mark.dataset[rowMark])), watch, stale: false };
+  knownMarks = entry;
+  return entry;
 }
 
-// The marks are in the order of the page, and their rows never go down.
-function lastAtOrBefore(marks, row, rowMark) {
+function lastAtOrBefore(rows, row) {
   let low = 0;
-  let high = marks.length - 1;
+  let high = rows.length - 1;
   let found = -1;
   while (low <= high) {
     const middle = (low + high) >> 1;
-    if (Number(marks[middle].dataset[rowMark]) <= row) {
+    if (rows[middle] <= row) {
       found = middle;
       low = middle + 1;
     } else {
@@ -632,17 +678,19 @@ function lastAtOrBefore(marks, row, rowMark) {
 
 // The innermost element drawn from `row` or a row above it.
 export function holderText(id, liveClass, rowMark, row) {
-  const marks = drawnMarks(id, liveClass, rowMark);
-  const holder = marks[lastAtOrBefore(marks, row, rowMark)];
-  return holder ? [Number(holder.dataset[rowMark]), holder.textContent] : [row, ""];
+  const { marks, rows } = drawnMarks(id, liveClass, rowMark);
+  const at = lastAtOrBefore(rows, row);
+  return at >= 0 ? [rows[at], marks[at].textContent] : [row, ""];
 }
 
-// At the boundary of two pieces of text, the end of the first.
-function pointIn(holder, offset) {
+// At the boundary of two pieces of text, the end of the first, unless the
+// first ends a line or the place is `onward`, after marks the page hides.
+function pointIn(holder, offset, onward = false) {
   const texts = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
   let last = null;
   for (let text = texts.nextNode(); text; text = texts.nextNode()) {
-    if (offset <= text.data.length) return [text, offset];
+    const on = onward || text.data.endsWith("\n");
+    if (offset < text.data.length || (offset === text.data.length && !on)) return [text, offset];
     offset -= text.data.length;
     last = text;
   }
@@ -650,16 +698,16 @@ function pointIn(holder, offset) {
 }
 
 export function paintSelection(
-  id, liveClass, rowMark, anchorRow, anchorOffset, headRow, headOffset, firstBreak, lastBreak, fieldRow,
+  id, liveClass, rowMark, anchorRow, anchorOffset, anchorOnward, headRow, headOffset, headOnward,
+  firstBreak, lastBreak,
 ) {
-  clearBreaks();
-  const marks = drawnMarks(id, liveClass, rowMark);
-  const holder = (row) => marks[lastAtOrBefore(marks, row, rowMark)];
+  const known = drawnMarks(id, liveClass, rowMark);
+  const holder = (row) => known.marks[lastAtOrBefore(known.rows, row)];
   const anchorHolder = holder(anchorRow);
   const headHolder = holder(headRow);
-  if (!anchorHolder || !headHolder || typeof Highlight !== "function") return;
-  const [anchorNode, anchorAt] = pointIn(anchorHolder, anchorOffset);
-  const [headNode, headAt] = pointIn(headHolder, headOffset);
+  if (!anchorHolder || !headHolder || typeof Highlight !== "function") return clearBreaks();
+  const [anchorNode, anchorAt] = pointIn(anchorHolder, anchorOffset, anchorOnward);
+  const [headNode, headAt] = pointIn(headHolder, headOffset, headOnward);
   const range = document.createRange();
   range.setStart(anchorNode, anchorAt);
   range.setEnd(anchorNode, anchorAt);
@@ -669,20 +717,115 @@ export function paintSelection(
   head.setStart(headNode, headAt);
   CSS.highlights.set(SELECTION, new Highlight(range));
   CSS.highlights.set(HEAD, new Highlight(head));
-  painted = { value: document.getElementById(id)?.value, fieldRow };
   underStart(document.getElementById(id), range);
-  for (let row = firstBreak; row <= lastBreak; row++) {
-    const here = holder(row);
-    if (!here || here === holder(row + 1)) continue;
-    const blank = here.classList.contains("blank");
-    here.classList.add(blank ? SELECTED : BREAK_SELECTED);
-    selectedBreaks.push(here);
+  paintBreaks(known, rowMark, firstBreak, lastBreak);
+  paintCode(document.getElementById(id).closest("." + liveClass), range);
+}
+
+// The element that draws the last of each row from `first` to `last` takes
+// a class that paints its line break. An element with rows of its own
+// drawn inside it, such as a list item with a list in it, is told where
+// its own text ends.
+let paintedBreaks = null;
+
+function paintBreaks(known, rowMark, first, last) {
+  const { marks, rows } = known;
+  const same = paintedBreaks?.known === known && paintedBreaks.first === first && paintedBreaks.last === last;
+  if (!same) {
+    const kept = new Set();
+    const nested = [];
+    let index = lastAtOrBefore(rows, first);
+    for (let row = first; row <= last; ) {
+      while (index + 1 < rows.length && rows[index + 1] <= row) index++;
+      const following = index + 1 < rows.length ? rows[index + 1] : Infinity;
+      if (index >= 0 && following - 1 <= last) {
+        const mark = marks[index];
+        kept.add(mark);
+        const blank = mark.classList.contains("blank");
+        if (!mark.classList.contains(blank ? SELECTED : BREAK_SELECTED)) {
+          mark.classList.add(blank ? SELECTED : BREAK_SELECTED);
+        }
+        if (index + 1 < marks.length && mark.contains(marks[index + 1])) nested.push(mark);
+      }
+      row = following;
+    }
+    for (const mark of selectedBreaks) {
+      if (!kept.has(mark)) unpaintBreak(mark);
+    }
+    selectedBreaks = [...kept];
+    paintedBreaks = { known, first, last, nested };
+  }
+  for (const mark of paintedBreaks.nested) ownEnd(mark, rowMark);
+}
+
+function ownEnd(mark, rowMark) {
+  const texts = document.createTreeWalker(mark, NodeFilter.SHOW_TEXT);
+  let own = null;
+  for (let text = texts.nextNode(); text; text = texts.nextNode()) {
+    if (text.parentElement.closest(`[data-${rowMark}]`) === mark) own = text;
+  }
+  if (!own) return;
+  const end = caretBox(own, own.data.length);
+  const box = mark.getBoundingClientRect();
+  mark.style.setProperty("--break-left", `${end.left - box.left - mark.clientLeft}px`);
+  mark.style.setProperty("--break-top", `${end.top - box.top - mark.clientTop}px`);
+}
+
+function unpaintBreak(mark) {
+  mark.classList.remove(SELECTED, BREAK_SELECTED);
+  mark.style.removeProperty("--break-left");
+  mark.style.removeProperty("--break-top");
+}
+
+// The Highlight API paints no line break, so each one selected inside a
+// code block, but for its last, is painted as a bar behind the text where
+// it ends a line.
+let paintedCode = [];
+
+function paintCode(page, range) {
+  clearCode();
+  for (const pre of page?.querySelectorAll("pre") ?? []) {
+    if (!range.intersectsNode(pre)) continue;
+    const text = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT).nextNode();
+    if (!text) continue;
+    const from = range.startContainer === text ? range.startOffset : 0;
+    const to = range.endContainer === text ? range.endOffset : text.data.length;
+    const box = pre.getBoundingClientRect();
+    const letter = document.createRange();
+    const at = [];
+    const size = [];
+    for (let index = text.data.indexOf("\n", from); index >= 0 && index < Math.min(to, text.data.length - 1); index = text.data.indexOf("\n", index + 1)) {
+      letter.setStart(text, index);
+      letter.setEnd(text, index + 1);
+      const end = letter.getClientRects()[0];
+      if (!end) continue;
+      at.push(`${end.left - box.left - pre.clientLeft + pre.scrollLeft}px ${end.top - box.top - pre.clientTop + pre.scrollTop}px`);
+      size.push(`0.5em ${end.height}px`);
+    }
+    if (at.length === 0) continue;
+    pre.style.backgroundImage = at.map(() => "linear-gradient(Highlight, Highlight)").join(", ");
+    pre.style.backgroundPosition = at.join(", ");
+    pre.style.backgroundSize = size.join(", ");
+    pre.style.backgroundRepeat = "no-repeat";
+    pre.style.backgroundAttachment = "local";
+    paintedCode.push(pre);
   }
 }
 
+function clearCode() {
+  for (const pre of paintedCode) {
+    for (const property of ["background-image", "background-position", "background-size", "background-repeat", "background-attachment"]) {
+      pre.style.removeProperty(property);
+    }
+  }
+  paintedCode = [];
+}
+
 function clearBreaks() {
-  for (const mark of selectedBreaks) mark.classList.remove(SELECTED, BREAK_SELECTED);
+  for (const mark of selectedBreaks) unpaintBreak(mark);
   selectedBreaks = [];
+  paintedBreaks = null;
+  clearCode();
 }
 
 // An IME opens its window at the caret of the field, which typing over the
@@ -698,9 +841,7 @@ function underStart(control, range) {
   const place = measure(control);
   const caret = place(control.selectionStart);
   control.scrollTop = caret.top - place(0).top;
-  const start = document.createRange();
-  start.setStart(range.startContainer, range.startOffset);
-  const drawn = caretBox(start);
+  const drawn = caretBox(range.startContainer, range.startOffset);
   const field = control.getBoundingClientRect();
   const top = field.top + caret.top - ruler.getBoundingClientRect().top - control.scrollTop;
   const x = drawn.left - (field.left + caret.x);
@@ -709,7 +850,6 @@ function underStart(control, range) {
 }
 
 export function clearPaint() {
-  painted = null;
   if (moved) moved.style.translate = "";
   moved = null;
   clearBreaks();
@@ -727,14 +867,13 @@ function columnLeft(page) {
 }
 
 // A collapsed range has no box at a soft wrap or in an element with no
-// text, so the character beside it, or the element, is measured instead.
-function caretBox(range) {
-  const node = range.startContainer;
-  const offset = range.startOffset;
+// text, so the character beside it, or the element, is measured instead. A
+// line break is drawn at the end of the line it ends.
+function caretBox(node, offset) {
   const element = node instanceof Element ? node : node.parentElement;
   if (node.nodeType === Node.TEXT_NODE) {
     const one = document.createRange();
-    if (offset < node.data.length && node.data[offset] !== "\n") {
+    if (offset < node.data.length) {
       one.setStart(node, offset);
       one.setEnd(node, offset + 1);
       const after = one.getClientRects()[0];
@@ -751,20 +890,8 @@ function caretBox(range) {
   return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));
 }
 
-// The element the head of a painted selection is drawn in, and its text.
-// The rows are drawn as they were when the page was painted, with the field
-// holding the same text from `fieldRow`. Shift and an arrow move the field's
-// head before the page paints it again, and the head is found from there.
-let painted = null;
-
-export function paintedHead(id, liveClass, rowMark, paintedClass) {
-  const control = document.getElementById(id);
-  if (!control?.closest("." + paintedClass) || control.value !== painted?.value) return [-1, ""];
-  const head = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
-  const row = painted.fieldRow + control.value.slice(0, head).split("\n").length - 1;
-  const marks = drawnMarks(id, liveClass, rowMark);
-  const holder = marks[lastAtOrBefore(marks, row, rowMark)];
-  return holder ? [Number(holder.dataset[rowMark]), holder.textContent] : [-1, ""];
+export function isPainted(id, paintedClass) {
+  return document.getElementById(id)?.closest("." + paintedClass) != null;
 }
 
 function headPlace() {
@@ -773,7 +900,7 @@ function headPlace() {
   if (!head) return null;
   const node = head.startContainer;
   const element = node instanceof Element ? node : node.parentElement;
-  return { box: caretBox(head), line: lineHeight(element) };
+  return { box: caretBox(node, head.startOffset), line: lineHeight(element) };
 }
 
 function fieldCaret(control) {
@@ -795,21 +922,9 @@ export function headLine(id, liveClass, paintedClass) {
     const head = headPlace();
     return head ? [true, true, head.box.left - columnLeft(page)] : [false, false, 0];
   }
+  if (undrawn(control)) return [true, true, 0];
   const [first, last, x] = caretLine(id);
   return [first, last, control.getBoundingClientRect().left + x - columnLeft(page)];
-}
-
-// The place on the drawn page `x` from the left of the text, one drawn line
-// above or below the head, or the head's own place when there is no line
-// there. The head is first kept two lines inside the page, because the
-// browser names no place off the screen. A `page` step scrolls the page by a
-// window and takes the place that is then where the head was. A step taken
-// before the page has drawn the step before it starts where that step
-// landed, on the page as it is still drawn, until the next frame.
-let landing = null;
-
-export function hasLanding() {
-  return landing !== null;
 }
 
 // A press puts rows in the field that the page has not yet set it for, so
@@ -823,10 +938,8 @@ export function notePress(id, liveClass, x, y) {
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
   const point = page && caretAt(x, y);
-  const range = document.createRange();
   const drawn = point && point.node !== control && page.contains(point.node);
-  if (drawn) range.setStart(point.node, point.offset);
-  const landed = { x: drawn ? caretBox(range).left - columnLeft(page) : null };
+  const landed = { x: drawn ? caretBox(point.node, point.offset).left - columnLeft(page) : null };
   pressed = landed;
   requestAnimationFrame(() => {
     if (pressed === landed) pressed = null;
@@ -837,66 +950,244 @@ export function pressLanding() {
   return [pressed !== null, pressed?.x ?? -1, pressed?.x != null];
 }
 
-export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page, fromLanding) {
-  const none = [-1, "", false, ""];
+// The field's text has changed since the page was drawn, so its lines are
+// not the lines the reader sees, and its own steps would miss them.
+function undrawn(control) {
+  const mirror = control.parentElement.querySelector(".mirror")?.firstChild;
+  return mirror != null && mirror.data.slice(0, -1) !== control.value;
+}
+
+// The head steps over the drawn page as the browser moves a caret over it,
+// so tables, the lines of code and wrapped lines are stepped as they are
+// drawn. It is stepped from where it is drawn, or from the edge of the field
+// when it is in the field, and a step of a line then goes to the place on
+// that line nearest `x` from the left of the text, or nearest where the head
+// is drawn when `x` is below 0. A line step into the rows the field holds,
+// which the browser does not step into, lands on the line of the field's
+// mirror that it reaches: the mirror holds the field's text as last drawn.
+// The browser's selection is put back in the field after. A step returns
+// the place it reaches and the `x` it aimed at, or a row of -1 for no page,
+// -2 for nothing past the head, -3 when the page must be drawn first, as
+// the field's text changed since it was drawn or a press in this frame put
+// the field where the page has not placed it, and -4 when the head was in
+// the field and the field took the step: a step of a letter or a line
+// boundary, or of a line from any line of the field but the last it steps
+// past. A `page` step scrolls the page by a window and takes the place that
+// is then where the head was.
+export function stepHead(id, liveClass, rowMark, headRow, headOffset, onward, granularity, forward, select, x) {
+  const answer = (row, place = ["", false, ""]) => [row, ...place, x];
   const control = document.getElementById(id);
-  const scroller = control?.closest("." + liveClass);
-  if (!scroller) return [...none, x];
-  const painted = control.closest("." + paintedClass) !== null;
-  const last = fromLanding && landing?.scroller === scroller ? landing : null;
-  const landed = () => {
-    const y = last.y - (scroller.scrollTop - last.scrollTop);
-    return { box: new DOMRect(0, y - last.line / 2, 0, last.line), line: last.line };
-  };
-  const head = last ? landed : () => (painted ? headPlace() : fieldCaret(control));
-  const before = head();
-  if (!before) return [...none, x];
-  if (pressed !== null && !last && !painted) x = before.box.left - columnLeft(scroller);
-  const view = scroller.getBoundingClientRect();
-  const room = 2 * before.line;
-  if (before.box.top < view.top + room) scroller.scrollTop -= view.top + room - before.box.top;
-  else if (before.box.bottom > view.bottom - room) {
-    scroller.scrollTop += before.box.bottom - (view.bottom - room);
+  const page = control?.closest("." + liveClass);
+  if (!page) return answer(-1);
+  const part = control.parentElement;
+  const mirror = part.querySelector(".mirror")?.firstChild;
+  const first = control.dataset[rowMark];
+  const held = first === undefined || !mirror ? null : [Number(first), Number(first) + mirror.data.split("\n").length - 1];
+  const inField = held !== null && headRow >= held[0] && headRow <= held[1];
+  if (inField && undrawn(control)) return answer(-3);
+  if (pressed !== null && first === undefined) return answer(-3);
+  const edge = granularity !== "line" || caretLine(id)[forward ? 1 : 0];
+  if (inField && granularity !== "page" && !edge) {
+    getSelection().modify(select ? "extend" : "move", forward ? "forward" : "backward", granularity);
+    return answer(-4);
   }
-  const { box, line } = head();
-  const left = columnLeft(scroller) + x;
+  const { marks, rows } = drawnMarks(id, liveClass, rowMark);
+  if (granularity === "page") {
+    let box;
+    if (inField) box = fieldCaret(control).box;
+    else {
+      const holder = marks[lastAtOrBefore(rows, headRow)];
+      if (!holder) return answer(-1);
+      box = caretBox(...pointIn(holder, headOffset, onward));
+    }
+    if (x < 0) x = box.left - columnLeft(page);
+    const place = pageStep(page, rowMark, box, forward, columnLeft(page) + x);
+    return place ? [...place, x] : answer(-2);
+  }
+  const selection = getSelection();
+  const { selectionStart, selectionEnd, selectionDirection } = control;
+  try {
+    let landed;
+    if (inField) {
+      if (x < 0) {
+        const place = measure(control);
+        x = control.getBoundingClientRect().left + headCaret(control, place).x - columnLeft(page);
+      }
+      landed = beside(marks, part, forward);
+    } else {
+      const holder = marks[lastAtOrBefore(rows, headRow)];
+      if (!holder) return answer(-1);
+      const [node, offset] = pointIn(holder, headOffset, onward);
+      if (x < 0) x = caretBox(node, offset).left - columnLeft(page);
+      selection.collapse(node, offset);
+      landed = step(selection, page, rowMark, granularity, forward);
+      if (landed && held && granularity === "line" && crosses(part, { node, offset }, landed)) {
+        return [held[0], ...mirrorPlace(mirror, !forward, columnLeft(page) + x), x];
+      }
+    }
+    if (!landed) return answer(-2);
+    const line = granularity === "line";
+    if (line) landed = toward(selection, landed, columnLeft(page) + x, rowMark);
+    const place = placeOfPoint(landed, rowMark, line ? columnLeft(page) + x : Infinity);
+    return place ? [...place, x] : answer(-1);
+  } finally {
+    control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
+  }
+}
+
+// The place on the mirror's last line, or its first, nearest `goal`, named
+// as for `placeOfPoint` from the first row the field holds. The mirror ends
+// in a character of its own that gives the end of the text a place.
+function mirrorPlace(mirror, last, goal) {
+  const letter = document.createRange();
+  const box = (offset) => {
+    letter.setStart(mirror, offset);
+    letter.setEnd(mirror, offset + 1);
+    return letter.getClientRects()[0] ?? letter.getBoundingClientRect();
+  };
+  const end = mirror.data.length - 1;
+  const top = Math.round(box(last ? end : 0).top);
+  let best = last ? end : 0;
+  for (let offset = best; offset >= 0 && offset <= end; offset += last ? -1 : 1) {
+    const here = box(offset);
+    if (Math.round(here.top) !== top) break;
+    if (Math.abs(here.left - goal) < Math.abs(box(best).left - goal)) best = offset;
+  }
+  return [mirror.data.slice(0, best), false, ""];
+}
+
+function here(selection) {
+  return { node: selection.focusNode, offset: selection.focusOffset };
+}
+
+function holds(point, rowMark) {
+  const element = point.node instanceof Element ? point.node : point.node?.parentElement;
+  const holder = element?.closest(`[data-${rowMark}]`);
+  return holder != null && !(holder instanceof HTMLTextAreaElement);
+}
+
+function middle(box) {
+  return box.top + box.height / 2;
+}
+
+// Each move the browser makes that lands between drawn elements, such as
+// after a table, or on the line the head is on, or where the head is drawn,
+// is moved on from.
+function step(selection, page, rowMark, granularity, forward) {
+  const direction = forward ? "forward" : "backward";
+  const from = here(selection);
+  const start = caretBox(from.node, from.offset);
+  for (let tries = 0; tries < 400; tries++) {
+    const before = here(selection);
+    selection.modify("move", direction, granularity);
+    const now = here(selection);
+    const stuck = now.node === before.node && now.offset === before.offset;
+    if (stuck || !page.contains(now.node)) return granularity === "lineboundary" ? from : null;
+    if (!holds(now, rowMark)) continue;
+    if (granularity === "lineboundary") return now;
+    if (granularity === "character" ? shows(from, now, rowMark) : beyond(now, start, forward)) return now;
+  }
+  return null;
+}
+
+function beyond(point, start, forward) {
+  const box = caretBox(point.node, point.offset);
+  return forward ? middle(box) > start.bottom - 1 : middle(box) < start.top + 1;
+}
+
+// Whether a head moved from one place to the other paints something else:
+// the text between them, or the line break of another row.
+function shows(from, to, rowMark) {
+  const between = document.createRange();
+  between.setStart(from.node, from.offset);
+  between.setEnd(from.node, from.offset);
+  if (between.comparePoint(to.node, to.offset) >= 0) between.setEnd(to.node, to.offset);
+  else between.setStart(to.node, to.offset);
+  if (between.toString() !== "") return true;
+  const row = (point) => {
+    const place = placeOfPoint(point, rowMark);
+    return place ? place[0] + place[1].split("\n").length - 1 : -1;
+  };
+  return row(from) !== row(to);
+}
+
+// Along the line `landed` is drawn on, the place nearest `goal`.
+function toward(selection, landed, goal, rowMark) {
+  const line = caretBox(landed.node, landed.offset);
+  const direction = line.left < goal ? "forward" : "backward";
+  let best = landed;
+  let gap = Math.abs(line.left - goal);
+  selection.collapse(landed.node, landed.offset);
+  for (let tries = 0; tries < 2000 && gap > 0.5; tries++) {
+    const before = here(selection);
+    selection.modify("move", direction, "character");
+    const now = here(selection);
+    if ((now.node === before.node && now.offset === before.offset) || !holds(now, rowMark)) break;
+    const box = caretBox(now.node, now.offset);
+    if (Math.abs(middle(box) - middle(line)) > line.height / 2) break;
+    const away = Math.abs(box.left - goal);
+    if (away >= gap) break;
+    best = now;
+    gap = away;
+  }
+  return best;
+}
+
+// The first place drawn after the field, or the last before it.
+function beside(marks, part, forward) {
+  let low = 0;
+  let high = marks.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (part.compareDocumentPosition(marks[middle]) & Node.DOCUMENT_POSITION_FOLLOWING) high = middle;
+    else low = middle + 1;
+  }
+  const mark = marks[forward ? low : low - 1];
+  if (!mark) return null;
+  const texts = document.createTreeWalker(mark, NodeFilter.SHOW_TEXT);
+  if (forward) {
+    const text = texts.nextNode();
+    return text ? { node: text, offset: 0 } : { node: mark, offset: 0 };
+  }
+  let text = null;
+  for (let next = texts.nextNode(); next; next = texts.nextNode()) text = next;
+  if (!text) return { node: mark, offset: 0 };
+  return { node: text, offset: text.data.length - (text.data.endsWith("\n") ? 1 : 0) };
+}
+
+// The place a window up or down the page from `box`, `left` from the left
+// of the window, or null past the first or last row. The head is first kept
+// two lines inside the page, because the browser names no place off the
+// screen.
+function pageStep(page, rowMark, box, forward, left) {
+  const line = box.height || lineHeight(page);
+  const view = page.getBoundingClientRect();
+  const room = 2 * line;
+  const start = page.scrollTop;
+  if (box.top < view.top + room) page.scrollTop -= view.top + room - box.top;
+  else if (box.bottom > view.bottom - room) page.scrollTop += box.bottom - (view.bottom - room);
+  const middle = box.top + box.height / 2 - (page.scrollTop - start);
+  const top = Math.max(view.top, 0);
+  const bottom = Math.min(view.bottom, innerHeight);
+  const distance = Math.max(bottom - top - 2 * line, line);
+  const was = page.scrollTop;
+  page.scrollTop += forward ? distance : -distance;
+  const y = middle + (forward ? distance : -distance) - (page.scrollTop - was);
+  const drawn = [...page.querySelectorAll(`[data-${rowMark}]`)].map((row) => row.getBoundingClientRect());
+  if (forward ? y > Math.max(...drawn.map((row) => row.bottom)) : y < Math.min(...drawn.map((row) => row.top))) {
+    return null;
+  }
   const at = (y) => {
     const target = document.elementFromPoint(left, y);
-    return placeOn(scroller, scroller.contains(target) ? target : scroller, left, y, rowMark, null);
+    return placeOn(page, page.contains(target) ? target : page, left, y, rowMark, null);
   };
-  const middle = box.top + box.height / 2;
-  const land = (place, y) => {
-    const landed = place[0] >= 0 ? { scroller, y, scrollTop: scroller.scrollTop, line } : null;
-    landing = landed;
-    if (landed) {
-      requestAnimationFrame(() => {
-        if (landing === landed) landing = null;
-      });
-    }
-    return [...place, x];
-  };
-  if (page) {
-    const top = Math.max(view.top, 0);
-    const bottom = Math.min(view.bottom, innerHeight);
-    const distance = Math.max(bottom - top - 2 * line, line);
-    const was = scroller.scrollTop;
-    scroller.scrollTop += up ? -distance : distance;
-    const y = middle + (up ? -distance : distance) - (scroller.scrollTop - was);
-    const rows = [...scroller.querySelectorAll(`[data-${rowMark}]`)].map((row) => row.getBoundingClientRect());
-    if (up ? y < Math.min(...rows.map((row) => row.top)) : y > Math.max(...rows.map((row) => row.bottom))) {
-      return land(none, y);
-    }
-    const aim = Math.min(Math.max(y, top + line / 2), bottom - line / 2);
-    const there = at(aim);
-    return there[0] >= 0 ? land(there, aim) : land(at(middle), middle);
-  }
-  const here = at(middle);
-  for (const reach of [1, 1.5, 2, 3, 4]) {
-    const y = middle + (up ? -reach : reach) * line;
-    const there = at(y);
-    if (there[0] >= 0 && there.join("\n") !== here.join("\n")) return land(there, y);
-  }
-  return land(here, middle);
+  const there = at(Math.min(Math.max(y, top + line / 2), bottom - line / 2));
+  return there[0] >= 0 ? there : at(middle);
+}
+
+function crosses(part, from, to) {
+  const after = (point) => (part.compareDocumentPosition(point.node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  return after(from) !== after(to) || part.contains(from.node) || part.contains(to.node);
 }
 
 // A task runs after the browser's own action for the event being handled.

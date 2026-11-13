@@ -104,6 +104,9 @@ function opened(text) {
   return pointed;
 }
 
+// A step the page takes is first asked for.
+const asked = (field) => new editor.EdgePressed(new editor.Line(false, true), 40, field);
+
 const typed = (field) => {
   const caret = buffer.cursor(field);
   return buffer.replace(field, caret, caret, "x");
@@ -192,6 +195,7 @@ console.log(`${KEYS} keys of each kind after ${WARMUP} warm-up keys, one update 
 // changed, none when it did not. A variant of `editor.Event` with no entry
 // here fails, so a new event cannot arrive unmeasured. An entry that gives a
 // list sends all but the last before counting, to reach the state it measures.
+// A function in the list makes its event from the field as it is by then.
 const vim = await load("nullpad/nullpad/vim.mjs");
 
 // `surface.view` measures a list marker's width when the caret is in a list.
@@ -206,7 +210,7 @@ const events = {
     ["moved", (field) => new editor.ControlChanged(moved(field, 0), 0)],
     ["typed after a pause", (field) => [
       new editor.ControlChanged(typed(field), 0),
-      new editor.ControlChanged(typed(field), 60000),
+      (now) => new editor.ControlChanged(typed(now), 60000),
     ]],
   ],
   Composing: [
@@ -233,6 +237,10 @@ const events = {
     ["Beside down", (field) => new editor.EdgePressed(new editor.Beside(false), 0, field)],
     ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), 0, field)],
     ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), 0, field)],
+    ["SelectLeft", (field) => new editor.EdgePressed(new editor.SelectLeft(), 0, field)],
+    ["SelectRight", (field) => new editor.EdgePressed(new editor.SelectRight(), 0, field)],
+    ["SelectLineStart", (field) => new editor.EdgePressed(new editor.SelectLineStart(), 0, field)],
+    ["SelectLineEnd", (field) => new editor.EdgePressed(new editor.SelectLineEnd(), 0, field)],
     ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToStart(), 0, field)],
     ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToEnd(), 0, field)],
     ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
@@ -274,20 +282,33 @@ const events = {
     ["in place", (_, row) => new editor.Dragged(row, "", true, "")],
   ],
   Stepped: [
-    ["a row above", (_, row) => new editor.Stepped(Math.max(0, row - 9), "", true, "", 40)],
-    ["a row below", (_, row) => new editor.Stepped(row + 9, "", false, "", 40)],
+    ["a row above", (field, row) => [asked(field), new editor.Stepped(Math.max(0, row - 9), "", true, "", 40)]],
+    ["a row below", (field, row) => [asked(field), new editor.Stepped(row + 9, "", false, "", 40)]],
   ],
   Unstepped: [
-    ["", () => new editor.Unstepped(40)],
-    ["past the end of the note", (field) => [
+    ["", (field) => [asked(field), new editor.Unstepped(40)]],
+    ["after a window", (field) => [
       new editor.EdgePressed(new editor.Page(false, false), 0, field),
       new editor.Unstepped(40),
     ]],
   ],
   Aimed: [["moved", (field) => new editor.Aimed(moved(field, 0), 40)]],
-  Nudged: [
-    ["forward", (field, row) => new editor.Nudged(true, row, "", field)],
-    ["back", (field, row) => new editor.Nudged(false, row, "", field)],
+  SteppedPast: [
+    ["", (field) => [asked(field), new editor.SteppedPast()]],
+    ["past the end of the note", (field) => [
+      new editor.EdgePressed(new editor.Page(false, false), 0, field),
+      new editor.SteppedPast(),
+    ]],
+  ],
+  Settled: [
+    [
+      "",
+      (_, row) =>
+        new editor.Settled(
+          [new buffer.Position(row, 0), new buffer.Position(row + 9, 0)],
+          [new buffer.Position(row, 1), new buffer.Position(row + 9, 0)],
+        ),
+    ],
   ],
   Released: [["", () => new editor.Released()]],
   DragStarted: [["", () => new editor.DragStarted()]],
@@ -336,6 +357,9 @@ for (const variant of declared) {
   }
 }
 
+const madeNow = (event, model) =>
+  typeof event === "function" ? event(editor.field_buffer(model.editor)) : event;
+
 const every = [];
 for (const withVim of [false, true]) {
   for (const variant of declared) {
@@ -348,13 +372,15 @@ for (const withVim of [false, true]) {
       const row = editor.region(model.editor)[0]?.first_row ?? 0;
       const made = [make(field, row)].flat();
       let next;
-      let text;
-      let count;
       try {
-        for (const event of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(event));
-        text = editor.text(model.editor);
-        count = globalThis.parses;
-        [next] = app.update(model, new app.EditorSent(made.at(-1)));
+        for (const setup of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(madeNow(setup, model)));
+      } catch (error) {
+        if (error.gleam_error !== "todo") throw error;
+      }
+      const text = editor.text(model.editor);
+      const count = globalThis.parses;
+      try {
+        [next] = app.update(model, new app.EditorSent(madeNow(made.at(-1), model)));
         app.view(next);
       } catch (error) {
         if (error.gleam_error !== "todo") throw error;
@@ -376,4 +402,46 @@ for (const withVim of [false, true]) {
   }
 }
 console.table(every);
+
+// What the undo history keeps for a step. Each step types a character on
+// another row of a 100 KB note, read back whole from the field as `surface`
+// reads it, after a pause, so that no two steps join. Exits 1 when a step
+// keeps more than `STEP_BYTES` on the heap: one copy of the note is 100 KB.
+const STEP_BYTES = 16 * 1024;
+const { setFlagsFromString } = await import("node:v8");
+const { runInNewContext } = await import("node:vm");
+setFlagsFromString("--expose-gc");
+const gc = runInNewContext("gc");
+const heap = () => {
+  gc();
+  gc();
+  return process.memoryUsage().heapUsed;
+};
+let kept = editor.open(editor.new$(false, false, false), note(100)).editor;
+kept = editor.update(kept, new editor.FocusChanged(true)).editor;
+const rowCount = editor.text(kept).split("\n").length;
+let heapAt;
+for (let step = 1; step <= 600; step++) {
+  const lines = editor.text(kept).split("\n");
+  const row = (step * 37) % rowCount;
+  lines[row] = "x" + lines[row];
+  const shown = buffer.move_to(buffer.from_text(lines.join("\n")), new buffer.Position(row, 1));
+  kept = editor.update(kept, new editor.ControlChanged(shown, step * 60000)).editor;
+  if (step === 100) heapAt = heap();
+}
+const perStep = (heap() - heapAt) / 500;
+let undone = 0;
+while (undone < 600 && editor.text(editor.update(kept, new editor.UndoAsked()).editor) !== editor.text(kept)) {
+  kept = editor.update(kept, new editor.UndoAsked()).editor;
+  undone++;
+}
+console.log(`undo history: ${(perStep / 1024).toFixed(1)} KB a step over 500 steps on a 100 KB note, ${undone} steps to undo`);
+if (undone !== 600) {
+  console.error(`undo history: ${undone} of 600 steps could be undone.`);
+  failed = true;
+}
+if (perStep > STEP_BYTES) {
+  console.error(`undo history: a step keeps ${(perStep / 1024).toFixed(1)} KB, over ${STEP_BYTES / 1024} KB.`);
+  failed = true;
+}
 process.exit(failed ? 1 : 0);

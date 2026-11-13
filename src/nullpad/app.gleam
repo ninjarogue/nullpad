@@ -244,7 +244,7 @@ fn describe(failure: Failure) -> String {
 }
 
 pub fn view(model: Model) -> Element(Msg) {
-  html.main([attribute.class("app")], [
+  html.main([attribute.class("app"), ..surface.files_refused(EditorSent)], [
     sidebar(model),
     html.section([attribute.class("note")], [
       toolbar(model),

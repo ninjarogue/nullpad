@@ -39,11 +39,11 @@ const with_javascript = ["surface", "platform", "markdown"]
 /// JavaScript in surface and platform that only reads the page. Every other
 /// function there counts as changing it.
 const measures = [
-  "drawnInPage", "isDrawn", "holdsFocus", "caretLine", "headLine", "holderText",
-  "paintedHead", "locate", "findControl", "textWidth", "utf16Split",
-  "utf16Length", "below", "hasHardwareKeyboard", "canPaint", "readVimSetting",
+  "drawnInPage", "holdsFocus", "caretLine", "headLine", "holderText",
+  "isPainted", "locate", "findControl", "textWidth", "utf16Split", "utf16Length",
+  "below", "hasHardwareKeyboard", "canPaint", "readVimSetting",
   "readMarkdownSetting", "pressLanding", "isAimed", "dropped",
-  "releasedOnSelection",
+  "releasedOnSelection", "focusStayed",
 ]
 
 /// How many state parameters each of these decoders still takes.
