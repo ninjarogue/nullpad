@@ -232,6 +232,23 @@ test('Shift+Arrow Up or Down from the start of a row selects to the start of a q
   expect(typed).toEqual(typed.map(({ body, plain }) => ({ body, plain, page: plain })));
 });
 
+test('Shift+Home on a heading, an item or a quote under a painted selection selects to the start of its row, before its marks', async (fixtures) => {
+  const keys = ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+Home'];
+  const editor = new Editing(fixtures);
+  const typed = [];
+  for (const body of ['one\n\n## Two', 'one\n\n- item', 'one\n\n> quote']) {
+    await editor.seed(body);
+    const plain = await editor.plainField(body, 3, keys, 'X');
+    await editor.show(body);
+    await editor.click({ word: 'one', at: 3 });
+    await editor.press(...keys);
+    await editor.type('X');
+    await fixtures.page.markdown.tap();
+    typed.push({ body, plain, page: await fixtures.page.text.inputValue() });
+  }
+  expect(typed).toEqual(typed.map(({ body, plain }) => ({ body, plain, page: plain })));
+});
+
 test('Shift+Arrow Left onto a quote, a heading or an item with nothing after its marks shows the cursor there', async (fixtures) => {
   const editor = new Editing(fixtures);
   const typed = [];
