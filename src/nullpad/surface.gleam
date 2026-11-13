@@ -530,7 +530,7 @@ pub fn sync(
     editor.WriteAndAim(buffer, x:, line:) -> {
       let aim = fn(dispatch, again) {
         let #(text, start, end, backward) = to_control(buffer)
-        let #(text, start, end, backward) =
+        let aimed =
           aim_control(
             control_id,
             text,
@@ -546,9 +546,16 @@ pub fn sync(
             },
             again,
           )
-        dispatch(
-          on_event(editor.Aimed(from_control(text, start, end, backward), x:)),
-        )
+        case aimed {
+          #(True, text, start, end, backward) ->
+            dispatch(
+              on_event(editor.Aimed(
+                from_control(text, start, end, backward),
+                x:,
+              )),
+            )
+          #(False, _, _, _, _) -> Nil
+        }
       }
       effect.batch([
         effect.from(fn(dispatch) {
@@ -1232,7 +1239,7 @@ fn aim_control(
   x: Float,
   line: Int,
   again: Bool,
-) -> #(String, Int, Int, Bool)
+) -> #(Bool, String, Int, Int, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "findControl")
 fn find_control(id: String) -> Dynamic

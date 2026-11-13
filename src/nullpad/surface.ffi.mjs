@@ -336,10 +336,12 @@ const aimed = new WeakMap();
 
 // `line` is 0 for the first drawn line of the head's row, 1 for its last, and
 // 2 or 3 for the drawn line above or below the head's. Aimed again, a step
-// to the line beside stays on the line it reached.
+// to the line beside stays on the line it reached. The answer starts with
+// whether the field was aimed: a key that moved the caret since the field
+// was written, or aimed, keeps its place and its own column.
 export function aimControl(id, text, start, end, backward, x, line, again) {
   const control = document.getElementById(id);
-  if (!control) return ["", 0, 0, false];
+  if (!control) return [false, "", 0, 0, false];
   const shown = () => [
     control.value,
     control.selectionStart,
@@ -348,12 +350,12 @@ export function aimControl(id, text, start, end, backward, x, line, again) {
   ];
   if (again) {
     const last = aimed.get(control);
-    if (!last || last.join("\u0000") !== shown().join("\u0000")) return shown();
+    if (!last || last.join("\u0000") !== shown().join("\u0000")) return [false, ...shown()];
     [text, start, end, backward] = last;
   } else {
     const written =
       control.value === text && control.selectionStart === start && control.selectionEnd === end;
-    if (!written) return shown();
+    if (!written) return [false, ...shown()];
   }
   const head = backward ? start : end;
   const place = measure(control);
@@ -368,11 +370,11 @@ export function aimControl(id, text, start, end, backward, x, line, again) {
   else if (again) from = lineFrom(head, -1);
   else if (line === 2) {
     from = lineFrom(head, -1) - 1;
-    if (from < 0) return shown();
+    if (from < 0) return [true, ...shown()];
     from = lineFrom(from, -1);
   } else {
     from = lineFrom(head, 1) + 1;
-    if (from > text.length) return shown();
+    if (from > text.length) return [true, ...shown()];
   }
   const top = place(from).top;
   let best = from;
@@ -391,7 +393,7 @@ export function aimControl(id, text, start, end, backward, x, line, again) {
   );
   control.scrollTop = 0;
   aimed.set(control, shown());
-  return shown();
+  return [true, ...shown()];
 }
 
 // The browser keeps the column of its own moves up and down, not of an aim,
