@@ -1920,3 +1920,128 @@ test('selected text dragged onto another block moves there, as in a text field',
   await page.showMarkdown();
   await expect(page.text).toHaveValue(' beta gamma\n\nsecond alphapara here');
 });
+
+test('Ctrl+Shift+Home selects from the caret back to the start of the note', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  const hotel = await page.pointAt('hotel');
+  await browser.mouse.move(hotel.x, hotel.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect.poll(() => page.caret()).toBe('Flights are **booked** and the |hotel is *not*.');
+
+  await browser.keyboard.press('Control+Shift+Home');
+  await expect.poll(() => page.selection()).toEqual({
+    text: `# Trip\n\n${paragraph}`,
+    selected: '# Trip\n\nFlights are **booked** and the ',
+    backward: true,
+  });
+});
+
+test('Ctrl+Shift+A selects nothing, as in a text field', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('p').first().tap();
+  await expect(page.text).toHaveValue(paragraph);
+  await browser.keyboard.press('End');
+
+  await browser.keyboard.press('ControlOrMeta+Shift+A');
+  await page.nextFrame();
+  expect(await page.selection()).toEqual({ text: paragraph, selected: '', backward: false });
+});
+
+test('Ctrl and the key that types e shows the markdown on any Latin layout, and the key where E sits on QWERTY does not', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  const press = (key: string, code: string) =>
+    browser.evaluate(
+      (which: { key: string; code: string }) => {
+        const target = document.activeElement ?? document.body;
+        const apple = /Mac|iPhone|iPad/.test(navigator.platform);
+        target.dispatchEvent(
+          new KeyboardEvent('keydown', { ...which, ctrlKey: !apple, metaKey: apple, bubbles: true, cancelable: true }),
+        );
+        return null;
+      },
+      { key, code },
+    );
+
+  // On Colemak the key where QWERTY has E types f, and e is where QWERTY has K.
+  await press('f', 'KeyE');
+  await page.nextFrame();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
+
+  await press('e', 'KeyK');
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a drag whose button is let go outside the window selects no further once the pointer comes back', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.drawn('em').tap();
+  await expect(page.text).toHaveValue(paragraph);
+
+  const booked = await page.pointAt('booked');
+  const hotel = await page.pointAt('hotel');
+  await browser.mouse.move(booked.x, booked.y);
+  await browser.mouse.down();
+  await page.nextFrame();
+  await browser.mouse.move(hotel.x, hotel.y);
+  await expect.poll(async () => (await page.selection()).selected).toBe('booked** and the ');
+
+  // The browser does not report a release outside its window: the pointer
+  // comes back with no button held.
+  const shoes = await page.pointAt('Shoes');
+  await browser.evaluate((at: { x: number; y: number }) => {
+    document.body.dispatchEvent(
+      new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y, buttons: 0 }),
+    );
+    return null;
+  }, shoes);
+  await page.nextFrame();
+  await page.nextFrame();
+  expect((await page.selection()).selected).toBe('booked** and the ');
+  await browser.mouse.up();
+});
+
+test('selected text dragged onto another block with the copy key held is copied there', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'alpha beta gamma\n\nsecond para here');
+  for (let step = 0; step < 5; step++) await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  const from = await browser.evaluate(() => {
+    const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();
+    return { x: box.left + 15, y: box.top + 12 };
+  });
+  const to = await page.pointAt('para here');
+  const copyKey = await browser.evaluate(() => (/Mac/.test(navigator.platform) ? 'Alt' : 'Control'));
+
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  await browser.keyboard.down(copyKey);
+  for (let step = 1; step <= 10; step++) {
+    await browser.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+    await page.nextFrame();
+  }
+  await browser.mouse.up();
+  await browser.keyboard.up(copyKey);
+  await expect.poll(async () => (await page.selection()).selected).toBe('alpha');
+  await browser.keyboard.press('Escape');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('alpha beta gamma\n\nsecond alphapara here');
+});
