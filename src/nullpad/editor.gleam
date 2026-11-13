@@ -184,9 +184,10 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       case outcome.editor.field {
         Whole -> outcome
         Part(..) -> {
+          let left = outcome.editor.buffer
           let editor =
             Editor(..outcome.editor, focus: Away)
-            |> edit(outcome.editor.buffer)
+            |> edit(buffer.move_to(left, buffer.cursor(left)))
             |> realign
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
         }
