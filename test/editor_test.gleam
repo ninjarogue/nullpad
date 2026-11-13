@@ -834,6 +834,19 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   assert editor.text(ed) == live_note
 }
 
+pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
+  let shown = caret("# Trip", 0, 3)
+  let Outcome(editor: ed, ..) =
+    live(live_note)
+    |> editor.update(editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Unstepped(x: 9.0))
+  assert sync == editor.Write(shown)
+  let Outcome(sync:, ..) =
+    editor.update(ed, editor.EdgePressed(editor.SelectDown, x: 9.0, shown:))
+  assert sync == editor.WriteAndStep(shown, x: 9.0, up: False, queued: False)
+}
+
 pub fn the_next_step_aims_where_the_last_step_aimed_test() {
   let ed =
     live(live_note)

@@ -229,7 +229,7 @@ pub fn sync(
         case place {
           #(row, visible, at_end) if row >= 0 ->
             dispatch(on_event(editor.Stepped(row:, visible:, at_end:, x:)))
-          _ -> Nil
+          _ -> dispatch(on_event(editor.Unstepped(x:)))
         }
       }
       case !queued && is_drawn() {

@@ -109,6 +109,8 @@ pub type Event {
   /// the place on the drawn page found `x` from the left of the text, one
   /// drawn line from where the head was drawn. The anchor stays.
   Stepped(row: Int, visible: String, at_end: Bool, x: Float)
+  /// A step the page had no place for: the head stays where it is.
+  Unstepped(x: Float)
   /// Shift and an arrow left or right over a painted selection: the head
   /// moves one character drawn on the page, past the marks it does not draw.
   /// `row` and `visible` are the element the head is drawn in.
@@ -307,16 +309,9 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       let stepped =
         reach(editor, editor.buffer, anchor, row:, visible:, at_end:)
       let goal = Some(Goal(head: buffer.cursor(stepped.buffer), x:))
-      let waiting = list.drop(editor.waiting, 1)
-      let stepped = Editor(..stepped, goal:, waiting:)
-      case waiting {
-        [] -> write(stepped)
-        [up, ..] -> {
-          let sync = WriteAndStep(field_buffer(stepped), x:, up:, queued: True)
-          Outcome(editor: stepped, sync:, requests: [])
-        }
-      }
+      next_step(Editor(..stepped, goal:), x)
     }
+    Unstepped(x:) -> next_step(editor, x)
     Nudged(forward:, row:, visible:, shown:) -> {
       let base = base(editor, shown)
       let #(anchor, head) = buffer.selection(base)
@@ -346,6 +341,18 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         False -> Write(field_buffer(changed))
       }
       Outcome(editor: changed, sync:, requests: [])
+    }
+  }
+}
+
+fn next_step(editor: Editor, x: Float) -> Outcome {
+  let waiting = list.drop(editor.waiting, 1)
+  let editor = Editor(..editor, waiting:)
+  case waiting {
+    [] -> write(editor)
+    [up, ..] -> {
+      let sync = WriteAndStep(field_buffer(editor), x:, up:, queued: True)
+      Outcome(editor:, sync:, requests: [])
     }
   }
 }

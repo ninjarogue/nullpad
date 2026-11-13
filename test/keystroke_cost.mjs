@@ -251,6 +251,7 @@ const events = {
     ["a row above", (_, row) => new editor.Stepped(Math.max(0, row - 9), "", true, 40)],
     ["a row below", (_, row) => new editor.Stepped(row + 9, "", false, 40)],
   ],
+  Unstepped: [["", () => new editor.Unstepped(40)]],
   Nudged: [
     ["forward", (field, row) => new editor.Nudged(true, row, "", field)],
     ["back", (field, row) => new editor.Nudged(false, row, "", field)],
