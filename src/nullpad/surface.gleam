@@ -273,15 +273,45 @@ pub fn sync(
       }),
     ])
   case sync {
-    editor.InSync -> painted
-    editor.Write(buffer) -> effect.batch([write(buffer), focus(), painted])
+    // The field only grows once the page is drawn, so the browser does not
+    // scroll the page to a caret that typing takes onto a new line.
+    editor.InSync ->
+      effect.batch([
+        undrawn,
+        effect.before_paint(fn(_, _) {
+          paint(editor)
+          set_drawn(True)
+          reveal_caret(control_id, live_class, painted_class)
+        }),
+      ])
+    // Scrolled to after the paint, which moves the field back from under a
+    // painted selection.
+    editor.Write(buffer) ->
+      effect.batch([
+        write(buffer),
+        effect.from(fn(_) { focus_in_place(control_id) }),
+        undrawn,
+        effect.before_paint(fn(_, _) {
+          paint(editor)
+          set_drawn(True)
+          focus_control(control_id)
+        }),
+      ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
     // Stepped at once when the page shows where the step starts, so that a
     // key pressed before the next paint replaces what the step selected.
-    editor.WriteAndStep(buffer, x:, up:, queued:) -> {
+    editor.WriteAndStep(buffer, x:, up:, page:, queued:) -> {
       let step = fn(dispatch) {
         let place =
-          step_head(control_id, live_class, live.row_mark, painted_class, x, up)
+          step_head(
+            control_id,
+            live_class,
+            live.row_mark,
+            painted_class,
+            x,
+            up,
+            page,
+          )
         case place {
           #(row, visible, at_end, next) if row >= 0 ->
             dispatch(
@@ -330,10 +360,7 @@ pub fn sync(
             again,
           )
         dispatch(
-          on_event(editor.ControlChanged(
-            from_control(text, start, end, backward),
-            at: 0,
-          )),
+          on_event(editor.Aimed(from_control(text, start, end, backward), x:)),
         )
       }
       effect.batch([
@@ -348,6 +375,33 @@ pub fn sync(
         painted,
       ])
     }
+    editor.WriteAndMove(buffer, up:) ->
+      effect.batch([
+        effect.from(fn(dispatch) {
+          write_now(buffer)
+          move_line(control_id, up)
+          case decode.run(find_control(control_id), control_decoder()) {
+            Ok(shown) -> dispatch(on_event(editor.ControlChanged(shown, at: 0)))
+            Error(_) -> Nil
+          }
+        }),
+        painted,
+      ])
+    // The browser acts on the key after the handler that wrote the field.
+    editor.WriteAndRead(buffer) ->
+      effect.batch([
+        effect.from(fn(dispatch) {
+          write_now(buffer)
+          after_default(fn() {
+            case decode.run(find_control(control_id), control_decoder()) {
+              Ok(shown) ->
+                dispatch(on_event(editor.ControlChanged(shown, at: 0)))
+              Error(_) -> Nil
+            }
+          })
+        }),
+        painted,
+      ])
     // Blurred at once, because a key pressed before the next paint would
     // still be typed into the field, and again before that paint, after any
     // focus an earlier key asked for.
@@ -556,6 +610,19 @@ fn edge_decoder(
   let shifted = alone && shift && !{ ctrl || meta }
   let command = alone && { ctrl || meta }
   let select_all = is_key(name, code, "a")
+  let lines = buffer.lines(shown)
+  let blank_before =
+    list.drop(lines, head.row)
+    |> list.first
+    |> result.unwrap("")
+    |> string.slice(0, head.col)
+    |> is_blank
+  let blank_after =
+    list.drop(lines, head.row)
+    |> list.first
+    |> result.unwrap("")
+    |> string.drop_start(head.col)
+    |> is_blank
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
@@ -570,6 +637,24 @@ fn edge_decoder(
     "End" if command && shift -> Ok(editor.SelectToEnd)
     "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToStart)
     "ArrowDown" if meta && shift && alone -> Ok(editor.SelectToEnd)
+    "PageUp" if alone && !{ ctrl || meta } ->
+      Ok(editor.Page(up: True, select: shift))
+    "PageDown" if alone && !{ ctrl || meta } ->
+      Ok(editor.Page(up: False, select: shift))
+    "Home" | "End" if command -> Ok(editor.Widen)
+    "ArrowUp" if alone && ctrl && !meta ->
+      Ok(editor.Row(up: True, select: shift))
+    "ArrowDown" if alone && ctrl && !meta ->
+      Ok(editor.Row(up: False, select: shift))
+    "ArrowUp" | "ArrowDown" if alone && meta -> Ok(editor.Widen)
+    "ArrowLeft" | "Backspace" if command && head.row == 0 && blank_before ->
+      Ok(editor.Widen)
+    "ArrowRight" | "Delete" if command && head.row == end.row && blank_after ->
+      Ok(editor.Widen)
+    "ArrowLeft" if bare && head == start -> Ok(editor.Widen)
+    "ArrowRight" if bare && head == end -> Ok(editor.Widen)
+    "Backspace" if alone && head == start -> Ok(editor.Widen)
+    "Delete" if alone && head == end -> Ok(editor.Widen)
     _ -> Error(Nil)
   }
   let edge = {
@@ -596,13 +681,19 @@ fn edge_decoder(
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
+      editor.Page(..) -> {
+        let #(_, _, x) = head_line(control_id, live_class, painted_class)
+        Ok(#(edge, x))
+      }
       editor.JoinBefore
       | editor.JoinAfter
       | editor.SelectBefore
       | editor.SelectAfter
       | editor.SelectToStart
       | editor.SelectToEnd
-      | editor.SelectAll -> Ok(#(edge, 0.0))
+      | editor.SelectAll
+      | editor.Row(..)
+      | editor.Widen -> Ok(#(edge, 0.0))
     }
   }
   let pressed = case edge, name {
@@ -614,7 +705,10 @@ fn edge_decoder(
   case pressed {
     Ok(pressed) ->
       on_event(pressed)
-      |> event.handler(prevent_default: True, stop_propagation: False)
+      |> event.handler(
+        prevent_default: wanted != Ok(editor.Widen),
+        stop_propagation: False,
+      )
       |> decode.success
     Error(Nil) ->
       on_event(editor.ControlChanged(shown:, at: 0))
@@ -672,6 +766,10 @@ fn history_step(
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "an undo or a redo")
   }
+}
+
+fn is_blank(text: String) -> Bool {
+  string.to_graphemes(text) |> list.all(fn(character) { character == " " })
 }
 
 fn nudged(forward: Bool, shown: Buffer) -> Result(editor.Event, Nil) {
@@ -777,7 +875,17 @@ fn step_head(
   painted_class: String,
   x: Float,
   up: Bool,
+  page: Bool,
 ) -> #(Int, String, Bool, String)
+
+@external(javascript, "./surface.ffi.mjs", "revealCaret")
+fn reveal_caret(id: String, live_class: String, painted_class: String) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "moveLine")
+fn move_line(id: String, up: Bool) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "afterDefault")
+fn after_default(run: fn() -> Nil) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "paintedHead")
 fn painted_head(

@@ -572,33 +572,73 @@ export function headLine(id, liveClass, paintedClass) {
 // The place on the drawn page `x` from the left of the text, one drawn line
 // above or below the head, or the head's own place when there is no line
 // there. The head is first kept two lines inside the page, because the
-// browser names no place off the screen.
-export function stepHead(id, liveClass, rowMark, paintedClass, x, up) {
+// browser names no place off the screen. A `page` step scrolls the page by a
+// window and takes the place that is then where the head was.
+export function stepHead(id, liveClass, rowMark, paintedClass, x, up, page) {
   const none = [-1, "", false, ""];
   const control = document.getElementById(id);
-  const page = control?.closest("." + liveClass);
-  if (!page) return none;
+  const scroller = control?.closest("." + liveClass);
+  if (!scroller) return none;
   const painted = control.closest("." + paintedClass) !== null;
   const head = () => (painted ? headPlace() : fieldCaret(control));
   const before = head();
   if (!before) return none;
-  const view = page.getBoundingClientRect();
+  const view = scroller.getBoundingClientRect();
   const room = 2 * before.line;
-  if (before.box.top < view.top + room) page.scrollTop -= view.top + room - before.box.top;
+  if (before.box.top < view.top + room) scroller.scrollTop -= view.top + room - before.box.top;
   else if (before.box.bottom > view.bottom - room) {
-    page.scrollTop += before.box.bottom - (view.bottom - room);
+    scroller.scrollTop += before.box.bottom - (view.bottom - room);
   }
   const { box, line } = head();
-  const left = columnLeft(page) + x;
+  const left = columnLeft(scroller) + x;
   const at = (y) => {
     const target = document.elementFromPoint(left, y);
-    return placeOn(page, page.contains(target) ? target : page, left, y, rowMark, null);
+    return placeOn(scroller, scroller.contains(target) ? target : scroller, left, y, rowMark, null);
   };
   const middle = box.top + box.height / 2;
+  if (page) {
+    const top = Math.max(view.top, 0);
+    const bottom = Math.min(view.bottom, innerHeight);
+    const distance = Math.max(bottom - top - 2 * line, line);
+    const was = scroller.scrollTop;
+    scroller.scrollTop += up ? -distance : distance;
+    const y = middle + (up ? -distance : distance) - (scroller.scrollTop - was);
+    const rows = [...scroller.querySelectorAll(`[data-${rowMark}]`)].map((row) => row.getBoundingClientRect());
+    if (up ? y < Math.min(...rows.map((row) => row.top)) : y > Math.max(...rows.map((row) => row.bottom))) return none;
+    const there = at(Math.min(Math.max(y, top + line / 2), bottom - line / 2));
+    return there[0] >= 0 ? there : at(middle);
+  }
   const here = at(middle);
   for (const reach of [1, 1.5, 2, 3, 4]) {
     const there = at(middle + (up ? -reach : reach) * line);
     if (there[0] >= 0 && there.join("\n") !== here.join("\n")) return there;
   }
   return here;
+}
+
+// A task runs after the browser's own action for the event being handled.
+export function afterDefault(run) {
+  setTimeout(run, 0);
+}
+
+// Scrolls the page just enough to show the caret of the focused field.
+export function revealCaret(id, liveClass, paintedClass) {
+  const control = document.getElementById(id);
+  const page = control?.closest("." + liveClass);
+  if (!page || document.activeElement !== control || control.closest("." + paintedClass)) return;
+  const { box } = fieldCaret(control);
+  const view = page.getBoundingClientRect();
+  const style = getComputedStyle(page);
+  const top = Math.max(view.top, 0) + (parseFloat(style.scrollPaddingTop) || 0);
+  const bottom = Math.min(view.bottom, innerHeight) - (parseFloat(style.scrollPaddingBottom) || 0);
+  if (box.bottom > bottom) page.scrollTop += box.bottom - bottom;
+  else if (box.top < top) page.scrollTop -= top - box.top;
+}
+
+// The browser's own line move, from the first or last line to the start or
+// end of the field, remembers the column for the next one, as a key does.
+export function moveLine(id, up) {
+  const control = document.getElementById(id);
+  if (!control || document.activeElement !== control) return;
+  getSelection().modify("move", up ? "backward" : "forward", "line");
 }

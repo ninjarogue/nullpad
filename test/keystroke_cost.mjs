@@ -233,6 +233,11 @@ const events = {
     ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToStart(), 0, field)],
     ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToEnd(), 0, field)],
     ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
+    ["Page up", (field) => new editor.EdgePressed(new editor.Page(true, false), 0, field)],
+    ["Page down selecting", (field) => new editor.EdgePressed(new editor.Page(false, true), 0, field)],
+    ["Widen", (field) => new editor.EdgePressed(new editor.Widen(), 0, field)],
+    ["Row up", (field) => new editor.EdgePressed(new editor.Row(true, false), 0, field)],
+    ["Row down selecting", (field) => new editor.EdgePressed(new editor.Row(false, true), 0, field)],
   ],
   EscapePressed: [["", (field) => new editor.EscapePressed(field)]],
   Pointed: [
@@ -256,7 +261,14 @@ const events = {
     ["a row above", (_, row) => new editor.Stepped(Math.max(0, row - 9), "", true, "", 40)],
     ["a row below", (_, row) => new editor.Stepped(row + 9, "", false, "", 40)],
   ],
-  Unstepped: [["", () => new editor.Unstepped(40)]],
+  Unstepped: [
+    ["", () => new editor.Unstepped(40)],
+    ["past the end of the note", (field) => [
+      new editor.EdgePressed(new editor.Page(false, false), 0, field),
+      new editor.Unstepped(40),
+    ]],
+  ],
+  Aimed: [["moved", (field) => new editor.Aimed(moved(field, 0), 40)]],
   Nudged: [
     ["forward", (field, row) => new editor.Nudged(true, row, "", field)],
     ["back", (field, row) => new editor.Nudged(false, row, "", field)],
