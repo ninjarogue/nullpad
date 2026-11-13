@@ -44,8 +44,8 @@ pub type Step {
 
 /// Illegal states cannot be built: a half-typed command exists only in normal
 /// mode, and the "text before this insert" checkpoint only in insert mode.
-/// Undo lives here because it is vim's undo. With vim off the browser's own
-/// undo keeps working, since nothing writes to the text field while you type.
+/// Undo lives here because it is vim's undo. Outside vim, and for Ctrl+Z in
+/// any mode, the editor's own history undoes (see `history`).
 pub opaque type State {
   State(
     mode: ModeState,

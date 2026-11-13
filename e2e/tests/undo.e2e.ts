@@ -194,13 +194,18 @@ test('what the page shows is what is saved after an undo and a redo', async (fix
   await editor.expectSaved('alpha one A\n\nbravo two');
 });
 
-/** What the Edit menu and the field's own menu send: an undo or redo the editor did not see as a key. */
-async function fromMenu({ browser, page }: Fixtures, command: 'undo' | 'redo') {
-  await browser.evaluate((command: string) => document.execCommand(command), command);
+/**
+ * What the Edit menu and the field's own menu send. Chromium undoes the field
+ * itself and then reports it, and offers the command only while its own
+ * history has something in it, so only the first undo after typing can come
+ * from a menu.
+ */
+async function undoFromMenu({ browser, page }: Fixtures) {
+  await browser.evaluate(() => document.execCommand('undo'));
   await page.nextFrame();
 }
 
-test('undo and redo from the Edit menu go through the editor', async (fixtures) => {
+test('an undo from the Edit menu takes back the editor step and keeps one history', async (fixtures) => {
   const editor = new Editing(fixtures);
   await editor.open('alpha one\n\nbravo two');
   await editor.click(endOfOne);
@@ -208,12 +213,12 @@ test('undo and redo from the Edit menu go through the editor', async (fixtures) 
   await editor.click({ word: 'two', at: 3 });
   await editor.type(' B');
 
-  await fromMenu(fixtures, 'undo');
+  await undoFromMenu(fixtures);
   await editor.expectNote('alpha one A\n\nbravo two');
-  await fromMenu(fixtures, 'undo');
+  await editor.press(ctrl('z'));
   await editor.expectNote('alpha one\n\nbravo two');
-  await fromMenu(fixtures, 'redo');
-  await editor.expectNote('alpha one A\n\nbravo two');
+  await editor.press(ctrl('Shift+z'), ctrl('Shift+z'));
+  await editor.expectNote('alpha one A\n\nbravo two B');
 });
 
 test('with the whole note in the field, undo and redo step through what was typed', async ({ app, disk, page }) => {

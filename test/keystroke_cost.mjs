@@ -190,7 +190,8 @@ console.log(`${KEYS} keys of each kind after ${WARMUP} warm-up keys, one update 
 
 // Every editor event, with vim off and on: one parse at most when the note
 // changed, none when it did not. A variant of `editor.Event` with no entry
-// here fails, so a new event cannot arrive unmeasured.
+// here fails, so a new event cannot arrive unmeasured. An entry that gives a
+// list sends all but the last before counting, to reach the state it measures.
 const vim = await load("nullpad/nullpad/vim.mjs");
 
 // `surface.view` measures a list marker's width when the caret is in a list.
@@ -248,6 +249,23 @@ const events = {
     ["blur", () => new editor.FocusChanged(false)],
     ["focus", () => new editor.FocusChanged(true)],
   ],
+  UndoAsked: [
+    ["nothing to undo", () => new editor.UndoAsked()],
+    ["a typed character", (field) => [new editor.ControlChanged(typed(field)), new editor.UndoAsked()]],
+    ["typing in a row left", (field, row) => [
+      new editor.ControlChanged(typed(field)),
+      new editor.Pointed(row + 9, "", false),
+      new editor.UndoAsked(),
+    ]],
+  ],
+  RedoAsked: [
+    ["nothing to redo", () => new editor.RedoAsked()],
+    ["an undone character", (field) => [
+      new editor.ControlChanged(typed(field)),
+      new editor.UndoAsked(),
+      new editor.RedoAsked(),
+    ]],
+  ],
 };
 
 const { readFileSync } = await import("node:fs");
@@ -277,11 +295,15 @@ for (const withVim of [false, true]) {
       }
       const field = editor.field_buffer(model.editor);
       const row = editor.region(model.editor)[0]?.first_row ?? 0;
-      const text = editor.text(model.editor);
-      const count = globalThis.parses;
+      const made = [make(field, row)].flat();
       let next;
+      let text;
+      let count;
       try {
-        [next] = app.update(model, new app.EditorSent(make(field, row)));
+        for (const event of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(event));
+        text = editor.text(model.editor);
+        count = globalThis.parses;
+        [next] = app.update(model, new app.EditorSent(made.at(-1)));
         app.view(next);
       } catch (error) {
         if (error.gleam_error !== "todo") throw error;

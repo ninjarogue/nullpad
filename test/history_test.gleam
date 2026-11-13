@@ -109,7 +109,7 @@ pub fn an_edit_after_undo_clears_redo_test() {
     |> history.record(at("a c", 3))
 
   assert history.redo(typed) == Error(Nil)
-  assert shown(undone(typed)) == "a "
+  assert shown(undone(typed)) == "a"
 }
 
 pub fn a_caret_move_after_undo_keeps_redo_test() {

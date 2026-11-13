@@ -34,12 +34,17 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
     use shown <- decode.map(shown_decoder())
     on_event(editor.ControlChanged(shown:))
   }
+  // Chromium sends no `beforeinput` for an undo from a menu: it undoes the
+  // field itself, and the editor writes its own undo over that.
   let typed = {
+    use kind <- decode.optional_field("inputType", "", decode.string)
     use composing <- decode.optional_field("isComposing", False, decode.bool)
     use shown <- decode.map(shown_decoder())
-    case composing {
-      True -> on_event(editor.Composing(shown:))
-      False -> on_event(editor.ControlChanged(shown:))
+    case kind, composing {
+      "historyUndo", _ -> on_event(editor.UndoAsked)
+      "historyRedo", _ -> on_event(editor.RedoAsked)
+      _, True -> on_event(editor.Composing(shown:))
+      _, False -> on_event(editor.ControlChanged(shown:))
     }
   }
   // The browser moves the caret for these keys and says nothing, so the
@@ -87,9 +92,11 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         event.on("keyup", moved),
         event.on("focus", focus_changed(True)),
         event.on("blur", focus_changed(False)),
+        event.advanced("beforeinput", history_decoder(on_event)),
         event.advanced(
           "keydown",
           decode.one_of(key_decoder(editor, on_event), [
+            undo_key_decoder(on_event),
             edge_decoder(on_event),
             escape_decoder(on_event),
           ]),
@@ -398,6 +405,57 @@ fn edge_decoder(
       on_event(editor.ControlChanged(shown:))
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key at the edge of the field")
+  }
+}
+
+/// The browser's own undo history is lost each time the field is written,
+/// so undo and redo go to the editor, also from a menu where the browser
+/// asks first.
+fn history_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use kind <- decode.field("inputType", decode.string)
+  history_step(kind, on_event)
+}
+
+/// Named as `beforeinput` names the step the key would take.
+fn undo_key_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use name <- decode.field("key", decode.string)
+  use shift <- decode.field("shiftKey", decode.bool)
+  use ctrl <- decode.field("ctrlKey", decode.bool)
+  use meta <- decode.field("metaKey", decode.bool)
+  use alt <- decode.field("altKey", decode.bool)
+  use composing <- decode.field("isComposing", decode.bool)
+  let command = { ctrl || meta } && !alt && !composing
+  let kind = case string.lowercase(name) {
+    "z" if command && shift -> "historyRedo"
+    "z" if command -> "historyUndo"
+    "y" if command && ctrl && !meta && !shift -> "historyRedo"
+    _ -> ""
+  }
+  history_step(kind, on_event)
+}
+
+fn history_step(
+  kind: String,
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  let asked = case kind {
+    "historyUndo" -> Ok(editor.UndoAsked)
+    "historyRedo" -> Ok(editor.RedoAsked)
+    _ -> Error(Nil)
+  }
+  case asked {
+    Ok(asked) ->
+      on_event(asked)
+      |> event.handler(prevent_default: True, stop_propagation: False)
+      |> decode.success
+    Error(Nil) ->
+      on_event(editor.Released)
+      |> event.handler(prevent_default: False, stop_propagation: False)
+      |> decode.failure(expected: "an undo or a redo")
   }
 }
 

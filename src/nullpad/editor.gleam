@@ -1,17 +1,25 @@
 //// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`,
-//// `live`, `markdown`.
+//// `live`, `markdown`, `history`.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
+import nullpad/history.{type History}
 import nullpad/live.{type Region, Region}
 import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
-/// Every change to `buffer` goes through `edit` or `compose`.
+/// Every change to `buffer` goes through `edit` or `compose`. `edit`
+/// records it in `history`.
 pub opaque type Editor {
-  Editor(buffer: Buffer, keys: Keys, field: Field, focus: Focus)
+  Editor(
+    buffer: Buffer,
+    keys: Keys,
+    field: Field,
+    focus: Focus,
+    history: History,
+  )
 }
 
 type Focus {
@@ -127,6 +135,7 @@ pub fn new(vim vim_enabled: Bool, live live: Bool) -> Editor {
       False -> Whole
     },
     focus: Away,
+    history: history.new(buffer),
   )
 }
 
@@ -144,7 +153,7 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     Whole -> Whole
     Part(..) -> laid_out(buffer)
   }
-  Editor(..editor, keys:, buffer:, field:)
+  Editor(..editor, keys:, buffer:, field:, history: history.new(buffer))
   |> realign
   |> write_and_focus
 }
@@ -245,7 +254,24 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
       Outcome(editor: changed, sync:, requests: [])
     }
-    UndoAsked | RedoAsked -> Outcome(editor:, sync: InSync, requests: [])
+    UndoAsked -> travel(editor, history.undo)
+    RedoAsked -> travel(editor, history.redo)
+  }
+}
+
+/// The note goes back to how it was, with its selection, as an edit would
+/// take it there.
+fn travel(
+  editor: Editor,
+  through: fn(History) -> Result(History, Nil),
+) -> Outcome {
+  case through(editor.history) {
+    Ok(history) ->
+      Editor(..editor, history:)
+      |> edit(history.present(history))
+      |> realign
+      |> write
+    Error(Nil) -> Outcome(editor:, sync: InSync, requests: [])
   }
 }
 
@@ -302,8 +328,11 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
         requests: [],
       )
     }
-    Part(..), False | Whole, _ ->
-      typed(editor, shown, None, hold_rows(_, shown))
+    Part(..), False | Whole, _ -> {
+      let outcome = typed(editor, shown, None, hold_rows(_, shown))
+      let editor = Editor(..outcome.editor, history: editor.history)
+      Outcome(..outcome, editor:)
+    }
   }
 }
 
@@ -459,7 +488,12 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
       Part(rows:, drawn:, parsed:, composing: False)
     }
   }
-  Editor(..editor, buffer:, field:)
+  Editor(
+    ..editor,
+    buffer:,
+    field:,
+    history: history.record(editor.history, buffer),
+  )
 }
 
 fn selected_rows(buffer: Buffer) -> #(Int, Int) {
