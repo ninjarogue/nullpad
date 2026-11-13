@@ -577,7 +577,7 @@ function pointIn(holder, offset) {
 }
 
 export function paintSelection(
-  id, liveClass, rowMark, anchorRow, anchorOffset, headRow, headOffset, firstBreak, lastBreak,
+  id, liveClass, rowMark, anchorRow, anchorOffset, headRow, headOffset, firstBreak, lastBreak, fieldRow,
 ) {
   clearBreaks();
   const marks = drawnMarks(id, liveClass, rowMark);
@@ -596,6 +596,7 @@ export function paintSelection(
   head.setStart(headNode, headAt);
   CSS.highlights.set(SELECTION, new Highlight(range));
   CSS.highlights.set(HEAD, new Highlight(head));
+  painted = { value: document.getElementById(id)?.value, fieldRow };
   underStart(document.getElementById(id), range);
   for (let row = firstBreak; row <= lastBreak; row++) {
     const here = holder(row);
@@ -635,6 +636,7 @@ function underStart(control, range) {
 }
 
 export function clearPaint() {
+  painted = null;
   if (moved) moved.style.translate = "";
   moved = null;
   clearBreaks();
@@ -677,11 +679,18 @@ function caretBox(range) {
 }
 
 // The element the head of a painted selection is drawn in, and its text.
-export function paintedHead(id, rowMark, paintedClass) {
-  const painted = document.getElementById(id)?.closest("." + paintedClass);
-  const head = painted && [...(globalThis.CSS?.highlights?.get(HEAD) ?? [])][0];
-  const node = head?.startContainer;
-  const holder = (node instanceof Element ? node : node?.parentElement)?.closest(`[data-${rowMark}]`);
+// The rows are drawn as they were when the page was painted, with the field
+// holding the same text from `fieldRow`. Shift and an arrow move the field's
+// head before the page paints it again, and the head is found from there.
+let painted = null;
+
+export function paintedHead(id, liveClass, rowMark, paintedClass) {
+  const control = document.getElementById(id);
+  if (!control?.closest("." + paintedClass) || control.value !== painted?.value) return [-1, ""];
+  const head = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
+  const row = painted.fieldRow + control.value.slice(0, head).split("\n").length - 1;
+  const marks = drawnMarks(id, liveClass, rowMark);
+  const holder = marks[lastAtOrBefore(marks, row, rowMark)];
   return holder ? [Number(holder.dataset[rowMark]), holder.textContent] : [-1, ""];
 }
 
@@ -829,9 +838,8 @@ export function revealCaret(id, liveClass, paintedClass) {
   if (!page || document.activeElement !== control || control.closest("." + paintedClass)) return;
   const { box } = fieldCaret(control);
   const view = page.getBoundingClientRect();
-  const style = getComputedStyle(page);
-  const top = Math.max(view.top, 0) + (parseFloat(style.scrollPaddingTop) || 0);
-  const bottom = Math.min(view.bottom, innerHeight) - (parseFloat(style.scrollPaddingBottom) || 0);
+  const top = Math.max(view.top, 0);
+  const bottom = Math.min(view.bottom, innerHeight);
   if (box.bottom > bottom) page.scrollTop += box.bottom - bottom;
   else if (box.top < top) page.scrollTop -= top - box.top;
 }

@@ -323,9 +323,9 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
     case locate(press, live.row_mark), shift, shown {
       #(row, visible, at_end, next, True, _), False, _ if row >= 0 ->
         taken(editor.Grabbed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, _, _, _, False, _), False, _
+      #(row, visible, at_end, next, False, _), False, _
         if clicks == 2 && button == 0 && { row >= 0 || target == control_id }
-      -> taken(editor.WordPressed(x:, y:))
+      -> taken(editor.WordPressed(row:, visible:, at_end:, next:, x:, y:))
       #(row, visible, at_end, next, False, _), False, _
         if row >= 0 && clicks > 2
       -> taken(editor.LinePointed(row:, visible:, at_end:, next:, x:, y:))
@@ -622,6 +622,10 @@ fn paint(editor: Editor) -> Nil {
         head_offset,
         start.row,
         end.row - 1,
+        case editor.region(editor) {
+          Some(live.Region(first_row:, ..)) -> first_row
+          None -> 0
+        },
       )
     }
   }
@@ -931,13 +935,13 @@ fn is_blank(text: String) -> Bool {
   string.to_graphemes(text) |> list.all(fn(character) { character == " " })
 }
 
-/// The painted head is where the head was when the page last drew. Until
-/// the page draws again the browser moves the head in the field's text.
+/// Until the page paints the head the field has, the browser moves the head
+/// in the field's text.
 fn nudged(forward: Bool, shown: Buffer) -> Result(editor.Event, Nil) {
-  case is_drawn(), painted_head(control_id, live.row_mark, painted_class) {
-    True, #(row, visible) if row >= 0 ->
+  case painted_head(control_id, live_class, live.row_mark, painted_class) {
+    #(row, visible) if row >= 0 ->
       Ok(editor.Nudged(forward:, row:, visible:, shown:))
-    _, _ -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
@@ -1061,6 +1065,7 @@ fn after_default(run: fn() -> Nil) -> Nil
 @external(javascript, "./surface.ffi.mjs", "paintedHead")
 fn painted_head(
   id: String,
+  live_class: String,
   row_mark: String,
   painted_class: String,
 ) -> #(Int, String)
@@ -1084,6 +1089,7 @@ fn paint_selection(
   head_offset: Int,
   first_break: Int,
   last_break: Int,
+  field_row: Int,
 ) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "clearPaint")

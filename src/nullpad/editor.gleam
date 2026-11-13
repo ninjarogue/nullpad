@@ -22,6 +22,7 @@ import nullpad/vim.{Step}
 /// a page that shows the step before it.
 pub opaque type Editor {
   /// `press` is a mouse press the editor took, held until it is let go.
+  /// `clicked` is where the last plain press put the caret.
   /// `dragging` is while the browser drags the field's selection.
   Editor(
     buffer: Buffer,
@@ -31,6 +32,7 @@ pub opaque type Editor {
     history: History,
     clock: Int,
     press: Option(Press),
+    clicked: Option(Position),
     dragging: Bool,
     paints: Bool,
     goal: Option(Goal),
@@ -165,10 +167,18 @@ pub type Event {
     x: Float,
     y: Float,
   )
-  /// The second press of a double click, at `x`, `y` in the window: selects
-  /// the word the first press put the caret in, wherever showing its block
-  /// moved that word.
-  WordPressed(x: Float, y: Float)
+  /// The second press of a double click, at a place on the page or at none,
+  /// and at `x`, `y` in the window: selects the word the first press put the
+  /// caret in, wherever showing its block moved that word, or else the word
+  /// at the place.
+  WordPressed(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Float,
+    y: Float,
+  )
   /// A press on a painted selection: moved, it drags the selected text, as
   /// a press on a text field's selection does, and let go, it puts the caret
   /// there.
@@ -310,6 +320,7 @@ pub fn new(
     history: history.new(buffer),
     clock: 0,
     press: None,
+    clicked: None,
     dragging: False,
     paints:,
     goal: None,
@@ -400,6 +411,7 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedAt(at)),
+          clicked: Some(at),
           waiting: [],
           goal: None,
         )
@@ -456,9 +468,15 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         requests: [],
       )
     }
-    WordPressed(x:, y:) -> {
-      let #(start, end) =
-        buffer.word_at(editor.buffer, buffer.cursor(editor.buffer))
+    WordPressed(row:, visible:, at_end:, next:, x:, y:) -> {
+      let cursor = buffer.cursor(editor.buffer)
+      let at = case editor.clicked {
+        Some(clicked) if clicked == cursor -> cursor
+        Some(_) | None if row >= 0 ->
+          place(editor.buffer, row:, visible:, at_end:, next:)
+        Some(_) | None -> cursor
+      }
+      let #(start, end) = buffer.word_at(editor.buffer, at)
       let editor =
         Editor(
           ..editor,

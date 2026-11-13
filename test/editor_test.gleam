@@ -1483,9 +1483,19 @@ pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
 }
 
 pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
-  let ed = pressed("alpha beta gamma\n\nsecond para here", 2, "second pa")
+  let ed = live("alpha beta gamma\n\nsecond para here")
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.WordPressed(x: 1.0, y: 2.0))
+    editor.update(
+      ed,
+      editor.WordPressed(
+        row: 2,
+        visible: "second pa",
+        at_end: False,
+        next: "",
+        x: 1.0,
+        y: 2.0,
+      ),
+    )
   let para = #(Position(2, 7), Position(2, 11))
   assert buffer.selection(editor.buffer(ed)) == para
   assert sync == editor.Press(Some(editor.field_buffer(ed)), x: 1.0, y: 2.0)
@@ -1779,11 +1789,25 @@ pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
 pub fn a_second_press_selects_the_word_the_first_put_the_caret_in_test() {
   let ed = pressed("intro\n\n# Big title here", 2, "Big ti")
   assert buffer.cursor(editor.buffer(ed)) == Position(row: 2, col: 8)
-  let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.WordPressed(x: 90.0, y: 40.0))
-  assert buffer.selection(editor.buffer(ed))
+  let second = fn(row, visible) {
+    editor.update(
+      ed,
+      editor.WordPressed(
+        row:,
+        visible:,
+        at_end: False,
+        next: "",
+        x: 90.0,
+        y: 40.0,
+      ),
+    )
+  }
+  let Outcome(editor: word, sync:, ..) = second(2, "# Big title h")
+  assert buffer.selection(editor.buffer(word))
     == #(Position(row: 2, col: 6), Position(row: 2, col: 11))
   let assert editor.Press(write: Some(_), x: 90.0, y: 40.0) = sync
+  assert buffer.selection(editor.buffer(second(-1, "").editor))
+    == #(Position(row: 2, col: 6), Position(row: 2, col: 11))
 }
 
 pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {

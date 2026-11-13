@@ -1825,6 +1825,8 @@ test('at the end of a wrapped line the arrows move from that line, as a text fie
   expect(await page.caret()).toBe(`${long}|`);
 
   await browser.keyboard.press('Control+Home');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
   await browser.keyboard.press('End');
   await browser.keyboard.press('Shift+ArrowUp');
   await page.nextFrame();
