@@ -7,8 +7,8 @@ import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
 import nullpad/markdown.{
-  type Block, type Item, type Level, Block, BulletList, CodeBlock, Heading, Item,
-  OrderedList, Paragraph, Quote, Rule, Table, Task,
+  type Block, type Item, type Level, type Task, Block, BulletList, CodeBlock,
+  Heading, Item, OrderedList, Paragraph, Quote, Rule, Table, Task,
 }
 
 pub const row_mark = "row"
@@ -173,4 +173,35 @@ fn shift_item(item: Item, move: fn(Int) -> Int) -> Item {
     task: option.map(item.task, fn(task) { Task(..task, row: move(task.row)) }),
     blocks: list.map(item.blocks, shift_block(_, move)),
   )
+}
+
+/// The blocks with the box at the row and column of `task` ticked or not.
+pub fn tick(blocks: List(Block), task: Task, checked: Bool) -> List(Block) {
+  list.map(blocks, tick_block(_, task, checked))
+}
+
+fn tick_block(block: Block, task: Task, checked: Bool) -> Block {
+  let content = case block.content {
+    BulletList(spacing:, items:) ->
+      BulletList(spacing:, items: list.map(items, tick_item(_, task, checked)))
+    OrderedList(start:, spacing:, items:) ->
+      OrderedList(
+        start:,
+        spacing:,
+        items: list.map(items, tick_item(_, task, checked)),
+      )
+    Quote(blocks:) -> Quote(tick(blocks, task, checked))
+    CodeBlock(..) | Heading(..) | Paragraph(..) | Rule | Table(..) ->
+      block.content
+  }
+  Block(..block, content:)
+}
+
+fn tick_item(item: Item, task: Task, checked: Bool) -> Item {
+  let box = case item.task {
+    option.Some(Task(row:, col:, ..)) if row == task.row && col == task.col ->
+      option.Some(Task(row:, col:, checked:))
+    box -> box
+  }
+  Item(..item, task: box, blocks: tick(item.blocks, task, checked))
 }

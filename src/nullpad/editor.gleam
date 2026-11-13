@@ -580,27 +580,46 @@ fn hold(editor: Editor, rows: Region, drawn: List(Block)) -> Editor {
   }
 }
 
-/// A row that does not exist changes nothing.
-pub fn replace_line(editor: Editor, row: Int, with line: String) -> Outcome {
-  case list.drop(buffer.lines(editor.buffer), row) {
-    [old, ..] if row >= 0 -> {
+/// Ticks or unticks a box drawn on the page. The page keeps how it was laid
+/// out but for the box. A box the text no longer has changes nothing.
+pub fn tick(editor: Editor, task: markdown.Task, checked: Bool) -> Outcome {
+  let text = buffer.text(editor.buffer)
+  case
+    markdown.set_task(text, task, checked),
+    list.drop(buffer.lines(editor.buffer), task.row)
+  {
+    Ok(line), [old, ..] -> {
       let buffer =
         editor.buffer
         |> buffer.replace(
-          from: Position(row:, col: 0),
-          to: Position(row:, col: string.length(old)),
+          from: Position(row: task.row, col: 0),
+          to: Position(row: task.row, col: string.length(old)),
           with: line,
         )
         |> with_selection_of(editor.buffer)
       let before = field_buffer(editor)
-      let editor = edit(editor, buffer) |> realign
+      let ticked = edit(editor, buffer)
+      let ticked = case editor.field, ticked.field {
+        Part(drawn:, ..), Part(rows:, parsed:, composing:, ..) ->
+          Editor(
+            ..ticked,
+            field: Part(
+              rows:,
+              drawn: live.tick(drawn, task, checked),
+              parsed:,
+              composing:,
+            ),
+          )
+        _, _ -> ticked
+      }
+      let editor = realign(ticked)
       let sync = case field_buffer(editor) == before {
         True -> InSync
         False -> WriteQuietly(field_buffer(editor))
       }
       Outcome(editor:, sync:, requests: [])
     }
-    _ -> Outcome(editor:, sync: InSync, requests: [])
+    _, _ -> Outcome(editor:, sync: InSync, requests: [])
   }
 }
 

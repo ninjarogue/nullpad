@@ -70,26 +70,27 @@ pub fn pending_one_insert_is_one_undo_step() {
   assert editor.text(escaped.editor) == "ab"
 }
 
-pub fn replace_line_test() {
+pub fn tick_test() {
   let Outcome(editor: ed, ..) =
-    editor.new(vim: False, live: False) |> editor.open("a\nb\nc")
-  let Outcome(editor: ed, sync:, ..) = editor.replace_line(ed, 1, with: "- [x]")
+    editor.new(vim: False, live: False) |> editor.open("a\n- [ ] b\nc")
+  let Outcome(editor: ed, sync:, ..) =
+    editor.tick(ed, markdown.Task(checked: False, row: 1, col: 3), True)
 
-  assert editor.text(ed) == "a\n- [x]\nc"
+  assert editor.text(ed) == "a\n- [x] b\nc"
   assert sync == editor.WriteQuietly(editor.buffer(ed))
 }
 
-pub fn replace_line_ignores_a_missing_row_test() {
+pub fn tick_ignores_a_box_the_text_does_not_have_test() {
   let Outcome(editor: ed, ..) =
-    editor.new(vim: False, live: False) |> editor.open("a\nb")
+    editor.new(vim: False, live: False) |> editor.open("a\n- [ ] b")
   let Outcome(editor: unchanged, sync:, ..) =
-    editor.replace_line(ed, 7, with: "x")
+    editor.tick(ed, markdown.Task(checked: False, row: 7, col: 3), True)
   let Outcome(editor: also_unchanged, ..) =
-    editor.replace_line(ed, -1, with: "x")
+    editor.tick(ed, markdown.Task(checked: False, row: 0, col: 3), True)
 
-  assert editor.text(unchanged) == "a\nb"
+  assert editor.text(unchanged) == "a\n- [ ] b"
   assert sync == editor.InSync
-  assert editor.text(also_unchanged) == "a\nb"
+  assert editor.text(also_unchanged) == "a\n- [ ] b"
 }
 
 /// Press each character as a key, the way `surface` would report it: with
@@ -420,7 +421,8 @@ pub fn a_click_on_the_drawn_page_moves_the_field_there_test() {
 
 pub fn ticking_a_drawn_task_leaves_the_field_alone_test() {
   let Outcome(editor: ed, sync:, ..) =
-    live("# Trip\n\n- [ ] one") |> editor.replace_line(2, with: "- [x] one")
+    live("# Trip\n\n- [ ] one")
+    |> editor.tick(markdown.Task(checked: False, row: 2, col: 3), True)
 
   assert sync == editor.InSync
   assert editor.text(ed) == "# Trip\n\n- [x] one"
@@ -547,9 +549,7 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_composing_o
   assert editor.text(ed)
     == "# Trips\n> a\n\nFlights are **booked**.\n\n- one\n- two"
   assert !parsed(ed)
-  let Outcome(editor: ed, ..) = editor.replace_line(ed, 5, with: "- [x] one")
-  assert editor.text(ed)
-    == "# Trips\n> a\n\nFlights are **booked**.\n\n- [x] one\n- two"
+  let Outcome(editor: ed, ..) = editor.update(ed, editor.FocusChanged(False))
   assert parsed(ed)
   let Outcome(editor: ed, ..) = editor.open(ed, "1. a\n2. b")
   assert parsed(ed)
@@ -1058,14 +1058,21 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
   assert editor.blocks(escaped) == markdown.parse("Hello\n-")
 }
 
-pub fn a_tick_on_a_drawn_task_draws_the_page_from_the_text_test() {
-  let ed = live("- [ ] one\n\ntop") |> point(2) |> show(caret("top!", 0, 4))
+pub fn a_tick_keeps_the_page_as_it_was_laid_out_but_for_the_box_test() {
+  let ed =
+    live("- [ ] one\n\ntext")
+    |> point(2)
+    |> show(caret("text\n", 1, 0))
+    |> show(caret("-", 0, 1))
+  assert editor.region(ed) == Some(Region(3, 3))
 
   let Outcome(editor: ed, sync:, ..) =
-    editor.replace_line(ed, 0, with: "- [x] one")
+    editor.tick(ed, markdown.Task(checked: False, row: 0, col: 3), True)
   assert sync == editor.InSync
-  assert editor.region(ed) == Some(Region(2, 2))
-  assert editor.blocks(ed) == markdown.parse("- [x] one\n\ntop!")
+  assert editor.text(ed) == "- [x] one\n\ntext\n-"
+  assert editor.region(ed) == Some(Region(3, 3))
+  assert editor.blocks(ed) == markdown.parse("- [x] one\n\ntext\n")
+  assert editor.kind(ed) == Some(live.Body)
 }
 
 pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
