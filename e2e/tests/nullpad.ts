@@ -282,6 +282,14 @@ export class Page {
     return this.browser.evaluate(() => document.querySelector('.page')!.scrollTop);
   }
 
+  /** The font size and line height of the first element matching `selector`. */
+  sizesOf(selector: string) {
+    return this.browser.evaluate((selector: string) => {
+      const style = getComputedStyle(document.querySelector(selector)!);
+      return { size: style.fontSize, line: style.lineHeight };
+    }, selector);
+  }
+
   /** Where the text field is in the window. */
   fieldBox() {
     return this.browser.evaluate(() => {

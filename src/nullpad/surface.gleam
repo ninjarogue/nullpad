@@ -73,14 +73,14 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
-  let kind = editor.kind(editor)
+  let setting = editor.setting(editor)
   let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
   let first_row = case editor.region(editor), drawn_whole {
     Some(live.Region(first_row:, ..)), False ->
       attribute.data(live.row_mark, int.to_string(first_row))
     Some(_), True | None, _ -> attribute.none()
   }
-  html.div([attribute.class(classes(editor, kind)), marker(kind)], [
+  html.div([attribute.class(classes(editor, setting)), marker(setting)], [
     mirror(editor),
     element.element(
       "textarea",
@@ -160,27 +160,34 @@ fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
   }
 }
 
-/// CSS cannot measure typed text, so the marker is measured here.
-fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
-  case kind {
-    Some(live.ListItem(marker:, ..)) ->
-      attribute.style("--marker", float.to_string(text_width(marker)) <> "px")
-    Some(live.Body) | Some(live.Mono) | Some(live.Title(_)) | None ->
-      attribute.none()
+/// CSS cannot measure typed text, so the marker is measured here, in the
+/// font its row is set in.
+fn marker(setting: Option(editor.Setting)) -> attribute.Attribute(msg) {
+  let width = fn(marker, heading) {
+    attribute.style(
+      "--marker",
+      float.to_string(text_width(marker, heading)) <> "px",
+    )
+  }
+  case setting {
+    Some(editor.Setting(kind: live.ListItem(marker:, ..), ..)) ->
+      width(marker, "")
+    Some(editor.Setting(kind: live.ItemTitle(level, marker:), ..)) ->
+      width(marker, heading_class(level))
+    Some(editor.Setting(kind: live.Body, ..))
+    | Some(editor.Setting(kind: live.Mono, ..))
+    | Some(editor.Setting(kind: live.Title(_), ..))
+    | Some(editor.Setting(kind: live.QuoteTitle(..), ..))
+    | None -> attribute.none()
   }
 }
 
-fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
-  case
-    kind,
-    editor.frame(editor),
-    editor.is_idle(editor),
-    editor.is_painted(editor)
-  {
-    None, _, _, _ | _, None, _, _ -> "editor"
-    Some(_), Some(_), True, _ -> "editor part idle"
-    Some(_), Some(_), False, True -> "editor part " <> painted_class
-    Some(kind), Some(frame), False, False ->
+fn classes(editor: Editor, setting: Option(editor.Setting)) -> String {
+  case setting, editor.is_idle(editor), editor.is_painted(editor) {
+    None, _, _ -> "editor"
+    Some(_), True, _ -> "editor part idle"
+    Some(_), False, True -> "editor part " <> painted_class
+    Some(editor.Setting(kind:, frame:)), False, False ->
       case rows_of(frame) == rows_of(kind) {
         True -> set_as(kind)
         False -> set_as(kind) <> " framed framed-" <> rows_of(frame)
@@ -195,12 +202,10 @@ fn rows_of(kind: live.Kind) -> String {
     live.Mono -> "mono"
     live.ListItem(task: False, ..) -> "item"
     live.ListItem(task: True, ..) -> "task"
-    live.Title(markdown.H1) -> "h1"
-    live.Title(markdown.H2) -> "h2"
-    live.Title(markdown.H3) -> "h3"
-    live.Title(markdown.H4) -> "h4"
-    live.Title(markdown.H5) -> "h5"
-    live.Title(markdown.H6) -> "h6"
+    live.Title(level) -> heading_class(level)
+    live.ItemTitle(level, ..) -> "item-" <> heading_class(level)
+    live.QuoteTitle(level, in_item:) ->
+      "quote-" <> heading_class(level) <> bool.to_string(in_item)
   }
 }
 
@@ -210,12 +215,23 @@ fn set_as(kind: live.Kind) -> String {
     live.Mono -> "editor part mono"
     live.ListItem(task: False, ..) -> "editor part item"
     live.ListItem(task: True, ..) -> "editor part item task"
-    live.Title(markdown.H1) -> "editor part h1"
-    live.Title(markdown.H2) -> "editor part h2"
-    live.Title(markdown.H3) -> "editor part h3"
-    live.Title(markdown.H4) -> "editor part h4"
-    live.Title(markdown.H5) -> "editor part h5"
-    live.Title(markdown.H6) -> "editor part h6"
+    live.Title(level) -> "editor part " <> heading_class(level)
+    live.ItemTitle(level, ..) -> "editor part item " <> heading_class(level)
+    live.QuoteTitle(level, in_item: False) ->
+      "editor part quote " <> heading_class(level)
+    live.QuoteTitle(level, in_item: True) ->
+      "editor part quote quoted-item " <> heading_class(level)
+  }
+}
+
+fn heading_class(level: markdown.Level) -> String {
+  case level {
+    markdown.H1 -> "h1"
+    markdown.H2 -> "h2"
+    markdown.H3 -> "h3"
+    markdown.H4 -> "h4"
+    markdown.H5 -> "h5"
+    markdown.H6 -> "h6"
   }
 }
 
@@ -973,8 +989,9 @@ fn write_control(
   backward: Bool,
 ) -> Nil
 
+/// `heading` is "" for body text, or the class of a heading's level.
 @external(javascript, "./surface.ffi.mjs", "textWidth")
-fn text_width(text: String) -> Float
+fn text_width(text: String, heading: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "askFocus")
 fn ask_focus() -> Nil

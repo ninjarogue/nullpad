@@ -15,6 +15,7 @@ The note is always drawn as a page while you write it, unless Markdown is on. Th
 - `live-idle` Escape, or focus anywhere else in the app, draws the whole note in one element, `[data-test-id=preview]`, with no field and no `live-above`. A click on the page brings the field back. Switching to another window changes nothing.
 - `live-tasks` a drawn box ticks its line without opening its block. A link opens in a new tab.
 - `live-font` the field is set like its block: heading sizes for a heading, the code font for a code block or table, an indent for a list item.
+- `live-heading` a `#` heading with text typed on a line, in a list item or in a quote is set at its heading size at once, and the rows below move once. Every other block typed on a line keeps the line's height while the caret is on it. Leaving a heading's line moves no word, sideways or down, at any root font size, font or device pixel ratio. A heading with no text yet (`#`, `- #`) is one line of body text, typed and drawn. A field of several rows (a setext heading, an item with a nested item) is set in one size.
 
 ## How to get to it (user POV)
 
