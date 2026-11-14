@@ -319,3 +319,46 @@ test('steps after an undo, in one frame, each move a row, also those the field t
 
   await expect(page.text).toHaveValue(expected);
 });
+
+/**
+ * A key the browser acts on past the rows the field holds, such as Ctrl+Delete
+ * at the end of the note, is acted on with the whole note in the field, which
+ * is read once the browser has acted. A frame can draw that field before the
+ * read, and a key can come before the read too: it acts where the browser left
+ * the caret. The reads are held back here, so that both happen every time.
+ */
+test('Shift+ArrowLeft after Ctrl+Delete at the end of the note, drawn before the field is read, selects one letter', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await editor.seed('');
+  const expected = await editor.plainField('', 0, ['1', 'i', ctrl('Delete'), 'Shift+ArrowLeft'], 'X');
+  await editor.show('');
+  await editor.type('1i');
+  await page.nextFrame();
+  await browser.evaluate(() => {
+    const real = window.setTimeout;
+    const held: (() => void)[] = [];
+    window.setTimeout = ((run: () => void, ms?: number) => {
+      if (ms) return real(run, ms);
+      held.push(run);
+      return 0;
+    }) as typeof window.setTimeout;
+    (globalThis as { read?: () => void }).read = () => {
+      window.setTimeout = real;
+      for (const run of held) run();
+    };
+    return null;
+  });
+  await browser.keyboard.press(ctrl('Delete'));
+  await page.nextFrame();
+  await browser.keyboard.press('Shift+ArrowLeft');
+  await browser.evaluate(() => {
+    (globalThis as { read?: () => void }).read!();
+    return null;
+  });
+  await page.nextFrame();
+  await browser.keyboard.type('X');
+  await page.markdown.tap();
+
+  await expect(page.text).toHaveValue(expected);
+});
