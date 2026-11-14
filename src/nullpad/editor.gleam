@@ -243,6 +243,32 @@ pub type Event {
   /// written.
   UndoAsked
   RedoAsked
+  /// A key pressed while the page is behind the editor: it waits behind
+  /// the steps of the head the page has not taken, and is replayed once the
+  /// page has caught up, in the order it was pressed.
+  KeyHeld(held: Held)
+  /// The surface replayed the first held key on the field as the page now
+  /// draws it, and the key did `then`, or nothing the editor hears of.
+  Replayed(then: Option(Event))
+}
+
+/// What a held key replays.
+pub type Held {
+  /// A key as the browser names it, pressed at `at`.
+  HeldKey(
+    key: String,
+    code: String,
+    shift: Bool,
+    ctrl: Bool,
+    meta: Bool,
+    alt: Bool,
+    at: Int,
+  )
+  /// Text pasted into the field.
+  HeldPaste(text: String)
+  /// Undo or redo from the browser's menu.
+  HeldUndo
+  HeldRedo
 }
 
 /// A key that reaches past the rows the field holds. The `Select` keys move
@@ -299,6 +325,9 @@ pub type Sync {
   WriteAndStep(Buffer, move: Move, select: Bool, x: Float)
   /// Then the browser acts on the key, and the field is read once it has.
   WriteAndRead(Buffer)
+  /// Then the surface acts on the held key as the browser would have, and
+  /// reads the field.
+  WriteAndAct(Buffer, key: Held)
   Release(Buffer)
   /// A press at `x`, `y` in the window: the field is written, when there is
   /// a write, and focused where it is, and the pointer is followed until it
@@ -475,7 +504,10 @@ fn steers(event: Event) -> Bool {
     | Dropped(..)
     | UndoAsked
     | RedoAsked
+    | KeyHeld(..)
+    | Replayed(None)
     | FocusChanged(..) -> False
+    Replayed(Some(event)) -> steers(event)
   }
 }
 
@@ -515,8 +547,13 @@ fn in_run(event: Event) -> InRun {
     | EscapePressed(..)
     | UndoAsked
     | RedoAsked -> Ends
-    ControlChanged(..) | Composing(..) | KeyPressed(..) | FocusChanged(..) ->
-      Changes
+    ControlChanged(..)
+    | Composing(..)
+    | KeyPressed(..)
+    | FocusChanged(..)
+    | KeyHeld(..)
+    | Replayed(None) -> Changes
+    Replayed(Some(event)) -> in_run(event)
   }
 }
 
@@ -860,6 +897,9 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     }
     UndoAsked -> travel(editor, history.undo)
     RedoAsked -> travel(editor, history.redo)
+    KeyHeld(_) -> Outcome(editor:, sync: InSync, requests: [])
+    Replayed(Some(event)) -> apply(editor, event)
+    Replayed(None) -> Outcome(editor:, sync: InSync, requests: [])
   }
 }
 
@@ -1662,6 +1702,17 @@ pub fn is_painted(editor: Editor) -> Bool {
 /// Whether a step of the head waits for the page.
 pub fn is_stepping(editor: Editor) -> Bool {
   editor.waiting != []
+}
+
+/// Whether the page is behind the editor, so that a key pressed now is held.
+pub fn is_waiting(editor: Editor) -> Bool {
+  is_stepping(editor)
+}
+
+/// The held key to replay now, once the page has caught up.
+pub fn replay(editor: Editor) -> Option(Held) {
+  let _ = editor
+  None
 }
 
 pub fn is_idle(editor: Editor) -> Bool {

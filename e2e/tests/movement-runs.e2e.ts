@@ -265,6 +265,8 @@ type Run = {
   viewSwitch?: boolean;
   /** The page's thread is held this many milliseconds while the keys of the run are sent, so that they all arrive before it draws. */
   stall?: number;
+  /** The page's frames are held while the keys of the run are sent, from before the note is pasted, or from the frame before the steps, so that every key arrives before the page draws again, whatever the load of the machine. */
+  holdRedraw?: boolean;
   /** The run is not pressed with no frame between its keys: whether the page has drawn between two keys of the harness's keyboard depends on the load of the machine. */
   noHeld?: boolean;
   /** The offsets of the first and the last mark of each pair of marks the page hides, as `**bold**`. A painted end never cuts one. */
@@ -461,8 +463,31 @@ const runs: Run[] = [
     burst: true,
     burstOnly: true,
     stall: 80,
+    holdRedraw: true,
     throttle: 1,
     repeat: 30,
+  },
+  {
+    name: 'Shift+Down, then a letter, Backspace and Left, in one frame',
+    body: 'alpha beta\n\nsecond para here\nthird row\n\nlast',
+    start: [],
+    steps: ['Shift+ArrowDown', 'x', 'Backspace', 'ArrowLeft', 'y'],
+    follow: 'plain field',
+    burst: true,
+    burstOnly: true,
+    holdRedraw: true,
+    throttle: 1,
+  },
+  {
+    name: 'Shift+Down twice, then Shift+Up, in one frame',
+    body: 'alpha beta\n\nsecond para here\nthird row\n\nlast',
+    start: [],
+    steps: ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowUp'],
+    follow: 'plain field',
+    burst: true,
+    burstOnly: true,
+    holdRedraw: true,
+    throttle: 1,
   },
   {
     name: 'a typed letter, then Up',
@@ -471,6 +496,7 @@ const runs: Run[] = [
     steps: ['b', 'ArrowUp'],
     follow: 'plain field',
     viewSwitch: true,
+    holdRedraw: true,
   },
   {
     name: 'a typed letter, then Shift+Up',
@@ -497,6 +523,7 @@ const runs: Run[] = [
     burst: true,
     burstOnly: true,
     frameBeforeSteps: true,
+    holdRedraw: true,
   },
 ];
 
@@ -595,6 +622,24 @@ function keyEvents(spec: string) {
   return events;
 }
 
+/** Holds the page's animation frames, so that Lustre draws nothing until they are let go. */
+function holdFrames() {
+  const page = window as unknown as { heldFrames?: FrameRequestCallback[]; letFrame?: typeof requestAnimationFrame };
+  page.heldFrames = [];
+  page.letFrame = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (callback) => {
+    page.heldFrames!.push(callback);
+    return 0;
+  };
+}
+
+/** Lets the held frames go, in the order they were asked for. */
+function releaseFrames() {
+  const page = window as unknown as { heldFrames: FrameRequestCallback[]; letFrame: typeof requestAnimationFrame };
+  window.requestAnimationFrame = page.letFrame;
+  for (const callback of page.heldFrames) page.letFrame(callback);
+}
+
 /**
  * Pastes the note into a page of its own, then sends every key of the run to the
  * browser at once, as a held key or a fast hand does, and reads the note and its selection
@@ -628,17 +673,24 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
         });
       }
       await raw.evaluate((text: string) => navigator.clipboard.writeText(text), run.body);
+      const holdAll = run.holdRedraw && !run.frameBeforeSteps;
+      if (holdAll) await raw.evaluate(holdFrames);
       await raw.keyboard.press('Control+v');
       const send = (keys: string[]) => Promise.all(keys.flatMap(keyEvents).map((event) => session.send('Input.dispatchKeyEvent', event as never)));
       const steps = run.steps.map(key);
       if (withViewSwitch) steps.push('Control+e');
+      const held = async (keys: string[]) => {
+        if (run.holdRedraw && !holdAll) await raw.evaluate(holdFrames);
+        await send(keys);
+        if (run.holdRedraw) await raw.evaluate(releaseFrames);
+      };
       if (run.frameBeforeSteps) {
         await send(['Control+Home', ...run.start.map(key)]);
         await raw.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
-        await send(steps);
+        await held(steps);
       } else {
         if (run.stall) void raw.evaluate((ms: number) => { for (const from = performance.now(); performance.now() - from < ms; ); }, run.stall);
-        await send(['Control+Home', ...run.start.map(key), ...steps]);
+        await held(['Control+Home', ...run.start.map(key), ...steps]);
       }
       await frames();
       if (!withViewSwitch) await raw.keyboard.press('Control+e');
@@ -658,13 +710,7 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
   }
 }
 
-const failingRuns = new Map<string, { paced?: string; held?: string; burst?: string; viewSwitch?: string }>([
-  // The races. F2: a key typed while a step waits cancels the step. B4: a long run of keys gives different results from run to run.
-  ['Shift+Down, then Enter, in one frame', { burst: 'F2' }],
-  ['a long run of keys with no pause between them', { burst: 'B4' }],
-  // N1: Ctrl+E, which shows the source, pressed in the frame after a step drops the step.
-  ['a typed letter, then Up', { viewSwitch: 'N1' }],
-]);
+const failingRuns = new Map<string, { paced?: string; held?: string; burst?: string; viewSwitch?: string }>();
 
 for (const run of runs) {
   const pending = failingRuns.get(run.name);

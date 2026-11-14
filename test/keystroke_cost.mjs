@@ -197,6 +197,8 @@ console.log(`${KEYS} keys of each kind after ${WARMUP} warm-up keys, one update 
 // list sends all but the last before counting, to reach the state it measures.
 // A function in the list makes its event from the field as it is by then.
 const vim = await load("nullpad/nullpad/vim.mjs");
+const option = await load("gleam_stdlib/gleam/option.mjs");
+const heldX = new editor.HeldKey("x", "KeyX", false, false, false, false, 0);
 
 // `surface.view` measures a list marker's width when the caret is in a list.
 globalThis.getComputedStyle = () => ({ fontSize: "16px", getPropertyValue: () => "" });
@@ -329,6 +331,44 @@ const events = {
       new editor.ControlChanged(typed(field), 0),
       new editor.Pointed(row + 9, "", false),
       new editor.UndoAsked(),
+    ]],
+  ],
+  KeyHeld: [
+    ["behind a step", (field) => [asked(field), new editor.KeyHeld(heldX)]],
+    ["with nothing waiting", () => new editor.KeyHeld(heldX)],
+    ["an undo behind a step", (field) => [asked(field), new editor.KeyHeld(new editor.HeldUndo())]],
+  ],
+  Replayed: [
+    ["a typed character", (field, row) => [
+      asked(field),
+      new editor.KeyHeld(heldX),
+      new editor.Stepped(row + 9, "", false, "", 40),
+      (now) => new editor.Replayed(new option.Some(new editor.ControlChanged(typed(now), 0))),
+    ]],
+    ["a caret move", (field, row) => [
+      asked(field),
+      new editor.KeyHeld(heldX),
+      new editor.Stepped(row + 9, "", false, "", 40),
+      (now) => new editor.Replayed(new option.Some(new editor.ControlChanged(moved(now, 0), 0))),
+    ]],
+    ["a step", (field, row) => [
+      asked(field),
+      new editor.KeyHeld(heldX),
+      new editor.Stepped(row + 9, "", false, "", 40),
+      (now) => new editor.Replayed(new option.Some(new editor.EdgePressed(new editor.Line(false, true), 40, now))),
+    ]],
+    ["an undo", (field, row) => [
+      new editor.ControlChanged(typed(field), 0),
+      asked(field),
+      new editor.KeyHeld(new editor.HeldUndo()),
+      new editor.Stepped(row + 9, "", false, "", 40),
+      new editor.Replayed(new option.Some(new editor.UndoAsked())),
+    ]],
+    ["nothing", (field, row) => [
+      asked(field),
+      new editor.KeyHeld(heldX),
+      new editor.Stepped(row + 9, "", false, "", 40),
+      new editor.Replayed(new option.None()),
     ]],
   ],
   RedoAsked: [

@@ -581,6 +581,7 @@ pub fn sync(
         painted,
       ])
     }
+    editor.WriteAndAct(buffer, ..) -> effect.batch([write(buffer), painted])
     // The browser acts on the key after the handler that wrote the field.
     editor.WriteAndRead(buffer) ->
       effect.batch([
