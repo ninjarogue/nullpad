@@ -575,6 +575,7 @@ pub fn sync(
             },
             select,
             again,
+            editor,
           )
         case aimed {
           #(True, text, start, end, backward) -> {
@@ -1438,6 +1439,7 @@ fn aim_control(
   line: Int,
   select: Bool,
   again: Bool,
+  by: Editor,
 ) -> #(Bool, String, Int, Int, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "findControl")

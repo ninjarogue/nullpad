@@ -455,8 +455,8 @@ function atLineEnd(control, head, place) {
   return moved;
 }
 
-// The field as the last aim left it, so that aiming again can tell
-// whether a key has moved the caret since.
+// The field as the last aim left it, and who aimed it, so that aiming again
+// can tell whether a key, or a later aim, has moved the caret since.
 const aimed = new WeakMap();
 
 // `line` is 0 for the first drawn line of the head's row, 1 for its last, 2
@@ -465,8 +465,9 @@ const aimed = new WeakMap();
 // `x` is from the left of the page's text, as `headLine` measures it. With
 // `select` the anchor stays, and without it a caret moves. The answer starts
 // with whether the field was aimed: a key that moved the caret since the
-// field was written, or aimed, keeps its place and its own column.
-export function aimControl(id, liveClass, paintedClass, text, start, end, backward, x, line, select, again) {
+// field was written, or aimed, keeps its place and its own column. `by`
+// names the aim: only the last one made is made again.
+export function aimControl(id, liveClass, paintedClass, text, start, end, backward, x, line, select, again, by) {
   const control = document.getElementById(id);
   if (!control) return [false, "", 0, 0, false];
   const shown = () => [
@@ -478,13 +479,16 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
   if (again) {
     if (!control.closest("." + liveClass)) return [false, ...shown()];
     const last = aimed.get(control);
-    if (!last || last.join("\u0000") !== shown().join("\u0000")) return [false, ...shown()];
+    if (!last || last.by !== by || last.shown.join("\u0000") !== shown().join("\u0000")) {
+      return [false, ...shown()];
+    }
   } else {
+    aimed.delete(control);
     const written =
       control.value === text && control.selectionStart === start && control.selectionEnd === end;
     if (!written) return [false, ...shown()];
   }
-  if (aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select)) aimed.set(control, shown());
+  if (aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select)) aimed.set(control, { by, shown: shown() });
   return [true, ...shown()];
 }
 
