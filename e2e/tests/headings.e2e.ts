@@ -113,7 +113,21 @@ for (const { what, prefix, hangs } of containers) {
   }
 }
 
-for (const block of ['#', '# ', '###### ', '- #', '1. ## ', '> #', '> - #']) {
+for (const block of [
+  '#',
+  '# ',
+  '###### ',
+  '- #',
+  '1. ## ',
+  '> #',
+  '> - #',
+  '- > #',
+  '- > ## ',
+  '- > ###### ',
+  '- > # #',
+  '> - > #',
+  '1. > ### ',
+]) {
   test(`a heading with no text, ${JSON.stringify(block)}, is one line of body text in the field and drawn, and leaving it moves nothing`, async ({
     app,
     browser,
@@ -141,8 +155,14 @@ for (const block of [
   '> - b',
   '> 1. b',
   '- > b',
+  '> a\n>\n> b',
+  '> > b\n>\n> c',
+  '> - a\n>\n> b',
+  '> a\n>\n> > b\n>\n> c',
+  '> a\n> > b',
+  '> a\n> - b',
 ]) {
-  test(`arriving at and leaving a list item of several rows, or one in a quote, ${JSON.stringify(block)}, moves nothing`, async ({
+  test(`arriving at and leaving a list item or a quote of several rows, or an item in a quote, ${JSON.stringify(block)}, moves nothing`, async ({
     app,
     browser,
     disk,
@@ -157,6 +177,48 @@ for (const block of [
         below: drawn.below,
         b: drawn.word!.top,
       });
+    }
+  });
+}
+
+for (const block of ['# []()', '## [](x)', '- ### []()', '> # []()', '- > ## []()']) {
+  test(`a heading whose text draws nothing, ${JSON.stringify(block)}, keeps the height it has in the field when drawn, and leaving it moves nothing`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await open({ app, disk, page }, block);
+    for (const setting of settings) {
+      await set(browser, setting);
+      const { field, drawn } = await arriveAndLeave(page, browser, block, null, '#');
+      expect({ setting, below: field.below }).toEqual({ setting, below: drawn.below });
+    }
+  });
+}
+
+for (const [block, words] of [
+  ['- one\n  - two\n  - six', ['one', 'two', 'six']],
+  ['1. one\n   1. two\n   2. six', ['one', 'two', 'six']],
+  ['- one\n  > two\n  > six', ['one', 'two', 'six']],
+  ['> - one\n> - two\n>   - six', ['one', 'two', 'six']],
+  ['> one\n> > two\n> > six', ['one', 'two', 'six']],
+] as const) {
+  test(`the rows of nested items and quotes, ${JSON.stringify(block)}, are drawn one line of body text apart, as the field sets them`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await open({ app, disk, page }, block);
+    for (const setting of settings) {
+      await set(browser, setting);
+      await page.nextFrame();
+      const line = 1.7 * parseFloat(setting.root);
+      const tops: number[] = [];
+      for (const word of words) tops.push((await at(page, word)).top);
+      const gaps = tops.slice(1).map((top, index) => Math.round((top - tops[index] - line) * 10) / 10 + 0);
+      expect({ setting, gaps }).toEqual({ setting, gaps: gaps.map(() => 0) });
     }
   });
 }
