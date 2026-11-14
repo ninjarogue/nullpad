@@ -38,7 +38,13 @@ import nullpad/vim
 const delete_id = "nullpad-delete-note"
 
 pub type Flags {
-  Flags(storage: Storage, vim: Bool, can_vim: Bool, markdown: Bool)
+  Flags(
+    storage: Storage,
+    vim: Bool,
+    can_vim: Bool,
+    markdown: Bool,
+    can_paint: Bool,
+  )
 }
 
 pub type Model {
@@ -74,13 +80,13 @@ pub type Msg {
 }
 
 pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
-  let Flags(storage:, vim:, can_vim:, markdown:) = flags
+  let Flags(storage:, vim:, can_vim:, markdown:, can_paint:) = flags
   let #(started, listing) = library.start()
   let model =
     Model(
       storage:,
       library: started,
-      editor: editor.new(vim: vim && can_vim, live: !markdown),
+      editor: editor.new(vim: vim && can_vim, live: !markdown, paint: can_paint),
       showing: case markdown {
         True -> Markdown
         False -> Page
@@ -149,7 +155,10 @@ fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
     let #(model, effect) = perform(model, request)
     #(model, [effect, ..effects])
   }
-  #(model, effect.batch([surface.sync(sync, EditorSent), autosave, ..asked]))
+  #(
+    model,
+    effect.batch([surface.sync(editor, sync, EditorSent), autosave, ..asked]),
+  )
 }
 
 fn perform(model: Model, request: vim.Request) -> #(Model, Effect(Msg)) {
@@ -218,7 +227,7 @@ fn run(model: Model, command: library.Command) -> #(Model, Effect(Msg)) {
     library.After(ms:, event:) -> #(model, platform.after(ms, ToLibrary(event)))
     library.OpenInEditor(text) -> {
       let Outcome(editor:, sync:, ..) = editor.open(model.editor, text)
-      #(Model(..model, editor:), surface.sync(sync, EditorSent))
+      #(Model(..model, editor:), surface.sync(editor, sync, EditorSent))
     }
   }
 }
@@ -274,12 +283,19 @@ fn page(model: Model) -> Element(Msg) {
           on_task: UserTickedTask,
         )
       }
-      let #(above, below) = case editor.is_idle(model.editor) {
-        True -> #(
+      let #(above, below) = case
+        editor.is_idle(model.editor),
+        editor.is_painted(model.editor)
+      {
+        True, _ -> #(
           part(row_count, 0, "preview"),
           part(0, row_count, "live-below"),
         )
-        False -> {
+        False, True -> #(
+          part(row_count, 0, "live-above"),
+          part(0, row_count, "live-below"),
+        )
+        False, False -> {
           let after = region.last_row + 1
           #(
             part(region.first_row, 0, "live-above"),

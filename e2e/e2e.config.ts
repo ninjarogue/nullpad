@@ -7,6 +7,7 @@ export default {
       engine: web({ testIdAttribute: 'data-test-id' }),
       app: {
         url: 'http://127.0.0.1:0',
+        permissions: { 'clipboard-read': 'grant', 'clipboard-write': 'grant' },
         command: {
           executable: 'node',
           args: ['serve.mjs', '{port}'],

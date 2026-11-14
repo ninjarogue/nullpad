@@ -2,7 +2,7 @@
 
 import gleam/int
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
@@ -146,9 +146,12 @@ fn marker(lines: List(String), item: Item) -> String {
 /// source row of the element that was hit, and `visible` is the drawn text
 /// from the start of that element to the click. Each "\n" in it is one
 /// source row further down. `at_end` asks for the end of that row. `next`
-/// is the drawn character after the click, or "" when there is none: the
-/// marks the page hides before it go with it when they hold the `|` that
-/// starts its table cell.
+/// is the drawn character after the click, "\n" at the end of its row, or
+/// "" when the browser named none, as beside the text in the gutter where a
+/// list item's marker is drawn: the marks the page hides there go with the
+/// characters around them as for `nudge`, and with none they stay after the
+/// click. The marks before it that hold the `|` starting its table cell go
+/// with it too.
 pub fn position(
   lines: List(String),
   row row: Int,
@@ -165,7 +168,18 @@ pub fn position(
     Ok(line), False -> {
       let drawn = list.last(drawn_rows) |> result.unwrap("")
       let col = column(line, after: drawn)
-      Position(row:, col: col + cell_start(string.drop_start(line, col), next))
+      let before = string.last(drawn) |> option.from_result
+      let rest = string.to_graphemes(line) |> list.drop(col)
+      let col = case next {
+        "" -> col
+        "\n" -> col + list.length(rest)
+        _ ->
+          case closes(before, next) {
+            True -> skip_to(rest, next, col)
+            False -> col + cell_start(string.drop_start(line, col), next)
+          }
+      }
+      Position(row:, col:)
     }
   }
 }
@@ -196,6 +210,205 @@ fn match(line: List(String), visible: List(String), col: Int) -> Int {
     [_, ..line], _ -> match(line, visible, col + 1)
   }
 }
+
+/// The inverse of `position`: the drawn text from the start of the element
+/// whose first row is `row`, and whose drawn text is `visible`, to where `at`
+/// is drawn. A row past the element's drawn rows is drawn at its end.
+pub fn drawn(
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
+) -> String {
+  let drawn_rows = string.split(visible, "\n")
+  let index = at.row - row
+  case list.drop(drawn_rows, index), index < 0 {
+    _, True -> ""
+    [], False -> visible
+    [here, ..], False -> {
+      let line = lines |> list.drop(at.row) |> list.first |> result.unwrap("")
+      let typed = string.to_graphemes(line)
+      let before =
+        unmatch(typed, string.to_graphemes(here), at.col, [])
+        |> list.reverse
+        |> string.concat
+      string.join(list.append(list.take(drawn_rows, index), [before]), "\n")
+    }
+  }
+}
+
+/// Whether the page hides the character before `at`, which is then drawn at
+/// the start of the drawn text after it, such as the start of a table cell,
+/// rather than the end of the text before it. `row` and `visible` are as
+/// for `drawn`.
+pub fn follows_hidden(
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
+) -> Bool {
+  let line = lines |> list.drop(at.row) |> list.first
+  let here = case at.row >= row && at.col > 0 {
+    True -> string.split(visible, "\n") |> list.drop(at.row - row) |> list.first
+    False -> Error(Nil)
+  }
+  case line, here {
+    Ok(line), Ok(here) ->
+      shown(string.to_graphemes(line), string.to_graphemes(here), [])
+      |> list.drop(at.col - 1)
+      |> list.first
+      == Ok(False)
+    _, _ -> False
+  }
+}
+
+/// Where `at` lands when it is among or beside marks the page hides between
+/// two drawn characters, which all draw at one place: the place among them
+/// nearest `at` where the line, cut there and at `other` when it is on the
+/// same row, draws what it draws whole. A selection between the two then
+/// holds both marks of a pair or neither, as the parser pairs them. With no
+/// such place, `at` stays. `row` and `visible` are as for `drawn`.
+pub fn settle(
+  lines: List(String),
+  row row: Int,
+  visible visible: String,
+  at at: Position,
+  other other: Position,
+) -> Position {
+  let line = lines |> list.drop(at.row) |> list.first
+  let here = case at.row >= row {
+    True -> string.split(visible, "\n") |> list.drop(at.row - row) |> list.first
+    False -> Error(Nil)
+  }
+  case line, here {
+    Ok(line), Ok(here) -> {
+      let typed = string.to_graphemes(line)
+      let #(before, after) =
+        shown(typed, string.to_graphemes(here), []) |> list.split(at.col)
+      let start = at.col - hidden_run(list.reverse(before), 0)
+      let end = at.col + hidden_run(after, 0)
+      let whole = markdown.inline_text(line)
+      let cuts = case other.row == at.row {
+        True -> [other.col]
+        False -> []
+      }
+      let whole_at = fn(col) {
+        cut(typed, list.sort([col, ..cuts], int.compare), 0, [])
+        |> list.map(markdown.inline_text)
+        |> string.concat
+        == whole
+      }
+      case start < end {
+        True -> Position(..at, col: nearest(at.col, 0, start, end, whole_at))
+        False -> at
+      }
+    }
+    _, _ -> at
+  }
+}
+
+/// The pieces of `typed` between the columns `at`, in order.
+fn cut(
+  typed: List(String),
+  at: List(Int),
+  col: Int,
+  pieces: List(String),
+) -> List(String) {
+  case at {
+    [] -> list.reverse([string.concat(typed), ..pieces])
+    [next, ..rest] -> {
+      let #(piece, typed) = list.split(typed, int.max(next - col, 0))
+      cut(typed, rest, int.max(next, col), [string.concat(piece), ..pieces])
+    }
+  }
+}
+
+/// The column from `start` to `end` nearest `from` that is `fine`, the one
+/// before it first, or `from` when none is.
+fn nearest(
+  from: Int,
+  away: Int,
+  start: Int,
+  end: Int,
+  fine: fn(Int) -> Bool,
+) -> Int {
+  let before = from - away
+  let after = from + away
+  case before < start && after > end {
+    True -> from
+    False ->
+      case before >= start && fine(before), after <= end && fine(after) {
+        True, _ -> before
+        False, True -> after
+        False, False -> nearest(from, away + 1, start, end, fine)
+      }
+  }
+}
+
+/// Whether each character of `line` is drawn, matched as `drawn` matches.
+fn shown(
+  line: List(String),
+  visible: List(String),
+  taken: List(Bool),
+) -> List(Bool) {
+  case line, visible {
+    [], _ -> list.reverse(taken)
+    [typed, ..line], [drawn, ..rest] if typed == drawn ->
+      shown(line, rest, [True, ..taken])
+    [_, ..line], _ -> shown(line, visible, [False, ..taken])
+  }
+}
+
+fn hidden_run(shown: List(Bool), count: Int) -> Int {
+  case shown {
+    [False, ..shown] -> hidden_run(shown, count + 1)
+    _ -> count
+  }
+}
+
+fn unmatch(
+  line: List(String),
+  visible: List(String),
+  left: Int,
+  taken: List(String),
+) -> List(String) {
+  case line, visible {
+    _, _ if left <= 0 -> taken
+    _, [] | [], _ -> taken
+    [typed, ..line], [drawn, ..visible] if typed == drawn ->
+      unmatch(line, visible, left - 1, [drawn, ..taken])
+    [_, ..line], _ -> unmatch(line, visible, left - 1, taken)
+  }
+}
+
+/// The column of the next `drawn` in `typed`, or `col` when there is none.
+fn skip_to(typed: List(String), drawn: String, col: Int) -> Int {
+  skip(typed, drawn, col, col)
+}
+
+fn skip(typed: List(String), drawn: String, col: Int, from: Int) -> Int {
+  case typed {
+    [one, ..] if one == drawn -> col
+    [_, ..typed] -> skip(typed, drawn, col + 1, from)
+    [] -> from
+  }
+}
+
+/// Whether the marks between two drawn characters close what the first is
+/// in, judged the way CommonMark tells a closing run from an opening one: a
+/// run before a space or a punctuation mark closes, a run after a space
+/// opens. At the start of a row the marks before the first character go
+/// with it.
+fn closes(before: Option(String), after: String) -> Bool {
+  case before {
+    _ if after == " " || after == "\t" -> True
+    None -> True
+    Some(" ") | Some("\t") -> False
+    Some(_) -> string.contains(punctuation, after)
+  }
+}
+
+const punctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 /// The blocks as drawn, after the rows `from` became the rows `to`, which
 /// start at the same row: the rows below move with them, and the rows that

@@ -625,7 +625,7 @@ fn apply(edited: editor.Editor, edit: Typing) -> editor.Editor {
   let event = case edit {
     JoinUp -> editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:)
     JoinDown -> editor.EdgePressed(editor.JoinAfter, x: 0.0, shown:)
-    Type(_) | Enter | Backspace -> editor.ControlChanged(shown:)
+    Type(_) | Enter | Backspace -> editor.ControlChanged(shown:, at: 0)
   }
   editor.update(edited, event).editor
 }
@@ -635,7 +635,7 @@ fn apply(edited: editor.Editor, edit: Typing) -> editor.Editor {
 fn check_typed(case_: Typed) -> Result(Nil, String) {
   let text = text_of(case_.whole.rows, case_.whole.final_newline)
   let opened =
-    editor.new(vim: False, live: True)
+    editor.new(vim: False, live: True, paint: True)
     |> editor.open(text)
     |> fn(o) { o.editor }
   let count = editor.row_count(opened)

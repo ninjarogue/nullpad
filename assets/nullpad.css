@@ -409,6 +409,57 @@ button[aria-pressed="true"] {
   overflow: hidden;
 }
 
+/* A selection across blocks is painted over the drawn page. The field keeps
+   the focus and the selected rows out of sight, one line tall: a field with
+   no height copies only line breaks and loses what an IME composes. */
+.page.live > .editor.part.painted {
+  height: 1.7rem;
+  left: 0;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  top: 50vh;
+  width: min(46rem, 100vw);
+}
+
+::highlight(nullpad-selection) {
+  background-color: Highlight;
+  color: HighlightText;
+}
+
+.page.live .blank.selected::before {
+  background: Highlight;
+  content: "";
+  display: block;
+  height: 100%;
+  width: 0.5em;
+}
+
+/* The bar takes no room: after a code block's last line break it would start
+   a line, and in a table row it would be a cell. */
+.page.live .break-selected {
+  position: relative;
+}
+
+.page.live .break-selected:not(tr)::after,
+.page.live tr.break-selected > :last-child::after {
+  background: Highlight;
+  content: "";
+  display: inline-block;
+  height: 1em;
+  margin-top: calc((1lh - 1em) / 2);
+  position: absolute;
+  width: 0.5em;
+}
+
+/* An element with rows drawn inside it is told where its own text ends. */
+.page.live .break-selected:not(tr)::after {
+  left: var(--break-left, auto);
+  top: var(--break-top, auto);
+}
+
 .editor.part.mono > * {
   font: 0.875rem/1.5 var(--text-font);
   font-variant-ligatures: none;

@@ -37,6 +37,11 @@ pub fn copy(text: String) -> Effect(msg) {
 @external(javascript, "./platform.ffi.mjs", "hasHardwareKeyboard")
 pub fn has_hardware_keyboard() -> Bool
 
+/// Can the page paint a selection over its text? True when the browser has
+/// the CSS Custom Highlight API.
+@external(javascript, "./platform.ffi.mjs", "canPaint")
+pub fn can_paint() -> Bool
+
 /// The remembered vim switch. False if it was never set: vim is off by
 /// default.
 @external(javascript, "./platform.ffi.mjs", "readVimSetting")

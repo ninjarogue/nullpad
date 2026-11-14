@@ -76,7 +76,7 @@ node .claude/skills/verify-nullpad/drive.mjs journey.mjs trip
 
 `page` is a Playwright page already on the app. `type(text)` types key by key. `look(ms)` pauses so the video can be followed. `shot(label)` saves a screenshot of the window only, so scroll the subject into view first (`locator.scrollIntoViewIfNeeded()`). `check(label, run)` records pass or fail and keeps going. The exit code is 0 only when every check passed and the page logged no error.
 
-Keep journeys in a scratch folder, not in the repo. Ready ones are in `journeys/`: `rendered-page.mjs`, `blocks.mjs`, `tasks.mjs`, `tables.mjs` and `live-view.mjs`. Set `VERIFY_OUT` to a folder to put the evidence there instead of `.verify/`.
+Keep journeys in a scratch folder, not in the repo. Ready ones are in `journeys/`: `rendered-page.mjs`, `blocks.mjs`, `tasks.mjs`, `tables.mjs`, `live-view.mjs` and `undo.mjs`. Set `VERIFY_OUT` to a folder to put the evidence there instead of `.verify/`.
 
 Handles that do not change:
 

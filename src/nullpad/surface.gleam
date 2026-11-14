@@ -25,21 +25,30 @@ const control_id = "nullpad-control"
 
 const live_class = "live"
 
+const painted_class = "painted"
+
 /// WARNING: never swap this for `html.textarea(attrs, text)`. In Lustre 5.7.1
 /// that helper adds a `value` property, which Lustre re-assigns on the next
 /// frame after any event from the element. With "" it wipes what was typed.
 /// With the model's text it is a second writer beside `sync`.
 pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let changed = {
+    use at <- decode.then(time_decoder())
     use shown <- decode.map(shown_decoder())
-    on_event(editor.ControlChanged(shown:))
+    on_event(editor.ControlChanged(shown:, at:))
   }
+  // Chromium sends no `beforeinput` for an undo from a menu: it undoes the
+  // field itself, and the editor writes its own undo over that.
   let typed = {
+    use kind <- decode.optional_field("inputType", "", decode.string)
     use composing <- decode.optional_field("isComposing", False, decode.bool)
+    use at <- decode.then(time_decoder())
     use shown <- decode.map(shown_decoder())
-    case composing {
-      True -> on_event(editor.Composing(shown:))
-      False -> on_event(editor.ControlChanged(shown:))
+    case kind, composing {
+      "historyUndo", _ -> on_event(editor.UndoAsked)
+      "historyRedo", _ -> on_event(editor.RedoAsked)
+      _, True -> on_event(editor.Composing(shown:))
+      _, False -> on_event(editor.ControlChanged(shown:, at:))
     }
   }
   // The browser moves the caret for these keys and says nothing, so the
@@ -65,7 +74,8 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
   let kind = editor.kind(editor)
-  let first_row = case editor.region(editor), editor.is_idle(editor) {
+  let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
+  let first_row = case editor.region(editor), drawn_whole {
     Some(live.Region(first_row:, ..)), False ->
       attribute.data(live.row_mark, int.to_string(first_row))
     Some(_), True | None, _ -> attribute.none()
@@ -99,9 +109,11 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         // the page's active element, and the browser gives it the focus
         // back: the editor does not hear of it.
         event.on("blur", leave_decoder(on_event)),
+        event.advanced("beforeinput", history_decoder(on_event)),
         event.advanced(
           "keydown",
           decode.one_of(key_decoder(editor, on_event), [
+            undo_key_decoder(on_event),
             edge_decoder(on_event),
             escape_decoder(on_event),
           ]),
@@ -121,20 +133,17 @@ fn released_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use release <- decode.then(decode.dynamic)
+  use at <- decode.then(time_decoder())
   use shown <- decode.map(shown_decoder())
   case released_on_selection(release) {
     -1 ->
-      on_event(editor.ControlChanged(shown:))
+      on_event(editor.ControlChanged(shown:, at:))
       |> event.handler(prevent_default: False, stop_propagation: False)
     offset ->
-      on_event(
-        editor.ControlChanged(shown: from_control(
-          buffer.text(shown),
-          offset,
-          offset,
-          False,
-        )),
-      )
+      on_event(editor.ControlChanged(
+        shown: from_control(buffer.text(shown), offset, offset, False),
+        at:,
+      ))
       |> event.handler(prevent_default: True, stop_propagation: False)
   }
 }
@@ -165,10 +174,16 @@ fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
 }
 
 fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
-  case kind, editor.frame(editor), editor.is_idle(editor) {
-    None, _, _ | _, None, _ -> "editor"
-    Some(_), Some(_), True -> "editor part idle"
-    Some(kind), Some(frame), False ->
+  case
+    kind,
+    editor.frame(editor),
+    editor.is_idle(editor),
+    editor.is_painted(editor)
+  {
+    None, _, _, _ | _, None, _, _ -> "editor"
+    Some(_), Some(_), True, _ -> "editor part idle"
+    Some(_), Some(_), False, True -> "editor part " <> painted_class
+    Some(kind), Some(frame), False, False ->
       case rows_of(frame) == rows_of(kind) {
         True -> set_as(kind)
         False -> set_as(kind) <> " framed framed-" <> rows_of(frame)
@@ -328,16 +343,23 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
       |> decode.success
     }
     case locate(press, live.row_mark), shift, shown {
-      #(row, visible, at_end, next, True), False, _ if row >= 0 ->
+      #(row, visible, at_end, next, True, _), False, _ if row >= 0 ->
         taken(editor.Grabbed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, False), False, _
+      #(row, visible, at_end, next, False, _), False, _
         if row >= 0 && clicks == 2
       -> taken(editor.WordPointed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, False), False, _ if row >= 0 && clicks > 2 ->
-        taken(editor.LinePointed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, False), False, _ if row >= 0 ->
+      #(row, visible, at_end, next, False, _), False, _
+        if row >= 0 && clicks > 2
+      -> taken(editor.LinePointed(row:, visible:, at_end:, next:, x:, y:))
+      #(row, visible, at_end, next, False, True), False, _
+        if row >= 0 && clicks == 1 && button == 0
+      ->
+        on_event(editor.SelectionPointed(row:, visible:, at_end:, next:, x:, y:))
+        |> event.handler(prevent_default: False, stop_propagation: False)
+        |> decode.success
+      #(row, visible, at_end, next, False, _), False, _ if row >= 0 ->
         taken(editor.Pointed(row:, visible:, at_end:, next:, x:, y:))
-      #(row, visible, at_end, next, _), True, Ok(shown) if row >= 0 ->
+      #(row, visible, at_end, next, _, _), True, Ok(shown) if row >= 0 ->
         taken(editor.ShiftPointed(
           row:,
           visible:,
@@ -362,18 +384,129 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   })
 }
 
+/// Brings the field and the page to what `editor` says, and paints its
+/// selection when it is painted.
 pub fn sync(
+  editor: Editor,
   sync: editor.Sync,
   on_event: fn(editor.Event) -> msg,
 ) -> Effect(msg) {
-  let write = fn(buffer) {
+  // Lustre runs a batch's effects backwards or forwards by how deep the
+  // batch is nested, so effects whose order matters run as one.
+  let write_now = fn(buffer) {
     let #(text, start, end, backward) = to_control(buffer)
-    effect.from(fn(_) { write_control(control_id, text, start, end, backward) })
+    write_control(control_id, text, start, end, backward)
   }
+  let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
+  let undrawn = effect.from(fn(_) { set_drawn(False) })
+  let settled = fn(dispatch) {
+    fn(from, to) { dispatch(on_event(editor.Settled(from:, to:))) }
+  }
+  let painted =
+    effect.batch([
+      undrawn,
+      effect.before_paint(fn(dispatch, _) {
+        paint(editor, settled(dispatch))
+        set_drawn(True)
+      }),
+    ])
   case sync {
-    editor.InSync -> effect.none()
-    editor.Write(buffer) -> effect.batch([write(buffer), focus()])
-    editor.WriteQuietly(buffer) -> write(buffer)
+    editor.InSync -> painted
+    // Painted before the page is scrolled to the head, which may be painted.
+    editor.Write(buffer) ->
+      effect.batch([
+        undrawn,
+        effect.from(fn(_) {
+          write_now(buffer)
+          focus_in_place(control_id)
+          ask_focus()
+        }),
+        effect.before_paint(fn(dispatch, _) {
+          paint(editor, settled(dispatch))
+          set_drawn(True)
+          focus_later(fn() {
+            focus_control(control_id, live_class, painted_class)
+          })
+        }),
+      ])
+    editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
+    // Stepped at once, from where the page draws the head, so that a key
+    // pressed before the next paint replaces what the step selected. A page
+    // that has not drawn the rows the field left is stepped on once drawn.
+    editor.WriteAndStep(buffer, move:, x:) -> {
+      let step_now = fn(dispatch) {
+        let #(granularity, forward) = case move {
+          editor.LineUp -> #("line", False)
+          editor.LineDown -> #("line", True)
+          editor.LineStart -> #("lineboundary", False)
+          editor.LineEnd -> #("lineboundary", True)
+          editor.LetterBack -> #("character", False)
+          editor.LetterOn -> #("character", True)
+        }
+        let head = buffer.cursor(editor.buffer(editor))
+        let lines = buffer.lines(editor.buffer(editor))
+        let #(row, visible) =
+          holder_text(control_id, live_class, live.row_mark, head.row)
+        let offset = utf16_length(live.drawn(lines, row:, visible:, at: head))
+        let onward = live.follows_hidden(lines, row:, visible:, at: head)
+        let place =
+          step_head(
+            control_id,
+            live_class,
+            live.row_mark,
+            head.row,
+            offset,
+            onward,
+            granularity,
+            forward,
+            x,
+          )
+        case place {
+          #(-3, _, _, _, _) -> False
+          #(-2, _, _, _, _) -> {
+            dispatch(on_event(editor.SteppedPast))
+            True
+          }
+          #(-4, _, _, _, _) -> {
+            case decode.run(find_control(control_id), control_decoder()) {
+              Ok(shown) ->
+                dispatch(on_event(editor.ControlChanged(shown:, at: 0)))
+              Error(_) -> Nil
+            }
+            dispatch(on_event(editor.Unstepped(x:)))
+            True
+          }
+          #(row, visible, at_end, next, x) if row >= 0 -> {
+            dispatch(
+              on_event(editor.Stepped(row:, visible:, at_end:, next:, x:)),
+            )
+            True
+          }
+          _ -> {
+            dispatch(on_event(editor.Unstepped(x:)))
+            True
+          }
+        }
+      }
+      effect.batch([
+        effect.from(fn(dispatch) {
+          write_now(buffer)
+          hold_step(!step_now(dispatch))
+          set_drawn(False)
+        }),
+        effect.before_paint(fn(dispatch, _) {
+          paint(editor, settled(dispatch))
+          set_drawn(True)
+          case take_held_step() {
+            True -> {
+              step_now(dispatch)
+              Nil
+            }
+            False -> Nil
+          }
+        }),
+      ])
+    }
     // Aimed at once, with the field set as it is, so that a key pressed
     // before the next paint lands where the arrow went, and again before
     // that paint, once the field is set for the rows it holds, unless a key
@@ -393,21 +526,25 @@ pub fn sync(
             again,
           )
         dispatch(
-          on_event(
-            editor.ControlChanged(from_control(text, start, end, backward)),
-          ),
+          on_event(editor.ControlChanged(
+            from_control(text, start, end, backward),
+            at: 0,
+          )),
         )
       }
       effect.batch([
-        write(buffer),
         effect.from(fn(dispatch) {
+          write_now(buffer)
           ask_focus()
           aim(dispatch, False)
         }),
         effect.before_paint(fn(dispatch, _) {
           aim(dispatch, True)
-          focus_later(fn() { focus_control(control_id, live_class) })
+          focus_later(fn() {
+            focus_control(control_id, live_class, painted_class)
+          })
         }),
+        painted,
       ])
     }
     // Blurred at once, because a key pressed before the next paint would
@@ -415,26 +552,28 @@ pub fn sync(
     // focus an earlier key asked for.
     editor.Release(buffer) ->
       effect.batch([
-        write(buffer),
-        effect.from(fn(_) { blur_control(control_id) }),
+        effect.from(fn(_) {
+          write_now(buffer)
+          blur_control(control_id)
+        }),
         effect.before_paint(fn(_, _) { blur_control(control_id) }),
+        painted,
       ])
     editor.Press(write: written, x:, y:) -> {
       let placed = case written {
-        Some(buffer) -> {
-          let #(text, start, end, backward) = to_control(buffer)
+        Some(buffer) ->
           effect.batch([
             effect.from(fn(_) {
+              write_now(buffer)
+              focus_in_place(control_id)
               ask_focus()
-              write_control(control_id, text, start, end, backward)
-              place_caret(control_id, x, y)
+              place_caret(control_id, painted_class, x, y)
               hold_page(control_id, live_class)
             }),
             effect.before_paint(fn(_, _) {
               focus_later(fn() { focus_in_place(control_id) })
             }),
           ])
-        }
         None -> effect.none()
       }
       let followed =
@@ -452,7 +591,78 @@ pub fn sync(
             fn() { dispatch(on_event(editor.Released)) },
           )
         })
-      effect.batch([placed, followed])
+      effect.batch([placed, followed, painted])
+    }
+    editor.HoldSelection(x:, y:) ->
+      effect.batch([
+        effect.from(fn(dispatch) {
+          hold_selection(
+            control_id,
+            x,
+            y,
+            fn() { dispatch(on_event(editor.DragStarted)) },
+            fn() { dispatch(on_event(editor.Released)) },
+          )
+        }),
+        painted,
+      ])
+  }
+}
+
+/// The selection is painted from where each of its ends is drawn, and the
+/// line break of each row from its start to the row before its end is
+/// painted too, where it ends a drawn element.
+fn paint(
+  editor: Editor,
+  settled: fn(#(Position, Position), #(Position, Position)) -> Nil,
+) -> Nil {
+  case editor.is_painted(editor) {
+    False -> clear_paint()
+    True -> {
+      let buffer = editor.buffer(editor)
+      let lines = buffer.lines(buffer)
+      let #(anchor, head) = buffer.selection(buffer)
+      let holder = fn(at: Position) {
+        holder_text(control_id, live_class, live.row_mark, at.row)
+      }
+      let settle = fn(at: Position, other: Position) {
+        let #(row, visible) = holder(at)
+        live.settle(lines, row:, visible:, at:, other:)
+      }
+      let place = fn(at: Position) {
+        let #(row, visible) = holder(at)
+        #(
+          row,
+          utf16_length(live.drawn(lines, row:, visible:, at:)),
+          live.follows_hidden(lines, row:, visible:, at:),
+        )
+      }
+      let #(start, end) = case
+        anchor.row < head.row || anchor.row == head.row && anchor.col < head.col
+      {
+        True -> #(anchor, head)
+        False -> #(head, anchor)
+      }
+      let #(anchor_row, anchor_offset, anchor_onward) = place(anchor)
+      let #(head_row, head_offset, head_onward) = place(head)
+      paint_selection(
+        control_id,
+        live_class,
+        live.row_mark,
+        anchor_row,
+        anchor_offset,
+        anchor_onward,
+        head_row,
+        head_offset,
+        head_onward,
+        start.row,
+        end.row - 1,
+      )
+      let to = #(settle(anchor, head), settle(head, anchor))
+      case to == #(anchor, head) {
+        True -> Nil
+        False -> settled(#(anchor, head), to)
+      }
     }
   }
 }
@@ -462,12 +672,18 @@ pub fn sync(
 const drag_distance = 4.0
 
 pub fn focus() -> Effect(msg) {
-  // A pane that was hidden cannot take focus until the next render puts it
-  // back on screen.
+  // At once, because a key pressed before the next paint goes where the
+  // focus is, and the field is where the editor's keys are read. Again
+  // before that paint, because a pane that was hidden cannot take focus
+  // until the next render puts it back on screen, and the field is only
+  // scrolled to once it is drawn where it belongs.
   effect.batch([
-    effect.from(fn(_) { ask_focus() }),
+    effect.from(fn(_) {
+      focus_in_place(control_id)
+      ask_focus()
+    }),
     effect.before_paint(fn(_, _) {
-      focus_later(fn() { focus_control(control_id, live_class) })
+      focus_later(fn() { focus_control(control_id, live_class, painted_class) })
     }),
   ])
 }
@@ -523,6 +739,17 @@ fn offset(lines: List(String), position: Position) -> Int {
   rows_above + utf16_length(in_row)
 }
 
+/// When the browser made the event, in milliseconds. The editor never reads
+/// a clock: the time arrives with the event.
+fn time_decoder() -> Decoder(Int) {
+  decode.one_of(decode.field("timeStamp", decode.int, decode.success), [
+    decode.field("timeStamp", decode.float, fn(ms) {
+      decode.success(float.truncate(ms))
+    }),
+    decode.success(0),
+  ])
+}
+
 fn shown_decoder() -> Decoder(Buffer) {
   decode.at(["target"], control_decoder())
 }
@@ -553,7 +780,7 @@ fn key_decoder(
     }
     _, _ -> {
       // `decode.failure` wants a placeholder value. It is never used.
-      let unused = on_event(editor.ControlChanged(buffer.from_text("")))
+      let unused = on_event(editor.ControlChanged(buffer.from_text(""), at: 0))
       event.handler(unused, prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key the editor claims")
     }
@@ -580,13 +807,18 @@ fn edge_decoder(
   let shifted = alone && shift && !{ ctrl || meta }
   let command = alone && { ctrl || meta }
   let select_all = is_key(name, code, "a")
+  let painted = shifted && is_painted(control_id, painted_class)
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
     "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
-    "ArrowUp" if shifted && head.row == 0 -> Ok(editor.SelectUp)
-    "ArrowDown" if shifted && head.row == end.row -> Ok(editor.SelectDown)
+    "ArrowUp" if shifted -> Ok(editor.SelectUp)
+    "ArrowDown" if shifted -> Ok(editor.SelectDown)
+    "ArrowLeft" if painted -> Ok(editor.SelectLeft)
+    "ArrowRight" if painted -> Ok(editor.SelectRight)
+    "Home" if painted -> Ok(editor.SelectLineStart)
+    "End" if painted -> Ok(editor.SelectLineEnd)
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
     "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
     _ if command && !shift && select_all -> Ok(editor.SelectAll)
@@ -600,13 +832,23 @@ fn edge_decoder(
     use edge <- result.try(wanted)
     use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
     case edge {
-      editor.Up | editor.SelectUp ->
+      editor.Up ->
         case caret_line(control_id) {
           #(True, _, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
-      editor.Down | editor.SelectDown ->
+      editor.Down ->
         case caret_line(control_id) {
+          #(_, True, x) -> Ok(#(edge, x))
+          _ -> Error(Nil)
+        }
+      editor.SelectUp ->
+        case head_line(control_id, live_class, painted_class) {
+          #(True, _, x) -> Ok(#(edge, x))
+          _ -> Error(Nil)
+        }
+      editor.SelectDown ->
+        case head_line(control_id, live_class, painted_class) {
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
@@ -614,6 +856,10 @@ fn edge_decoder(
       | editor.JoinAfter
       | editor.SelectBefore
       | editor.SelectAfter
+      | editor.SelectLeft
+      | editor.SelectRight
+      | editor.SelectLineStart
+      | editor.SelectLineEnd
       | editor.SelectToStart
       | editor.SelectToEnd
       | editor.SelectAll -> Ok(#(edge, 0.0))
@@ -625,9 +871,61 @@ fn edge_decoder(
       |> event.handler(prevent_default: True, stop_propagation: False)
       |> decode.success
     Error(Nil) ->
-      on_event(editor.ControlChanged(shown:))
+      on_event(editor.ControlChanged(shown:, at: 0))
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key at the edge of the field")
+  }
+}
+
+/// The browser's own undo history is lost each time the field is written,
+/// so undo and redo go to the editor, also from a menu where the browser
+/// asks first.
+fn history_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use kind <- decode.field("inputType", decode.string)
+  history_step(kind, on_event)
+}
+
+/// Named as `beforeinput` names the step the key would take.
+fn undo_key_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use name <- decode.field("key", decode.string)
+  use code <- decode.field("code", decode.string)
+  use shift <- decode.field("shiftKey", decode.bool)
+  use ctrl <- decode.field("ctrlKey", decode.bool)
+  use meta <- decode.field("metaKey", decode.bool)
+  use alt <- decode.field("altKey", decode.bool)
+  use composing <- decode.field("isComposing", decode.bool)
+  let command = { ctrl || meta } && !alt && !composing
+  let kind = case command, is_key(name, code, "z"), is_key(name, code, "y") {
+    True, True, _ if shift -> "historyRedo"
+    True, True, _ -> "historyUndo"
+    True, False, True if ctrl && !meta && !shift -> "historyRedo"
+    _, _, _ -> ""
+  }
+  history_step(kind, on_event)
+}
+
+fn history_step(
+  kind: String,
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  let asked = case kind {
+    "historyUndo" -> Ok(editor.UndoAsked)
+    "historyRedo" -> Ok(editor.RedoAsked)
+    _ -> Error(Nil)
+  }
+  case asked {
+    Ok(asked) ->
+      on_event(asked)
+      |> event.handler(prevent_default: True, stop_propagation: False)
+      |> decode.success
+    Error(Nil) ->
+      on_event(editor.Released)
+      |> event.handler(prevent_default: False, stop_propagation: False)
+      |> decode.failure(expected: "an undo or a redo")
   }
 }
 
@@ -697,7 +995,10 @@ fn ask_focus() -> Nil
 fn focus_stayed(id: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "focusControl")
-fn focus_control(id: String, live_class: String) -> Nil
+fn focus_control(id: String, live_class: String, painted_class: String) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "setDrawn")
+fn set_drawn(drawn: Bool) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "blurControl")
 fn blur_control(id: String) -> Nil
@@ -710,6 +1011,61 @@ fn drawn_in_page(id: String, live_class: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "caretLine")
 fn caret_line(id: String) -> #(Bool, Bool, Float)
+
+@external(javascript, "./surface.ffi.mjs", "headLine")
+fn head_line(
+  id: String,
+  live_class: String,
+  painted_class: String,
+) -> #(Bool, Bool, Float)
+
+@external(javascript, "./surface.ffi.mjs", "stepHead")
+fn step_head(
+  id: String,
+  live_class: String,
+  row_mark: String,
+  head_row: Int,
+  head_offset: Int,
+  onward: Bool,
+  granularity: String,
+  forward: Bool,
+  x: Float,
+) -> #(Int, String, Bool, String, Float)
+
+@external(javascript, "./surface.ffi.mjs", "holdStep")
+fn hold_step(held: Bool) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "takeHeldStep")
+fn take_held_step() -> Bool
+
+@external(javascript, "./surface.ffi.mjs", "isPainted")
+fn is_painted(id: String, painted_class: String) -> Bool
+
+@external(javascript, "./surface.ffi.mjs", "holderText")
+fn holder_text(
+  id: String,
+  live_class: String,
+  row_mark: String,
+  row: Int,
+) -> #(Int, String)
+
+@external(javascript, "./surface.ffi.mjs", "paintSelection")
+fn paint_selection(
+  id: String,
+  live_class: String,
+  row_mark: String,
+  anchor_row: Int,
+  anchor_offset: Int,
+  anchor_onward: Bool,
+  head_row: Int,
+  head_offset: Int,
+  head_onward: Bool,
+  first_break: Int,
+  last_break: Int,
+) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "clearPaint")
+fn clear_paint() -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "aimControl")
 fn aim_control(
@@ -730,7 +1086,16 @@ fn find_control(id: String) -> Dynamic
 fn locate(
   press: Dynamic,
   row_mark: String,
-) -> #(Int, String, Bool, String, Bool)
+) -> #(Int, String, Bool, String, Bool, Bool)
+
+@external(javascript, "./surface.ffi.mjs", "holdSelection")
+fn hold_selection(
+  id: String,
+  x: Float,
+  y: Float,
+  started: fn() -> Nil,
+  released: fn() -> Nil,
+) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "dropped")
 fn dropped(
@@ -742,7 +1107,7 @@ fn dropped(
 fn released_on_selection(release: Dynamic) -> Int
 
 @external(javascript, "./surface.ffi.mjs", "placeCaret")
-fn place_caret(id: String, x: Float, y: Float) -> Nil
+fn place_caret(id: String, painted_class: String, x: Float, y: Float) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "holdPage")
 fn hold_page(id: String, live_class: String) -> Nil
