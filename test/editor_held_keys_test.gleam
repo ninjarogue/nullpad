@@ -256,3 +256,19 @@ pub fn a_replayed_key_the_browser_takes_past_the_field_is_acted_on_test() {
   assert buffer.text(whole) == note
   assert editor.replay(ed) == None
 }
+
+pub fn keys_wait_while_the_field_holds_the_note_for_the_browser_test() {
+  let ed = opened()
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Widen, x: 0.0, shown: editor.field_buffer(ed)),
+    )
+  let assert editor.WriteAndRead(whole) = sync
+  assert editor.is_waiting(ed)
+
+  let ed = hold(ed, shifted("ArrowLeft"))
+  assert editor.replay(ed) == None
+  let ed = editor.update(ed, editor.ControlChanged(shown: whole, at: 0)).editor
+  assert editor.replay(ed) == Some(shifted("ArrowLeft"))
+}
