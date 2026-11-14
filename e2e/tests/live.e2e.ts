@@ -574,7 +574,7 @@ test('a mouse drag from a paragraph into a later block selects the rows between'
   await page.drag(await page.pointAt('hotel'), await page.pointAt('Shoes'));
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: 'hotel is *not*.\n\n- [ ] Passport\n',
+    selected: 'hotel is *not*.\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });
@@ -598,7 +598,7 @@ test('a mouse drag that starts in the text field selects past it', async ({ app,
   await page.drag(await page.pointAt('booked'), await page.pointAt('Shoes'));
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: 'booked** and the hotel is *not*.\n\n- [ ] Passport\n',
+    selected: '**booked** and the hotel is *not*.\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });
@@ -621,7 +621,7 @@ test('Shift and a click select from where the caret is to the place clicked', as
   await browser.keyboard.up('Shift');
   await expect.poll(() => page.selection()).toEqual({
     text: `${paragraph}\n\n- [ ] Passport\n- Shoes`,
-    selected: '\n\n- [ ] Passport\n',
+    selected: '\n\n- [ ] Passport\n- ',
     backward: false,
   });
 });
@@ -703,7 +703,7 @@ test('a click after a selection across blocks puts one block back in the field',
   await openLive({ app, disk, page }, body);
   await browser.keyboard.press('ControlOrMeta+a');
   await expect(page.text).toHaveValue(body);
-  await expect(page.drawn('li')).toHaveCount(0);
+  await expect(page.drawn('li')).toHaveText(['Passport', 'Shoes']);
 
   const shoes = await page.pointAt('Shoes');
   await browser.mouse.move(shoes.x, shoes.y);
@@ -843,7 +843,7 @@ test('a drag let go off the page leaves no press held', async ({ app, browser, d
   await browser.keyboard.press('Escape');
   await page.showMarkdown();
   await expect(page.text).toHaveValue(
-    '# Trip\n\nFlights are **\n\n- [ ] Passport\nbooked** and the hotel is *not*.- Shoes\n\nlast',
+    '# Trip\n\nFlights are **\n\n- [ ] Passport\n- booked** and the hotel is *not*.Shoes\n\nlast',
   );
 });
 
@@ -1321,10 +1321,14 @@ test('the wheel turned during a drag keeps the end of the selection under the po
   await page.nextFrame();
   const lines = await browser.evaluate((y: number) => {
     const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
-    const box = field.getBoundingClientRect();
-    const style = getComputedStyle(field);
+    const away = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return Math.max(box.top - y, y - box.bottom, 0);
+    };
+    const drawn = [...document.querySelectorAll<HTMLElement>('.preview.part [data-row]')];
+    const under = drawn.reduce((best, element) => (away(element) < away(best) ? element : best));
     return {
-      pointer: Math.floor((y - box.top - parseFloat(style.paddingTop)) / parseFloat(style.lineHeight)),
+      pointer: Number(under.dataset.row) - Number(field.dataset.row ?? 0),
       head: field.value.slice(0, field.selectionEnd).split('\n').length - 1,
     };
   }, middle);
@@ -1679,7 +1683,11 @@ test('the end of a selection that the keys move stays in the window as the field
       const at = field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd;
       const line = field.value.slice(0, at).split('\n').length - 1;
       const height = parseFloat(getComputedStyle(field).lineHeight);
-      const top = field.getBoundingClientRect().top + line * height;
+      const painted = [...(CSS.highlights.get('nullpad-head') ?? [])][0] as Range | undefined;
+      const drawn = painted?.startContainer;
+      const top = drawn
+        ? (drawn instanceof Element ? drawn : drawn.parentElement!).getBoundingClientRect().top
+        : field.getBoundingClientRect().top + line * height;
       const sheet = document.querySelector('.page')!.getBoundingClientRect();
       return {
         row: field.value.slice(0, at).split('\n').at(-1) ?? '',
@@ -2060,7 +2068,7 @@ test('Shift and a press on the selected text select from the anchor, and a drag 
   await expect.poll(async () => (await page.selection()).selected).toBe('Flights');
 
   const inside = await page.pointAt('ghts');
-  const shoes = await page.pointAt('Shoes');
+  const shoes = await page.pointAt('hoes');
   await browser.keyboard.down('Shift');
   await browser.mouse.move(inside.x, inside.y);
   await browser.mouse.down();

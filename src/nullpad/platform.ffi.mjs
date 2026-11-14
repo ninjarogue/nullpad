@@ -45,6 +45,10 @@ export function hasHardwareKeyboard() {
   return matchMedia(query).matches;
 }
 
+export function canPaint() {
+  return typeof Highlight === "function" && globalThis.CSS?.highlights !== undefined;
+}
+
 // Reading or writing localStorage throws when the browser blocks storage.
 export function readVimSetting() {
   try {

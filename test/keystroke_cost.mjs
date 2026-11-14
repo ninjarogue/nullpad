@@ -88,7 +88,7 @@ function note(kb) {
 function opened(text) {
   const ignore = () => undefined;
   const backend = new storage.Backend(ignore, ignore, ignore, ignore, ignore);
-  const flags = new app.Flags(storage.new$(backend), false, false, false);
+  const flags = new app.Flags(storage.new$(backend), false, false, false, true);
   const [model] = app.init(flags);
   const ready = model.withFields({
     editor: editor.open(model.editor, text).editor,
@@ -103,6 +103,9 @@ function opened(text) {
   );
   return pointed;
 }
+
+// A step the page takes is first asked for.
+const asked = (field) => new editor.EdgePressed(new editor.SelectDown(), 40, field);
 
 const typed = (field) => {
   const caret = buffer.cursor(field);
@@ -225,6 +228,10 @@ const events = {
     ["SelectDown", (field) => new editor.EdgePressed(new editor.SelectDown(), 0, field)],
     ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), 0, field)],
     ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), 0, field)],
+    ["SelectLeft", (field) => new editor.EdgePressed(new editor.SelectLeft(), 0, field)],
+    ["SelectRight", (field) => new editor.EdgePressed(new editor.SelectRight(), 0, field)],
+    ["SelectLineStart", (field) => new editor.EdgePressed(new editor.SelectLineStart(), 0, field)],
+    ["SelectLineEnd", (field) => new editor.EdgePressed(new editor.SelectLineEnd(), 0, field)],
     ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToStart(), 0, field)],
     ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToEnd(), 0, field)],
     ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
@@ -250,10 +257,30 @@ const events = {
     ["a row above", (_, row) => new editor.Grabbed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.Grabbed(row + 9, "", false, "", 0, 0)],
   ],
+  SelectionPointed: [
+    ["a row above", (_, row) => new editor.SelectionPointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.SelectionPointed(row + 9, "", false, "", 0, 0)],
+  ],
   Dragged: [
     ["a row above", (_, row) => new editor.Dragged(Math.max(0, row - 9), "", true, "")],
     ["a row below", (_, row) => new editor.Dragged(row + 9, "", false, "")],
     ["in place", (_, row) => new editor.Dragged(row, "", true, "")],
+  ],
+  Stepped: [
+    ["a row above", (field, row) => [asked(field), new editor.Stepped(Math.max(0, row - 9), "", true, "", 40)]],
+    ["a row below", (field, row) => [asked(field), new editor.Stepped(row + 9, "", false, "", 40)]],
+  ],
+  Unstepped: [["", (field) => [asked(field), new editor.Unstepped(40)]]],
+  SteppedPast: [["", (field) => [asked(field), new editor.SteppedPast()]]],
+  Settled: [
+    [
+      "",
+      (_, row) =>
+        new editor.Settled(
+          [new buffer.Position(row, 0), new buffer.Position(row + 9, 0)],
+          [new buffer.Position(row, 1), new buffer.Position(row + 9, 0)],
+        ),
+    ],
   ],
   Released: [["", () => new editor.Released()]],
   DragStarted: [["", () => new editor.DragStarted()]],
@@ -295,11 +322,17 @@ for (const withVim of [false, true]) {
       }
       const field = editor.field_buffer(model.editor);
       const row = editor.region(model.editor)[0]?.first_row ?? 0;
-      const text = editor.text(model.editor);
-      const count = globalThis.parses;
+      const made = [make(field, row)].flat();
       let next;
       try {
-        [next] = app.update(model, new app.EditorSent(make(field, row)));
+        for (const setup of made.slice(0, -1)) [model] = app.update(model, new app.EditorSent(setup));
+      } catch (error) {
+        if (error.gleam_error !== "todo") throw error;
+      }
+      const text = editor.text(model.editor);
+      const count = globalThis.parses;
+      try {
+        [next] = app.update(model, new app.EditorSent(made.at(-1)));
         app.view(next);
       } catch (error) {
         if (error.gleam_error !== "todo") throw error;
