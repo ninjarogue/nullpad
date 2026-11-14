@@ -29,19 +29,19 @@ const files = {
     import { appendFileSync, readFileSync } from "node:fs";
     appendFileSync(process.env.TOY_LOG, "unit " + readFileSync("src.txt", "utf8").replaceAll("\\n", "|") + "\\n");
     const mode = process.env.TOY_MODE ?? "";
-    const finish = (text, code) => { console.log(text); process.exit(code); };
+    const src = readFileSync("src.txt", "utf8");
+    const finish = (text, code) => process.stdout.write(text + "\\n", () => process.exit(code));
     if (mode === "nofound0") finish("\\nNo tests found!", 0);
-    if (mode === "nofound1") finish("\\nNo tests found!", 1);
-    if (mode === "crash") { console.error("TypeError: boom"); process.exit(1); }
-    if (readFileSync("src.txt", "utf8").includes("NOCOMPILE")) { console.error("error: Unknown variable"); process.exit(1); }
-    if (mode === "signal") process.kill(process.pid, "SIGKILL");
-    if (mode === "lies") finish("\\n1 passed, 1 failures", 0);
-    if (mode === "silent") finish("\\n2 passed, no failures", 1);
-    if (mode === "empty") finish("\\n0 passed, no failures", 0);
-    if (mode === "hang") setInterval(() => {}, 1000);
+    else if (mode === "nofound1") finish("\\nNo tests found!", 1);
+    else if (mode === "crash") { console.error("TypeError: boom"); process.exit(1); }
+    else if (src.includes("NOCOMPILE")) { console.error("error: Unknown variable"); process.exit(1); }
+    else if (mode === "signal") process.kill(process.pid, "SIGKILL");
+    else if (mode === "lies") finish("\\n1 passed, 1 failures", 0);
+    else if (mode === "silent") finish("\\n2 passed, no failures", 1);
+    else if (mode === "empty") finish("\\n0 passed, no failures", 0);
+    else if (mode === "hang") setInterval(() => {}, 1000);
     else {
       if (mode === "big") for (let line = 0; line < 20000; line++) console.log("line " + line + " of a long report");
-      const src = readFileSync("src.txt", "utf8");
       const failed = ["alpha", "beta"].filter((word) => !src.includes(word)).length;
       finish(failed === 0 ? "\\n2 passed, no failures" : "\\n" + (2 - failed) + " passed, " + failed + " failures", failed === 0 ? 0 : 1);
     }`,
@@ -271,7 +271,7 @@ describe("the calibration", () => {
 
   test("refuses real mutants when a known-caught mutant is caught by another check than its own", async () => {
     const t = toy();
-    const wrong = { ...calibration, caught: [{ by: "second", ...mutant("CAL-wrong", "beta", "bexa") }, calibration.caught[1]] };
+    const wrong = { ...calibration, caught: [{ by: "second", ...mutant("CAL-wrong", "beta", "bexa") }, ...calibration.caught] };
     await assert.rejects(t.run([mutant("M-missed", "delta", "deltb")], { calibration: wrong }), /CAL-wrong.*second.*unit/s);
   });
 

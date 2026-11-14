@@ -1,0 +1,35 @@
+{
+  "caught": [
+    {
+      "id": "CAL-gleam",
+      "by": "gleam-test",
+      "file": "src/nullpad/history.gleam",
+      "desc": "typing splits into a step after 100 ms, not 1000",
+      "old": "pub const pause = 1000",
+      "new": "pub const pause = 100"
+    },
+    {
+      "id": "CAL-keystroke",
+      "by": "keystroke-cost",
+      "file": "src/nullpad/editor.gleam",
+      "desc": "a key that changes no text parses the note anyway: same page, costlier",
+      "old": "        True -> parsed\n        False -> parse(buffer)\n",
+      "new": "        True -> parse(buffer)\n        False -> parse(buffer)\n"
+    },
+    {
+      "id": "CAL-e2e",
+      "by": "e2e:e2e.config.ts",
+      "file": "assets/nullpad.css",
+      "desc": "a word too long for the line no longer wraps",
+      "old": "  padding: 1.25rem max(1.25rem, calc((100% - 46rem) / 2));\n  overflow-wrap: break-word;\n}",
+      "new": "  padding: 1.25rem max(1.25rem, calc((100% - 46rem) / 2));\n}"
+    }
+  ],
+  "noop": {
+    "id": "CAL-noop",
+    "file": "src/nullpad/surface.gleam",
+    "desc": "a doc comment says the same in other words",
+    "old": "/// that helper adds a `value` property, which Lustre re-assigns on the next",
+    "new": "/// that helper adds a `value` property, which Lustre assigns again on the next"
+  }
+}

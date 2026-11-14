@@ -11,7 +11,7 @@
 // shows in the diff.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,23 +75,86 @@ export function judge({ id, known, exitCode, signal, counts, problem }) {
   return { failures, raise };
 }
 
-function spawnCapture(argv, { cwd, env }, write) {
+const live = new Set();
+
+/** Kills what `spawnCapture` has started that is still running, with everything it started. */
+export function killAll() {
+  for (const child of live) {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      child.kill("SIGKILL");
+    }
+  }
+}
+
+/**
+ * Runs `argv` and gives back its exit code, the signal that ended it, and
+ * everything it printed, which `write` also gets as it comes. With a
+ * `timeoutMs` the command and what it started are killed when it runs over,
+ * and the caller is told so: it is then run in a group of its own.
+ */
+export function spawnCapture(argv, { cwd, env, timeoutMs }, write) {
   return new Promise((done) => {
     let output = "";
+    let timedOut = false;
     const take = (chunk) => {
       const text = chunk.toString();
       output += text;
       write(text);
     };
-    const child = spawn(argv[0], argv.slice(1), { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(argv[0], argv.slice(1), {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: timeoutMs !== undefined,
+    });
+    live.add(child);
+    const timer =
+      timeoutMs === undefined
+        ? null
+        : setTimeout(() => {
+            timedOut = true;
+            killAll();
+          }, timeoutMs);
+    const finish = (exitCode, signal) => {
+      clearTimeout(timer);
+      live.delete(child);
+      done({ exitCode, signal, output, timedOut });
+    };
     child.stdout.on("data", take);
     child.stderr.on("data", take);
     child.on("error", (error) => {
       take(`${error.message}\n`);
-      done({ exitCode: 127, signal: null, output });
+      finish(127, null);
     });
-    child.on("close", (exitCode, signal) => done({ exitCode, signal, output }));
+    child.on("close", finish);
   });
+}
+
+/**
+ * Runs one step in a new results directory, which is removed after, and reads
+ * its count. Gives the exit code, the signal, whether it timed out, the output,
+ * and `counts` (null with a `problem` when the runner said nothing readable).
+ */
+export async function runCheck(step, { write = () => {}, timeoutMs } = {}) {
+  if (step.outIn) mkdirSync(step.outIn, { recursive: true });
+  const outDir = mkdtempSync(join(step.outIn ?? tmpdir(), "step-"));
+  try {
+    const run = await spawnCapture(step.command(outDir), { cwd: step.cwd, env: step.env, timeoutMs }, write);
+    let counts = null;
+    let problem;
+    if (step.counted) {
+      try {
+        counts = step.read({ output: run.output, outDir });
+      } catch (error) {
+        problem = error.message;
+      }
+    }
+    return { ...run, counts, problem };
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
 }
 
 /** Runs one step and holds it to its known count, raising the count in `file` when more tests ran. */
@@ -101,33 +164,20 @@ export async function runStep(step, { countsFile: file = countsFile, log = conso
     return { ok: false, id: step.id, failures: [`${step.id}: ${step.hint ?? `${step.needs} is missing`}`], raised: null };
   }
   log(`==> ${step.id}`);
-  if (step.outIn) mkdirSync(step.outIn, { recursive: true });
-  const outDir = mkdtempSync(join(step.outIn ?? tmpdir(), "step-"));
-  try {
-    const { exitCode, signal, output } = await spawnCapture(step.command(outDir), { cwd: step.cwd, env: step.env }, write);
-    if (!step.counted) {
-      const failures = exitCode === 0 && !signal ? [] : [`${step.id}: the command ${signal ? `was killed by ${signal}` : `exited ${exitCode}`}`];
-      return { ok: failures.length === 0, id: step.id, failures, raised: null };
-    }
-    let counts = null;
-    let problem;
-    try {
-      counts = step.read({ output, outDir });
-    } catch (error) {
-      problem = error.message;
-    }
-    const known = all[step.id];
-    const verdict = judge({ id: step.id, known, exitCode, signal, counts, problem });
-    if (verdict.raise !== null) {
-      saveCounts(file, { ...loadCounts(file), [step.id]: verdict.raise });
-      log(`${step.id}: ${tests(verdict.raise)}, up from ${known ?? "none"}. ${COUNTS} is raised: commit it.`);
-    } else if (verdict.failures.length === 0) {
-      log(`${step.id}: ${tests(counts.passed)}, as known`);
-    }
-    return { ok: verdict.failures.length === 0, id: step.id, failures: verdict.failures, raised: verdict.raise };
-  } finally {
-    rmSync(outDir, { recursive: true, force: true });
+  const { exitCode, signal, counts, problem } = await runCheck(step, { write });
+  if (!step.counted) {
+    const failures = exitCode === 0 && !signal ? [] : [`${step.id}: the command ${signal ? `was killed by ${signal}` : `exited ${exitCode}`}`];
+    return { ok: failures.length === 0, id: step.id, failures, raised: null };
   }
+  const known = all[step.id];
+  const verdict = judge({ id: step.id, known, exitCode, signal, counts, problem });
+  if (verdict.raise !== null) {
+    saveCounts(file, { ...loadCounts(file), [step.id]: verdict.raise });
+    log(`${step.id}: ${tests(verdict.raise)}, up from ${known ?? "none"}. ${COUNTS} is raised: commit it.`);
+  } else if (verdict.failures.length === 0) {
+    log(`${step.id}: ${tests(counts.passed)}, as known`);
+  }
+  return { ok: verdict.failures.length === 0, id: step.id, failures: verdict.failures, raised: verdict.raise };
 }
 
 /**

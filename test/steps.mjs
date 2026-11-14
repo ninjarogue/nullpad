@@ -71,7 +71,18 @@ export const readers = {
  * A counted step reports how many tests it ran, and the gate holds it to the
  * count in `test/test_counts.json`. One that is not counted must exit 0.
  */
-export const gleamTest = { id: "gleam-test", cwd: root, counted: true, command: () => ["gleam", "test"], read: readers.gleeunit };
+export const gleamTest = {
+  id: "gleam-test",
+  cwd: root,
+  counted: true,
+  command: () => ["gleam", "test"],
+  read: readers.gleeunit,
+  // `gleam test` compiles the tests too, and prints "Running" once they start.
+  compileFailed: (output) => /^error:/m.test(plain(output)) && !/Running .*\.main/.test(plain(output)),
+};
+
+/** What a planted bug has to get through before any test runs. `tools/mutants` counts a failure here as INVALID. */
+export const gleamBuild = { id: "build", cwd: root, counted: false, build: true, command: () => ["gleam", "build"] };
 
 export const keystrokeCost = {
   id: "keystroke-cost",
@@ -117,5 +128,5 @@ export const e2e = (config, args = []) => ({
 
 /** Every step of the gate after the format check, in the order it runs. */
 export function gateSteps() {
-  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), e2eTypes, ...e2eConfigs().map((config) => e2e(config))];
+  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), e2eTypes, ...e2eConfigs().map((config) => e2e(config))];
 }
