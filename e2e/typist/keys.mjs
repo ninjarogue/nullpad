@@ -34,28 +34,59 @@ export const classes = {
       ]),
   },
   shiftVertical: { w: 2, gen: (r) => pick(r, ['Shift+ArrowUp', 'Shift+ArrowDown']) },
+  page: { w: 2, gen: (r) => pick(r, ['PageUp', 'PageDown', 'Shift+PageUp', 'Shift+PageDown']) },
+  rowStep: { w: 2, gen: (r) => pick(r, ['Control+ArrowUp', 'Control+ArrowDown']) },
+  rowSelect: { w: 2, gen: (r) => pick(r, ['Control+Shift+ArrowUp', 'Control+Shift+ArrowDown']) },
   all: { w: 1, gen: () => 'Control+a' },
   paste: { w: 2, gen: (r) => ({ paste: pick(r, pastes) }) },
 };
+
+const times = (n, key) => Array.from({ length: n }, () => key);
+
+/** Notes a script may start from: every kind of block, and plain rows only. */
+const notes = {
+  rich: '# Head one\n\nbody text here\nmore body\n\n- item a\n- item b\n\n> quote line\n\n```\ncode\n```\n\nSetext\n======\n\nlast para',
+  plain: 'alpha beta\n\nsecond para here\nthird row\n\nlast',
+};
+
+/**
+ * Where a script starts: a pasted note with a selection already made, so that the keys
+ * run on a selection (in one block, or painted across blocks) and not on a collapsed caret.
+ */
+export const preludes = [
+  { note: 'rich', keys: ['Control+Home', ...times(3, 'Shift+ArrowDown')] },
+  { note: 'rich', keys: ['Control+End', 'Home', ...times(3, 'Shift+ArrowUp')] },
+  { note: 'rich', keys: ['Control+a'] },
+  { note: 'rich', keys: ['Control+Home', 'ArrowRight', 'ArrowRight', ...times(3, 'Shift+ArrowRight')] },
+  { note: 'rich', keys: ['Control+Home', 'End', ...times(3, 'Shift+ArrowLeft')] },
+  { note: 'rich', keys: ['Control+Home', 'Control+Shift+End'] },
+  { note: 'plain', keys: ['Control+Home', ...times(2, 'Shift+ArrowDown')] },
+  { note: 'plain', keys: ['Control+End', 'Home', ...times(2, 'Shift+ArrowUp')] },
+  { note: 'plain', keys: ['Control+Home', 'ArrowDown', 'ArrowRight', ...times(4, 'Shift+ArrowRight')] },
+].map((p) => ({ keys: [{ paste: notes[p.note] }, ...p.keys] }));
 
 export function makeScripts(count, length, seed) {
   const r = rng(seed);
   const entries = Object.values(classes);
   const total = entries.reduce((sum, c) => sum + c.w, 0);
-  return Array.from({ length: count }, () =>
-    Array.from({ length }, () => {
-      let x = r() * total;
-      for (const c of entries) if ((x -= c.w) < 0) return c.gen(r);
-      throw new Error('unreachable');
-    }),
-  );
+  return Array.from({ length: count }, () => {
+    const start = r() < 0.4 ? pick(r, preludes).keys : [];
+    return [
+      ...start,
+      ...Array.from({ length }, () => {
+        let x = r() * total;
+        for (const c of entries) if ((x -= c.w) < 0) return c.gen(r);
+        throw new Error('unreachable');
+      }),
+    ];
+  });
 }
 
 // key -> [code, virtual key code, text, needs shift]
 const base = {
   Enter: ['Enter', 13, '\r'], Backspace: ['Backspace', 8], Delete: ['Delete', 46],
   ArrowLeft: ['ArrowLeft', 37], ArrowUp: ['ArrowUp', 38], ArrowRight: ['ArrowRight', 39], ArrowDown: ['ArrowDown', 40],
-  Home: ['Home', 36], End: ['End', 35], Shift: ['ShiftLeft', 16], Control: ['ControlLeft', 17],
+  Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34], Shift: ['ShiftLeft', 16], Control: ['ControlLeft', 17],
   ' ': ['Space', 32, ' '], '-': ['Minus', 189, '-'], '_': ['Minus', 189, '_', true],
   '=': ['Equal', 187, '='], '`': ['Backquote', 192, '`'], '~': ['Backquote', 192, '~', true],
   '[': ['BracketLeft', 219, '['], ']': ['BracketRight', 221, ']'], '|': ['Backslash', 220, '|', true],
