@@ -481,6 +481,17 @@ const runs: Run[] = [
     throttle: 1,
   },
   {
+    name: 'Shift+Down, then Right and Ctrl+Backspace at the start of a row, in one frame',
+    body: 'alpha beta\nmore\n\nlast',
+    start: [],
+    steps: ['Shift+ArrowDown', 'ArrowRight', ctrl('Backspace')],
+    follow: 'plain field',
+    burst: true,
+    burstOnly: true,
+    holdRedraw: true,
+    throttle: 1,
+  },
+  {
     name: 'Shift+Down twice, then Shift+Up, in one frame',
     body: 'alpha beta\n\nsecond para here\nthird row\n\nlast',
     start: [],
