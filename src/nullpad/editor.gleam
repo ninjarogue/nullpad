@@ -424,9 +424,10 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
   Outcome(..outcome, editor: Editor(..outcome.editor, goal:))
 }
 
-/// What an event does to a run of moves up and down: a move of the run, a
-/// key that ends it, or anything else, which ends it when it changes the
-/// selection or the text, as the caret's x is kept in a text field.
+/// What an event does to a run of moves up and down, as a text field keeps
+/// the caret's x: a move of the run, a press or a key that ends it, or
+/// anything else, which ends it when it changes the selection or the text.
+/// A key that moves nothing keeps it.
 type InRun {
   Moves
   Ends
@@ -438,7 +439,7 @@ fn in_run(event: Event) -> InRun {
     EdgePressed(edge:, ..) ->
       case is_vertical(edge) {
         True -> Moves
-        False -> Ends
+        False -> Changes
       }
     Stepped(..)
     | Unstepped(..)
@@ -446,11 +447,7 @@ fn in_run(event: Event) -> InRun {
     | Aimed(..)
     | SteppedPast
     | Settled(..) -> Moves
-    ControlChanged(..)
-    | Composing(..)
-    | KeyPressed(..)
-    | EscapePressed(..)
-    | Pointed(..)
+    Pointed(..)
     | LinePointed(..)
     | ShiftPointed(..)
     | Grabbed(..)
@@ -460,9 +457,11 @@ fn in_run(event: Event) -> InRun {
     | Released
     | DragStarted
     | Dropped(..)
-    | FocusChanged(..)
+    | EscapePressed(..)
     | UndoAsked
-    | RedoAsked -> Changes
+    | RedoAsked -> Ends
+    ControlChanged(..) | Composing(..) | KeyPressed(..) | FocusChanged(..) ->
+      Changes
   }
 }
 
@@ -499,7 +498,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         Part(..) -> {
           let left = outcome.editor.buffer
           let editor =
-            Editor(..outcome.editor, focus: Away, waiting: [], goal: None)
+            Editor(..outcome.editor, focus: Away, waiting: [])
             |> edit(buffer.move_to(left, buffer.cursor(left)))
             |> realign
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
@@ -515,7 +514,6 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           press: Some(PressedAt(at)),
           clicked: Some(at),
           waiting: [],
-          goal: None,
         )
         |> edit(buffer.move_to(editor.buffer, at))
         |> realign
@@ -534,7 +532,6 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           focus: Focused,
           press: Some(PressedOnLine(start:, end:)),
           waiting: [],
-          goal: None,
         )
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
@@ -553,7 +550,6 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           focus: Focused,
           press: Some(PressedAt(anchor)),
           waiting: [],
-          goal: None,
         )
         |> reach(from, anchor, row:, visible:, at_end:, next:)
       Outcome(
@@ -585,7 +581,6 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           focus: Focused,
           press: Some(PressedOnWord(start:, end:)),
           waiting: [],
-          goal: None,
         )
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
@@ -601,7 +596,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           let at = place(editor.buffer, row:, visible:, at_end:, next:)
           let press = Some(PressedOnSelection(at))
           Outcome(
-            editor: Editor(..editor, press:, waiting: [], goal: None),
+            editor: Editor(..editor, press:, waiting: []),
             sync: HoldSelection(x:, y:),
             requests: [],
           )
@@ -661,11 +656,11 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       let landed = landing(editor.waiting)
       edit(editor, buffer.select(editor.buffer, anchor:, head: placed))
       |> realign
-      |> begin_run(landed, x)
+      |> begin_run(editor, landed, x)
       |> next_step(landed)
     }
     Unstepped(x:) ->
-      editor |> begin_run(landing(editor.waiting), x) |> next_step(None)
+      editor |> begin_run(editor, landing(editor.waiting), x) |> next_step(None)
     FieldStepped(shown:, x:) ->
       case editor.waiting {
         [] -> typed(editor, shown, None, realign)
@@ -674,7 +669,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           editor
           |> edit(base(editor, shown))
           |> realign
-          |> begin_run(landed, x)
+          |> begin_run(editor, landed, x)
           |> next_step(landed)
         }
       }
@@ -702,6 +697,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       }
       edit(editor, buffer.select(editor.buffer, anchor:, head:))
       |> realign
+      |> begin_run(editor, landing(editor.waiting), -1.0)
       |> next_step(None)
     }
     Settled(from:, to: #(anchor, head)) ->
@@ -804,7 +800,7 @@ fn travel(
     True, Focused, _ | True, Away, _ ->
       Outcome(editor:, sync: InSync, requests: [])
     False, Focused, Ok(history) ->
-      Editor(..editor, history:, waiting: [], goal: None)
+      Editor(..editor, history:, waiting: [])
       |> edit(history.present(history))
       |> realign
       |> write
@@ -840,10 +836,17 @@ fn next_step(editor: Editor, landed: Option(Bool)) -> Outcome {
 }
 
 /// A step up or down measured from where the head was drawn starts the
-/// run's column there, when the run has none yet.
-fn begin_run(editor: Editor, landed: Option(Bool), x: Float) -> Editor {
+/// run's column there, when the run has none yet. Any other step that moved
+/// the head ends the run, before the next waiting step aims.
+fn begin_run(
+  editor: Editor,
+  before: Editor,
+  landed: Option(Bool),
+  x: Float,
+) -> Editor {
   case landed, editor.goal {
     Some(_), None if x >=. 0.0 -> Editor(..editor, goal: Some(x))
+    None, _ if editor.buffer != before.buffer -> Editor(..editor, goal: None)
     Some(_), _ | None, _ -> editor
   }
 }
