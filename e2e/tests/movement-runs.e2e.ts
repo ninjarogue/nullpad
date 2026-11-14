@@ -267,6 +267,8 @@ type Run = {
   stall?: number;
   /** The run is not pressed with no frame between its keys: whether the page has drawn between two keys of the harness's keyboard depends on the load of the machine. */
   noHeld?: boolean;
+  /** The offsets of the first and the last mark of each pair of marks the page hides, as `**bold**`. A painted end never cuts one. */
+  pairs?: [number, number][];
 };
 
 const key = (step: Step) => (typeof step === 'string' ? step : step.key);
@@ -366,6 +368,17 @@ const runs: Run[] = [
     follow: 'plain field',
     pace: 150,
     noHeld: true,
+    pairs: [[10, 18]],
+  },
+  {
+    name: 'Ctrl+Shift+Left through words with hidden marks, from the paragraph below',
+    body: 'para **bold** end\n\nlast',
+    start: [ctrl('End')],
+    steps: times(8, ctrl('Shift+ArrowLeft')),
+    follow: 'plain field',
+    pace: 150,
+    noHeld: true,
+    pairs: [[5, 13]],
   },
   {
     name: 'Ctrl+Shift+Left through words with hidden marks',
@@ -380,8 +393,9 @@ const runs: Run[] = [
     body: 'one\n\npara **bold** end\n\nlast paragraph here',
     start: [],
     steps: [...times(6, ctrl('ArrowRight')), ...times(2, ctrl('Shift+ArrowDown')), ctrl('Shift+ArrowUp')],
-    follow: 'plain field',
+    follow: 'row and pixel',
     pace: 150,
+    pairs: [[10, 18]],
   },
   {
     name: 'Shift+Right and Backspace past the hidden marks of a list item and a heading',
@@ -505,6 +519,34 @@ async function runPlan(editor: Editing, run: Run) {
   return found;
 }
 
+/**
+ * The plain field's states as the page holds them. An end of a selection across
+ * blocks, which the page paints, never cuts a pair of marks the page hides, as
+ * Delete would then leave half of it: a stop of the head inside a pair is passed
+ * over, and an anchor inside one is at the nearer end of the pair.
+ */
+function wholePairs(run: Run, states: Plain[]): Plain[] {
+  const pairs = run.pairs;
+  if (!pairs) return states;
+  const cut = (value: string, cell: Cell) => {
+    const at = offsetOfCell(value, cell);
+    return pairs.find(([from, to]) => at > from && at < to);
+  };
+  const painted = (state: Plain) => {
+    const [top, bottom] = [state.anchor[0], state.head[0]].sort((a, b) => a - b);
+    return state.value.split('\n').slice(top, bottom + 1).includes('');
+  };
+  const kept = states
+    .filter((state) => !(painted(state) && cut(state.value, state.head)))
+    .map((state) => {
+      const pair = painted(state) ? cut(state.value, state.anchor) : undefined;
+      if (!pair) return state;
+      const at = offsetOfCell(state.value, state.anchor);
+      return { ...state, anchor: rowCol(state.value, at - pair[0] <= pair[1] - at ? pair[0] : pair[1]) };
+    });
+  return states.map((_, index) => kept[Math.min(index, kept.length - 1)]!);
+}
+
 async function begin(editor: Editing, run: Run) {
   await editor.open(run.body);
   for (const step of run.start) await editor.fixtures.browser.keyboard.press(key(step));
@@ -616,12 +658,9 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
   }
 }
 
-const both = (finding: string) => ({ paced: finding, held: finding });
-
 const failingRuns = new Map<string, { paced?: string; held?: string; burst?: string; viewSwitch?: string }>([
-  // X1: Ctrl+Shift+Right sticks before hidden marks, and the anchor is snapped.
+  // X1: Ctrl+Shift+Right sticks before hidden marks once the selection is painted.
   ['Ctrl+Shift+Right through words with hidden marks', { paced: 'X1' }],
-  ['Ctrl+Right through words with hidden marks, then Ctrl+Shift+Down, then Ctrl+Shift+Up', both('X1')],
   // The races. F2: a key typed while a step waits cancels the step. B4: a long run of keys gives different results from run to run.
   ['Shift+Down, then Enter, in one frame', { burst: 'F2' }],
   ['a long run of keys with no pause between them', { burst: 'B4' }],
@@ -637,6 +676,7 @@ for (const run of runs) {
     const editor = new Editing(fixtures);
     const plan = await runPlan(editor, run);
     if (pending?.paced) test.fail(pending.paced);
+    const wants = wholePairs(run, plan.states);
     await begin(editor, run);
     const problems: string[] = [];
     let goalX = plan.from.x;
@@ -646,7 +686,7 @@ for (const run of runs) {
       const name = key(step);
       await fixtures.browser.keyboard.press(name);
       if (run.pace) await pause(run.pace);
-      const want = plan.states[index]!;
+      const want = wants[index]!;
       const got = await look(editor, lines(want.value));
       if ('problem' in got) {
         problems.push(`step ${index + 1} (${name}): ${got.problem}`);
@@ -674,7 +714,7 @@ for (const run of runs) {
     const editor = new Editing(fixtures);
     const plan = await runPlan(editor, run);
     if (pending?.held) test.fail(pending.held);
-    const wanted = plan.states.at(-1)!;
+    const wanted = wholePairs(run, plan.states).at(-1)!;
     const problems: string[] = [];
     for (let again = 0; again < (run.repeat ?? 1); again++) {
       await begin(editor, run);
