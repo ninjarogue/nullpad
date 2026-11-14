@@ -1706,8 +1706,13 @@ for (const [what, prefix, marks, size] of [
   ['a quote', '> ', '#', '32px'],
   ['a nested item', '- - ', '#', '32px'],
   ['a quoted item', '> - ', '#', '32px'],
+  ['a list item at level 2', '- ', '##', '24px'],
   ['a list item at level 3', '- ', '###', '20px'],
+  ['a list item at level 4', '- ', '####', '18px'],
+  ['a list item at level 5', '- ', '#####', '16px'],
   ['a list item at level 6', '- ', '######', '14px'],
+  ['a nested item at level 6', '- - ', '######', '14px'],
+  ['an ordered item at level 6', '1. ', '######', '14px'],
   ['a quote at level 2', '> ', '##', '24px'],
 ] as const) {
   test(`a # typed in ${what} draws its line at heading size at once, and leaving the line moves nothing`, async ({

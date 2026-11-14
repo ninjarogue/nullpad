@@ -492,6 +492,20 @@ button[aria-pressed="true"] {
   margin-block: 0.25rem max(0.25rem, var(--title) / 2);
 }
 
+/* The marker's line is as tall as body text, so a heading smaller than that
+   starts lower in its item when drawn. */
+.editor.part.item.h4 {
+  margin-top: calc(0.25rem + 2px);
+}
+
+.editor.part.item.h5 {
+  margin-top: calc(0.25rem + 3px);
+}
+
+.editor.part.item.h6 {
+  margin-top: calc(0.25rem + 5px);
+}
+
 /* A row typed as another kind of block than the page laid it out as keeps
    the height and margins it was laid out with, so nothing around it moves. */
 .editor.part.framed {
