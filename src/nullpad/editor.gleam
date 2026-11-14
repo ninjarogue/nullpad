@@ -266,8 +266,8 @@ pub type Edge {
   /// Ctrl and an arrow up or down: the head moves to the run's column on
   /// the last drawn line of the row above, or the first of the row below, as
   /// in a text field that holds the markdown, or to the start or end of the
-  /// note from its first or last row. Without `select` it moves from the
-  /// start of the selection.
+  /// note from its first or last row. It moves from the head, with or
+  /// without `select`, as Chrome's text field does.
   Row(up: Bool, select: Bool)
   /// A key the browser acts on by the text alone, which can take the head
   /// past the field: the field holds the whole note while it does.
@@ -1097,15 +1097,11 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     Beside(up: True, select:) if live -> #(base, Aim(LineAbove, select:))
     Beside(up: False, select:) if live -> #(base, Aim(LineBelow, select:))
     Row(up:, select:) if live -> {
-      let from = case select {
-        True -> head
-        False -> earlier(anchor, head)
-      }
       let #(to, then) = case up {
-        True if from.row == 0 -> #(start, Done)
-        True -> #(end_of_row(from.row - 1), Aim(LastLine, select:))
-        False if from.row == end.row -> #(end, Done)
-        False -> #(Position(row: from.row + 1, col: 0), Aim(FirstLine, select:))
+        True if head.row == 0 -> #(start, Done)
+        True -> #(end_of_row(head.row - 1), Aim(LastLine, select:))
+        False if head.row == end.row -> #(end, Done)
+        False -> #(Position(row: head.row + 1, col: 0), Aim(FirstLine, select:))
       }
       let selected = buffer.select(base, anchor:, head: to)
       // A selection painted over the drawn page is not laid out as the
@@ -1114,8 +1110,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       case select, then, is_painted(edit(editor, selected) |> realign) {
         True, Aim(..), True -> {
           let edge = case up {
-            True -> Position(row: from.row, col: 0)
-            False -> end_of_row(from.row)
+            True -> Position(row: head.row, col: 0)
+            False -> end_of_row(head.row)
           }
           let move = case up {
             True -> LineUp
@@ -1167,13 +1163,6 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     StepTo(_), False | Done, False -> Write(wanted_shown)
   }
   Outcome(editor:, sync:, requests: [])
-}
-
-fn earlier(one: Position, other: Position) -> Position {
-  case one.row < other.row || one.row == other.row && one.col < other.col {
-    True -> one
-    False -> other
-  }
 }
 
 fn result_or_empty(line: Result(String, Nil)) -> String {

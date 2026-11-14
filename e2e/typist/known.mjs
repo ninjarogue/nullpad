@@ -30,7 +30,6 @@ const times = (n, key) => Array.from({ length: n }, () => key);
 /** A key whose result depends on where the caret is drawn across the page: Up and Down, with Shift or Ctrl, Page Up and Page Down. */
 export const isVertical = (k) => /^(Control\+)?(Shift\+)?Arrow(Up|Down)$|^(Shift\+)?Page(Up|Down)$/.test(k);
 const isPage = (k) => /Page(Up|Down)$/.test(k);
-const isRowKey = (k) => /^Control\+(Shift\+)?Arrow(Up|Down)$/.test(k);
 const isShiftVertical = (k) => /^(Control\+)?Shift\+Arrow(Up|Down)$/.test(k);
 const isShiftHorizontal = (k) => /^(Control\+)?Shift\+(Arrow(Left|Right)|Home|End)$/.test(k);
 const isWordSelect = (k) => /^Control\+Shift\+Arrow(Left|Right)$/.test(k);
@@ -164,15 +163,6 @@ export const known = [
     repro: [P('one\n\n- item\n\n## Head'), 'Control+Home', 'End', 'Shift+ArrowRight', 'Shift+ArrowRight', 'Backspace'],
     pace: 'frame',
     skip: (k, c) => isShiftHorizontal(k) && hasBlockMarks(c) && crossRow(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'row-step-from-selection',
-    kind: 'open',
-    finding: 'X7',
-    reason: 'X7: Ctrl+Up and Ctrl+Down with a selection across rows move from the start of the selection, where a textarea moves from its head.',
-    repro: [P('# Head\n\nfirst para\n\n- item one\n- item two\n\n> quote line\n\nlast para'), 'Control+Home', ...times(2, 'ArrowDown'), ...times(3, 'Shift+ArrowDown'), 'Control+ArrowUp'],
-    skip: (k, c) => isRowKey(k) && selecting(c) && crossRow(c),
     sanitize: (script) => script,
   },
   {

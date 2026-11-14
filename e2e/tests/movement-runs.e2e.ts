@@ -221,17 +221,8 @@ const forwardMiddle = 'a painted selection across blocks, forward, its head in t
 const backwardStart = 'a painted selection across blocks, backward, its head at the start of a row';
 const backwardMiddle = 'a painted selection across blocks, backward, its head in the middle of a row';
 const wholeNote = 'the whole note, after Ctrl+A';
-const up = ctrl('ArrowUp');
-const down = ctrl('ArrowDown');
 
 const failing = new Map<string, string>([
-  // X7: Ctrl+Up and Ctrl+Down with a selection across rows move from the start of the selection, not from its head.
-  [`${forwardStart}|${up}`, 'X7'],
-  [`${forwardStart}|${down}`, 'X7'],
-  [`${forwardMiddle}|${up}`, 'X7'],
-  [`${forwardMiddle}|${down}`, 'X7'],
-  [`${wholeNote}|${up}`, 'X7'],
-  [`${wholeNote}|${down}`, 'X7'],
   // B5: Page Up and Page Down collapse a selection when nothing scrolls, where a plain field keeps it.
   [`${forwardStart}|PageUp`, 'B5'],
   [`${forwardMiddle}|PageUp`, 'B5'],
@@ -644,9 +635,6 @@ const failingRuns = new Map<string, { paced?: string; held?: string; burst?: str
   ['Shift+Down through setext headings and their underlines', both('B3')],
   ['Shift+Up through rules', both('B3')],
   ['Shift+Down through rules', both('B3')],
-  // X7: Ctrl+Up and Ctrl+Down with a selection across rows.
-  ['Ctrl+Up and Ctrl+Down move from the head of a selection across rows', both('X7')],
-  ['Ctrl+Down on the whole note', both('X7')],
   // X1: Ctrl+Shift+Right sticks before hidden marks, and the anchor is snapped.
   ['Ctrl+Shift+Right through words with hidden marks', { paced: 'X1' }],
   ['Ctrl+Right through words with hidden marks, then Ctrl+Shift+Down, then Ctrl+Shift+Up', both('X1')],

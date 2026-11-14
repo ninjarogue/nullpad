@@ -1869,6 +1869,34 @@ pub fn ctrl_and_an_arrow_aims_at_the_runs_column_on_the_row_above_or_below_test(
     == #(Position(row: 3, col: 2), Position(row: 3, col: 7))
 }
 
+pub fn ctrl_and_an_arrow_on_a_selection_moves_from_its_head_test() {
+  let note = "alpha one\nbravo two\ncharlie three"
+  let ed = pressed(note, 0, "")
+  let row = fn(up, from, to) {
+    let shown = selected(note, from, to)
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Row(up:, select: False), 30.0, shown),
+    )
+  }
+  let Outcome(sync:, ..) = row(True, Position(0, 2), Position(2, 3))
+  assert sync
+    == editor.WriteAndAim(
+      caret(note, 1, 9),
+      x: 30.0,
+      line: editor.LastLine,
+      select: False,
+    )
+  let Outcome(sync:, ..) = row(False, Position(0, 2), Position(1, 3))
+  assert sync
+    == editor.WriteAndAim(
+      caret(note, 2, 0),
+      x: 30.0,
+      line: editor.FirstLine,
+      select: False,
+    )
+}
+
 pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
   let note = "alpha one\nab\nbravo two"
   let ed = pressed(note, 2, "")
