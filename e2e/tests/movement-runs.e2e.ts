@@ -267,6 +267,8 @@ type Run = {
   stall?: number;
   /** The page's frames are held while the keys of the run are sent, from before the note is pasted, or from the frame before the steps, so that every key arrives before the page draws again, whatever the load of the machine. */
   holdRedraw?: boolean;
+  /** The keys sent at once are held to the same keys pressed a frame apart on the page, not to the plain field: its vertical keys land where the page's type puts them. */
+  againstPaced?: boolean;
   /** The run is not pressed with no frame between its keys: whether the page has drawn between two keys of the harness's keyboard depends on the load of the machine. */
   noHeld?: boolean;
   /** The offsets of the first and the last mark of each pair of marks the page hides, as `**bold**`. A painted end never cuts one. */
@@ -524,6 +526,7 @@ const runs: Run[] = [
     burstOnly: true,
     frameBeforeSteps: true,
     holdRedraw: true,
+    againstPaced: true,
   },
 ];
 
@@ -647,7 +650,7 @@ function releaseFrames() {
  * can be read. With `withViewSwitch` Ctrl+E goes with the keys. The harness's own keyboard waits for the page to
  * handle each key, which keeps two keys from sharing a frame.
  */
-async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, times: number) {
+async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, times: number, paced = false) {
   const browser = await chromium.launch();
   try {
     const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'], viewport: { width: 1280, height: 800 } });
@@ -673,7 +676,7 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
         });
       }
       await raw.evaluate((text: string) => navigator.clipboard.writeText(text), run.body);
-      const holdAll = run.holdRedraw && !run.frameBeforeSteps;
+      const holdAll = run.holdRedraw && !run.frameBeforeSteps && !paced;
       if (holdAll) await raw.evaluate(holdFrames);
       await raw.keyboard.press('Control+v');
       const send = (keys: string[]) => Promise.all(keys.flatMap(keyEvents).map((event) => session.send('Input.dispatchKeyEvent', event as never)));
@@ -684,7 +687,12 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
         await send(keys);
         if (run.holdRedraw) await raw.evaluate(releaseFrames);
       };
-      if (run.frameBeforeSteps) {
+      if (paced) {
+        for (const step of ['Control+Home', ...run.start.map(key), ...steps]) {
+          await send([step]);
+          await frames();
+        }
+      } else if (run.frameBeforeSteps) {
         await send(['Control+Home', ...run.start.map(key)]);
         await raw.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
         await held(steps);
@@ -795,17 +803,19 @@ for (const run of runs) {
   }
 
   if (run.burst) {
-    test(`${run.name}, with the keys sent at once, ends where a plain text field does`, async (fixtures) => {
+    const against = run.againstPaced ? 'the same keys pressed a frame apart do' : 'a plain text field does';
+    test(`${run.name}, with the keys sent at once, ends where ${against}`, async (fixtures) => {
       const editor = new Editing(fixtures);
       const plan = await runPlan(editor, run);
       if (pending?.burst) test.fail(pending.burst);
-      const wanted = plan.states.at(-1)!;
       await fixtures.app.open('/blank');
       const origin = new URL(await fixtures.browser.url()).origin;
+      const wanted = run.againstPaced ? (await pressTogether(origin, run, false, 1, true))[0]! : plan.states.at(-1)!;
+      const field = run.againstPaced ? 'the page with a frame between the keys' : 'the plain field';
       const problems: string[] = [];
       for (const [again, got] of (await pressTogether(origin, run, false, run.repeat ?? 6)).entries()) {
         const state = { anchor: got.anchor, head: got.head, x: NaN, y: NaN };
-        if (got.value !== wanted.value) problems.push(`press ${again + 1}: the plain field holds ${JSON.stringify(wanted.value)}, the page ${JSON.stringify(got.value)}`);
+        if (got.value !== wanted.value) problems.push(`press ${again + 1}: ${field} holds ${JSON.stringify(wanted.value)}, the page ${JSON.stringify(got.value)}`);
         for (const problem of judge('plain field', wanted, state, NaN, 0)) problems.push(`press ${again + 1}: ${problem}`);
       }
       expect(problems).toEqual([]);
