@@ -24,11 +24,8 @@ import nullpad/vim.{Step}
 /// where the step before it ended.
 ///
 /// `goal` is where a run of moves up and down aims, as a text field keeps
-/// the caret's x: how far from the left of the page's text the head was
-/// drawn when the run began, with the start of a row at 0. Every move up or
-/// down lands nearest it, on the line as the page will show it. The first
-/// move of a run sets it, and any other change to the selection or the text
-/// ends the run.
+/// the caret's x. The first move of a run sets it, and any other change to
+/// the selection or the text ends the run.
 pub opaque type Editor {
   /// `press` is a mouse press the editor took, held until it is let go.
   /// `clicked` is where the last plain press put the caret.
@@ -45,9 +42,18 @@ pub opaque type Editor {
     dragging: Bool,
     composing: Bool,
     paints: Bool,
-    goal: Option(Float),
+    goal: Option(Goal),
     waiting: List(Queued),
   )
+}
+
+/// `x` is how far from the left of the page's text the head was drawn when
+/// the run began, with the start of a row at 0. Every move up or down lands
+/// nearest it, on the line as the page will show it. `col` is the head's
+/// column then, which a row the page does not draw, such as a fence, takes
+/// as a text field of the markdown takes its x.
+type Goal {
+  Goal(x: Float, col: Int)
 }
 
 /// A move of the head that waits for the page. Without `select` the anchor
@@ -641,15 +647,23 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         | [Queued(move: LetterOn, select:), ..] -> #(False, select)
         [] -> #(False, True)
       }
-      // A caret's line step past rows the page does not draw, such as a
-      // fence, stops on the first of them, as it does in a text field. A
-      // selection's steps go over the drawn page.
-      let placed = case line && !select, placed.row - head.row {
-        True, apart if apart > 1 -> Position(row: head.row + 1, col: 0)
-        True, apart if apart < -1 -> Position(row: head.row - 1, col: 0)
-        _, _ -> placed
+      // A line step past rows the page does not draw, such as a fence, a
+      // rule or a heading's underline, stops on the first of them, as it does
+      // in a text field, at the run's column.
+      let undrawn = fn(row) {
+        let col = case editor.goal {
+          Some(Goal(col:, ..)) -> col
+          None -> head.col
+        }
+        let col = int.min(col, line_end(editor.buffer, row).col)
+        #(Position(row:, col:), True)
       }
-      let placed = through_marks(editor, row:, visible:, from: head, to: placed)
+      let #(placed, undrawn) = case line, placed.row - head.row {
+        True, apart if apart > 1 -> undrawn(head.row + 1)
+        True, apart if apart < -1 -> undrawn(head.row - 1)
+        _, _ -> #(placed, False)
+      }
+      let placed = in_row(editor, row:, visible:, from: head, to: placed)
       let anchor = case select {
         True -> anchor
         False -> placed
@@ -663,10 +677,12 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       }
       moved
       |> begin_run(editor, landed, x)
-      |> next_step(landed)
+      |> next_step(landed, undrawn)
     }
     Unstepped(x:) ->
-      editor |> begin_run(editor, landing(editor.waiting), x) |> next_step(None)
+      editor
+      |> begin_run(editor, landing(editor.waiting), x)
+      |> next_step(None, False)
     FieldStepped(shown:, x:) ->
       case editor.waiting {
         [] -> typed(editor, shown, None, realign)
@@ -676,7 +692,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           |> edit(base(editor, shown))
           |> realign
           |> begin_run(editor, landed, x)
-          |> next_step(landed)
+          |> next_step(landed, False)
         }
       }
     Aimed(shown:) -> typed(editor, shown, None, realign)
@@ -709,7 +725,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       }
       moved
       |> begin_run(editor, landing(editor.waiting), -1.0)
-      |> next_step(None)
+      |> next_step(None, False)
     }
     Settled(from:, to: #(anchor, head)) ->
       case is_painted(editor) && buffer.selection(editor.buffer) == from {
@@ -823,13 +839,15 @@ fn travel(
 /// The next waiting step, once the first has landed. A step up or down
 /// that `landed` with nothing waiting after it is aimed at the run's column
 /// on the line it reached, as the field shows that line, unless the
-/// selection is painted over the drawn page, which then shows it.
-fn next_step(editor: Editor, landed: Option(Bool)) -> Outcome {
+/// selection is painted over the drawn page, which then shows it, or the
+/// step stopped on a row the page does not draw, which took the run's
+/// column.
+fn next_step(editor: Editor, landed: Option(Bool), undrawn: Bool) -> Outcome {
   let waiting = list.drop(editor.waiting, 1)
   let editor = Editor(..editor, waiting:)
   case waiting, landed, editor.goal {
-    [], Some(select), Some(x) ->
-      case is_painted(editor) {
+    [], Some(select), Some(Goal(x:, ..)) ->
+      case is_painted(editor) || undrawn {
         True -> write(editor)
         False -> {
           let sync =
@@ -856,7 +874,11 @@ fn begin_run(
   x: Float,
 ) -> Editor {
   case landed, editor.goal {
-    Some(_), None if x >=. 0.0 -> Editor(..editor, goal: Some(x))
+    Some(_), None if x >=. 0.0 ->
+      Editor(
+        ..editor,
+        goal: Some(Goal(x:, col: buffer.cursor(before.buffer).col)),
+      )
     None, _ if editor.buffer != before.buffer -> Editor(..editor, goal: None)
     Some(_), _ | None, _ -> editor
   }
@@ -902,13 +924,15 @@ pub fn step_start(editor: Editor) -> Position {
   }
 }
 
-/// A letter step among marks the page hides, which it draws at one place,
-/// goes a letter at a time as in a text field, where the place it reaches
-/// cuts no pair of marks: on past marks such as `- ` that start the row,
-/// or back over those before the head when the page's step left the row.
-/// `row` and `visible` are the place the page's step reached, as for
-/// `live.position`.
-fn through_marks(
+/// A step of a letter or to a line's end over marks the page hides, which
+/// it draws at one place, lands where a text field's does, if that place
+/// cuts no pair of marks: a letter on through marks such as `- ` that start
+/// the row, and back over those before the head when the page's step left
+/// the row. A head on a row the page does not draw, such as a fence, is
+/// drawn at the end of the block before it, so a step the page took from
+/// there to another row stays on the head's own row. `row` and `visible`
+/// are the place the page's step reached, as for `live.position`.
+fn in_row(
   editor: Editor,
   row row: Int,
   visible visible: String,
@@ -917,33 +941,41 @@ fn through_marks(
 ) -> Position {
   let lines = buffer.lines(editor.buffer)
   let #(anchor, _) = buffer.selection(editor.buffer)
+  let left = placed.row != head.row
+  let hidden = fn(col) {
+    let at = Position(..head, col:)
+    live.settle(lines, row: head.row, visible: "", at:, other: anchor)
+  }
   case editor.waiting {
-    [Queued(move: LetterOn, ..), ..]
-      if placed.row == head.row && placed.col > head.col + 1
-    -> {
+    [Queued(move: LetterOn, ..), ..] if !left && placed.col > head.col + 1 -> {
       let at = Position(..head, col: head.col + 1)
       case live.settle(lines, row:, visible:, at:, other: anchor) == at {
         True -> at
         False -> placed
       }
     }
-    [Queued(move: LetterBack, ..), ..]
-      if placed.row != head.row && head.col > 0
-    -> {
-      let at = Position(..head, col: head.col - 1)
-      let at =
-        live.settle(lines, row: head.row, visible: "", at:, other: anchor)
+    [Queued(move: LetterOn, ..), ..] if left -> {
+      let at = hidden(head.col + 1)
+      case at.col > head.col {
+        True -> at
+        False -> placed
+      }
+    }
+    [Queued(move: LetterBack, ..), ..] if left && head.col > 0 -> {
+      let at = hidden(head.col - 1)
       case at.col < head.col {
         True -> at
         False -> placed
       }
     }
+    [Queued(move: LineStart, ..), ..] if left -> Position(..head, col: 0)
+    [Queued(move: LineEnd, ..), ..] if left -> line_end(editor.buffer, head.row)
     [Queued(move: LetterOn, ..), ..]
     | [Queued(move: LetterBack, ..), ..]
-    | [Queued(move: LineUp, ..), ..]
-    | [Queued(move: LineDown, ..), ..]
     | [Queued(move: LineStart, ..), ..]
     | [Queued(move: LineEnd, ..), ..]
+    | [Queued(move: LineUp, ..), ..]
+    | [Queued(move: LineDown, ..), ..]
     | [Queued(move: PageUp, ..), ..]
     | [Queued(move: PageDown, ..), ..]
     | [] -> placed
@@ -975,8 +1007,11 @@ fn stays(editor: Editor, reached: Position) -> Bool {
 /// run, is measured from where the head is drawn.
 fn step_x(editor: Editor, move: Move) -> Float {
   case move, editor.goal {
-    LineUp, Some(x) | LineDown, Some(x) | PageUp, Some(x) | PageDown, Some(x) ->
-      x
+    LineUp, Some(Goal(x:, ..))
+    | LineDown, Some(Goal(x:, ..))
+    | PageUp, Some(Goal(x:, ..))
+    | PageDown, Some(Goal(x:, ..))
+    -> x
     LineUp, None
     | LineDown, None
     | PageUp, None
@@ -1146,7 +1181,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     shown == field_buffer(editor)
   {
     True, Some(goal), True -> Some(goal)
-    True, _, _ if x >=. 0.0 -> Some(x)
+    True, _, _ if x >=. 0.0 -> Some(Goal(x:, col: cursor.col))
     True, _, _ | False, _, _ -> None
   }
   let start = Position(row: 0, col: 0)
@@ -1265,7 +1300,12 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let wanted_shown = field_buffer(editor)
   let sync = case then, wanted_shown == shown {
     Aim(line, select:), _ ->
-      WriteAndAim(wanted_shown, x: option.unwrap(goal, x), line:, select:)
+      WriteAndAim(
+        wanted_shown,
+        x: option.map(goal, fn(goal) { goal.x }) |> option.unwrap(x),
+        line:,
+        select:,
+      )
     StepTo(Queued(move:, select:)), _ if first ->
       WriteAndStep(wanted_shown, move:, select:, x: step_x(editor, move))
     StepTo(_), True | Done, True -> InSync

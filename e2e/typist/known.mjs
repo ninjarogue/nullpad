@@ -30,7 +30,6 @@ const times = (n, key) => Array.from({ length: n }, () => key);
 /** A key whose result depends on where the caret is drawn across the page: Up and Down, with Shift or Ctrl, Page Up and Page Down. */
 export const isVertical = (k) => /^(Control\+)?(Shift\+)?Arrow(Up|Down)$|^(Shift\+)?Page(Up|Down)$/.test(k);
 const isPage = (k) => /Page(Up|Down)$/.test(k);
-const isShiftVertical = (k) => /^(Control\+)?Shift\+Arrow(Up|Down)$/.test(k);
 const isShiftHorizontal = (k) => /^(Control\+)?Shift\+(Arrow(Left|Right)|Home|End)$/.test(k);
 const isWordSelect = (k) => /^Control\+Shift\+Arrow(Left|Right)$/.test(k);
 
@@ -39,7 +38,6 @@ const columnAt = (value, offset) => offset - (value.slice(0, offset).lastIndexOf
 const atRowStart = (c) => columnAt(c.value, c.head) === 0;
 const rows = (c) => c.value.split('\n');
 
-const hardRow = /^ {0,3}(`{3,}|~{3,}|([-*_] ?){3,}|=+|-+)\s*$/;
 const anyMark = /[#\-*>`|[\]~_=]/;
 const inlineMark = /[*_~`[\]]/;
 
@@ -56,7 +54,6 @@ const fontFree = (k, c) => {
   return there.startsWith(here) || here.startsWith(there);
 };
 
-const hasHardRows = (c) => rows(c).some((r) => hardRow.test(r));
 
 /** A frame waited for before and after each key that waits for the page, which is how the old typist hid every race. */
 const waitAroundSteps = (script, pace) => {
@@ -122,24 +119,6 @@ export const known = [
     repro: [P('# Head one\n\nbody text here\n\n## Two\nline\n\nend'), 'Control+Home', wait, 'ArrowDown', 'End', 'Enter', 'ArrowLeft', 'a', 'b', 'Shift+ArrowRight', 'Control+Shift+ArrowRight', 'Backspace', 'ArrowUp', 'Shift+End', 'Shift+ArrowDown', 'Control+ArrowRight', 'Control+Shift+ArrowRight', 'Shift+Home', 'x'],
     tries: 12,
     sanitize: waitAroundSteps,
-  },
-  {
-    id: 'select-over-fences-and-rules',
-    kind: 'open',
-    finding: 'X4',
-    reason: 'X4: Shift+Up from the blank row below a code block jumps over the whole block, and Shift+Down never lands on a rule row. B3: Shift+Up skips a setext underline and a rule row, where plain Up does not. A note with a fence, a rule or an underline has its Shift+vertical keys left out.',
-    repro: [P('top\n\n```\ncode one\ncode two\n```\n\nend'), 'Control+End', 'Home', 'Shift+ArrowUp', 'Shift+ArrowUp'],
-    skip: (k, c) => isShiftVertical(k) && hasHardRows(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'select-over-setext',
-    kind: 'open',
-    finding: 'B3',
-    reason: 'B3: Shift+Up skips the underline of a setext heading and a rule row. Left out together with X4.',
-    repro: [P('Head one\n========\n\ntext'), 'Control+Home', 'ArrowDown', 'ArrowDown', 'Shift+ArrowUp'],
-    skip: (k, c) => isShiftVertical(k) && hasHardRows(c),
-    sanitize: (script) => script,
   },
   {
     id: 'word-select-over-marks',

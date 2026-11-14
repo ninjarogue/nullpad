@@ -1338,6 +1338,8 @@ pub fn typing_over_a_selection_across_blocks_replaces_it_test() {
     live(live_note)
     |> editor.update(editor.ControlChanged(shown: caret("# Trip", 0, 3), at: 0))
   let Outcome(editor: ed, ..) =
+    step_to(ed, row: 1, visible: "", at_end: False, x: 0.0)
+  let Outcome(editor: ed, ..) =
     step_to(ed, row: 2, visible: "", at_end: False, x: 0.0)
 
   let typed = caret("# TXFlights are **booked**.", 0, 4)
@@ -2083,20 +2085,26 @@ pub fn a_press_where_the_caret_is_ends_the_run_test() {
 }
 
 pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
-  let ed = pressed("alpha one\n\nbravo two", 0, "")
+  let ed = pressed("alpha one\nbravo two", 0, "")
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
         x: 40.0,
-        shown: caret("alpha one", 0, 4),
+        shown: caret("alpha one\nbravo two", 0, 4),
       ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "brav", at_end: False, next: "", x: 40.0),
+      editor.Stepped(
+        row: 0,
+        visible: "alpha one\nbrav",
+        at_end: False,
+        next: "",
+        x: 40.0,
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -2119,7 +2127,13 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "bra", at_end: False, next: "v", x: 0.0),
+      editor.Stepped(
+        row: 0,
+        visible: "alpha one\nbra",
+        at_end: False,
+        next: "v",
+        x: 0.0,
+      ),
     )
   let assert editor.WriteAndStep(move: editor.LineUp, x: -1.0, ..) = sync
 }
@@ -2277,7 +2291,32 @@ pub fn an_arrow_through_a_blank_row_aims_where_the_last_one_did_test() {
   let assert editor.WriteAndAim(x: 40.0, ..) = sync
 }
 
-pub fn a_caret_line_step_past_a_fence_stops_on_the_fence_and_a_selection_steps_over_it_test() {
+pub fn a_line_step_onto_a_fence_takes_the_runs_column_test() {
+  let note = "abcdef\n\n```\ncode\n```"
+  let ed = pressed(note, 0, "ab")
+  let down = fn(ed, row, next) {
+    let Outcome(editor: ed, ..) =
+      editor.update(
+        ed,
+        editor.EdgePressed(
+          editor.Line(up: False, select: True),
+          x: 20.0,
+          shown: editor.field_buffer(ed),
+        ),
+      )
+    editor.update(
+      ed,
+      editor.Stepped(row:, visible: "", at_end: False, next:, x: 20.0),
+    )
+  }
+  let Outcome(editor: ed, ..) = down(ed, 1, "")
+  let Outcome(editor: ed, sync:, ..) = down(ed, 3, "c")
+  assert buffer.selection(editor.buffer(ed))
+    == #(Position(row: 0, col: 2), Position(row: 2, col: 2))
+  let assert editor.Write(_) = sync
+}
+
+pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
   let note = "alpha\n\n```\ncode\n```"
   let ed = pressed(note, 1, "")
   let step = fn(select) {
@@ -2298,7 +2337,7 @@ pub fn a_caret_line_step_past_a_fence_stops_on_the_fence_and_a_selection_steps_o
     buffer.selection(editor.buffer(ed))
   }
   assert step(False) == #(Position(row: 2, col: 0), Position(row: 2, col: 0))
-  assert step(True) == #(Position(row: 1, col: 0), Position(row: 3, col: 0))
+  assert step(True) == #(Position(row: 1, col: 0), Position(row: 2, col: 0))
 }
 
 pub fn a_second_press_selects_the_word_the_first_put_the_caret_in_test() {

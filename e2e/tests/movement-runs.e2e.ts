@@ -212,17 +212,8 @@ function planOf(editor: Editing, state: State) {
   return found;
 }
 
-/**
- * The cases that fail today, by state and key: the id of the finding of the review that shows it.
- * A key pressed on a painted selection leaves it painted, or draws it where the page puts the head.
- */
-const backwardMiddle = 'a painted selection across blocks, backward, its head in the middle of a row';
-
-const failing = new Map<string, string>([
-  // X4: Shift+Down and Ctrl+Shift+Down skip the fence row of a code block.
-  [`${backwardMiddle}|Shift+ArrowDown`, 'X4'],
-  [`${backwardMiddle}|${ctrl('Shift+ArrowDown')}`, 'X4'],
-]);
+/** The cases that fail today, by state and key: the id of the finding of the review that shows it. None do. */
+const failing = new Map<string, string>();
 
 for (const state of states) {
   for (const key of moving) {
@@ -614,14 +605,6 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
 const both = (finding: string) => ({ paced: finding, held: finding });
 
 const failingRuns = new Map<string, { paced?: string; held?: string; burst?: string; viewSwitch?: string }>([
-  // X4: Shift+Up from the blank row below a code block jumps over the whole block.
-  ['Shift+Up from the blank row below a code block', both('X4')],
-  ['Shift+Down through a code block', both('X4')],
-  // B3: Shift+Up and Shift+Down skip a setext underline and a rule.
-  ['Shift+Up through setext headings and their underlines', { paced: 'B3' }],
-  ['Shift+Down through setext headings and their underlines', both('B3')],
-  ['Shift+Up through rules', both('B3')],
-  ['Shift+Down through rules', both('B3')],
   // X1: Ctrl+Shift+Right sticks before hidden marks, and the anchor is snapped.
   ['Ctrl+Shift+Right through words with hidden marks', { paced: 'X1' }],
   ['Ctrl+Right through words with hidden marks, then Ctrl+Shift+Down, then Ctrl+Shift+Up', both('X1')],
