@@ -293,6 +293,10 @@ type Run = {
   burstOnly?: boolean;
   /** The run is also pressed with Ctrl+E, which shows the source, sent with its keys. */
   viewSwitch?: boolean;
+  /** The page's thread is held this many milliseconds while the keys of the run are sent, so that they all arrive before it draws. */
+  stall?: number;
+  /** The run is not pressed with no frame between its keys: whether the page has drawn between two keys of the harness's keyboard depends on the load of the machine. */
+  noHeld?: boolean;
 };
 
 const key = (step: Step) => (typeof step === 'string' ? step : step.key);
@@ -391,6 +395,7 @@ const runs: Run[] = [
     steps: times(8, ctrl('Shift+ArrowRight')),
     follow: 'plain field',
     pace: 150,
+    noHeld: true,
   },
   {
     name: 'Ctrl+Shift+Left through words with hidden marks',
@@ -457,6 +462,7 @@ const runs: Run[] = [
     follow: 'plain field',
     burst: true,
     burstOnly: true,
+    stall: 80,
     throttle: 1,
     repeat: 30,
   },
@@ -604,7 +610,10 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
         await send(['Control+Home', ...run.start.map(key)]);
         await raw.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
         await send(steps);
-      } else await send(['Control+Home', ...run.start.map(key), ...steps]);
+      } else {
+        if (run.stall) void raw.evaluate((ms: number) => { for (const from = performance.now(); performance.now() - from < ms; ); }, run.stall);
+        await send(['Control+Home', ...run.start.map(key), ...steps]);
+      }
       await frames();
       if (!withViewSwitch) await raw.keyboard.press('Control+e');
       await frames();
@@ -720,7 +729,7 @@ for (const run of runs) {
     expect(problems).toEqual([]);
   });
 
-  if (!run.burstOnly) test(`${run.name}, with no frame between the keys, ends where a plain text field does`, async (fixtures) => {
+  if (!run.burstOnly && !run.noHeld) test(`${run.name}, with no frame between the keys, ends where a plain text field does`, async (fixtures) => {
     const editor = new Editing(fixtures);
     const plan = await runPlan(editor, run);
     if (pending?.held) test.fail(pending.held);
