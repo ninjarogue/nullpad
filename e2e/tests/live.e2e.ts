@@ -1701,32 +1701,80 @@ test('taking the # off a finished heading draws its line at body size at once', 
   await expect.poll(async () => (await page.placeOf('below'))!.top).toBeLessThan(before);
 });
 
-test('a # typed after a list marker leaves the rows around the item where they were', async ({
-  app,
-  browser,
-  disk,
-  page,
-}) => {
-  await openLive({ app, disk, page }, 'top\n\n- Hello\n\nbelow words');
-  await browser.keyboard.press('ArrowDown');
-  await browser.keyboard.press('ArrowDown');
-  await expect(page.text).toHaveValue('- Hello');
-  await browser.keyboard.press('Home');
-  await browser.keyboard.press('ArrowRight');
-  await browser.keyboard.press('ArrowRight');
-  await page.nextFrame();
-  const measure = async () => ({
-    top: (await page.placeOf('top'))!.top,
-    below: (await page.placeOf('below'))!.top,
-    size: await page.sizesOf(field),
-  });
-  const still = await measure();
-  for (const key of '# ') {
-    await browser.keyboard.type(key);
+for (const [what, prefix] of [
+  ['a list item', '- '],
+  ['a quote', '> '],
+  ['a nested item', '- - '],
+  ['a quoted item', '> - '],
+] as const) {
+  test(`a # typed in ${what} draws its line at heading size at once, and leaving the line moves nothing`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, 'top\n\nHello world\n\nbelow words');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('Home');
+    await browser.keyboard.type(prefix);
+    await expect(page.text).toHaveValue(`${prefix}Hello world`);
     await page.nextFrame();
-    expect({ key, ...(await measure()) }).toEqual({ key, ...still });
-  }
-});
+    const belowAt = async () => (await page.placeOf('below'))!.top;
+    const bodySize = await page.sizesOf(field);
+    const base = await belowAt();
+
+    await browser.keyboard.type('#');
+    await expect(page.text).toHaveValue(`${prefix}#Hello world`);
+    await page.nextFrame();
+    expect(await page.sizesOf(field)).toEqual(bodySize);
+    expect(await belowAt()).toBe(base);
+
+    await browser.keyboard.type(' ');
+    await expect(page.text).toHaveValue(`${prefix}# Hello world`);
+    await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
+    const typed = await page.sizesOf(field);
+    await expect.poll(belowAt).toBeGreaterThan(base);
+    const after = await belowAt();
+
+    await browser.keyboard.press('End');
+    for (const key of ' more') {
+      await browser.keyboard.type(key);
+      await page.nextFrame();
+      expect(await page.sizesOf(field)).toEqual(typed);
+      expect(await belowAt()).toBe(after);
+    }
+
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    await page.nextFrame();
+    expect(await page.sizesOf('[data-test-id="live-above"] h1')).toEqual(typed);
+    expect(await belowAt()).toBe(after);
+  });
+
+  test(`taking the # off a heading in ${what} returns its line to body size at once`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, 'top\n\nHello world\n\nbelow words');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('Home');
+    await browser.keyboard.type(prefix);
+    await page.nextFrame();
+    const bodySize = await page.sizesOf(field);
+    const base = (await page.placeOf('below'))!.top;
+    await browser.keyboard.type('# ');
+    await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
+
+    await browser.keyboard.press('Backspace');
+    await expect(page.text).toHaveValue(`${prefix}#Hello world`);
+    await expect.poll(() => page.sizesOf(field)).toEqual(bodySize);
+    await expect.poll(async () => (await page.placeOf('below'))!.top).toBe(base);
+  });
+}
 
 test('a setext underline typed under a line does not make that line a heading while the caret is on the underline', async ({
   app,
