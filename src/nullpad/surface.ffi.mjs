@@ -546,8 +546,8 @@ function caretAt(x, y) {
 
 let pen = null;
 
-// A heading's size and tracking are the stylesheet's `--h1` to `--h6`, in
-// rem, and `--h1-tracking` to `--h6-tracking`, in em.
+// A heading's size is the stylesheet's `--h1` to `--h6`, in rem, and its
+// tracking `--h1-tracking` to `--h6-tracking`, in em, where one is set.
 export function textWidth(text, heading) {
   const root = getComputedStyle(document.documentElement);
   const rem = parseFloat(root.fontSize);
