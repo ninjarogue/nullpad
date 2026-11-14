@@ -3,6 +3,8 @@
 //
 //   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3]
 //   node typist/run.mjs --script '["a","Enter","ArrowLeft"]'     replay one script
+//   node typist/run.mjs --pace frame|slow|burst|mixed            how fast nullpad is typed at
+//   --close-at-once                                               Ctrl+E (source view) sent with the last keys
 //   node typist/run.mjs --scripts '[["a"],["b"]]'               compare several scripts, no shrinking
 //   node typist/run.mjs --no-known                                ignore known.mjs
 import { spawn } from 'node:child_process';
@@ -10,7 +12,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { keyEvents, makeScripts } from './keys.mjs';
-import { known, sanitize } from './known.mjs';
+import { judged, known, sanitize, skips } from './known.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] === undefined ? '1' : all[i + 1]] : [])).filter((e) => e.length),
@@ -29,8 +31,28 @@ const read = `(async () => {
   const c = document.querySelector('textarea');
   return { v: c.value, s: c.selectionStart, e: c.selectionEnd, d: c.selectionStart === c.selectionEnd ? 'none' : c.selectionDirection };
 })()`;
+const caretOf = `(() => {
+  const c = document.querySelector('textarea');
+  const back = c.selectionDirection === 'backward';
+  return { value: c.value, anchor: back ? c.selectionEnd : c.selectionStart, head: back ? c.selectionStart : c.selectionEnd };
+})()`;
 const sign = (s) => JSON.stringify([s.v, s.s, s.e, s.d]);
-const arrowVertical = /Arrow(Up|Down)$/;
+/**
+ * How fast nullpad is typed at. The plain textarea is always typed at in a burst.
+ *   burst  every key at once, as a held key or a fast hand does
+ *   frame  the next key after the page drew a frame
+ *   slow   the next key 120ms later, after the page has settled
+ * A default run mixes them: most scripts burst, many go a frame at a time, a few are slow.
+ */
+const slowMs = 120;
+const paces = ['burst', 'frame', 'slow'];
+const closeAtOnce = args['close-at-once'] !== undefined;
+const forcedPace = args.pace && args.pace !== 'mixed' ? args.pace : null;
+if (forcedPace && !paces.includes(forcedPace)) throw new Error(`--pace ${forcedPace}: one of ${paces.join(', ')}, mixed`);
+const paceOf = (i) => forcedPace ?? (i % 16 === 15 ? 'slow' : i % 16 >= 9 ? 'frame' : 'burst');
+/** A slow script has a third fewer keys, or the short run would take a minute. */
+const slowKeys = 28;
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function freePort() {
   return new Promise((resolve) => {
@@ -74,7 +96,44 @@ async function open(browser, url, kind, errors) {
     await page.getByLabel('Note text').click();
   }
   let first = true;
-  return async (keys) => {
+  const paste = async (text) => {
+    const previous = clipboard;
+    let release;
+    clipboard = previous.then(() => new Promise((r) => (release = r)));
+    await previous;
+    try {
+      await ev(`navigator.clipboard.writeText(${JSON.stringify(text)})`);
+      await send('Control+v');
+    } finally {
+      release();
+    }
+  };
+  /**
+   * The keys of a script that can be compared, found by typing the script into the plain
+   * textarea: a key is left out where known.mjs says nullpad cannot be compared to it.
+   */
+  const prune = async (keys, pace) => {
+    await ev(`document.body.innerHTML = ${JSON.stringify(blank)}; document.querySelector('textarea').focus()`);
+    const kept = [];
+    let pending = [];
+    for (const k of keys) {
+      if (typeof k === 'string' && judged(k)) {
+        await Promise.all(pending);
+        pending = [];
+        if (skips(k, keys, await ev(caretOf), pace)) continue;
+      }
+      kept.push(k);
+      if (typeof k === 'string') pending.push(send(k));
+      else if (k.paste !== undefined) {
+        await Promise.all(pending);
+        pending = [];
+        await paste(k.paste);
+      }
+    }
+    await Promise.all(pending);
+    return kept;
+  };
+  const run = async (keys, pace = 'burst', closeAtOnce = false) => {
     if (kind === 'textarea') await ev(`document.body.innerHTML = ${JSON.stringify(blank)}; document.querySelector('textarea').focus()`);
     else if (!first) {
       // Click "New note" and wait for the empty note to take the focus.
@@ -97,33 +156,37 @@ async function open(browser, url, kind, errors) {
       pending = [];
     };
     for (const k of keys) {
+      if (typeof k === 'object' && k.wait) {
+        await drain();
+        await settle();
+        continue;
+      }
       if (typeof k === 'object') {
         await drain();
-        const previous = clipboard;
-        let release;
-        clipboard = previous.then(() => new Promise((r) => (release = r)));
-        await previous;
-        try {
-          await ev(`navigator.clipboard.writeText(${JSON.stringify(k.paste)})`);
-          await send('Control+v');
-        } finally {
-          release();
+        await paste(k.paste);
+        if (kind === 'nullpad' && pace !== 'burst') {
+          await settle();
+          if (pace === 'slow') await pause(slowMs);
         }
         continue;
       }
-      const vertical = arrowVertical.test(k);
-      if (vertical) {
-        await drain();
-        await settle();
-      }
       pending.push(send(k));
-      if (vertical) {
+      if (kind === 'nullpad' && pace !== 'burst') {
         await drain();
         await settle();
+        if (pace === 'slow') await pause(slowMs);
       }
     }
-    // Ctrl+E shows the source: the text field is only comparable there.
-    if (kind === 'nullpad') pending.push(send('Control+e'));
+    // Ctrl+E shows the source: the text field is only comparable there. The page gets two frames
+    // to finish the last key first, so that the end of every script is not a race with Ctrl+E.
+    if (kind === 'nullpad') {
+      if (!closeAtOnce) {
+        await drain();
+        await settle();
+        await settle();
+      }
+      pending.push(send('Control+e'));
+    }
     await drain();
     const state = await ev(read);
     // Undo steps differ from a textarea's by design, and the native undo stack is not a
@@ -137,6 +200,7 @@ async function open(browser, url, kind, errors) {
     }
     return { state, undone };
   };
+  return Object.assign(run, { prune });
 }
 
 const differ = (a, b) => (sign(a.state) !== sign(b.state) ? 'text, cursor or selection' : b.undone !== '' ? 'undo everything' : null);
@@ -154,7 +218,7 @@ async function shrink(keys, fails) {
 }
 
 const show = (keys) => JSON.stringify(keys);
-const replayCommand = (keys) => `node typist/run.mjs --script '${show(keys).replaceAll("'", "'\\''")}'`;
+const replayCommand = (keys, pace) => `node typist/run.mjs --pace ${pace} --script '${show(keys).replaceAll("'", "'\\''")}'`;
 
 async function main() {
   const t0 = performance.now();
@@ -170,57 +234,92 @@ async function main() {
         return { plain, nullpad };
       }),
     );
-    const compare = async (pair, keys) => {
-      const [a, b] = await Promise.all([pair.plain(keys), pair.nullpad(keys)]);
+    const compare = async (pair, keys, pace, closeAtOnce = false) => {
+      const [a, b] = await Promise.all([pair.plain(keys), pair.nullpad(keys, pace, closeAtOnce)]);
       return { a, b, why: differ(a, b) };
+    };
+    // A race does not always happen, so a repro that names `tries` is run that often and
+    // counts as still differing if any run differs.
+    const differs = async (pair, keys, pace, tries = 1, closeAtOnce = false) => {
+      let last;
+      for (let t = 0; t < tries; t++) {
+        last = await compare(pair, keys, pace, closeAtOnce);
+        if (last.why) break;
+      }
+      return last;
     };
 
     if (args.scripts) {
       for (const keys of JSON.parse(args.scripts)) {
-        const { a, b, why } = await compare(pairs[0], keys);
+        const { a, b, why } = await compare(pairs[0], keys, forcedPace ?? 'burst', closeAtOnce);
         console.log(`${why ? 'DIFFERS' : 'same   '} ${show(keys)}${why ? `\n    textarea ${show(a.state)}\n    nullpad  ${show(b.state)}` : ''}`);
       }
       return;
     }
-    const scripts = args.script ? [JSON.parse(args.script)] : makeScripts(count, length, seed).map((s) => (useKnown ? sanitize(s) : s));
+    const paceOfScript = (i) => (args.script ? (forcedPace ?? 'burst') : paceOf(i));
+    if (process.env.TYPIST_TRACE) console.log(`pages up at ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+    const made = args.script ? [JSON.parse(args.script)] : makeScripts(count, length, seed).map((s, i) => (useKnown ? sanitize(paceOfScript(i) === 'slow' ? s.slice(0, slowKeys) : s, paceOfScript(i)) : s));
+    // The plain textarea decides which vertical keys can be compared, so it has to type each script first.
+    const scripts = args.script || !useKnown ? made : [];
+    if (scripts.length === 0) {
+      await Promise.all(
+        pairs.map(async (pair, w) => {
+          for (let i = w; i < made.length; i += workers) scripts[i] = await pair.plain.prune(made[i], paceOfScript(i));
+        }),
+      );
+    }
     const ready = performance.now();
+    if (process.env.TYPIST_TRACE) console.log(`ready at ${((ready - t0) / 1000).toFixed(1)}s`);
     const failed = [];
-        await Promise.all(
+    await Promise.all(
       pairs.map(async (pair, w) => {
         for (let i = w; i < scripts.length; i += workers) {
-          const r = await compare(pair, scripts[i]);
+          const t = performance.now();
+          const r = await compare(pair, scripts[i], paceOfScript(i));
+          if (process.env.TYPIST_TRACE && performance.now() - t > 1500) console.log(`slow ${((performance.now() - t) / 1000).toFixed(1)}s #${i} ${show(scripts[i]).slice(0, 400)}`);
           if (r.why === null) continue;
           failed.push({ i, why: r.why });
         }
       }),
     );
     const run = performance.now() - ready;
+    if (process.env.TYPIST_TRACE) console.log(`scripts done at ${((performance.now() - t0) / 1000).toFixed(1)}s`);
 
     // Open bugs must still fail, and intended differences must still be there.
     const stale = [];
     if (useKnown && !args.script)
-      for (const k of known) if (k.repro && !(await compare(pairs[0], k.repro)).why) stale.push(k);
+      await Promise.all(
+        pairs.map(async (pair, w) => {
+          const mine = known.filter((k, i) => k.repro && i % workers === w);
+          for (const k of mine) if (!(await differs(pair, k.repro, k.pace ?? 'burst', k.tries, k.closeAtOnce)).why) stale.push(k);
+        }),
+      );
 
-    console.log(`typist: ${scripts.length} scripts of ${length} keys, seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min)`);
+    const mix = paces.map((p) => `${scripts.filter((_, i) => paceOfScript(i) === p).length} ${p}`).join(', ');
+    console.log(`typist: ${scripts.length} scripts of ${length} keys (${mix}), seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min)`);
     for (const e of [...new Set(errors)]) console.log(`  page error: ${e}`);
 
     failed.sort((x, y) => x.i - y.i);
     const seen = new Set();
     for (const f of failed.slice(0, Number(args.shrink ?? 8))) {
-      const keys = await shrink(scripts[f.i], async (c) => (await compare(pairs[0], c)).why !== null);
+      const pace = paceOfScript(f.i);
+      const keys = await shrink(scripts[f.i], async (c) => (await differs(pairs[0], c, pace, 2)).why !== null);
       const text = show(keys);
       if (seen.has(text)) continue;
       seen.add(text);
-      const { a, b, why } = await compare(pairs[0], keys);
-      console.log(`\nDIFFERENCE (${why}) script #${f.i} of seed ${seed}, shrunk ${scripts[f.i].length} -> ${keys.length} keys`);
+      const { a, b, why } = await differs(pairs[0], keys, pace, 2);
+      console.log(`\nDIFFERENCE (${why}, ${pace}) script #${f.i} of seed ${seed}, shrunk ${scripts[f.i].length} -> ${keys.length} keys`);
       console.log(`  script   ${text}`);
-      console.log(`  textarea ${JSON.stringify(a.state)} undone ${JSON.stringify(a.undone)}`);
-      console.log(`  nullpad  ${JSON.stringify(b.state)} undone ${JSON.stringify(b.undone)}`);
-      console.log(`  replay   ${replayCommand(keys)}`);
+      const sameText = a.state.v === b.state.v;
+      const brief = (r) => JSON.stringify(sameText ? { s: r.state.s, e: r.state.e, d: r.state.d } : r.state);
+      if (sameText) console.log(`  text     ${JSON.stringify(a.state.v)}`);
+      console.log(`  textarea ${brief(a)} undone ${JSON.stringify(a.undone)}`);
+      console.log(`  nullpad  ${brief(b)} undone ${JSON.stringify(b.undone)}`);
+      console.log(`  replay   ${replayCommand(keys, pace)}`);
     }
     if (failed.length > seen.size) console.log(`\n${failed.length} scripts differ in new ways; ${seen.size} distinct shrunk scripts shown (--shrink N for more)`);
     for (const k of stale) {
-      console.log(`\nSTALE known difference "${k.id}" (${k.kind}): its repro ${show(k.repro)} no longer differs. Delete it from e2e/typist/known.mjs.`);
+      console.log(`\nSTALE known difference "${k.id}" (${k.kind}): its repro ${show(k.repro)} (${k.pace ?? 'burst'}) no longer differs. Delete it from e2e/typist/known.mjs.`);
     }
     if (failed.length || stale.length || errors.length) exit = 1;
     else console.log('typist: no differences');

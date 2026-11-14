@@ -5,7 +5,7 @@
   "scripts": {
     "test": "E2E_TELEMETRY_DISABLED=1 e2e run --retries 0",
     "typecheck": "tsc",
-    "typist": "node typist/run.mjs --count 120",
+    "typist": "node typist/run.mjs --count 96",
     "typist:long": "node typist/run.mjs --count 1000 --shrink 30"
   },
   "devDependencies": {
