@@ -183,8 +183,10 @@ const plans = new Map<string, Promise<Plan>>();
 
 async function setUp(editor: Editing, body: string, keys: string[]) {
   await editor.open(body);
-  for (const key of keys) await editor.fixtures.browser.keyboard.press(key);
-  await editor.fixtures.page.nextFrame();
+  for (const key of keys) {
+    await editor.fixtures.browser.keyboard.press(key);
+    await editor.fixtures.page.nextFrame();
+  }
 }
 
 /** Where the state of a case puts the selection, and where a plain field goes from there with each key. Asked once for each state. */
@@ -237,8 +239,8 @@ const failing = new Map<string, string>([
   [`${wholeNote}|PageUp`, 'B5'],
   [`${wholeNote}|PageDown`, 'B5'],
   // X6: a letter step of a painted head lands after the hidden marks of the row it enters.
+  [`${forwardStart}|Shift+ArrowRight`, 'X6'],
   [`${backwardStart}|Shift+ArrowRight`, 'X6'],
-  [`${backwardMiddle}|Shift+ArrowRight`, 'X6'],
   // X4: Shift+Down skips the fence row of a code block.
   [`${backwardMiddle}|Shift+ArrowDown`, 'X4'],
 ]);
@@ -251,6 +253,8 @@ for (const state of states) {
       const finding = failing.get(`${state.name}|${key}`);
       if (finding) test.fail(finding);
       await setUp(editor, note, state.keys);
+      const began = await look(editor, note.split('\n'));
+      expect('problem' in began ? began.problem : [began.anchor, began.head], 'the state is set up as it was when the plain field was asked').toEqual([plan.anchor, plan.head]);
       const want = plan.results.get(key)!;
       await fixtures.browser.keyboard.press(key);
       const got = await look(editor, want.value.split('\n'));
