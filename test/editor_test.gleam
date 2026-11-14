@@ -1347,6 +1347,40 @@ pub fn a_row_typed_as_another_block_keeps_the_frame_of_the_row_laid_out_test() {
   assert editor.frame(ed) == Some(live.ListItem(task: False, marker: "- "))
 }
 
+pub fn a_heading_typed_on_a_row_is_framed_as_that_heading_at_once_test() {
+  let ed = live("top\n\nHello\n\nbelow") |> point(2)
+  assert editor.frame(ed) == Some(live.Body)
+
+  let marks = show(ed, caret("# Hello", 0, 2))
+  assert editor.kind(marks) == Some(live.Title(markdown.H1))
+  assert editor.frame(marks) == Some(live.Title(markdown.H1))
+  assert editor.blocks(marks) == editor.blocks(ed)
+
+  let more = show(ed, caret("### Hello", 0, 4))
+  assert editor.frame(more) == Some(live.Title(markdown.H3))
+
+  let bare = show(ed, caret("#Hello", 0, 1))
+  assert editor.frame(bare) == Some(live.Body)
+}
+
+pub fn the_marks_of_a_heading_removed_frame_the_row_as_body_text_at_once_test() {
+  let ed = live("# Hello\n\nbelow")
+  assert editor.frame(ed) == Some(live.Title(markdown.H1))
+
+  let removed = show(ed, caret("Hello", 0, 0))
+  assert editor.kind(removed) == Some(live.Body)
+  assert editor.frame(removed) == Some(live.Body)
+}
+
+pub fn an_underline_typed_under_a_line_leaves_that_line_framed_as_it_was_test() {
+  let ed = live("Hello") |> show(caret("Hello\n", 1, 0))
+  let ed = show(ed, caret("-", 0, 1))
+  assert editor.region(ed) == Some(Region(1, 1))
+  assert editor.kind(ed) == Some(live.Body)
+  assert editor.frame(ed) == Some(live.Body)
+  assert editor.blocks(ed) == markdown.parse("Hello")
+}
+
 pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {
   let shown =
     buffer.from_text("alpha beta gamma")

@@ -280,6 +280,14 @@ class Page {
   }
 
   /** Where the text field is in the window. */
+  /** The font size and line height of the first element matching `selector`. */
+  sizesOf(selector: string) {
+    return this.browser.evaluate((selector: string) => {
+      const style = getComputedStyle(document.querySelector(selector)!);
+      return { size: style.fontSize, line: style.lineHeight };
+    }, selector);
+  }
+
   fieldBox() {
     return this.browser.evaluate(() => {
       const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();

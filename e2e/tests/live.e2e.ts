@@ -1570,7 +1570,6 @@ test('a right-click on the drawn page leaves the caret and the focus where they 
 for (const [what, typed, below] of [
   ['a dash', '- x', 'below words'],
   ['indented code', '    c', 'below words'],
-  ['a heading', '# T', 'below words'],
   ['a task', '- [ ] t', 'below words'],
   ['a number above a list', '1. n', '3. alpha\n4. beta'],
 ] as const) {
@@ -1610,6 +1609,144 @@ for (const [what, typed, below] of [
     }
   });
 }
+
+const field = '[data-test-id="editor"]';
+
+for (const level of [1, 2, 3, 4, 5, 6]) {
+  const marks = '#'.repeat(level);
+  test(`${marks} typed before a line draws it at the size of a heading ${level} while the caret is on it`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `top\n\nHello world\n\nbelow words\n\n${marks} Finished`);
+    const finished = await page.sizesOf(`[data-test-id="live-below"] h${level}`);
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('Hello world');
+    await browser.keyboard.press('Home');
+    await page.nextFrame();
+    const belowAt = async () => (await page.placeOf('below'))!.top;
+    const bodySize = await page.sizesOf(field);
+    const before = await belowAt();
+
+    for (const mark of marks) await browser.keyboard.type(mark);
+    await expect(page.text).toHaveValue(`${marks}Hello world`);
+    await page.nextFrame();
+    expect(await page.sizesOf(field)).toEqual(bodySize);
+    expect(await belowAt()).toBe(before);
+
+    await browser.keyboard.type(' ');
+    await expect(page.text).toHaveValue(`${marks} Hello world`);
+    await expect.poll(() => page.sizesOf(field)).toEqual(finished);
+    const after = await belowAt();
+    if (level < 4) expect(after).toBeGreaterThan(before);
+    else expect(after).not.toBe(before);
+
+    await browser.keyboard.press('End');
+    for (const key of ' more') {
+      await browser.keyboard.type(key);
+      await page.nextFrame();
+      expect(await page.sizesOf(field)).toEqual(finished);
+      expect(await belowAt()).toBe(after);
+    }
+  });
+}
+
+test('taking the # off a heading returns its line to body size at once and moves the rows below once', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'top\n\nHello world\n\nbelow words');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('Home');
+  const bodySize = await page.sizesOf(field);
+  await page.nextFrame();
+  const before = (await page.placeOf('below'))!.top;
+
+  await browser.keyboard.type('# ');
+  await expect(page.text).toHaveValue('# Hello world');
+  await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
+  await expect.poll(async () => (await page.placeOf('below'))!.top).toBeGreaterThan(before);
+
+  await browser.keyboard.press('Backspace');
+  await expect(page.text).toHaveValue('#Hello world');
+  await expect.poll(() => page.sizesOf(field)).toEqual(bodySize);
+  await expect.poll(async () => (await page.placeOf('below'))!.top).toBe(before);
+
+  await browser.keyboard.press('Backspace');
+  await expect(page.text).toHaveValue('Hello world');
+  expect(await page.sizesOf(field)).toEqual(bodySize);
+  await page.nextFrame();
+  expect((await page.placeOf('below'))!.top).toBe(before);
+});
+
+test('taking the # off a finished heading draws its line at body size at once', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, 'top\n\n# Hello world\n\nbelow words');
+  const bodySize = await page.sizesOf('[data-test-id="live-below"] p');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('# Hello world');
+  await page.nextFrame();
+  const before = (await page.placeOf('below'))!.top;
+
+  await browser.keyboard.press('Home');
+  await browser.keyboard.press('Delete');
+  await expect(page.text).toHaveValue(' Hello world');
+  await expect.poll(() => page.sizesOf(field)).toEqual(bodySize);
+  await expect.poll(async () => (await page.placeOf('below'))!.top).toBeLessThan(before);
+});
+
+test('a # typed after a list marker leaves the rows around the item where they were', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'top\n\n- Hello\n\nbelow words');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('- Hello');
+  await browser.keyboard.press('Home');
+  await browser.keyboard.press('ArrowRight');
+  await browser.keyboard.press('ArrowRight');
+  await page.nextFrame();
+  const measure = async () => ({
+    top: (await page.placeOf('top'))!.top,
+    below: (await page.placeOf('below'))!.top,
+    size: await page.sizesOf(field),
+  });
+  const still = await measure();
+  for (const key of '# ') {
+    await browser.keyboard.type(key);
+    await page.nextFrame();
+    expect({ key, ...(await measure()) }).toEqual({ key, ...still });
+  }
+});
+
+test('a setext underline typed under a line does not make that line a heading while the caret is on the underline', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('Hello\n');
+  await expect(page.text).toHaveValue('');
+  await page.nextFrame();
+  const body = await page.fieldFont();
+  const line = await page.placeOf('Hello');
+  await browser.keyboard.type('---');
+  await expect(page.text).toHaveValue('---');
+  await page.nextFrame();
+  expect(await page.fieldFont()).toEqual(body);
+  expect(await page.placeOf('Hello')).toEqual(line);
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+});
 
 test('a press whose hand moves up to four pixels each way selects nothing, and five pixels sideways selects', async ({
   app,
