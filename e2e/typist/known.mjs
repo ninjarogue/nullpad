@@ -23,10 +23,6 @@
 /** @typedef {string | { paste: string } | { wait: true }} Key */
 /** @typedef {{ value: string, anchor: number, head: number }} Caret The plain textarea's text and selection before a key. */
 
-const P = (paste) => ({ paste });
-const wait = { wait: true };
-const times = (n, key) => Array.from({ length: n }, () => key);
-
 /** A key whose result depends on where the caret is drawn across the page: Up and Down, with Shift or Ctrl, Page Up and Page Down. */
 export const isVertical = (k) => /^(Control\+)?(Shift\+)?Arrow(Up|Down)$|^(Shift\+)?Page(Up|Down)$/.test(k);
 const isPage = (k) => /Page(Up|Down)$/.test(k);
@@ -54,20 +50,6 @@ const fontFree = (k, c) => {
   return there.startsWith(here) || here.startsWith(there);
 };
 
-
-/** A frame waited for before and after each key that waits for the page, which is how the old typist hid every race. */
-const waitAroundSteps = (script, pace) => {
-  if (pace !== 'burst') return script;
-  const out = [];
-  for (const k of script) {
-    const step = typeof k === 'string' && isVertical(k);
-    if (step && out.at(-1)?.wait !== true) out.push(wait);
-    if (typeof k !== 'string' && k.wait && out.at(-1)?.wait === true) continue;
-    out.push(k);
-    if (step) out.push(wait);
-  }
-  return out;
-};
 
 /** Whether a key may be left out, so that the text before it is worth reading. */
 export const judged = (k) => isVertical(k) || isShiftHorizontal(k);
@@ -99,26 +81,6 @@ export const known = [
       'Up and Down keep the caret\'s place across the drawn page, in the page\'s type, which is not the textarea\'s monospace and draws headings larger. So the column a vertical key lands on depends on the fonts, except where every font gives the same answer: the caret starts a row, or the row it goes to is empty, or the text left of the caret is also the start of the row it goes to (or the reverse, so the end of the shorter row is where it lands). Any other vertical key is left out. A page key goes as far as the page is tall, which a note of a few rows never reaches in either. Where the note has marks the page hides them, so only a caret that starts a row is compared.',
     skip: (k, c) => isVertical(k) && ((anyMark.test(c.value) && !atRowStart(c)) || !fontFree(k, c) || (isPage(k) && rows(c).length > 8)),
     sanitize: (script) => script,
-  },
-  {
-    id: 'step-then-key',
-    kind: 'open',
-    finding: 'F2',
-    reason:
-      'F2: a key typed while a step waits for the page cancels the step: Shift+Down then Enter, in one frame, edits where the selection was before the step. IME composition cannot be sent by the typist, so only the letter and Enter forms are compared.',
-    repro: [P('alpha beta\n\nsecond para here\nthird row\n\nlast'), 'Control+Home', 'Shift+ArrowDown', 'Enter'],
-    tries: 12,
-    sanitize: waitAroundSteps,
-  },
-  {
-    id: 'two-steps-in-a-frame',
-    kind: 'open',
-    finding: 'B4',
-    reason:
-      'B4: keys with no pause between them give different results from run to run (Down End Enter Left a b Shift+Right Ctrl+Shift+Right Backspace Up Shift+End Shift+Down ...), where a textarea always agrees with itself. Left out by waiting a frame around the keys that wait for the page.',
-    repro: [P('# Head one\n\nbody text here\n\n## Two\nline\n\nend'), 'Control+Home', wait, 'ArrowDown', 'End', 'Enter', 'ArrowLeft', 'a', 'b', 'Shift+ArrowRight', 'Control+Shift+ArrowRight', 'Backspace', 'ArrowUp', 'Shift+End', 'Shift+ArrowDown', 'Control+ArrowRight', 'Control+Shift+ArrowRight', 'Shift+Home', 'x'],
-    tries: 12,
-    sanitize: waitAroundSteps,
   },
   {
     id: 'word-select-over-marks',
