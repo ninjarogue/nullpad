@@ -141,8 +141,8 @@ describe("what each runner says about itself", () => {
   });
 
   test("keystroke_cost: its own summary line", () => {
-    const output = "table...\nkeystroke_cost: 125 ok, 1 failed, 2 skipped\n";
-    assert.deepEqual(readers.keystroke({ output }), { passed: 125, failed: 1, skipped: 2 });
+    const output = "table...\nkeystroke_cost: 125 ok, 1 failed, 2 not built yet\n";
+    assert.deepEqual(readers.keystroke({ output }), { passed: 125, failed: 1, skipped: 0 });
     assert.throws(() => readers.keystroke({ output: "table...\n" }), /summary/);
   });
 

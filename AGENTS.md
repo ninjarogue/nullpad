@@ -43,7 +43,12 @@ node test/keystroke_cost.mjs
 cd e2e && npx tsc && npm test
 ```
 
-`.githooks/pre-push` runs all of them.
+`.githooks/pre-push` runs the format check, then `node test/test_counts.mjs run`, which runs every other step and holds each to the number of tests it ran last (`test/steps.mjs` says how each is run and read).
+
+- A step that runs no tests, or fewer than `test/test_counts.json` knows, fails. The count is read from what the runner prints or writes (the e2e `report.json`), never from the source.
+- A run with more tests raises the file. Commit it. Only a hand edit lowers a count, so a removal shows in the diff.
+- Every config in `e2e/` is a step. A known count whose step is gone fails.
+- `node --test test/test_counts.test.mjs` plants each of these with a fake runner.
 
 ## Code
 

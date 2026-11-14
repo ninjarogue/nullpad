@@ -328,10 +328,12 @@ if (!declared?.length) {
   console.error("Could not read the variants of editor.Event.");
   process.exit(1);
 }
+let unlisted = 0;
 for (const variant of declared) {
   if (!events[variant]) {
     console.error(`editor.${variant} has no entry in test/keystroke_cost.mjs.`);
     failed = true;
+    unlisted++;
   }
 }
 
@@ -408,6 +410,7 @@ for (let step = 1; step <= 600; step++) {
   if (step === 100) heapAt = heap();
 }
 const perStep = (heap() - heapAt) / 500;
+let undoHolds = true;
 let undone = 0;
 while (undone < 600 && editor.text(editor.update(kept, new editor.UndoAsked()).editor) !== editor.text(kept)) {
   kept = editor.update(kept, new editor.UndoAsked()).editor;
@@ -417,9 +420,20 @@ console.log(`undo history: ${(perStep / 1024).toFixed(1)} KB a step over 500 ste
 if (undone !== 600) {
   console.error(`undo history: ${undone} of 600 steps could be undone.`);
   failed = true;
+  undoHolds = false;
 }
 if (perStep > STEP_BYTES) {
   console.error(`undo history: a step keeps ${(perStep / 1024).toFixed(1)} KB, over ${STEP_BYTES / 1024} KB.`);
   failed = true;
+  undoHolds = false;
 }
+
+// The count `test/test_counts.mjs` holds this script to: every row above that
+// is within budget, and the undo history, which is one check. A row that is
+// not built yet did not run.
+const verdicts = [...rows, ...every].map((row) => row.verdict);
+const within = verdicts.filter((verdict) => verdict === "ok").length + (undoHolds ? 1 : 0);
+const over = verdicts.filter((verdict) => verdict.startsWith("OVER BUDGET")).length + unlisted + (undoHolds ? 0 : 1);
+const unbuilt = verdicts.filter((verdict) => verdict === "not built yet").length;
+console.log(`keystroke_cost: ${within} ok, ${over} failed, ${unbuilt} not built yet`);
 process.exit(failed ? 1 : 0);
