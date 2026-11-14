@@ -338,8 +338,11 @@ function typeInto(control, text) {
   return true;
 }
 
+// A word deleted at the edge of a line takes the line break, which a word
+// step does not cross.
 function cut(control, selection, direction, granularity) {
   if (control.selectionStart === control.selectionEnd) selection.modify("extend", direction, granularity);
+  if (control.selectionStart === control.selectionEnd) selection.modify("extend", direction, "character");
   control.setRangeText("", control.selectionStart, control.selectionEnd, "end");
   return true;
 }
