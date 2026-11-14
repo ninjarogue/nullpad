@@ -656,7 +656,7 @@ pub fn an_item_beside_the_field_is_drawn_with_what_it_holds_test() {
 pub fn a_quote_a_table_and_code_beside_the_field_are_drawn_whole_test() {
   assert beside_field("p\n\n> a\n> b\n\nq", 1, 5)
     == drawn_part(
-      "<div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">a\nb</p></blockquote><div class=\"blank\" data-row=\"4\"></div><p data-row=\"5\">q</p>",
+      "<div class=\"blank\" data-row=\"1\"></div><blockquote class=\"rows\" data-row=\"2\"><p data-row=\"2\">a\nb</p></blockquote><div class=\"blank\" data-row=\"4\"></div><p data-row=\"5\">q</p>",
     )
   assert beside_field("# T\n\n| a | b |\n|---|---|\n| 1 | 2 |", 1, 4)
     == drawn_part(
@@ -665,6 +665,24 @@ pub fn a_quote_a_table_and_code_beside_the_field_are_drawn_whole_test() {
   assert beside_field("```\ncode\n\nmore\n```\n\np", 0, 6)
     == drawn_part(
       "<pre data-row=\"1\"><code>code\n\nmore\n</code></pre><div class=\"blank\" data-row=\"5\"></div>",
+    )
+}
+
+pub fn a_blank_row_in_a_quote_beside_the_field_is_drawn_as_a_blank_row_test() {
+  assert beside_field("> a\n>\n> > b\n>", 0, 4)
+    == drawn_part(
+      "<blockquote class=\"rows\" data-row=\"0\"><p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">b</p></blockquote><div class=\"blank\" data-row=\"3\"></div></blockquote>",
+    )
+}
+
+pub fn a_heading_set_over_several_rows_beside_the_field_says_how_many_test() {
+  assert beside_field("> a\n> b\n> ---\n\nc", 0, 4)
+    == drawn_part(
+      "<blockquote class=\"rows\" data-row=\"0\"><h2 data-row=\"0\" style=\"--rows:3;\">a\nb</h2></blockquote><div class=\"blank\" data-row=\"3\"></div>",
+    )
+  assert beside_field("# a\n\nc", 0, 2)
+    == drawn_part(
+      "<h1 data-row=\"0\">a</h1><div class=\"blank\" data-row=\"1\"></div>",
     )
 }
 

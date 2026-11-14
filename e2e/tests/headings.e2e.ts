@@ -161,6 +161,7 @@ for (const block of [
   '> a\n>\n> > b\n>\n> c',
   '> a\n> > b',
   '> a\n> - b',
+  '> ---\n> ---\n> b',
 ]) {
   test(`arriving at and leaving a list item or a quote of several rows, or an item in a quote, ${JSON.stringify(block)}, moves nothing`, async ({
     app,
@@ -177,6 +178,36 @@ for (const block of [
         below: drawn.below,
         b: drawn.word!.top,
       });
+    }
+  });
+}
+
+for (const block of [
+  '> # h\n>\n> b',
+  '> ## h\n>\n> b',
+  '> b\n>\n> # h',
+  '> b\n>\n> > # h',
+  '> > # h\n>\n> b',
+  '> - # h\n>\n> b',
+  '> > - # h\n>\n> b',
+  '> ###### h\n> b',
+  '> - #### h\n> - b',
+  '> b\n> ---\n> c',
+  '> b\n> c\n> ===\n>\n> d',
+]) {
+  test(`a heading in a quote of several rows, ${JSON.stringify(block)}, set over two rows or next to a blank row or smaller than body text, takes the rows it takes in the field`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await open({ app, disk, page }, block);
+    for (const setting of settings) {
+      await set(browser, setting);
+      const { field, drawn } = await arriveAndLeave(page, browser, block, 'b', 'b');
+      // Blocks of other sizes round to the 1/64px the browser lays out in.
+      const moved = Math.round(Math.abs(field.below - drawn.below) * 10) / 10;
+      expect({ setting, moved }).toEqual({ setting, moved: 0 });
     }
   });
 }
