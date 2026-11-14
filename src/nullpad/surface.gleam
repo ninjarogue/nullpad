@@ -33,15 +33,22 @@ const painted_class = "painted"
 /// With the model's text it is a second writer beside `sync`.
 pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let changed = {
+    use at <- decode.then(time_decoder())
     use shown <- decode.map(shown_decoder())
-    on_event(editor.ControlChanged(shown:))
+    on_event(editor.ControlChanged(shown:, at:))
   }
+  // Chromium sends no `beforeinput` for an undo from a menu: it undoes the
+  // field itself, and the editor writes its own undo over that.
   let typed = {
+    use kind <- decode.optional_field("inputType", "", decode.string)
     use composing <- decode.optional_field("isComposing", False, decode.bool)
+    use at <- decode.then(time_decoder())
     use shown <- decode.map(shown_decoder())
-    case composing {
-      True -> on_event(editor.Composing(shown:))
-      False -> on_event(editor.ControlChanged(shown:))
+    case kind, composing {
+      "historyUndo", _ -> on_event(editor.UndoAsked)
+      "historyRedo", _ -> on_event(editor.RedoAsked)
+      _, True -> on_event(editor.Composing(shown:))
+      _, False -> on_event(editor.ControlChanged(shown:, at:))
     }
   }
   // The browser moves the caret for these keys and says nothing, so the
@@ -102,9 +109,11 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         // the page's active element, and the browser gives it the focus
         // back: the editor does not hear of it.
         event.on("blur", leave_decoder(on_event)),
+        event.advanced("beforeinput", history_decoder(on_event)),
         event.advanced(
           "keydown",
           decode.one_of(key_decoder(editor, on_event), [
+            undo_key_decoder(on_event),
             edge_decoder(on_event),
             escape_decoder(on_event),
           ]),
@@ -124,20 +133,17 @@ fn released_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use release <- decode.then(decode.dynamic)
+  use at <- decode.then(time_decoder())
   use shown <- decode.map(shown_decoder())
   case released_on_selection(release) {
     -1 ->
-      on_event(editor.ControlChanged(shown:))
+      on_event(editor.ControlChanged(shown:, at:))
       |> event.handler(prevent_default: False, stop_propagation: False)
     offset ->
-      on_event(
-        editor.ControlChanged(shown: from_control(
-          buffer.text(shown),
-          offset,
-          offset,
-          False,
-        )),
-      )
+      on_event(editor.ControlChanged(
+        shown: from_control(buffer.text(shown), offset, offset, False),
+        at:,
+      ))
       |> event.handler(prevent_default: True, stop_propagation: False)
   }
 }
@@ -451,7 +457,8 @@ pub fn sync(
           }
           #(-4, _, _, _, _) -> {
             case decode.run(find_control(control_id), control_decoder()) {
-              Ok(shown) -> dispatch(on_event(editor.ControlChanged(shown:)))
+              Ok(shown) ->
+                dispatch(on_event(editor.ControlChanged(shown:, at: 0)))
               Error(_) -> Nil
             }
             dispatch(on_event(editor.Unstepped(x:)))
@@ -507,9 +514,10 @@ pub fn sync(
             again,
           )
         dispatch(
-          on_event(
-            editor.ControlChanged(from_control(text, start, end, backward)),
-          ),
+          on_event(editor.ControlChanged(
+            from_control(text, start, end, backward),
+            at: 0,
+          )),
         )
       }
       effect.batch([
@@ -719,6 +727,17 @@ fn offset(lines: List(String), position: Position) -> Int {
   rows_above + utf16_length(in_row)
 }
 
+/// When the browser made the event, in milliseconds. The editor never reads
+/// a clock: the time arrives with the event.
+fn time_decoder() -> Decoder(Int) {
+  decode.one_of(decode.field("timeStamp", decode.int, decode.success), [
+    decode.field("timeStamp", decode.float, fn(ms) {
+      decode.success(float.truncate(ms))
+    }),
+    decode.success(0),
+  ])
+}
+
 fn shown_decoder() -> Decoder(Buffer) {
   decode.at(["target"], control_decoder())
 }
@@ -749,7 +768,7 @@ fn key_decoder(
     }
     _, _ -> {
       // `decode.failure` wants a placeholder value. It is never used.
-      let unused = on_event(editor.ControlChanged(buffer.from_text("")))
+      let unused = on_event(editor.ControlChanged(buffer.from_text(""), at: 0))
       event.handler(unused, prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key the editor claims")
     }
@@ -840,9 +859,61 @@ fn edge_decoder(
       |> event.handler(prevent_default: True, stop_propagation: False)
       |> decode.success
     Error(Nil) ->
-      on_event(editor.ControlChanged(shown:))
+      on_event(editor.ControlChanged(shown:, at: 0))
       |> event.handler(prevent_default: False, stop_propagation: False)
       |> decode.failure(expected: "a key at the edge of the field")
+  }
+}
+
+/// The browser's own undo history is lost each time the field is written,
+/// so undo and redo go to the editor, also from a menu where the browser
+/// asks first.
+fn history_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use kind <- decode.field("inputType", decode.string)
+  history_step(kind, on_event)
+}
+
+/// Named as `beforeinput` names the step the key would take.
+fn undo_key_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use name <- decode.field("key", decode.string)
+  use code <- decode.field("code", decode.string)
+  use shift <- decode.field("shiftKey", decode.bool)
+  use ctrl <- decode.field("ctrlKey", decode.bool)
+  use meta <- decode.field("metaKey", decode.bool)
+  use alt <- decode.field("altKey", decode.bool)
+  use composing <- decode.field("isComposing", decode.bool)
+  let command = { ctrl || meta } && !alt && !composing
+  let kind = case command, is_key(name, code, "z"), is_key(name, code, "y") {
+    True, True, _ if shift -> "historyRedo"
+    True, True, _ -> "historyUndo"
+    True, False, True if ctrl && !meta && !shift -> "historyRedo"
+    _, _, _ -> ""
+  }
+  history_step(kind, on_event)
+}
+
+fn history_step(
+  kind: String,
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  let asked = case kind {
+    "historyUndo" -> Ok(editor.UndoAsked)
+    "historyRedo" -> Ok(editor.RedoAsked)
+    _ -> Error(Nil)
+  }
+  case asked {
+    Ok(asked) ->
+      on_event(asked)
+      |> event.handler(prevent_default: True, stop_propagation: False)
+      |> decode.success
+    Error(Nil) ->
+      on_event(editor.Released)
+      |> event.handler(prevent_default: False, stop_propagation: False)
+      |> decode.failure(expected: "an undo or a redo")
   }
 }
 

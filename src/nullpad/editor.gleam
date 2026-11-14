@@ -1,5 +1,5 @@
 //// Imported by: `surface`, the app shell, tests. Imports: `buffer`, `vim`,
-//// `live`, `markdown`.
+//// `live`, `markdown`, `history`.
 
 import gleam/int
 import gleam/list
@@ -7,11 +7,17 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
+import nullpad/history.{type History}
 import nullpad/live.{type Region, Region}
 import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
-/// Every change to `buffer` goes through `edit` or `compose`.
+/// Every change to `buffer` goes through `edit` or `compose`. `edit`
+/// records it in `history`, except while a drag is under way: the browser
+/// moves dragged text in two changes, and the drag's end records both as
+/// one step. `composing` is while an IME composes in the field, from its
+/// first change through `compose` to the next through `edit`: undo and redo
+/// wait for it to end.
 ///
 /// `waiting` holds the steps of the head over the drawn page that the page
 /// has not placed yet. Only the first is asked for, so each step starts
@@ -24,8 +30,11 @@ pub opaque type Editor {
     keys: Keys,
     field: Field,
     focus: Focus,
+    history: History,
+    clock: Int,
     press: Option(Press),
     dragging: Bool,
+    composing: Bool,
     paints: Bool,
     goal: Option(Goal),
     waiting: List(Move),
@@ -97,7 +106,7 @@ pub type Mode {
 }
 
 pub type Event {
-  ControlChanged(shown: Buffer)
+  ControlChanged(shown: Buffer, at: Int)
   /// In the middle of an IME composition: the control must not be written
   /// to until it ends.
   Composing(shown: Buffer)
@@ -195,6 +204,11 @@ pub type Event {
     shown: Buffer,
   )
   FocusChanged(focused: Bool)
+  /// Undo or redo, by a key or the browser's Edit menu. The editor keeps the
+  /// history, because the browser's own is lost each time the field is
+  /// written.
+  UndoAsked
+  RedoAsked
 }
 
 /// A key that reaches past the rows the field holds. The `Select` keys move
@@ -275,8 +289,11 @@ pub fn new(
       False -> Whole
     },
     focus: Away,
+    history: history.new(buffer),
+    clock: 0,
     press: None,
     dragging: False,
+    composing: False,
     paints:,
     goal: None,
     waiting: [],
@@ -297,7 +314,14 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     Whole -> Whole
     Part(..) -> laid_out(buffer)
   }
-  Editor(..editor, keys:, buffer:, field:)
+  Editor(
+    ..editor,
+    keys:,
+    buffer:,
+    field:,
+    history: history.new(buffer),
+    composing: False,
+  )
   |> realign
   |> write_and_focus
 }
@@ -333,7 +357,8 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 
 pub fn update(editor: Editor, event: Event) -> Outcome {
   case event {
-    ControlChanged(shown:) -> typed(editor, shown, None, realign)
+    ControlChanged(shown:, at:) ->
+      typed(Editor(..editor, clock: at), shown, None, realign)
     Composing(shown:) -> compose(editor, shown)
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
@@ -522,7 +547,15 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         | Some(PressedOnWord(..)), _
         | Some(PressedOnLine(..)), _
         | None, _
-        -> Outcome(editor: let_go, sync: InSync, requests: [])
+        -> {
+          let history =
+            history.record(let_go.history, let_go.buffer, at: let_go.clock)
+          Outcome(
+            editor: Editor(..let_go, history:),
+            sync: InSync,
+            requests: [],
+          )
+        }
       }
     }
     DragStarted ->
@@ -569,6 +602,30 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
       Outcome(editor: changed, sync:, requests: [])
     }
+    UndoAsked -> travel(editor, history.undo)
+    RedoAsked -> travel(editor, history.redo)
+  }
+}
+
+/// The note goes back to how it was, with its selection, as an edit would
+/// take it there. With nothing to take back, or the focus elsewhere, the
+/// note stays, and the field is put back as it was: the browser may have
+/// changed it from its own history, which can hold another note's steps,
+/// or reached it from another field whose history ran out.
+fn travel(
+  editor: Editor,
+  through: fn(History) -> Result(History, Nil),
+) -> Outcome {
+  case editor.composing, editor.focus, through(editor.history) {
+    True, Focused, _ | True, Away, _ ->
+      Outcome(editor:, sync: InSync, requests: [])
+    False, Focused, Ok(history) ->
+      Editor(..editor, history:)
+      |> edit(history.present(history))
+      |> realign
+      |> write
+    False, Focused, Error(Nil) | False, Away, _ ->
+      Outcome(editor:, sync: WriteQuietly(field_buffer(editor)), requests: [])
   }
 }
 
@@ -675,6 +732,8 @@ fn typed(
 
 /// An IME redraws its own text in the control, so the control is not
 /// written to, and the blocks around the field stay as they were drawn.
+/// Its keys are not steps of the history: the event that ends it records the
+/// whole composition as one.
 fn compose(editor: Editor, shown: Buffer) -> Outcome {
   let composed = base(editor, shown)
   let rows_kept =
@@ -684,7 +743,7 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
     Part(rows:, drawn:, parsed:, ..), True -> {
       let field = Part(rows:, drawn:, parsed:, composing: True)
       Outcome(
-        editor: Editor(..editor, buffer: composed, field:),
+        editor: Editor(..editor, buffer: composed, field:, composing: True),
         sync: InSync,
         requests: [],
       )
@@ -693,10 +752,17 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
       let count = list.length(buffer.lines(shown))
       let held = Region(rows.first_row, rows.first_row + count - 1)
       let drawn = live.shift(drawn, from: rows, to: held)
-      typed(editor, shown, None, hold(_, held, drawn))
+      keep_history(editor, typed(editor, shown, None, hold(_, held, drawn)))
     }
-    Whole, _ -> typed(editor, shown, None, fn(editor) { editor })
+    Whole, _ ->
+      keep_history(editor, typed(editor, shown, None, fn(editor) { editor }))
   }
+}
+
+fn keep_history(before: Editor, outcome: Outcome) -> Outcome {
+  let editor =
+    Editor(..outcome.editor, history: before.history, composing: True)
+  Outcome(..outcome, editor:)
 }
 
 fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
@@ -854,7 +920,11 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
       Part(rows:, drawn:, parsed:, composing: False)
     }
   }
-  Editor(..editor, buffer:, field:)
+  let history = case editor.dragging {
+    True -> editor.history
+    False -> history.record(editor.history, buffer, at: editor.clock)
+  }
+  Editor(..editor, buffer:, field:, history:, composing: False)
 }
 
 /// The page keeps how it was laid out through an edit that leaves the

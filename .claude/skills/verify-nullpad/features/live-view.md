@@ -44,7 +44,8 @@ Preconditions: a fresh run. A ready journey is `journeys/live-view.mjs`.
 - `page.locator('.part p')` matches every drawn paragraph in both parts.
 - A click on a block element lands where its box is, which for a heading is often past the end of the words. Click an inline element (`strong`, `em`) to land inside a line.
 - Arrow keys keep the caret's distance from the left edge when they cross into a block, but a blank row resets it to the start.
-- Ctrl+Z only undoes typing done since the field last moved. There is no undo across blocks yet.
+- Undo reaches across blocks. See [Undo and redo](./undo.md).
 - While a selection spans blocks the field is hidden, so a word found in it is not where the page draws it. Find words on the drawn page, outside `textarea` and `pre.mirror`.
 - A press, drag or step at the very start of a heading's or a list item's text lands past its marks (`# `, `- [ ] `), so typing over a selection that ends there joins the item's text to the block before (`the XShoes`), as in the Markdown view. Left of an item's text, where its bullet is drawn, it lands before them. Between two drawn letters, hidden marks that close go with the letter before (`**booked**|`), marks that open with the letter after (`|**booked**`).
+- A drag stops at the edge of the window: the page does not scroll while you drag. Shift and a click reaches a block out of view.
 - The caret after a click on a table cell lands near the cell, not exactly at the character.

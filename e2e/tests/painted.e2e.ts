@@ -1262,3 +1262,32 @@ test('a Shift and arrow step over a long note painted whole draws within a momen
     expect({ key, fastest: Math.min(...times) < 1500 }).toEqual({ key, fastest: true });
   }
 });
+
+test('Ctrl+Z after typing over a painted selection gives the text back, painted again, and Ctrl+Shift+Z types it again', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await page.stopEditing();
+  await page.drag(await page.pointAt('Trip'), await page.pointAt('hotel'));
+  await expect.poll(() => page.painted()).toBe('TripFlights are booked and the ');
+
+  await browser.keyboard.type('X');
+  await expect.poll(() => page.painted()).toBeNull();
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(`# Xhotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast`);
+  await page.markdown.tap();
+
+  await browser.keyboard.press('Control+z');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(body);
+  await page.markdown.tap();
+  await expect.poll(() => page.painted()).toBe('TripFlights are booked and the ');
+
+  await browser.keyboard.press('Control+Shift+z');
+  await expect.poll(() => page.painted()).toBeNull();
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(`# Xhotel is *not*.\n\n- [ ] Passport\n- Shoes\n\nlast`);
+});
