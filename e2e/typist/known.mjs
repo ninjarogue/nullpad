@@ -48,6 +48,19 @@ const hardRow = /^ {0,3}(`{3,}|~{3,}|([-*_] ?){3,}|=+|-+)\s*$/;
 const anyMark = /[#\-*>`|[\]~_=]/;
 const inlineMark = /[*_~`[\]]/;
 
+/** Whether every font lands a vertical key at the same column: from the start of a row, onto an empty row, or onto a row that shares the text left of the caret. */
+const fontFree = (k, c) => {
+  const all = rows(c);
+  const row = rowAt(c.value, c.head);
+  const column = columnAt(c.value, c.head);
+  const up = /Up$/.test(k);
+  const target = isPage(k) ? (up ? 0 : all.length - 1) : row + (up ? -1 : 1);
+  if (column === 0 || target < 0 || target >= all.length || target === row) return true;
+  const here = all[row].slice(0, column);
+  const there = all[target];
+  return there.startsWith(here) || here.startsWith(there);
+};
+
 const hasBlockMarks = (c) => rows(c).some((r) => blockMark.test(r));
 const hasHardRows = (c) => rows(c).some((r) => hardRow.test(r));
 /** The caret is right of a row that is shorter than its column, so a kept column is clamped on the way. */
@@ -94,8 +107,8 @@ export const known = [
     id: 'vertical-column',
     kind: 'intended',
     reason:
-      'Up and Down keep the caret\'s place across the drawn page. Where the note has marks, nullpad hides them and draws headings larger, so the column a vertical key lands on is not the textarea\'s, unless the caret starts a row: then every row has the same column. A note without marks is drawn in the textarea\'s own type, row for row, and is compared in full. A page key goes as far as the page is tall, which a note of a few rows never reaches in either.',
-    skip: (k, c) => isVertical(k) && ((anyMark.test(c.value) && !atRowStart(c)) || (isPage(k) && rows(c).length > 8)),
+      'Up and Down keep the caret\'s place across the drawn page, in the page\'s type, which is not the textarea\'s monospace and draws headings larger. So the column a vertical key lands on depends on the fonts, except where every font gives the same answer: the caret starts a row, or the row it goes to is empty, or the text left of the caret is also the start of the row it goes to (or the reverse, so the end of the shorter row is where it lands). Any other vertical key is left out. A page key goes as far as the page is tall, which a note of a few rows never reaches in either. Where the note has marks the page hides them, so only a caret that starts a row is compared.',
+    skip: (k, c) => isVertical(k) && ((anyMark.test(c.value) && !atRowStart(c)) || !fontFree(k, c) || (isPage(k) && rows(c).length > 8)),
     sanitize: (script) => script,
   },
   {
