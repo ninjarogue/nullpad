@@ -938,7 +938,7 @@ async function stepsSelect(
   }
 }
 
-test('Shift+ArrowDown steps a painted head onto each drawn line: into a table from its first column, onto a blank line of code, and to the end of the note', async ({
+test('Shift+ArrowDown steps a painted head onto each line: into a table from its first column, onto its delimiter row, the fences and a blank line of code, and to the end of the note', async ({
   app,
   browser,
   disk,
@@ -950,11 +950,14 @@ test('Shift+ArrowDown steps a painted head onto each drawn line: into a table fr
   await stepsSelect(browser, page, 'Shift+ArrowDown', [
     'Start\n',
     'Start\n\n| ',
+    'Start\n\n| a | b |\n',
     'Start\n\n| a | b |\n|---|---|\n| ',
     `Start\n\n${table}\n`,
+    `Start\n\n${table}\n\n`,
     above,
     `${above}one\n`,
     `${above}one\n\n`,
+    `${above}one\n\nthree\n`,
     `${above}one\n\nthree\n\`\`\`\n`,
     `${above}one\n\nthree\n\`\`\`\n\n`,
     `${above}one\n\nthree\n\`\`\`\n\nlast words`,
@@ -1041,7 +1044,7 @@ test('Shift+End and Shift+Home move a painted head along the line it is drawn on
   await expect.poll(() => page.painted()).toBe(long.slice(0, lines[0]));
 });
 
-test('each Shift and arrow left or right changes what is painted, over every kind of block', async ({
+test('Shift and an arrow left or right change what is painted, over every kind of block, but among marks the page hides', async ({
   app,
   browser,
   disk,
@@ -1059,9 +1062,13 @@ test('each Shift and arrow left or right changes what is painted, over every kin
       await page.paintedBlanks(),
       await paintedCodeBreaks(browser),
     ]);
+  // A head steps a letter at a time through the marks the page hides, as in a
+  // text field, and the page draws every place among them at one place, as it
+  // draws a row it does not draw at the end of the block before. So a press
+  // that paints nothing new has only taken or given back marks or a break.
   const walk = async (key: string, done: (selected: string) => boolean) => {
     let last = await seen();
-    for (let press = 0; press < 60; press++) {
+    for (let press = 0; press < 80; press++) {
       const before = (await page.selection()).selected;
       if (done(before)) return;
       await browser.keyboard.press(key);
@@ -1069,9 +1076,9 @@ test('each Shift and arrow left or right changes what is painted, over every kin
       await page.nextFrame();
       await page.nextFrame();
       const now = await seen();
-      expect({ press, key, selected: (await page.selection()).selected, moved: now !== last }).toMatchObject({
-        moved: true,
-      });
+      const selected = (await page.selection()).selected;
+      const crossed = selected.length > before.length ? selected.slice(before.length) : before.slice(selected.length);
+      if (now === last) expect({ press, key, crossed }).toEqual({ press, key, crossed: expect.stringMatching(/^[-|`>#* \n]+$/) });
       last = now;
     }
     throw new Error(`${key} did not get there`);
