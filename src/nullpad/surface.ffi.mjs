@@ -16,19 +16,22 @@ export function writeControl(id, text, start, end, backward) {
 // height and margins of the rows it was drawn with, as a row typed as another
 // kind of block does, so nothing around it moves until the render. The
 // render sets the classes only when they changed since the last one, so
-// held classes it did not replace go back to the ones it drew. The held
-// marker width has its own property for the same reason. A field drawn out
-// of sight takes the type of its rows at once, so a key measures it as it
+// held classes it did not replace go back to the ones it drew, which are
+// the ones a render put in place of held classes since. The held marker
+// width has its own property for the same reason. A field drawn out of
+// sight takes the type of its rows at once, so a key measures it as it
 // will be drawn.
 let drawnRows = "";
 let held = null;
 
 export function holdControl(id, classes, rows, marker) {
   const holder = document.getElementById(id)?.parentElement;
-  if (!holder) return;
+  if (!holder || (drawnRows === "" && !holder.classList.contains("idle"))) return;
   if (!held) {
     held = { holder, drawn: holder.className };
     requestAnimationFrame(releaseControl);
+  } else if (holder.className !== held.classes) {
+    held.drawn = holder.className;
   }
   const framed = drawnRows === "" || drawnRows === rows ? "" : ` held framed-${drawnRows}`;
   held.classes = `${classes}${framed} holding`;
