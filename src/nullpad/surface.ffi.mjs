@@ -546,10 +546,18 @@ function caretAt(x, y) {
 
 let pen = null;
 
-export function textWidth(text) {
+// A heading's size and tracking are the stylesheet's `--h1` to `--h6`, in
+// rem, and `--h1-tracking` to `--h6-tracking`, in em.
+export function textWidth(text, heading) {
   const root = getComputedStyle(document.documentElement);
+  const rem = parseFloat(root.fontSize);
+  const size = heading ? parseFloat(root.getPropertyValue(`--${heading}`)) * rem : rem;
+  const tracking = heading ? parseFloat(root.getPropertyValue(`--${heading}-tracking`)) || 0 : 0;
   pen ??= document.createElement("canvas").getContext("2d");
-  pen.font = `${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
+  pen.font = `${heading ? "bold " : ""}${size}px ${root.getPropertyValue("--ui-font")}`;
+  pen.letterSpacing = `${tracking * size}px`;
+  // As the text field does: a canvas's "auto" leaves out kerning such as ". ".
+  pen.fontKerning = "normal";
   return pen.measureText(text).width;
 }
 

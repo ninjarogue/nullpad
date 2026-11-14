@@ -77,6 +77,7 @@ pub fn kind(
   case
     list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
   {
+    [Block(content: Heading(text: [], ..), ..)] -> Body
     [Block(content: Heading(level:, ..), ..)] -> Title(level)
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
@@ -87,7 +88,7 @@ pub fn kind(
           case first.task, heading_in(first.blocks, field, False) {
             None, Ok(#(level, _)) ->
               ItemTitle(level, marker: marker(lines, first))
-            _, _ ->
+            Some(_), _ | None, Error(Nil) ->
               ListItem(
                 task: option.is_some(first.task),
                 marker: marker(lines, first),
@@ -100,13 +101,15 @@ pub fn kind(
         Ok(#(level, in_item)) -> QuoteTitle(level, in_item:)
         Error(Nil) -> Body
       }
-    _ -> Body
+    [Block(content: Paragraph(..), ..)] | [Block(content: Rule, ..)] | [] ->
+      Body
+    [_, _, ..] -> Body
   }
 }
 
-/// The level of the heading that fills the field, inside a quote or an item,
-/// and whether an item holds it. A field of several rows is set as one block,
-/// so a heading must hold them all.
+/// The level of the heading with text that is the field's one row, inside a
+/// quote or an item, and whether an item holds it. A field of several rows is
+/// set as one block in one size, so a heading over two rows is not set as one.
 fn heading_in(
   blocks: List(Block),
   field: Region,
@@ -118,9 +121,12 @@ fn heading_in(
   case
     list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
   {
-    [Block(content: Heading(level:, ..), first_row:, last_row:)]
-      if first_row <= field.first_row && last_row >= field.last_row
-    -> Ok(#(level, in_item))
+    [Block(content: Heading(text: [], ..), ..)] -> Error(Nil)
+    [Block(content: Heading(level:, ..), first_row:, last_row:)] ->
+      case first_row == last_row && field == Region(first_row, last_row) {
+        True -> Ok(#(level, in_item))
+        False -> Error(Nil)
+      }
     [Block(content: Quote(blocks:), ..)] -> heading_in(blocks, field, in_item)
     [Block(content: BulletList(items:, ..), ..)]
     | [Block(content: OrderedList(items:, ..), ..)] ->
@@ -128,7 +134,12 @@ fn heading_in(
         Ok(item) -> heading_in(item.blocks, field, True)
         Error(Nil) -> Error(Nil)
       }
-    _ -> Error(Nil)
+    [Block(content: Paragraph(..), ..)]
+    | [Block(content: CodeBlock(..), ..)]
+    | [Block(content: Table(..), ..)]
+    | [Block(content: Rule, ..)]
+    | []
+    | [_, _, ..] -> Error(Nil)
   }
 }
 

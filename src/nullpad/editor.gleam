@@ -1071,12 +1071,24 @@ pub fn region(editor: Editor) -> Option(Region) {
   }
 }
 
-/// How the field is set: like its blocks as drawn, so that typing changes
-/// no row but the one typed on. A field that holds only the caret's row is
-/// set as typed, at once: like the blocks typed there, or as body text when
-/// that row joins a block outside the field. None while the field holds
-/// the whole note.
-pub fn kind(editor: Editor) -> Option(live.Kind) {
+/// How the field is set (`kind`), and the kind of rows whose height and
+/// margins it keeps (`frame`).
+pub type Setting {
+  Setting(kind: live.Kind, frame: live.Kind)
+}
+
+/// `kind`: like the field's blocks as drawn, so that typing changes no row
+/// but the one typed on. A field that holds only the caret's row is set as
+/// typed, at once: like the blocks typed there, or as body text when that row
+/// joins a block outside the field.
+///
+/// `frame`: the kind of the field's rows as the page was laid out, so the
+/// page around a row typed as another kind does not move. A heading with text
+/// is the exception: a row typed as one, or a heading's row typed as
+/// something else, is framed as typed at once, and the rows below move once.
+///
+/// None while the field holds the whole note.
+pub fn setting(editor: Editor) -> Option(Setting) {
   case editor.field {
     Whole -> None
     Part(rows:, drawn:, parsed:, ..) -> {
@@ -1084,37 +1096,27 @@ pub fn kind(editor: Editor) -> Option(live.Kind) {
       let row = buffer.cursor(editor.buffer).row
       let alone = rows == Region(row, row)
       let own = live.reveal(parsed, from: row, to: row) == rows
-      Some(case alone, own {
+      let laid_out = live.kind(drawn, field: rows, lines:)
+      let kind = case alone, own {
         True, True -> live.kind(parsed, field: rows, lines:)
         True, False -> live.Body
-        False, _ -> live.kind(drawn, field: rows, lines:)
-      })
+        False, _ -> laid_out
+      }
+      let frame = case live.is_title(laid_out) || live.is_title(kind) {
+        True -> kind
+        False -> laid_out
+      }
+      Some(Setting(kind:, frame:))
     }
   }
 }
 
-/// The kind of the field's rows as the page was laid out. The field keeps
-/// their height and margins while a row is typed as another kind, so the
-/// page around it does not move. A heading is the exception: a row typed
-/// as a heading, or a heading's row typed as something else, is set as typed
-/// at once, and the rows below move once. None while the field holds the
-/// whole note.
+pub fn kind(editor: Editor) -> Option(live.Kind) {
+  option.map(setting(editor), fn(setting) { setting.kind })
+}
+
 pub fn frame(editor: Editor) -> Option(live.Kind) {
-  case editor.field {
-    Whole -> None
-    Part(rows:, drawn:, ..) -> {
-      let laid_out =
-        live.kind(drawn, field: rows, lines: buffer.lines(editor.buffer))
-      let typed = kind(editor)
-      let heading =
-        live.is_title(laid_out)
-        || option.map(typed, live.is_title) == Some(True)
-      case heading {
-        True -> typed
-        False -> Some(laid_out)
-      }
-    }
-  }
+  option.map(setting(editor), fn(setting) { setting.frame })
 }
 
 /// The page as laid out, drawn around the field. Empty while the field

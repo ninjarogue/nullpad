@@ -12,6 +12,14 @@
   --text-font: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
     monospace;
   --ui-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* In rem and em: `surface` measures a marker in these. */
+  --h1: 2rem;
+  --h2: 1.5rem;
+  --h3: 1.25rem;
+  --h4: 1.125rem;
+  --h5: 1rem;
+  --h6: 0.875rem;
+  --h6-tracking: 0.05em;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -364,6 +372,31 @@ button[aria-pressed="true"] {
   margin-top: 0;
 }
 
+/* A heading with no text is set as body text in the field, so on the page
+   it is one empty line too. */
+.page.live .preview :is(h1, h2, h3, h4, h5, h6):empty {
+  height: 1.7rem;
+  margin-block: 0;
+}
+
+/* The field sets every row of an item or a quote in one line height, so
+   nothing but the field's own margins sets its rows apart on the page. */
+.page.live .preview :is(li, blockquote) :is(li, ul, ol, blockquote) {
+  margin-block: 0;
+}
+
+/* The field sets a heading in a quote in an item as a heading in an item. */
+.page.live .preview li blockquote > :is(h1, h2, h3, h4, h5, h6):last-child {
+  margin-bottom: 0.5em;
+}
+
+/* An item's marker is outside its words, on their first line. With the
+   height of a line of body text it would push down a smaller heading there,
+   which the field cannot do. */
+.page.live .preview li::marker {
+  line-height: 0;
+}
+
 /* The two fence rows of a code block are its top and bottom padding. */
 .page.live .preview > pre {
   margin-block: 0;
@@ -482,79 +515,53 @@ button[aria-pressed="true"] {
   padding-block: var(--task-pad);
 }
 
+.editor.part.h1 {
+  --title: var(--h1);
+}
+
+.editor.part.h2 {
+  --title: var(--h2);
+}
+
+.editor.part.h3 {
+  --title: var(--h3);
+}
+
+.editor.part.h4 {
+  --title: var(--h4);
+}
+
+.editor.part.h5 {
+  --title: var(--h5);
+}
+
+.editor.part.h6 {
+  --title: var(--h6);
+}
+
 .editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
+  font-size: var(--title);
   font-weight: bold;
   line-height: 1.25;
 }
 
-.editor.part.h1 > * {
-  font-size: 2rem;
-}
-
-.editor.part.h2 > * {
-  font-size: 1.5rem;
-}
-
-.editor.part.h3 > * {
-  font-size: 1.25rem;
-}
-
-.editor.part.h4 > * {
-  font-size: 1.125rem;
-}
-
 .editor.part.h6 > * {
-  font-size: 0.875rem;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--h6-tracking);
 }
 
 /* A heading in an item or a quote is set as it is drawn there: an item keeps
    its own margins, with the heading's half-line below it where that is more,
-   and a quote adds none. */
+   an item in a quote has only that half-line, and a quote adds none. */
 .editor.part.quote {
   margin: 0;
 }
 
-.editor.part:is(.item, .quoted-item).h1 {
-  --title: 2rem;
-}
-
-.editor.part:is(.item, .quoted-item).h2 {
-  --title: 1.5rem;
-}
-
-.editor.part:is(.item, .quoted-item).h3 {
-  --title: 1.25rem;
-}
-
-.editor.part:is(.item, .quoted-item).h4 {
-  --title: 1.125rem;
-}
-
-.editor.part:is(.item, .quoted-item).h5 {
-  --title: 1rem;
-}
-
-.editor.part:is(.item, .quoted-item).h6 {
-  --title: 0.875rem;
-}
-
-.editor.part:is(.item, .quoted-item):is(.h1, .h2, .h3, .h4, .h5, .h6) {
+.editor.part.item:is(.h1, .h2, .h3, .h4, .h5, .h6) {
   margin-block: 0.25rem max(0.25rem, var(--title) / 2);
 }
 
-/* The marker's line is as tall as body text, so a heading smaller than that
-   starts lower in its item when drawn. */
-.editor.part.item.h4 {
-  margin-top: calc(0.25rem + 2px);
-}
-
-.editor.part.item.h5 {
-  margin-top: calc(0.25rem + 3px);
-}
-
-.editor.part.item.h6 {
-  margin-top: calc(0.25rem + 5px);
+.editor.part.quoted-item:is(.h1, .h2, .h3, .h4, .h5, .h6) {
+  margin-block: 0 calc(var(--title) / 2);
 }
 
 /* A row typed as another kind of block than the page laid it out as keeps
@@ -620,24 +627,28 @@ button[aria-pressed="true"] {
 }
 
 .preview h1 {
-  font-size: 2rem;
+  font-size: var(--h1);
 }
 
 .preview h2 {
-  font-size: 1.5rem;
+  font-size: var(--h2);
 }
 
 .preview h3 {
-  font-size: 1.25rem;
+  font-size: var(--h3);
 }
 
 .preview h4 {
-  font-size: 1.125rem;
+  font-size: var(--h4);
+}
+
+.preview h5 {
+  font-size: var(--h5);
 }
 
 .preview h6 {
-  font-size: 0.875rem;
-  letter-spacing: 0.05em;
+  font-size: var(--h6);
+  letter-spacing: var(--h6-tracking);
 }
 
 .preview code {
