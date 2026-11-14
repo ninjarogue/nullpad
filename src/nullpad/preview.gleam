@@ -153,6 +153,15 @@ fn several_rows(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   }
 }
 
+/// The text field sets a heading over several rows as body text, a line to
+/// a row, and the page is told how many rows.
+fn rows_of(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
+  case rows, shown.last_row - shown.first_row + 1 {
+    Unmarked, _ | Marked, 1 -> []
+    Marked, count -> [attribute.style("--rows", int.to_string(count))]
+  }
+}
+
 fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
@@ -170,7 +179,8 @@ fn block(
     items(listed, spacing, shown.last_row + 1, rows, on_task)
   }
   case shown.content {
-    Heading(level, text) -> heading(level, here, inlines(text))
+    Heading(level, text) ->
+      heading(level, list.append(here, rows_of(shown, rows)), inlines(text))
     Paragraph(text) -> html.p(here, inlines(text))
     Rule -> html.hr(here)
     Quote(blocks) ->
