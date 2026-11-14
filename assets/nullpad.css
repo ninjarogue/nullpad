@@ -409,7 +409,7 @@ button[aria-pressed="true"] {
 }
 
 .page.live .preview blockquote.rows .blank + :is(h1, h2, h3, h4, h5, h6):not(:empty):not(:has(+ .blank)),
-.page.live .preview blockquote.rows .blank + * > :is(h1, h2, h3, h4, h5, h6):not(:empty):first-child:not(:last-child),
+.page.live .preview blockquote.rows .blank + * > :is(h1, h2, h3, h4, h5, h6):not(:empty):first-child:not(:last-child):not(:has(+ .blank)),
 .page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child,
 .page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child {
   margin-top: var(--over);
@@ -418,6 +418,11 @@ button[aria-pressed="true"] {
 /* A heading with text keeps its line, even where its text draws nothing. */
 .page.live .preview :is(h1, h2, h3, h4, h5, h6):not(:empty) {
   min-height: 1lh;
+}
+
+/* The field sets a setext heading on its own a line to a row. */
+.page.live .preview > :is(h1, h2, h3, h4, h5, h6):not(:empty) {
+  min-height: calc(var(--rows, 1) * 1lh);
 }
 
 /* The field sets a heading in a quote in an item as a heading in an item. */
@@ -439,15 +444,38 @@ button[aria-pressed="true"] {
   padding-block: calc(0.875rem * 1.5 - 1px);
 }
 
+/* In a quote of several rows, which the field sets as body text, a code
+   block takes its rows, fences among them, with its code in the middle. */
+.page.live .preview blockquote.rows > pre {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: calc(var(--rows, 1) * 1.7rem);
+  justify-content: center;
+  overflow-y: hidden;
+  padding-block: 0;
+}
+
+.page.live .preview blockquote.rows > pre > code {
+  line-height: 1.7rem;
+}
+
 .page.live .preview > hr {
   margin-block: calc(0.85rem - 1px);
 }
 
-/* In a quote two rules in a row would share the room between them. */
+/* In a quote two rules in a row would share the room between them. The
+   line is a border, which forced colors and print keep. */
 .page.live .preview blockquote > hr {
-  background: linear-gradient(var(--line), var(--line)) center / 100% 2px no-repeat;
+  align-items: center;
   border: 0;
+  display: grid;
   height: 1.7rem;
+}
+
+.page.live .preview blockquote > hr::before {
+  border-top: 2px solid var(--line);
+  content: "";
 }
 
 .editor.part {
