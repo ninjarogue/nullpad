@@ -2,6 +2,7 @@ import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
 
 export default {
+  tests: ['tests/**/*.e2e.ts', '!tests/dpr2/**'],
   targets: [
     {
       engine: web({ testIdAttribute: 'data-test-id' }),

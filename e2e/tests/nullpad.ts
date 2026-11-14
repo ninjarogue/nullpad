@@ -282,7 +282,6 @@ export class Page {
     return this.browser.evaluate(() => document.querySelector('.page')!.scrollTop);
   }
 
-  /** Where the text field is in the window. */
   /** The font size and line height of the first element matching `selector`. */
   sizesOf(selector: string) {
     return this.browser.evaluate((selector: string) => {
@@ -291,6 +290,7 @@ export class Page {
     }, selector);
   }
 
+  /** Where the text field is in the window. */
   fieldBox() {
     return this.browser.evaluate(() => {
       const box = document.querySelector('[data-test-id="editor"]')!.getBoundingClientRect();

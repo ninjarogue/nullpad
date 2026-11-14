@@ -1574,6 +1574,11 @@ test('a right-click on the drawn page leaves the caret and the focus where they 
 for (const [what, typed, below] of [
   ['a dash', '- x', 'below words'],
   ['indented code', '    c', 'below words'],
+  ['a heading with no text', '# ', 'below words'],
+  ['seven heading marks', '#######', 'below words'],
+  ['a heading mark before a word', '#tag', 'below words'],
+  ['a heading with no text in an item', '- #', 'below words'],
+  ['a heading with no text in a quote', '> ## ', 'below words'],
   ['a task', '- [ ] t', 'below words'],
   ['a number above a list', '1. n', '3. alpha\n4. beta'],
 ] as const) {
@@ -1645,8 +1650,7 @@ for (const level of [1, 2, 3, 4, 5, 6]) {
     await expect(page.text).toHaveValue(`${marks} Hello world`);
     await expect.poll(() => page.sizesOf(field)).toEqual(finished);
     const after = await belowAt();
-    if (level < 4) expect(after).toBeGreaterThan(before);
-    else expect(after).not.toBe(before);
+    expect(after).not.toBe(before);
 
     await browser.keyboard.press('End');
     for (const key of ' more') {
@@ -1655,8 +1659,68 @@ for (const level of [1, 2, 3, 4, 5, 6]) {
       expect(await page.sizesOf(field)).toEqual(finished);
       expect(await belowAt()).toBe(after);
     }
+
+    const typed = { marks: (await page.placeOf('#'))!, hello: (await page.placeOf('Hello'))! };
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    await page.nextFrame();
+    const drawn = (await page.placeOf('Hello'))!;
+    expect({ below: await belowAt(), top: drawn.top, left: drawn.left }).toEqual({
+      below: after,
+      top: typed.hello.top,
+      left: typed.marks.left,
+    });
   });
 }
+
+test('a heading typed on an empty row moves nothing until its first letter, then grows once, and leaving it moves nothing', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'top line\n\n\n\nbelow words');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('');
+  await page.nextFrame();
+  const belowAt = async () => (await page.placeOf('below'))!.top;
+  const bodySize = await page.sizesOf(field);
+  const before = await belowAt();
+
+  for (const typed of ['#', '# ']) {
+    await browser.keyboard.type(typed.slice(-1));
+    await expect(page.text).toHaveValue(typed);
+    await page.nextFrame();
+    expect({ typed, size: await page.sizesOf(field), below: await belowAt() }).toEqual({
+      typed,
+      size: bodySize,
+      below: before,
+    });
+  }
+
+  await browser.keyboard.type('T');
+  await expect(page.text).toHaveValue('# T');
+  await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
+  const after = await belowAt();
+  expect(after).toBeGreaterThan(before);
+  for (const key of 'itle') {
+    await browser.keyboard.type(key);
+    await page.nextFrame();
+    expect(await belowAt()).toBe(after);
+  }
+
+  const typed = { marks: (await page.placeOf('#'))!, title: (await page.placeOf('Title'))! };
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('');
+  await page.nextFrame();
+  const drawn = (await page.placeOf('Title'))!;
+  expect({ below: await belowAt(), top: drawn.top, left: drawn.left }).toEqual({
+    below: after,
+    top: typed.title.top,
+    left: typed.marks.left,
+  });
+});
 
 test('taking the # off a heading returns its line to body size at once and moves the rows below once', async ({
   app,
@@ -1707,17 +1771,41 @@ test('taking the # off a finished heading draws its line at body size at once', 
 
 for (const [what, prefix, marks, size] of [
   ['a list item', '- ', '#', '32px'],
-  ['a quote', '> ', '#', '32px'],
-  ['a nested item', '- - ', '#', '32px'],
-  ['a quoted item', '> - ', '#', '32px'],
   ['a list item at level 2', '- ', '##', '24px'],
   ['a list item at level 3', '- ', '###', '20px'],
   ['a list item at level 4', '- ', '####', '18px'],
   ['a list item at level 5', '- ', '#####', '16px'],
   ['a list item at level 6', '- ', '######', '14px'],
-  ['a nested item at level 6', '- - ', '######', '14px'],
-  ['an ordered item at level 6', '1. ', '######', '14px'],
+  ['a quote', '> ', '#', '32px'],
   ['a quote at level 2', '> ', '##', '24px'],
+  ['a quote at level 3', '> ', '###', '20px'],
+  ['a quote at level 4', '> ', '####', '18px'],
+  ['a quote at level 5', '> ', '#####', '16px'],
+  ['a quote at level 6', '> ', '######', '14px'],
+  ['a nested item', '- - ', '#', '32px'],
+  ['a nested item at level 2', '- - ', '##', '24px'],
+  ['a nested item at level 3', '- - ', '###', '20px'],
+  ['a nested item at level 4', '- - ', '####', '18px'],
+  ['a nested item at level 5', '- - ', '#####', '16px'],
+  ['a nested item at level 6', '- - ', '######', '14px'],
+  ['a quoted item', '> - ', '#', '32px'],
+  ['a quoted item at level 2', '> - ', '##', '24px'],
+  ['a quoted item at level 3', '> - ', '###', '20px'],
+  ['a quoted item at level 4', '> - ', '####', '18px'],
+  ['a quoted item at level 5', '> - ', '#####', '16px'],
+  ['a quoted item at level 6', '> - ', '######', '14px'],
+  ['an ordered item', '1. ', '#', '32px'],
+  ['an ordered item at level 2', '1. ', '##', '24px'],
+  ['an ordered item at level 3', '1. ', '###', '20px'],
+  ['an ordered item at level 4', '1. ', '####', '18px'],
+  ['an ordered item at level 5', '1. ', '#####', '16px'],
+  ['an ordered item at level 6', '1. ', '######', '14px'],
+  ['a quote in an item', '- > ', '#', '32px'],
+  ['a quote in an item at level 2', '- > ', '##', '24px'],
+  ['a quote in an item at level 3', '- > ', '###', '20px'],
+  ['a quote in an item at level 4', '- > ', '####', '18px'],
+  ['a quote in an item at level 5', '- > ', '#####', '16px'],
+  ['a quote in an item at level 6', '- > ', '######', '14px'],
 ] as const) {
   test(`a # typed in ${what} draws its line at heading size at once, and leaving the line moves nothing`, async ({
     app,
@@ -1746,7 +1834,7 @@ for (const [what, prefix, marks, size] of [
     await expect(page.text).toHaveValue(`${prefix}${marks} Hello world`);
     await expect.poll(async () => (await page.sizesOf(field)).size).toBe(size);
     const typed = await page.sizesOf(field);
-    await expect.poll(belowAt).toBeGreaterThan(base);
+    await expect.poll(belowAt).not.toBe(base);
     const after = await belowAt();
 
     await browser.keyboard.press('End');
@@ -1757,11 +1845,16 @@ for (const [what, prefix, marks, size] of [
       expect(await belowAt()).toBe(after);
     }
 
+    const hello = (await page.placeOf('Hello'))!;
+    const hangs = prefix === '- ' || prefix === '1. ';
+    const marksAt = (await page.placeOf(marks))!;
     await browser.keyboard.press('ArrowDown');
     await expect(page.text).toHaveValue('');
     await page.nextFrame();
     expect(await page.sizesOf(`[data-test-id="live-above"] h${marks.length}`)).toEqual(typed);
-    expect(await belowAt()).toBe(after);
+    const drawn = (await page.placeOf('Hello'))!;
+    expect({ below: await belowAt(), top: drawn.top }).toEqual({ below: after, top: hello.top });
+    if (hangs) expect(drawn.left).toBe(marksAt.left);
   });
 
   test(`taking the # off a heading in ${what} returns its line to body size at once`, async ({

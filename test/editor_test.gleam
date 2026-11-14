@@ -1704,6 +1704,49 @@ pub fn the_marks_of_a_heading_in_an_item_or_a_quote_removed_frame_the_row_at_onc
   assert editor.frame(removed) == Some(live.Body)
 }
 
+pub fn a_heading_with_no_text_is_set_and_framed_as_body_text_test() {
+  let ed = live("top\n\n\n\nbelow") |> point(2)
+  let marks = show(ed, caret("#", 0, 1))
+  assert editor.kind(marks) == Some(live.Body)
+  assert editor.frame(marks) == Some(live.Body)
+
+  let spaced = show(ed, caret("# ", 0, 2))
+  assert editor.kind(spaced) == Some(live.Body)
+  assert editor.frame(spaced) == Some(live.Body)
+
+  let item = show(ed, caret("- #", 0, 3))
+  assert editor.kind(item) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(item) == Some(live.Body)
+
+  let quote = show(ed, caret("> ## ", 0, 5))
+  assert editor.kind(quote) == Some(live.Body)
+  assert editor.frame(quote) == Some(live.Body)
+
+  let laid_out = live("# \n\nbelow")
+  assert editor.kind(laid_out) == Some(live.Body)
+  assert editor.frame(laid_out) == Some(live.Body)
+}
+
+pub fn a_heading_whose_text_is_removed_is_framed_as_body_text_at_once_test() {
+  let ed = live("# T\n\nbelow")
+  assert editor.frame(ed) == Some(live.Title(markdown.H1))
+  let emptied = show(ed, caret("# ", 0, 2))
+  assert editor.kind(emptied) == Some(live.Body)
+  assert editor.frame(emptied) == Some(live.Body)
+}
+
+pub fn a_setext_heading_in_an_item_or_a_quote_is_set_as_that_item_or_quote_test() {
+  let item = live("- Hello\n  ===\n\nbelow")
+  assert editor.region(item) == Some(Region(0, 1))
+  assert editor.kind(item) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(item) == Some(live.ListItem(task: False, marker: "- "))
+
+  let quote = live("> Hello\n> ---\n\nbelow")
+  assert editor.region(quote) == Some(Region(0, 1))
+  assert editor.kind(quote) == Some(live.Body)
+  assert editor.frame(quote) == Some(live.Body)
+}
+
 pub fn the_marks_of_a_heading_removed_frame_the_row_as_body_text_at_once_test() {
   let ed = live("# Hello\n\nbelow")
   assert editor.frame(ed) == Some(live.Title(markdown.H1))
