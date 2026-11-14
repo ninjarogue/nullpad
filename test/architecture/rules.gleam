@@ -43,7 +43,7 @@ const measures = [
   "isPainted", "locate", "findControl", "textWidth", "utf16Split", "utf16Length",
   "below", "hasHardwareKeyboard", "canPaint", "readVimSetting",
   "readMarkdownSetting", "pressLanding", "dropped", "releasedOnSelection",
-  "focusStayed",
+  "focusStayed", "keysWait", "pastedText", "heldKeyEvent",
 ]
 
 /// How many state parameters each of these decoders still takes.

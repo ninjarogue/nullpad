@@ -111,9 +111,11 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         // back: the editor does not hear of it.
         event.on("blur", leave_decoder(on_event)),
         event.advanced("beforeinput", history_decoder(on_event)),
+        event.advanced("paste", paste_decoder(on_event)),
         event.advanced(
           "keydown",
-          decode.one_of(key_decoder(editor, on_event), [
+          decode.one_of(hold_decoder(on_event), [
+            key_decoder(editor, on_event),
             undo_key_decoder(on_event),
             edge_decoder(on_event),
             escape_decoder(on_event),
@@ -404,20 +406,36 @@ pub fn sync(
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
-  let settled = fn(dispatch) {
-    fn(from, to) { dispatch(on_event(editor.Settled(from:, to:))) }
+  // The page paints the selection, and settles it where it can draw its
+  // ends. True when there is nothing to settle.
+  let draw = fn(dispatch) {
+    paint(editor)
+    note_drawn(editor.row_count(editor))
+    case settling(editor) {
+      Some(#(from, to)) -> {
+        dispatch(on_event(editor.Settled(from:, to:)))
+        False
+      }
+      None -> True
+    }
   }
-  let drawn = fn() { note_drawn(editor.row_count(editor)) }
+  // A held key is replayed once the page has drawn the editor as it is and
+  // has nothing more to say about it: no selection to settle, no step or aim
+  // to take.
+  let replay = fn(dispatch, quiet) {
+    case quiet {
+      True -> replay_held(editor, dispatch, on_event)
+      False -> Nil
+    }
+  }
   let painted =
-    effect.before_paint(fn(dispatch, _) {
-      paint(editor, settled(dispatch))
-      drawn()
-    })
+    effect.before_paint(fn(dispatch, _) { replay(dispatch, draw(dispatch)) })
   // A step the editor no longer waits for is not taken once the page is
   // drawn.
   let noted =
     effect.from(fn(_) {
       note_painted(editor.is_painted(editor))
+      note_editor(editor, editor.is_waiting(editor))
       case editor.is_stepping(editor) {
         True -> Nil
         False -> hold_step(False, editor)
@@ -428,9 +446,9 @@ pub fn sync(
     // scroll the page to a caret that typing takes onto a new line.
     editor.InSync ->
       effect.before_paint(fn(dispatch, _) {
-        paint(editor, settled(dispatch))
-        drawn()
+        let quiet = draw(dispatch)
         reveal_caret(control_id, live_class, painted_class)
+        replay(dispatch, quiet)
       })
     // Painted before the page is scrolled to the head, which may be painted.
     editor.Write(buffer) ->
@@ -441,11 +459,11 @@ pub fn sync(
           ask_focus()
         }),
         effect.before_paint(fn(dispatch, _) {
-          paint(editor, settled(dispatch))
-          drawn()
+          let quiet = draw(dispatch)
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
+          replay(dispatch, quiet)
         }),
       ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
@@ -522,12 +540,12 @@ pub fn sync(
           hold_step(!step_now(dispatch), editor)
         }),
         effect.before_paint(fn(dispatch, _) {
-          paint(editor, settled(dispatch))
-          drawn()
+          let quiet = draw(dispatch)
           case take_held_step(editor) && !step_now(dispatch) {
             True -> dispatch(on_event(editor.Unstepped(x:)))
             False -> Nil
           }
+          replay(dispatch, quiet)
         }),
       ])
     }
@@ -559,11 +577,13 @@ pub fn sync(
             again,
           )
         case aimed {
-          #(True, text, start, end, backward) ->
+          #(True, text, start, end, backward) -> {
             dispatch(
               on_event(editor.Aimed(from_control(text, start, end, backward))),
             )
-          #(False, _, _, _, _) -> Nil
+            True
+          }
+          #(False, _, _, _, _) -> False
         }
       }
       effect.batch([
@@ -571,17 +591,38 @@ pub fn sync(
           write_now(buffer)
           ask_focus()
           aim(dispatch, False)
+          Nil
         }),
         effect.before_paint(fn(dispatch, _) {
-          aim(dispatch, True)
+          let aimed = aim(dispatch, True)
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
+          let quiet = draw(dispatch)
+          replay(dispatch, quiet && !aimed)
+        }),
+      ])
+    }
+    // A held key the browser takes past the field, done once the field holds
+    // the whole note.
+    editor.WriteAndAct(buffer, key:) ->
+      effect.batch([
+        effect.from(fn(dispatch) {
+          write_now(buffer)
+          case key {
+            editor.HeldKey(key:, shift:, ctrl:, meta:, alt:, at:, ..) -> {
+              act_on_key(control_id, key, shift, ctrl, meta, alt)
+              case decode.run(find_control(control_id), control_decoder()) {
+                Ok(shown) ->
+                  dispatch(on_event(editor.ControlChanged(shown:, at:)))
+                Error(_) -> Nil
+              }
+            }
+            editor.HeldPaste(..) | editor.HeldUndo | editor.HeldRedo -> Nil
+          }
         }),
         painted,
       ])
-    }
-    editor.WriteAndAct(buffer, ..) -> effect.batch([write(buffer), painted])
     // The browser acts on the key after the handler that wrote the field.
     editor.WriteAndRead(buffer) ->
       effect.batch([
@@ -595,7 +636,10 @@ pub fn sync(
             }
           })
         }),
-        painted,
+        effect.before_paint(fn(dispatch, _) {
+          draw(dispatch)
+          Nil
+        }),
       ])
     // Blurred at once, because a key pressed before the next paint would
     // still be typed into the field, and again before that paint, after any
@@ -664,10 +708,7 @@ pub fn sync(
 /// The selection is painted from where each of its ends is drawn, and the
 /// line break of each row from its start to the row before its end is
 /// painted too, where it ends a drawn element.
-fn paint(
-  editor: Editor,
-  settled: fn(#(Position, Position), #(Position, Position)) -> Nil,
-) -> Nil {
+fn paint(editor: Editor) -> Nil {
   let kind = editor.kind(editor)
   let rows = case
     kind,
@@ -686,10 +727,6 @@ fn paint(
       let #(anchor, head) = buffer.selection(buffer)
       let holder = fn(at: Position) {
         holder_text(control_id, live_class, live.row_mark, at.row)
-      }
-      let settle = fn(at: Position, other: Position, toward: order.Order) {
-        let #(row, visible) = holder(at)
-        live.settle(lines, row:, visible:, at:, other:, toward:)
       }
       let place = fn(at: Position) {
         let #(row, visible) = holder(at)
@@ -720,15 +757,31 @@ fn paint(
         start.row,
         end.row - 1,
       )
-      let to = #(
-        settle(anchor, head, order.Eq),
-        settle(head, anchor, editor.direction(editor)),
-      )
-      case to == #(anchor, head) {
-        True -> Nil
-        False -> settled(#(anchor, head), to)
-      }
     }
+  }
+}
+
+/// Where a painted selection settles, when the page cannot draw its ends
+/// where they are: an end never cuts a pair of marks the page hides.
+fn settling(
+  editor: Editor,
+) -> Option(#(#(Position, Position), #(Position, Position))) {
+  use <- bool.guard(!editor.is_painted(editor), None)
+  let buffer = editor.buffer(editor)
+  let lines = buffer.lines(buffer)
+  let #(anchor, head) = buffer.selection(buffer)
+  let settle = fn(at: Position, other: Position, toward: order.Order) {
+    let #(row, visible) =
+      holder_text(control_id, live_class, live.row_mark, at.row)
+    live.settle(lines, row:, visible:, at:, other:, toward:)
+  }
+  let to = #(
+    settle(anchor, head, order.Eq),
+    settle(head, anchor, editor.direction(editor)),
+  )
+  case to == #(anchor, head) {
+    True -> None
+    False -> Some(#(#(anchor, head), to))
   }
 }
 
@@ -825,6 +878,110 @@ fn control_decoder() -> Decoder(Buffer) {
   use end <- decode.field("selectionEnd", decode.int)
   use direction <- decode.field("selectionDirection", decode.string)
   decode.success(from_control(text, start, end, direction == "backward"))
+}
+
+/// A key pressed while the page is behind the editor is held, and replayed
+/// once the page has drawn the editor as it is: the browser would act on the
+/// field as the page last drew it. A paste is held when its text arrives.
+/// An IME's keys go on to the field, which it owns while it composes.
+fn hold_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use key <- decode.field("key", decode.string)
+  use code <- decode.optional_field("code", "", decode.string)
+  use shift <- decode.field("shiftKey", decode.bool)
+  use ctrl <- decode.field("ctrlKey", decode.bool)
+  use meta <- decode.field("metaKey", decode.bool)
+  use alt <- decode.field("altKey", decode.bool)
+  use composing <- decode.field("isComposing", decode.bool)
+  use key_code <- decode.optional_field("keyCode", 0, decode.int)
+  use at <- decode.then(time_decoder())
+  let held = editor.HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, at:)
+  let handler =
+    on_event(editor.KeyHeld(held))
+    |> event.handler(prevent_default: True, stop_propagation: True)
+  let pastes = { ctrl || meta } && is_key(key, code, "v")
+  let holds = case key {
+    "Enter"
+    | "Backspace"
+    | "Delete"
+    | "ArrowLeft"
+    | "ArrowRight"
+    | "ArrowUp"
+    | "ArrowDown"
+    | "Home"
+    | "End"
+    | "PageUp"
+    | "PageDown"
+    | "Escape" -> True
+    _ -> string.length(key) == 1 && !pastes
+  }
+  case keys_wait() && holds && !composing && key_code != 229 {
+    True -> decode.success(handler)
+    False -> decode.failure(handler, expected: "a key the page is behind")
+  }
+}
+
+fn paste_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use paste <- decode.then(decode.dynamic)
+  use at <- decode.then(time_decoder())
+  let handler =
+    on_event(editor.KeyHeld(editor.HeldPaste(text: pasted_text(paste), at:)))
+    |> event.handler(prevent_default: True, stop_propagation: False)
+  case keys_wait() {
+    True -> decode.success(handler)
+    False -> decode.failure(handler, expected: "a paste the page is behind")
+  }
+}
+
+/// Replays the first held key on the field as the page now draws it, the way
+/// it would have gone had the page been drawn when it was pressed: the
+/// field's handlers decide again, and a key they leave to the browser is
+/// done here as the browser does it.
+fn replay_held(
+  editor: Editor,
+  dispatch: fn(msg) -> Nil,
+  on_event: fn(editor.Event) -> msg,
+) -> Nil {
+  let replayed = fn(then) { dispatch(on_event(editor.Replayed(then))) }
+  let read = fn(at) {
+    decode.run(find_control(control_id), control_decoder())
+    |> result.map(fn(shown) { editor.ControlChanged(shown:, at:) })
+    |> option.from_result
+  }
+  case editor.replay(editor), take_replay(editor) {
+    Some(editor.HeldUndo), True -> replayed(Some(editor.UndoAsked))
+    Some(editor.HeldRedo), True -> replayed(Some(editor.RedoAsked))
+    Some(editor.HeldPaste(text:, at:)), True -> {
+      paste_into(control_id, text)
+      replayed(read(at))
+    }
+    Some(editor.HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, at:)), True -> {
+      let same = fn(event) { event }
+      let keydown =
+        decode.one_of(key_decoder(editor, same), [
+          undo_key_decoder(same),
+          edge_decoder(same),
+          escape_decoder(same),
+        ])
+      let pressed =
+        held_key_event(control_id, key, code, shift, ctrl, meta, alt, at)
+      case decode.run(pressed, keydown) {
+        Ok(handler) -> replayed(Some(handler.message))
+        Error(_) ->
+          case act_on_key(control_id, key, shift, ctrl, meta, alt) {
+            True -> replayed(read(at))
+            False -> {
+              replayed(None)
+              press_on_page(key, code, shift, ctrl, meta, alt)
+            }
+          }
+      }
+    }
+    Some(_), False | None, _ -> Nil
+  }
 }
 
 fn key_decoder(
@@ -1173,6 +1330,53 @@ fn step_head(
 
 @external(javascript, "./surface.ffi.mjs", "holdStep")
 fn hold_step(held: Bool, for: Editor) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "noteEditor")
+fn note_editor(editor: Editor, waiting: Bool) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "keysWait")
+fn keys_wait() -> Bool
+
+@external(javascript, "./surface.ffi.mjs", "takeReplay")
+fn take_replay(for: Editor) -> Bool
+
+@external(javascript, "./surface.ffi.mjs", "heldKeyEvent")
+fn held_key_event(
+  id: String,
+  key: String,
+  code: String,
+  shift: Bool,
+  ctrl: Bool,
+  meta: Bool,
+  alt: Bool,
+  at: Int,
+) -> Dynamic
+
+@external(javascript, "./surface.ffi.mjs", "pastedText")
+fn pasted_text(paste: Dynamic) -> String
+
+@external(javascript, "./surface.ffi.mjs", "actOnKey")
+fn act_on_key(
+  id: String,
+  key: String,
+  shift: Bool,
+  ctrl: Bool,
+  meta: Bool,
+  alt: Bool,
+) -> Bool
+
+@external(javascript, "./surface.ffi.mjs", "pasteInto")
+fn paste_into(id: String, text: String) -> Nil
+
+@external(javascript, "./surface.ffi.mjs", "pressOnPage")
+fn press_on_page(
+  key: String,
+  code: String,
+  shift: Bool,
+  ctrl: Bool,
+  meta: Bool,
+  alt: Bool,
+) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "takeHeldStep")
 fn take_held_step(for: Editor) -> Bool

@@ -19,9 +19,9 @@ import nullpad/vim.{Step}
 /// first change through `compose` to the next through `edit`: undo and redo
 /// wait for it to end.
 ///
-/// `waiting` holds the steps of the head over the drawn page that the page
-/// has not placed yet. Only the first is asked for, so each step starts
-/// where the step before it ended.
+/// `page` is what the page has yet to do for the editor: the steps of the
+/// head over the drawn page that it has not placed yet, and the keys
+/// pressed since, which wait for them.
 ///
 /// `goal` is where a run of moves up and down aims, as a text field keeps
 /// the caret's x. The first move of a run sets it, and any other change to
@@ -43,9 +43,22 @@ pub opaque type Editor {
     composing: Bool,
     paints: Bool,
     goal: Option(Goal),
-    waiting: List(Queued),
+    page: Page,
     travel: order.Order,
   )
+}
+
+/// Whether the page has caught up with the editor. A key pressed while it
+/// has not is held: the browser would act on the field as the page last
+/// drew it, so the key is replayed, in the order it was pressed, once the
+/// page has drawn the editor as it is.
+type Page {
+  CaughtUp
+  /// `steps` of the head wait for the page to take them, and only the first
+  /// is asked for, so each starts where the one before it ended. `keys` wait
+  /// behind them, and are replayed one at a time once no step waits, each
+  /// once the page has drawn what the one before it did.
+  Behind(steps: List(Queued), keys: List(Held))
 }
 
 /// `x` is how far from the left of the page's text the head was drawn when
@@ -264,8 +277,8 @@ pub type Held {
     alt: Bool,
     at: Int,
   )
-  /// Text pasted into the field.
-  HeldPaste(text: String)
+  /// Text pasted into the field at `at`.
+  HeldPaste(text: String, at: Int)
   /// Undo or redo from the browser's menu.
   HeldUndo
   HeldRedo
@@ -389,7 +402,7 @@ pub fn new(
     composing: False,
     paints:,
     goal: None,
-    waiting: [],
+    page: CaughtUp,
     travel: order.Eq,
   )
 }
@@ -415,6 +428,7 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     field:,
     history: history.new(buffer),
     composing: False,
+    page: CaughtUp,
   )
   |> realign
   |> write_and_focus
@@ -576,6 +590,7 @@ fn is_vertical(edge: Edge) -> Bool {
 }
 
 fn apply(editor: Editor, event: Event) -> Outcome {
+  let unasked = steps(editor) == []
   case event {
     ControlChanged(shown:, at:) ->
       typed(Editor(..editor, clock: at), shown, None, realign)
@@ -590,7 +605,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         Part(..) -> {
           let left = outcome.editor.buffer
           let editor =
-            Editor(..outcome.editor, focus: Away, waiting: [])
+            Editor(..outcome.editor, focus: Away, page: CaughtUp)
             |> edit(buffer.move_to(left, buffer.cursor(left)))
             |> realign
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
@@ -605,7 +620,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           focus: Focused,
           press: Some(PressedAt(at)),
           clicked: Some(at),
-          waiting: [],
+          page: CaughtUp,
         )
         |> edit(buffer.move_to(editor.buffer, at))
         |> realign
@@ -623,7 +638,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedOnLine(start:, end:)),
-          waiting: [],
+          page: CaughtUp,
         )
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
@@ -641,7 +656,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedAt(anchor)),
-          waiting: [],
+          page: CaughtUp,
         )
         |> reach(from, anchor, row:, visible:, at_end:, next:)
       Outcome(
@@ -672,7 +687,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedOnWord(start:, end:)),
-          waiting: [],
+          page: CaughtUp,
         )
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
@@ -688,7 +703,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           let at = place(editor.buffer, row:, visible:, at_end:, next:)
           let press = Some(PressedOnSelection(at))
           Outcome(
-            editor: Editor(..editor, press:, waiting: []),
+            editor: Editor(..editor, press:, page: CaughtUp),
             sync: HoldSelection(x:, y:),
             requests: [],
           )
@@ -717,12 +732,12 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         None -> Outcome(editor:, sync: InSync, requests: [])
       }
     // A step that comes after the steps were ended is dropped.
-    Stepped(..) | Unstepped(..) | SteppedPast if editor.waiting == [] ->
+    Stepped(..) | Unstepped(..) | SteppedPast if unasked ->
       Outcome(editor:, sync: InSync, requests: [])
     Stepped(row:, visible:, at_end:, next:, x:) -> {
       let #(anchor, head) = buffer.selection(editor.buffer)
       let placed = place(editor.buffer, row:, visible:, at_end:, next:)
-      let #(line, select) = case editor.waiting {
+      let #(line, select) = case steps(editor) {
         [Queued(move: LineUp, select:), ..]
         | [Queued(move: LineDown, select:), ..] -> #(True, select)
         [Queued(move: PageUp, select:), ..]
@@ -754,7 +769,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         True -> anchor
         False -> placed
       }
-      let landed = landing(editor.waiting)
+      let landed = landing(steps(editor))
       let moved = case stays(editor, placed) {
         True -> editor
         False ->
@@ -767,13 +782,13 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     }
     Unstepped(x:) ->
       editor
-      |> begin_run(editor, landing(editor.waiting), x)
+      |> begin_run(editor, landing(steps(editor)), x)
       |> next_step(None, False)
     FieldStepped(shown:, x:) ->
-      case editor.waiting {
+      case steps(editor) {
         [] -> typed(editor, shown, None, realign)
         [_, ..] -> {
-          let landed = landing(editor.waiting)
+          let landed = landing(steps(editor))
           editor
           |> edit(base(editor, shown))
           |> realign
@@ -784,7 +799,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     Aimed(shown:) -> typed(editor, shown, None, realign)
     SteppedPast -> {
       let #(anchor, _) = buffer.selection(editor.buffer)
-      let #(back, select) = case editor.waiting {
+      let #(back, select) = case steps(editor) {
         [Queued(move: LineUp, select:), ..]
         | [Queued(move: LineStart, select:), ..]
         | [Queued(move: LetterBack, select:), ..]
@@ -810,7 +825,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           |> realign
       }
       moved
-      |> begin_run(editor, landing(editor.waiting), -1.0)
+      |> begin_run(editor, landing(steps(editor)), -1.0)
       |> next_step(None, False)
     }
     Settled(from:, to: #(anchor, head)) ->
@@ -879,12 +894,12 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       }
     }
     FocusChanged(focused:) -> {
-      let #(focus, press, waiting) = case focused {
-        True -> #(Focused, editor.press, editor.waiting)
-        False -> #(Away, None, [])
+      let #(focus, press, page) = case focused {
+        True -> #(Focused, editor.press, editor.page)
+        False -> #(Away, None, CaughtUp)
       }
       let changed =
-        Editor(..editor, focus:, press:, waiting:) |> edit(editor.buffer)
+        Editor(..editor, focus:, press:, page:) |> edit(editor.buffer)
       let changed = case focus {
         Away -> changed
         Focused -> realign(changed)
@@ -895,11 +910,77 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       }
       Outcome(editor: changed, sync:, requests: [])
     }
-    UndoAsked -> travel(editor, history.undo)
-    RedoAsked -> travel(editor, history.redo)
-    KeyHeld(_) -> Outcome(editor:, sync: InSync, requests: [])
-    Replayed(Some(event)) -> apply(editor, event)
-    Replayed(None) -> Outcome(editor:, sync: InSync, requests: [])
+    UndoAsked ->
+      case editor.page {
+        CaughtUp -> travel(editor, history.undo)
+        Behind(..) -> hold_key(editor, HeldUndo)
+      }
+    RedoAsked ->
+      case editor.page {
+        CaughtUp -> travel(editor, history.redo)
+        Behind(..) -> hold_key(editor, HeldRedo)
+      }
+    KeyHeld(held) -> hold_key(editor, held)
+    Replayed(Some(UndoAsked)) -> travel(replayed(editor), history.undo)
+    Replayed(Some(RedoAsked)) -> travel(replayed(editor), history.redo)
+    Replayed(Some(event)) -> {
+      let outcome = apply(replayed(editor), event)
+      // A key the browser acts on past the field is acted on once the field
+      // holds the whole note.
+      case outcome.sync, replay(editor) {
+        WriteAndRead(whole), Some(key) ->
+          Outcome(..outcome, sync: WriteAndAct(whole, key:))
+        WriteAndRead(_), None
+        | InSync, _
+        | Write(_), _
+        | WriteQuietly(_), _
+        | WriteAndAim(..), _
+        | WriteAndStep(..), _
+        | WriteAndAct(..), _
+        | Release(_), _
+        | Press(..), _
+        | HoldSelection(..), _
+        -> outcome
+      }
+    }
+    Replayed(None) ->
+      Outcome(editor: replayed(editor), sync: InSync, requests: [])
+  }
+}
+
+/// A key waits behind what the page has yet to do.
+fn hold_key(editor: Editor, held: Held) -> Outcome {
+  let page = behind(steps(editor), list.append(held_keys(editor), [held]))
+  Outcome(editor: Editor(..editor, page:), sync: InSync, requests: [])
+}
+
+/// The key that was replayed is taken off the keys that wait.
+fn replayed(editor: Editor) -> Editor {
+  case replay(editor), editor.page {
+    Some(_), Behind(steps:, keys: [_, ..keys]) ->
+      Editor(..editor, page: behind(steps, keys))
+    Some(_), Behind(keys: [], ..) | Some(_), CaughtUp | None, _ -> editor
+  }
+}
+
+fn behind(steps: List(Queued), keys: List(Held)) -> Page {
+  case steps, keys {
+    [], [] -> CaughtUp
+    [_, ..], _ | _, [_, ..] -> Behind(steps:, keys:)
+  }
+}
+
+fn steps(editor: Editor) -> List(Queued) {
+  case editor.page {
+    CaughtUp -> []
+    Behind(steps:, ..) -> steps
+  }
+}
+
+fn held_keys(editor: Editor) -> List(Held) {
+  case editor.page {
+    CaughtUp -> []
+    Behind(keys:, ..) -> keys
   }
 }
 
@@ -916,7 +997,7 @@ fn travel(
     True, Focused, _ | True, Away, _ ->
       Outcome(editor:, sync: InSync, requests: [])
     False, Focused, Ok(history) ->
-      Editor(..editor, history:, waiting: [])
+      Editor(..editor, history:, page: behind([], held_keys(editor)))
       |> edit(history.present(history))
       |> realign
       |> write
@@ -932,8 +1013,8 @@ fn travel(
 /// step stopped on a row the page does not draw, which took the run's
 /// column.
 fn next_step(editor: Editor, landed: Option(Bool), undrawn: Bool) -> Outcome {
-  let waiting = list.drop(editor.waiting, 1)
-  let editor = Editor(..editor, waiting:)
+  let waiting = list.drop(steps(editor), 1)
+  let editor = Editor(..editor, page: behind(waiting, held_keys(editor)))
   case waiting, landed, editor.goal {
     [], Some(select), Some(Goal(x:, ..)) ->
       case is_painted(editor) || undrawn {
@@ -998,7 +1079,7 @@ pub fn step_start(editor: Editor) -> Position {
     order.Gt -> #(head, anchor)
     order.Lt | order.Eq -> #(anchor, head)
   }
-  case editor.waiting {
+  case steps(editor) {
     [Queued(move: PageUp, select: False), ..] -> start
     [Queued(move: PageDown, select: False), ..] -> end
     [Queued(move: PageUp, select: True), ..]
@@ -1042,7 +1123,7 @@ fn in_row(
       toward: order.Eq,
     )
   }
-  case editor.waiting {
+  case steps(editor) {
     [Queued(move: LetterOn, ..), ..] if !left && placed.col > head.col + 1 -> {
       let at = Position(..head, col: head.col + 1)
       case
@@ -1086,7 +1167,7 @@ fn in_row(
 /// nowhere to go.
 fn stays(editor: Editor, reached: Position) -> Bool {
   let #(anchor, head) = buffer.selection(editor.buffer)
-  case editor.waiting {
+  case steps(editor) {
     [Queued(move: PageUp, select: False), ..]
     | [Queued(move: PageDown, select: False), ..] ->
       anchor != head && reached == step_start(editor)
@@ -1199,11 +1280,11 @@ fn typed(
     _, _ -> #(editor.keys, base, [])
   }
   // A change the editor did not write ends the steps still waiting.
-  let waiting = case shown == field_buffer(editor) {
-    True -> editor.waiting
-    False -> []
+  let page = case shown == field_buffer(editor) {
+    True -> editor.page
+    False -> behind([], held_keys(editor))
   }
-  let editor = Editor(..editor, keys:, waiting:) |> edit(wanted) |> place
+  let editor = Editor(..editor, keys:, page:) |> edit(wanted) |> place
   let wanted_shown = field_buffer(editor)
   let sync = case wanted_shown == shown {
     True -> InSync
@@ -1390,12 +1471,13 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | SelectLineStart
     | SelectLineEnd -> #(base, Done)
   }
-  let waiting = case then {
-    StepTo(step) -> list.append(editor.waiting, [step])
-    Done | Aim(..) -> editor.waiting
+  let page = case then {
+    StepTo(step) ->
+      behind(list.append(steps(editor), [step]), held_keys(editor))
+    Done | Aim(..) -> editor.page
   }
-  let first = editor.waiting == []
-  let editor = Editor(..edit(editor, wanted), waiting:, goal:) |> realign
+  let first = steps(editor) == []
+  let editor = Editor(..edit(editor, wanted), page:, goal:) |> realign
   let wanted_shown = field_buffer(editor)
   let sync = case then, wanted_shown == shown {
     Aim(line, select:), _ ->
@@ -1701,18 +1783,26 @@ pub fn is_painted(editor: Editor) -> Bool {
 
 /// Whether a step of the head waits for the page.
 pub fn is_stepping(editor: Editor) -> Bool {
-  editor.waiting != []
+  steps(editor) != []
 }
 
 /// Whether the page is behind the editor, so that a key pressed now is held.
 pub fn is_waiting(editor: Editor) -> Bool {
-  is_stepping(editor)
+  editor.page != CaughtUp
 }
 
-/// The held key to replay now, once the page has caught up.
+/// The held key to replay now: the first, once no step waits for the page
+/// and no IME composes in the field. The surface replays it once the page
+/// has drawn the editor as it is.
 pub fn replay(editor: Editor) -> Option(Held) {
-  let _ = editor
-  None
+  case editor.page, editor.composing {
+    Behind(steps: [], keys: [key, ..]), False -> Some(key)
+    Behind(steps: [], keys: [_, ..]), True
+    | Behind(steps: [], keys: []), _
+    | Behind(steps: [_, ..], ..), _
+    | CaughtUp, _
+    -> None
+  }
 }
 
 pub fn is_idle(editor: Editor) -> Bool {

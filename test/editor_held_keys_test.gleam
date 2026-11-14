@@ -95,7 +95,7 @@ pub fn every_kind_of_key_waits_behind_a_step_and_replays_in_order_test() {
     ctrl("a"),
     ctrl("z"),
     ctrl("e"),
-    editor.HeldPaste("pasted"),
+    editor.HeldPaste(text: "pasted", at: 0),
     editor.HeldUndo,
     editor.HeldRedo,
     key("Escape"),
