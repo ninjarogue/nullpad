@@ -8,6 +8,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import lustre/attribute
@@ -685,9 +686,9 @@ fn paint(
       let holder = fn(at: Position) {
         holder_text(control_id, live_class, live.row_mark, at.row)
       }
-      let settle = fn(at: Position, other: Position) {
+      let settle = fn(at: Position, other: Position, toward: order.Order) {
         let #(row, visible) = holder(at)
-        live.settle(lines, row:, visible:, at:, other:)
+        live.settle(lines, row:, visible:, at:, other:, toward:)
       }
       let place = fn(at: Position) {
         let #(row, visible) = holder(at)
@@ -718,7 +719,10 @@ fn paint(
         start.row,
         end.row - 1,
       )
-      let to = #(settle(anchor, head), settle(head, anchor))
+      let to = #(
+        settle(anchor, head, order.Eq),
+        settle(head, anchor, editor.direction(editor)),
+      )
       case to == #(anchor, head) {
         True -> Nil
         False -> settled(#(anchor, head), to)

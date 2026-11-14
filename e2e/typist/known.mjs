@@ -122,11 +122,9 @@ export const known = [
   },
   {
     id: 'word-select-over-marks',
-    kind: 'open',
-    finding: 'X1',
-    reason: 'X1: Ctrl+Shift+Right sticks before hidden marks once the selection is painted: the browser moves the head into the hidden run and the page settles it back to where it came from. Only a paced run shows it, since a burst settles once at the end.',
-    repro: [P('one\n\npara **bold** end'), 'Control+Home', ...times(8, 'Control+Shift+ArrowRight')],
-    pace: 'slow',
+    kind: 'intended',
+    reason:
+      'A painted selection never ends inside a pair of marks the page hides, so Delete never leaves a literal ** behind. Where a textarea\'s word step stops inside a pair, as between ** and bold, the painted head goes on past the pair, or back before it, the way the step was going. Only a paced run paints between the keys.',
     skip: (k, c, pace) => pace !== 'burst' && isWordSelect(k) && inlineMark.test(c.value),
     sanitize: (script) => script,
   },

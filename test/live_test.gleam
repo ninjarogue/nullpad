@@ -3,6 +3,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/order
 import gleam/string
 import nullpad/buffer.{Position}
 import nullpad/live.{Region}
@@ -421,7 +422,14 @@ pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_t
 
 fn settle(lines: List(String), visible: String, row: Int, col: Int) -> Int {
   let other = Position(row: row + 1, col: 0)
-  live.settle(lines, row: 0, visible:, at: Position(row:, col:), other:).col
+  live.settle(
+    lines,
+    row: 0,
+    visible:,
+    at: Position(row:, col:),
+    other:,
+    toward: order.Eq,
+  ).col
 }
 
 /// Marks between two drawn letters all draw at one place, so a place among
@@ -481,6 +489,7 @@ pub fn a_place_settles_with_the_other_end_on_its_row_test() {
       visible: "bold text\nnext",
       at: Position(0, col),
       other: Position(0, other),
+      toward: order.Eq,
     ).col
   }
   assert at(2, 13) == 0
@@ -488,26 +497,54 @@ pub fn a_place_settles_with_the_other_end_on_its_row_test() {
   assert at(2, 4) == 2
 }
 
-/// Settling never changes where a place is drawn, and a settled place stays.
+/// Settling with no way to go never changes where a place is drawn, and a
+/// settled place stays, settled again the same way or with no way to go.
 pub fn a_settled_place_is_drawn_where_it_was_and_settles_no_further_test() {
+  let ways = [order.Eq, order.Gt, order.Lt]
   let wrong = {
     use Drawn(lines:, visible:) <- list.flat_map(corpus)
     use #(line, row) <- list.flat_map(
       list.index_map(lines, fn(line, row) { #(line, row) }),
     )
-    use col <- list.filter_map(through(string.length(line)))
+    use #(col, toward) <- list.filter_map(
+      list.flat_map(through(string.length(line)), fn(col) {
+        list.map(ways, fn(toward) { #(col, toward) })
+      }),
+    )
     let at = Position(row:, col:)
     let other = Position(row: row + 1, col: 0)
-    let settled = live.settle(lines, row: 0, visible:, at:, other:)
+    let settled = live.settle(lines, row: 0, visible:, at:, other:, toward:)
     let drawn = fn(at) { live.drawn(lines, row: 0, visible:, at:) }
+    let stays = fn(way) {
+      live.settle(lines, row: 0, visible:, at: settled, other:, toward: way)
+      == settled
+    }
     case
       settled.row == row
-      && drawn(settled) == drawn(at)
-      && live.settle(lines, row: 0, visible:, at: settled, other:) == settled
+      && { toward != order.Eq || drawn(settled) == drawn(at) }
+      && list.all([order.Eq, toward], stays)
     {
       True -> Error(Nil)
       False -> Ok(line <> " at " <> int.to_string(col))
     }
   }
   assert wrong == []
+}
+
+fn settle_toward(line: String, visible: String, col: Int, toward) -> Int {
+  let at = Position(row: 0, col:)
+  live.settle([line], row: 0, visible:, at:, other: Position(1, 0), toward:).col
+}
+
+/// A step that lands inside a pair settles on the side it was going, past
+/// the pair or before it, as a text field's next or last word step there.
+pub fn a_place_inside_a_pair_settles_the_way_the_head_went_test() {
+  let line = "para **bold** end"
+  let visible = "para bold end"
+  assert settle_toward(line, visible, 7, order.Eq) == 5
+  assert settle_toward(line, visible, 7, order.Gt) == 13
+  assert settle_toward(line, visible, 11, order.Lt) == 5
+  assert settle_toward(line, visible, 11, order.Gt) == 13
+  assert settle_toward(line, visible, 13, order.Lt) == 13
+  assert settle_toward(line, visible, 16, order.Gt) == 16
 }

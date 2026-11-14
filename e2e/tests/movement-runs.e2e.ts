@@ -659,8 +659,6 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
 }
 
 const failingRuns = new Map<string, { paced?: string; held?: string; burst?: string; viewSwitch?: string }>([
-  // X1: Ctrl+Shift+Right sticks before hidden marks once the selection is painted.
-  ['Ctrl+Shift+Right through words with hidden marks', { paced: 'X1' }],
   // The races. F2: a key typed while a step waits cancels the step. B4: a long run of keys gives different results from run to run.
   ['Shift+Down, then Enter, in one frame', { burst: 'F2' }],
   ['a long run of keys with no pause between them', { burst: 'B4' }],

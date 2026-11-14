@@ -44,6 +44,7 @@ pub opaque type Editor {
     paints: Bool,
     goal: Option(Goal),
     waiting: List(Queued),
+    travel: order.Order,
   )
 }
 
@@ -357,6 +358,7 @@ pub fn new(
     paints:,
     goal: None,
     waiting: [],
+    travel: order.Eq,
   )
 }
 
@@ -427,7 +429,51 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
     Moves, _ | Changes, True -> outcome.editor.goal
     Changes, False | Ends, _ -> None
   }
-  Outcome(..outcome, editor: Editor(..outcome.editor, goal:))
+  let head = buffer.cursor(editor.buffer)
+  let travel = case buffer.compare(buffer.cursor(outcome.editor.buffer), head) {
+    order.Eq -> editor.travel
+    moved ->
+      case steers(event) {
+        True -> moved
+        False -> order.Eq
+      }
+  }
+  Outcome(..outcome, editor: Editor(..outcome.editor, goal:, travel:))
+}
+
+/// Which way the last key moved the head: a painted head among hidden marks
+/// settles that way, so a step never settles back where it came from.
+pub fn direction(editor: Editor) -> order.Order {
+  editor.travel
+}
+
+fn steers(event: Event) -> Bool {
+  case event {
+    ControlChanged(..)
+    | KeyPressed(..)
+    | EdgePressed(..)
+    | Stepped(..)
+    | Unstepped(..)
+    | FieldStepped(..)
+    | Aimed(..)
+    | SteppedPast -> True
+    Composing(..)
+    | EscapePressed(..)
+    | Pointed(..)
+    | LinePointed(..)
+    | ShiftPointed(..)
+    | Grabbed(..)
+    | WordPressed(..)
+    | SelectionPointed(..)
+    | Dragged(..)
+    | Settled(..)
+    | Released
+    | DragStarted
+    | Dropped(..)
+    | UndoAsked
+    | RedoAsked
+    | FocusChanged(..) -> False
+  }
 }
 
 /// What an event does to a run of moves up and down, as a text field keeps
@@ -944,12 +990,22 @@ fn in_row(
   let left = placed.row != head.row
   let hidden = fn(col) {
     let at = Position(..head, col:)
-    live.settle(lines, row: head.row, visible: "", at:, other: anchor)
+    live.settle(
+      lines,
+      row: head.row,
+      visible: "",
+      at:,
+      other: anchor,
+      toward: order.Eq,
+    )
   }
   case editor.waiting {
     [Queued(move: LetterOn, ..), ..] if !left && placed.col > head.col + 1 -> {
       let at = Position(..head, col: head.col + 1)
-      case live.settle(lines, row:, visible:, at:, other: anchor) == at {
+      case
+        live.settle(lines, row:, visible:, at:, other: anchor, toward: order.Eq)
+        == at
+      {
         True -> at
         False -> placed
       }

@@ -3,6 +3,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
@@ -222,14 +223,17 @@ pub fn follows_hidden(
 /// two drawn characters, which all draw at one place: the place among them
 /// nearest `at` where the line, cut there and at `other` when it is on the
 /// same row, draws what it draws whole. A selection between the two then
-/// holds both marks of a pair or neither, as the parser pairs them. With no
-/// such place, `at` stays. `row` and `visible` are as for `drawn`.
+/// holds both marks of a pair or neither, as the parser pairs them. Moving
+/// `toward` a side, it takes the first such place that way among the hidden
+/// marks of the row instead, so a step never settles back where it began.
+/// With no such place, `at` stays. `row` and `visible` are as for `drawn`.
 pub fn settle(
   lines: List(String),
   row row: Int,
   visible visible: String,
   at at: Position,
   other other: Position,
+  toward toward: order.Order,
 ) -> Position {
   let line = lines |> list.drop(at.row) |> list.first
   let here = case at.row >= row {
@@ -254,12 +258,41 @@ pub fn settle(
         |> string.concat
         == whole
       }
-      case start < end {
-        True -> Position(..at, col: nearest(at.col, 0, start, end, whole_at))
-        False -> at
+      let near = fn() { nearest(at.col, 0, start, end, whole_at) }
+      let col = case start < end, toward {
+        False, _ -> at.col
+        True, order.Eq -> near()
+        True, order.Gt ->
+          beside_hidden(after, at.col, 1, True, whole_at)
+          |> result.lazy_unwrap(near)
+        True, order.Lt ->
+          beside_hidden(list.reverse(before), at.col, -1, True, whole_at)
+          |> result.lazy_unwrap(near)
       }
+      Position(..at, col:)
     }
     _, _ -> at
+  }
+}
+
+/// The first column from `col` on, a step of `by` at a time, that is beside
+/// a hidden character and `fine`. `shown` holds whether each character from
+/// `col` that way is drawn, and `by_hidden` whether the one behind is not.
+fn beside_hidden(
+  shown: List(Bool),
+  col: Int,
+  by: Int,
+  by_hidden: Bool,
+  fine: fn(Int) -> Bool,
+) -> Result(Int, Nil) {
+  let beside = case shown {
+    [False, ..] -> True
+    _ -> by_hidden
+  }
+  case beside && fine(col), shown {
+    True, _ -> Ok(col)
+    False, [] -> Error(Nil)
+    False, [drawn, ..shown] -> beside_hidden(shown, col + by, by, !drawn, fine)
   }
 }
 
