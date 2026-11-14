@@ -216,14 +216,9 @@ function planOf(editor: Editing, state: State) {
  * The cases that fail today, by state and key: the id of the finding of the review that shows it.
  * A key pressed on a painted selection leaves it painted, or draws it where the page puts the head.
  */
-const forwardStart = 'a painted selection across blocks, forward, its head at the start of a row';
-const backwardStart = 'a painted selection across blocks, backward, its head at the start of a row';
 const backwardMiddle = 'a painted selection across blocks, backward, its head in the middle of a row';
 
 const failing = new Map<string, string>([
-  // X6: a letter step of a painted head lands after the hidden marks of the row it enters.
-  [`${forwardStart}|Shift+ArrowRight`, 'X6'],
-  [`${backwardStart}|Shift+ArrowRight`, 'X6'],
   // X4: Shift+Down and Ctrl+Shift+Down skip the fence row of a code block.
   [`${backwardMiddle}|Shift+ArrowDown`, 'X4'],
   [`${backwardMiddle}|${ctrl('Shift+ArrowDown')}`, 'X4'],
@@ -401,7 +396,7 @@ const runs: Run[] = [
     name: 'Shift+Right and Backspace past the hidden marks of a list item and a heading',
     body: 'one\n\n- item\n\n## Head',
     start: ['End'],
-    steps: ['Shift+ArrowRight', 'Shift+ArrowRight', 'Shift+ArrowRight', 'Shift+ArrowRight'],
+    steps: [...times(9, 'Shift+ArrowRight'), 'Backspace'],
     follow: 'plain field',
   },
   {
@@ -630,8 +625,6 @@ const failingRuns = new Map<string, { paced?: string; held?: string; burst?: str
   // X1: Ctrl+Shift+Right sticks before hidden marks, and the anchor is snapped.
   ['Ctrl+Shift+Right through words with hidden marks', { paced: 'X1' }],
   ['Ctrl+Right through words with hidden marks, then Ctrl+Shift+Down, then Ctrl+Shift+Up', both('X1')],
-  // X6: a painted head lands after the hidden marks of a list item and a heading.
-  ['Shift+Right and Backspace past the hidden marks of a list item and a heading', both('X6')],
   // The races. F2: a key typed while a step waits cancels the step. B4: a long run of keys gives different results from run to run.
   ['Shift+Down, then Enter, in one frame', { burst: 'F2' }],
   ['a long run of keys with no pause between them', { burst: 'B4' }],

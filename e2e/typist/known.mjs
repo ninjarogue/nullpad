@@ -37,10 +37,8 @@ const isWordSelect = (k) => /^Control\+Shift\+Arrow(Left|Right)$/.test(k);
 const rowAt = (value, offset) => value.slice(0, offset).split('\n').length - 1;
 const columnAt = (value, offset) => offset - (value.slice(0, offset).lastIndexOf('\n') + 1);
 const atRowStart = (c) => columnAt(c.value, c.head) === 0;
-const crossRow = (c) => rowAt(c.value, c.anchor) !== rowAt(c.value, c.head);
 const rows = (c) => c.value.split('\n');
 
-const blockMark = /^ {0,3}(#{1,6}( |$)|>|[-*+]( |$)|\d+[.)]( |$)|\||`{3}|~{3})/;
 const hardRow = /^ {0,3}(`{3,}|~{3,}|([-*_] ?){3,}|=+|-+)\s*$/;
 const anyMark = /[#\-*>`|[\]~_=]/;
 const inlineMark = /[*_~`[\]]/;
@@ -58,7 +56,6 @@ const fontFree = (k, c) => {
   return there.startsWith(here) || here.startsWith(there);
 };
 
-const hasBlockMarks = (c) => rows(c).some((r) => blockMark.test(r));
 const hasHardRows = (c) => rows(c).some((r) => hardRow.test(r));
 
 /** A frame waited for before and after each key that waits for the page, which is how the old typist hid every race. */
@@ -152,16 +149,6 @@ export const known = [
     repro: [P('one\n\npara **bold** end'), 'Control+Home', ...times(8, 'Control+Shift+ArrowRight')],
     pace: 'slow',
     skip: (k, c, pace) => pace !== 'burst' && isWordSelect(k) && inlineMark.test(c.value),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'select-lands-after-marks',
-    kind: 'open',
-    finding: 'X6',
-    reason: 'X6: a letter, Home or End step of a painted head lands after the hidden marks of a row ("- ", "## "), and the next edit removes them. Left out where the note has marked rows and the selection spans rows.',
-    repro: [P('one\n\n- item\n\n## Head'), 'Control+Home', 'End', 'Shift+ArrowRight', 'Shift+ArrowRight', 'Backspace'],
-    pace: 'frame',
-    skip: (k, c) => isShiftHorizontal(k) && hasBlockMarks(c) && crossRow(c),
     sanitize: (script) => script,
   },
 ];

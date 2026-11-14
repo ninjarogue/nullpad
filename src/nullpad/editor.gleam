@@ -649,6 +649,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         True, apart if apart < -1 -> Position(row: head.row - 1, col: 0)
         _, _ -> placed
       }
+      let placed = through_marks(editor, row:, visible:, from: head, to: placed)
       let anchor = case select {
         True -> anchor
         False -> placed
@@ -901,6 +902,54 @@ pub fn step_start(editor: Editor) -> Position {
   }
 }
 
+/// A letter step among marks the page hides, which it draws at one place,
+/// goes a letter at a time as in a text field, where the place it reaches
+/// cuts no pair of marks: on past marks such as `- ` that start the row,
+/// or back over those before the head when the page's step left the row.
+/// `row` and `visible` are the place the page's step reached, as for
+/// `live.position`.
+fn through_marks(
+  editor: Editor,
+  row row: Int,
+  visible visible: String,
+  from head: Position,
+  to placed: Position,
+) -> Position {
+  let lines = buffer.lines(editor.buffer)
+  let #(anchor, _) = buffer.selection(editor.buffer)
+  case editor.waiting {
+    [Queued(move: LetterOn, ..), ..]
+      if placed.row == head.row && placed.col > head.col + 1
+    -> {
+      let at = Position(..head, col: head.col + 1)
+      case live.settle(lines, row:, visible:, at:, other: anchor) == at {
+        True -> at
+        False -> placed
+      }
+    }
+    [Queued(move: LetterBack, ..), ..]
+      if placed.row != head.row && head.col > 0
+    -> {
+      let at = Position(..head, col: head.col - 1)
+      let at =
+        live.settle(lines, row: head.row, visible: "", at:, other: anchor)
+      case at.col < head.col {
+        True -> at
+        False -> placed
+      }
+    }
+    [Queued(move: LetterOn, ..), ..]
+    | [Queued(move: LetterBack, ..), ..]
+    | [Queued(move: LineUp, ..), ..]
+    | [Queued(move: LineDown, ..), ..]
+    | [Queued(move: LineStart, ..), ..]
+    | [Queued(move: LineEnd, ..), ..]
+    | [Queued(move: PageUp, ..), ..]
+    | [Queued(move: PageDown, ..), ..]
+    | [] -> placed
+  }
+}
+
 /// A page step without Shift that reaches no further than where it started
 /// leaves a selection as it is, as Chrome's text field does when it has
 /// nowhere to go.
@@ -1102,6 +1151,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   }
   let start = Position(row: 0, col: 0)
   let end = end_of_row(list.length(lines) - 1)
+  let at_row_end = head == end_of_row(head.row)
   let #(wanted, then) = case edge {
     Up if row_above -> #(
       buffer.move_to(base, end_of_row(cursor.row - 1)),
@@ -1135,6 +1185,10 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       base,
       StepTo(Queued(PageDown, select:)),
     )
+    SelectLeft if live && head.col == 0 && head.row > 0 ->
+      reach(end_of_row(head.row - 1))
+    SelectRight if live && at_row_end && head.row < end.row ->
+      reach(Position(row: head.row + 1, col: 0))
     SelectLeft if live -> #(base, StepTo(Queued(LetterBack, select: True)))
     SelectRight if live -> #(base, StepTo(Queued(LetterOn, select: True)))
     SelectLineStart if live -> #(base, StepTo(Queued(LineStart, select: True)))

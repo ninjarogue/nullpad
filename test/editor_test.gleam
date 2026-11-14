@@ -954,6 +954,64 @@ pub fn the_keys_that_step_a_painted_head_ask_the_page_for_the_step_test() {
     == editor.WriteAndStep(shown, move: editor.LineEnd, select: True, x: -1.0)
 }
 
+pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through_them_test() {
+  let ed = pressed(live_note, 0, "Tr")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Dragged(
+        row: 2,
+        visible: "Flights are booked.",
+        at_end: True,
+        next: "",
+      ),
+    )
+  let ed = editor.update(ed, editor.Released).editor
+  assert editor.is_painted(ed)
+  let press = fn(ed, edge) {
+    editor.update(
+      ed,
+      editor.EdgePressed(edge, x: 3.0, shown: editor.field_buffer(ed)),
+    ).editor
+  }
+  let step = fn(ed, visible, next) {
+    editor.update(
+      ed,
+      editor.Stepped(row: 4, visible:, at_end: False, next:, x: -1.0),
+    ).editor
+  }
+  let head = fn(ed) { buffer.cursor(editor.buffer(ed)) }
+  let ed = press(ed, editor.SelectRight)
+  assert head(ed) == Position(3, 0)
+  let ed = press(ed, editor.SelectRight)
+  assert head(ed) == Position(4, 0)
+  let ed = press(ed, editor.SelectRight) |> step("o", "n")
+  assert head(ed) == Position(4, 1)
+  let ed = press(ed, editor.SelectRight) |> step("o", "n")
+  assert head(ed) == Position(4, 2)
+  let ed = press(ed, editor.SelectRight) |> step("o", "n")
+  assert head(ed) == Position(4, 3)
+  let ed = press(ed, editor.SelectLeft) |> step("", "o")
+  assert head(ed) == Position(4, 2)
+  let ed = press(ed, editor.SelectLeft)
+  let ed =
+    editor.update(
+      ed,
+      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: -1.0),
+    ).editor
+  assert head(ed) == Position(4, 1)
+  let ed = press(ed, editor.SelectLeft)
+  let ed =
+    editor.update(
+      ed,
+      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: -1.0),
+    ).editor
+  assert head(ed) == Position(4, 0)
+  let ed = press(ed, editor.SelectLeft)
+  assert head(ed) == Position(3, 0)
+  assert buffer.selection(editor.buffer(ed)).0 == Position(0, 4)
+}
+
 pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
   let shown = caret("# Trip", 0, 3)
   let past = fn(edge) {
@@ -2038,7 +2096,7 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: 40.0),
+      editor.Stepped(row: 2, visible: "brav", at_end: False, next: "", x: 40.0),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -2061,13 +2119,7 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(
-        row: 0,
-        visible: "alpha one",
-        at_end: True,
-        next: "",
-        x: 0.0,
-      ),
+      editor.Stepped(row: 2, visible: "bra", at_end: False, next: "v", x: 0.0),
     )
   let assert editor.WriteAndStep(move: editor.LineUp, x: -1.0, ..) = sync
 }
