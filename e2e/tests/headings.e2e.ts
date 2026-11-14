@@ -1,5 +1,6 @@
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
+import { chromium } from 'playwright-core';
 import type { App } from 'e2e';
 import { test } from './nullpad.ts';
 import type { Disk, Note, Page } from './nullpad.ts';
@@ -195,6 +196,8 @@ for (const block of [
   '> - #### h\n> - b',
   '> b\n> ---\n> c',
   '> b\n> c\n> ===\n>\n> d',
+  '> a\n>\n> > # h\n> >\n> > b',
+  '> - a\n>\n> - # h\n>\n>   b',
 ]) {
   test(`a heading in a quote of several rows, ${JSON.stringify(block)}, set over two rows or next to a blank row or smaller than body text, takes the rows it takes in the field`, async ({
     app,
@@ -212,6 +215,83 @@ for (const block of [
     }
   });
 }
+
+for (const block of ['Hello\n===', 'Hello\n---', 'Hello\nworld\n===']) {
+  test(`a setext heading on its own, ${JSON.stringify(block)}, takes the rows it takes in the field, and arriving at it and leaving it moves nothing`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await open({ app, disk, page }, block);
+    for (const setting of settings) {
+      await set(browser, setting);
+      const { field, drawn } = await arriveAndLeave(page, browser, block, null, 'Hello');
+      const moved = Math.round(Math.abs(field.below - drawn.below) * 10) / 10;
+      expect({ setting, moved }).toEqual({ setting, moved: 0 });
+    }
+  });
+}
+
+for (const block of [
+  '> ```\n> code\n> ```\n> b',
+  '> b\n> ```\n> code\n> ```',
+  '>     code\n>     code\n>\n> b',
+  '> b\n>\n>     code',
+  '> b\n> ```\n> ```',
+  '> b\n> ```\n> code',
+]) {
+  test(`a code block in a quote of several rows, ${JSON.stringify(block)}, takes the rows it takes in the field, and arriving at it and leaving it moves nothing`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await open({ app, disk, page }, block);
+    for (const setting of settings) {
+      await set(browser, setting);
+      const { field, drawn } = await arriveAndLeave(page, browser, block, null, 'b');
+      const moved = Math.round(Math.abs(field.below - drawn.below) * 10) / 10;
+      expect({ setting, moved }).toEqual({ setting, moved: 0 });
+    }
+  });
+}
+
+test('a rule in a quote is drawn as a line in forced colors and in print', async ({ app }) => {
+  await app.open('/');
+  const own = await chromium.launch();
+  try {
+    const lines = [];
+    for (const media of [{ forcedColors: 'active' }, { media: 'print' }] as const) {
+      const tab = await (await own.newContext()).newPage();
+      await tab.emulateMedia(media);
+      await tab.goto(`${app.baseUrl}/`);
+      const text = tab.getByLabel('Note text');
+      await text.fill('top\n\n> a\n>\n> ---\n>\n> b\n\nbelow');
+      await tab.keyboard.press('Control+Home');
+      await expect.poll(() => tab.locator('.page.live .part blockquote > hr').count()).toBe(1);
+      lines.push({
+        media,
+        line: await tab.evaluate(() => {
+          const rule = document.querySelector('.page.live .part blockquote > hr')!;
+          const drawn = (pseudo: string | null) => {
+            const style = getComputedStyle(rule, pseudo);
+            const shown = pseudo === null || (style.content !== 'none' && style.display !== 'none');
+            const inked = !/^rgba\(.*, 0\)$|^transparent$/.test(style.borderTopColor);
+            return shown && style.borderTopStyle === 'solid' && parseFloat(style.borderTopWidth) >= 1 && inked;
+          };
+          return rule.getBoundingClientRect().width > 0 && (drawn(null) || drawn('::before'));
+        }),
+      });
+    }
+    expect(lines).toEqual([
+      { media: { forcedColors: 'active' }, line: true },
+      { media: { media: 'print' }, line: true },
+    ]);
+  } finally {
+    await own.close();
+  }
+});
 
 for (const block of ['# []()', '## [](x)', '- ### []()', '> # []()', '- > ## []()']) {
   test(`a heading whose text draws nothing, ${JSON.stringify(block)}, keeps the height it has in the field when drawn, and leaving it moves nothing`, async ({

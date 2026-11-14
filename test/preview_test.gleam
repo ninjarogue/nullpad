@@ -686,6 +686,17 @@ pub fn a_heading_set_over_several_rows_beside_the_field_says_how_many_test() {
     )
 }
 
+pub fn a_code_block_of_several_rows_beside_the_field_says_how_many_test() {
+  assert beside_field("> ```\n> x\n> ```\n\nc", 0, 4)
+    == drawn_part(
+      "<blockquote class=\"rows\" data-row=\"0\"><pre data-row=\"1\" style=\"--rows:3;\"><code>x\n</code></pre></blockquote><div class=\"blank\" data-row=\"3\"></div>",
+    )
+  assert beside_field(">     x\n>     y\n\nc", 0, 3)
+    == drawn_part(
+      "<blockquote class=\"rows\" data-row=\"0\"><pre data-row=\"0\" style=\"--rows:2;\"><code>x\ny\n</code></pre></blockquote><div class=\"blank\" data-row=\"2\"></div>",
+    )
+}
+
 pub fn the_blank_rows_beside_the_field_are_drawn_test() {
   assert beside_field("a\n\n\n\nb", 0, 2)
     == drawn_part(
