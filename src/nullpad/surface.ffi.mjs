@@ -17,18 +17,21 @@ export function writeControl(id, text, start, end, backward) {
 // kind of block does, so nothing around it moves until the render. The
 // render sets the classes only when they changed since the last one, so
 // held classes it did not replace go back to the ones it drew. The held
-// marker width has its own property for the same reason.
+// marker width has its own property for the same reason. A field drawn out
+// of sight takes the type of its rows at once, so a key measures it as it
+// will be drawn.
 let drawnRows = "";
 let held = null;
 
 export function holdControl(id, classes, rows, marker) {
   const holder = document.getElementById(id)?.parentElement;
-  if (!holder || drawnRows === "") return;
+  if (!holder) return;
   if (!held) {
     held = { holder, drawn: holder.className };
     requestAnimationFrame(releaseControl);
   }
-  held.classes = `${classes}${drawnRows === rows ? "" : ` held framed-${drawnRows}`} holding`;
+  const framed = drawnRows === "" || drawnRows === rows ? "" : ` held framed-${drawnRows}`;
+  held.classes = `${classes}${framed} holding`;
   holder.className = held.classes;
   setMarker(holder, marker);
 }
@@ -298,9 +301,15 @@ export function drawnInPage(id, liveClass) {
   return document.getElementById(id)?.closest("." + liveClass) != null;
 }
 
+// Whether the head is on the first line of the field, and on its last.
 export function caretLine(id) {
   const control = document.getElementById(id);
-  if (!control) return [false, false, 0];
+  if (!control) return [false, false];
+  const [first, last] = fieldCaretLine(control);
+  return [first, last];
+}
+
+function fieldCaretLine(control) {
   const place = measure(control);
   const caret = headCaret(control, place);
   return [
@@ -358,15 +367,25 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
   if (again) {
     const last = aimed.get(control);
     if (!last || last.join("\u0000") !== shown().join("\u0000")) return [false, ...shown()];
-    [text, start, end, backward] = last;
   } else {
     const written =
       control.value === text && control.selectionStart === start && control.selectionEnd === end;
     if (!written) return [false, ...shown()];
   }
+  if (aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select)) aimed.set(control, shown());
+  return [true, ...shown()];
+}
+
+// Moves the head of the field's selection to the place nearest `x` on a
+// line of the field, numbered as for `aimControl`, and answers whether
+// there was such a line.
+function aimIn(control, liveClass, paintedClass, x, line, select) {
+  const text = control.value;
+  const { selectionStart: start, selectionEnd: end } = control;
+  const backward = control.selectionDirection === "backward";
   const head = backward ? start : end;
   const place = measure(control);
-  const left = control.getBoundingClientRect().left - textLeft(control, liveClass, paintedClass);
+  const left = fieldLeft(control, liveClass, paintedClass);
   const lineFrom = (offset, step) => {
     const top = place(offset).top;
     while (offset + step >= 0 && offset + step <= text.length && place(offset + step).top === top) offset += step;
@@ -375,14 +394,14 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
   let from;
   if (line === 0) from = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
   else if (line === 1) from = lineFrom(text.indexOf("\n", head) < 0 ? text.length : text.indexOf("\n", head), -1);
-  else if (again || line === 4) from = lineFrom(head, -1);
+  else if (line === 4) from = lineFrom(head, -1);
   else if (line === 2) {
     from = lineFrom(head, -1) - 1;
-    if (from < 0) return [true, ...shown()];
+    if (from < 0) return false;
     from = lineFrom(from, -1);
   } else {
     from = lineFrom(head, 1) + 1;
-    if (from > text.length) return [true, ...shown()];
+    if (from > text.length) return false;
   }
   const top = place(from).top;
   let best = from;
@@ -401,16 +420,24 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
     best < anchor ? "backward" : "forward",
   );
   control.scrollTop = 0;
-  aimed.set(control, shown());
-  return [true, ...shown()];
+  return true;
 }
 
-// The left of the text the field's columns are measured from: the page's,
-// or the field's own while it is painted over, out of the page's flow.
-function textLeft(control, liveClass, paintedClass) {
-  const page = control.closest("." + liveClass);
-  if (!page || control.closest("." + paintedClass)) return control.getBoundingClientRect().left;
-  return columnLeft(page);
+// How far from the left of the text the field draws its head, `caretX`
+// from the field's left, with the start of a row at 0, as in a text field.
+function fieldAcross(control, liveClass, paintedClass, caretX) {
+  const at = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
+  if (at === 0 || control.value[at - 1] === "\n") return 0;
+  return fieldLeft(control, liveClass, paintedClass) + caretX;
+}
+
+// How far right of the left of the page's text the field is, by the margin
+// the page sets it with, as a field written since the last render may not
+// yet be where its rows are drawn. A field painted over, out of the page's
+// flow, is measured from its own left.
+function fieldLeft(control, liveClass, paintedClass) {
+  if (!control.closest("." + liveClass) || control.closest("." + paintedClass)) return 0;
+  return parseFloat(getComputedStyle(control.parentElement).marginLeft) || 0;
 }
 
 // A middle press puts the caret where it is pressed, where Linux pastes on
@@ -949,8 +976,8 @@ export function headLine(id, liveClass, paintedClass) {
   const rowStart = at === 0 || control.value[at - 1] === "\n";
   const head = isPainted(id, paintedClass) && headPlace();
   if (head) return [true, true, rowStart ? 0 : head.box.left - columnLeft(page)];
-  const [first, last, x] = caretLine(id);
-  const across = rowStart ? 0 : control.getBoundingClientRect().left + x - textLeft(control, liveClass, paintedClass);
+  const [first, last, x] = fieldCaretLine(control);
+  const across = fieldAcross(control, liveClass, paintedClass, x);
   if (undrawn(control)) return [true, true, across];
   return [first, last, across];
 }
@@ -974,8 +1001,13 @@ export function notePress(id, liveClass, x, y) {
   });
 }
 
-export function pressLanding() {
-  return [pressed !== null, pressed?.x ?? -1, pressed?.x != null];
+// The answer ends with whether the key aims from where the press landed:
+// only while the field holds rows the page has not drawn it with, as a
+// field that shows the rows it was drawn with is measured as it is.
+export function pressLanding(id) {
+  const control = document.getElementById(id);
+  const landed = pressed?.x != null && control != null && undrawn(control);
+  return [pressed !== null, pressed?.x ?? -1, landed];
 }
 
 // The field's text has changed since the page was drawn, so its lines are
@@ -1008,7 +1040,7 @@ function undrawn(control) {
 // starts on the row it was drawn on, and the rows typed into it or out of it
 // move the rows drawn past it, so it is stepped from as it is.
 export function stepHead(
-  id, liveClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x, fieldFirst, rowCount,
+  id, liveClass, paintedClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x, fieldFirst, rowCount,
 ) {
   const answer = (row, place = ["", false, ""]) => [row, ...place, x];
   const control = document.getElementById(id);
@@ -1027,9 +1059,14 @@ export function stepHead(
   const drawnLast = held ? held[1] - grown : Infinity;
   const moved = (place) => (place[0] > drawnLast ? [place[0] + grown, ...place.slice(1)] : place);
   if (pressed !== null && first === undefined) return answer(-3);
-  const edge = granularity !== "line" || caretLine(id)[forward ? 1 : 0];
+  const edge = granularity !== "line" || fieldCaretLine(control)[forward ? 1 : 0];
   if (inField && granularity !== "page" && !edge) {
-    getSelection().modify(select ? "extend" : "move", forward ? "forward" : "backward", granularity);
+    if (granularity !== "line") {
+      getSelection().modify(select ? "extend" : "move", forward ? "forward" : "backward", granularity);
+      return answer(-4);
+    }
+    if (x < 0) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+    aimIn(control, liveClass, paintedClass, x, forward ? 3 : 2, select);
     return answer(-4);
   }
   const { marks, rows } = drawnMarks(id, liveClass, rowMark);
@@ -1050,10 +1087,7 @@ export function stepHead(
   try {
     let landed;
     if (inField) {
-      if (x < 0) {
-        const place = measure(control);
-        x = control.getBoundingClientRect().left + headCaret(control, place).x - columnLeft(page);
-      }
+      if (x < 0) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
       landed = beside(marks, part, forward);
     } else {
       const holder = marks[lastAtOrBefore(rows, headRow)];

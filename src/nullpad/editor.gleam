@@ -202,7 +202,7 @@ pub type Event {
   /// A step the page had no place for: the head stays where it is.
   Unstepped(x: Float)
   /// The field took the first waiting step itself, and shows where it put
-  /// the selection.
+  /// the selection. `x` is where a step of a line aimed, as for `Stepped`.
   FieldStepped(shown: Buffer, x: Float)
   /// The field as an aim at the run's column left it.
   Aimed(shown: Buffer)
@@ -1042,12 +1042,6 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     True, _, _ if x >=. 0.0 -> Some(x)
     True, _, _ | False, _, _ -> None
   }
-  let collapse = fn(select) {
-    case select {
-      True -> base
-      False -> buffer.move_to(base, head)
-    }
-  }
   let start = Position(row: 0, col: 0)
   let end = end_of_row(list.length(lines) - 1)
   let #(wanted, then) = case edge {
@@ -1087,14 +1081,18 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     SelectRight if live -> #(base, StepTo(Queued(LetterOn, select: True)))
     SelectLineStart if live -> #(base, StepTo(Queued(LineStart, select: True)))
     SelectLineEnd if live -> #(base, StepTo(Queued(LineEnd, select: True)))
-    Beside(up: True, select:) if live -> #(
-      collapse(select),
-      Aim(LineAbove, select:),
+    // Collapsed, the selection may leave the rows the field holds, so its
+    // head steps over the page as the field will show it.
+    Beside(up: True, select: False) if live && anchor != head -> #(
+      base,
+      StepTo(Queued(LineUp, select: False)),
     )
-    Beside(up: False, select:) if live -> #(
-      collapse(select),
-      Aim(LineBelow, select:),
+    Beside(up: False, select: False) if live && anchor != head -> #(
+      base,
+      StepTo(Queued(LineDown, select: False)),
     )
+    Beside(up: True, select:) if live -> #(base, Aim(LineAbove, select:))
+    Beside(up: False, select:) if live -> #(base, Aim(LineBelow, select:))
     Row(up:, select:) if live -> {
       let from = case select {
         True -> head

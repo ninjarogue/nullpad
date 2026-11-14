@@ -477,6 +477,7 @@ pub fn sync(
           step_head(
             control_id,
             live_class,
+            painted_class,
             live.row_mark,
             head.row,
             offset,
@@ -495,7 +496,7 @@ pub fn sync(
             dispatch(on_event(editor.SteppedPast))
             True
           }
-          #(-4, _, _, _, _) -> {
+          #(-4, _, _, _, x) -> {
             case decode.run(find_control(control_id), control_decoder()) {
               Ok(shown) -> dispatch(on_event(editor.FieldStepped(shown:, x:)))
               Error(_) -> dispatch(on_event(editor.Unstepped(x:)))
@@ -881,9 +882,9 @@ fn edge_decoder(
     |> is_blank
   // The browser would move the caret by the layout of a field the page has
   // not yet set for the rows a press put in it.
-  let #(pending, landed_x, landed) = press_landing()
+  let #(pending, landed_x, landed) = press_landing(control_id)
   let from_press = fn(x) {
-    case landed {
+    case landed && head.col != 0 {
       True -> landed_x
       False -> x
     }
@@ -938,22 +939,29 @@ fn edge_decoder(
   let edge = {
     use edge <- result.try(wanted)
     use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
-    let #(first, last, x) = head_line(control_id, live_class, painted_class)
+    let head = fn() { head_line(control_id, live_class, painted_class) }
     case edge {
-      editor.Up if first -> Ok(#(edge, from_press(x)))
-      editor.Down if last -> Ok(#(edge, from_press(x)))
-      editor.Up | editor.Down if pending ->
-        Ok(#(editor.Line(up: edge == editor.Up, select: False), -1.0))
-      editor.Up -> Ok(#(editor.Beside(up: True, select: False), x))
-      editor.Down -> Ok(#(editor.Beside(up: False, select: False), x))
+      editor.Up | editor.Down -> {
+        let up = edge == editor.Up
+        let #(first, last) = caret_line(control_id)
+        let #(_, _, x) = head()
+        case up && first || !up && last, pending {
+          True, _ -> Ok(#(edge, from_press(x)))
+          False, True -> Ok(#(editor.Line(up:, select: False), -1.0))
+          False, False -> Ok(#(editor.Beside(up:, select: False), x))
+        }
+      }
       // A step that waits for a press to be drawn measures the caret then.
-      editor.Line(select: False, ..) if pending -> Ok(#(edge, -1.0))
-      editor.Line(select: False, ..) -> Ok(#(edge, x))
-      editor.Line(up: True, select: True) if first -> Ok(#(edge, x))
-      editor.Line(up: False, select: True) if last -> Ok(#(edge, x))
-      editor.Line(up:, select: True) ->
-        Ok(#(editor.Beside(up:, select: True), x))
-      editor.Beside(..) | editor.Page(..) | editor.Row(..) -> Ok(#(edge, x))
+      editor.Line(..) | editor.Page(..) if pending -> Ok(#(edge, -1.0))
+      editor.Line(up:, select:) -> {
+        let #(first, last, x) = head()
+        case up && first || !up && last || !select {
+          True -> Ok(#(edge, x))
+          False -> Ok(#(editor.Beside(up:, select: True), x))
+        }
+      }
+      editor.Row(..) -> Ok(#(edge, from_press(head().2)))
+      editor.Beside(..) | editor.Page(..) -> Ok(#(edge, head().2))
       editor.JoinBefore
       | editor.JoinAfter
       | editor.SelectBefore
@@ -1130,6 +1138,9 @@ fn holds_focus(id: String) -> Bool
 @external(javascript, "./surface.ffi.mjs", "drawnInPage")
 fn drawn_in_page(id: String, live_class: String) -> Bool
 
+@external(javascript, "./surface.ffi.mjs", "caretLine")
+fn caret_line(id: String) -> #(Bool, Bool)
+
 @external(javascript, "./surface.ffi.mjs", "headLine")
 fn head_line(
   id: String,
@@ -1141,6 +1152,7 @@ fn head_line(
 fn step_head(
   id: String,
   live_class: String,
+  painted_class: String,
   row_mark: String,
   head_row: Int,
   head_offset: Int,
@@ -1170,7 +1182,7 @@ fn note_painted(painted: Bool) -> Nil
 fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "pressLanding")
-fn press_landing() -> #(Bool, Float, Bool)
+fn press_landing(id: String) -> #(Bool, Float, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "revealCaret")
 fn reveal_caret(id: String, live_class: String, painted_class: String) -> Nil
