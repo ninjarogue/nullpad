@@ -436,6 +436,7 @@ const runs: Run[] = [
     steps: ['a', 'Shift+ArrowDown', 'Shift+ArrowDown'],
     follow: 'plain field',
     burst: true,
+    burstOnly: true,
     repeat: 12,
     frameBeforeSteps: true,
   },
@@ -446,6 +447,7 @@ const runs: Run[] = [
     steps: ['Enter', 'Shift+ArrowUp'],
     follow: 'plain field',
     burst: true,
+    burstOnly: true,
   },
   {
     name: 'Shift+Down, then Enter, in one frame',
@@ -454,8 +456,9 @@ const runs: Run[] = [
     steps: ['Shift+ArrowDown', 'Enter'],
     follow: 'plain field',
     burst: true,
+    burstOnly: true,
     throttle: 1,
-    repeat: 20,
+    repeat: 30,
   },
   {
     name: 'a typed letter, then Up',
