@@ -1787,21 +1787,32 @@ pub fn is_stepping(editor: Editor) -> Bool {
 }
 
 /// Whether the page is behind the editor, so that a key pressed now is held.
+/// It is also while the field holds the whole note for the browser to act
+/// on: the editor learns where the browser left the caret only once the
+/// field is read, after the key.
 pub fn is_waiting(editor: Editor) -> Bool {
-  editor.page != CaughtUp
+  editor.page != CaughtUp || is_wide(editor)
 }
 
-/// The held key to replay now: the first, once no step waits for the page
-/// and no IME composes in the field. The surface replays it once the page
-/// has drawn the editor as it is.
+/// The held key to replay now: the first, once no step waits for the page,
+/// the field has been read after the browser acted on it, and no IME
+/// composes in it. The surface replays it once the page has drawn the
+/// editor as it is.
 pub fn replay(editor: Editor) -> Option(Held) {
-  case editor.page, editor.composing {
+  case editor.page, editor.composing || is_wide(editor) {
     Behind(steps: [], keys: [key, ..]), False -> Some(key)
     Behind(steps: [], keys: [_, ..]), True
     | Behind(steps: [], keys: []), _
     | Behind(steps: [_, ..], ..), _
     | CaughtUp, _
     -> None
+  }
+}
+
+fn is_wide(editor: Editor) -> Bool {
+  case editor.field {
+    Part(wide:, ..) -> wide
+    Whole -> False
   }
 }
 
