@@ -241,8 +241,9 @@ const failing = new Map<string, string>([
   // X6: a letter step of a painted head lands after the hidden marks of the row it enters.
   [`${forwardStart}|Shift+ArrowRight`, 'X6'],
   [`${backwardStart}|Shift+ArrowRight`, 'X6'],
-  // X4: Shift+Down skips the fence row of a code block.
+  // X4: Shift+Down and Ctrl+Shift+Down skip the fence row of a code block.
   [`${backwardMiddle}|Shift+ArrowDown`, 'X4'],
+  [`${backwardMiddle}|${ctrl('Shift+ArrowDown')}`, 'X4'],
 ]);
 
 for (const state of states) {
@@ -635,26 +636,6 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
 const both = (finding: string) => ({ paced: finding, held: finding });
 
 const failingRuns = new Map<string, { paced?: string; held?: string; burst?: string; viewSwitch?: string }>([
-  // X2: the column kept by Up and Down is lost through a short last row of a block and a blank row.
-  ['Down through short rows, a blank row and a short last row of a block', { paced: 'X2' }],
-  ['Up through short rows', { paced: 'X2' }],
-  ['Shift+Down through short rows', { paced: 'X2' }],
-  ['Shift+Up through short rows', { paced: 'X2' }],
-  ['Down and Up through the short last row of a heading block and a long row', both('X2')],
-  // F4: Ctrl+Up and Ctrl+Down do not keep the column.
-  ['Ctrl+Down through short rows', { paced: 'F4' }],
-  ['Ctrl+Up through short rows', { paced: 'F4' }],
-  ['Ctrl+Shift+Down through short rows', { paced: 'F4' }],
-  // B1: a column kept through a short row survives Ctrl+Home and the moves after it.
-  ['a column kept through a short row is forgotten by Ctrl+Home and the moves after it', both('B1')],
-  // B2: Shift+Down onto a short row, then Up, drops the column.
-  ['Shift+Down onto a short row, then Up, goes back to the column the caret had', both('B2')],
-  // F1: Up and Down from the start of a row land inside the hidden marks of the next row.
-  ['Up from the start of a list item onto a heading', both('F1')],
-  ['Down from the start of a list item onto a heading', both('F1')],
-  ['Up from the start of a list item onto the row above it', both('F1')],
-  ['Up from the start of a list item onto the row of the same block', both('F1')],
-  ['Up from the start of a list item onto a table', both('F1')],
   // X4: Shift+Up from the blank row below a code block jumps over the whole block.
   ['Shift+Up from the blank row below a code block', both('X4')],
   ['Shift+Down through a code block', both('X4')],
@@ -663,8 +644,6 @@ const failingRuns = new Map<string, { paced?: string; held?: string; burst?: str
   ['Shift+Down through setext headings and their underlines', both('B3')],
   ['Shift+Up through rules', both('B3')],
   ['Shift+Down through rules', both('B3')],
-  // X3: the column of Shift+Down is measured where the marks are shown and applied where they are hidden.
-  ['Shift+Down then Shift+Up over a row whose marks are hidden returns to where it began', both('X3')],
   // X7: Ctrl+Up and Ctrl+Down with a selection across rows.
   ['Ctrl+Up and Ctrl+Down move from the head of a selection across rows', both('X7')],
   ['Ctrl+Down on the whole note', both('X7')],
@@ -673,19 +652,13 @@ const failingRuns = new Map<string, { paced?: string; held?: string; burst?: str
   ['Ctrl+Right through words with hidden marks, then Ctrl+Shift+Down, then Ctrl+Shift+Up', both('X1')],
   // X6: a painted head lands after the hidden marks of a list item and a heading.
   ['Shift+Right and Backspace past the hidden marks of a list item and a heading', both('X6')],
-  ['Shift+Home and Shift+End on a painted selection that ends in a list item', both('X6')],
   // B5: Page Up and Page Down collapse a selection.
   ['Page Up and Page Down on a selection when nothing scrolls', { paced: 'B5' }],
-  // The races. X5: steps queued behind a step the text field takes are dropped. F5: a step after an edit measures the page before it.
-  // F2: a key typed while a step waits cancels the step. B4: a long run of keys gives different results from run to run.
-  ['a typed letter, then Shift+Down twice, in one frame', { burst: 'X5' }],
-  ['Enter, then Shift+Up, in one frame', { burst: 'F5' }],
+  // The races. F2: a key typed while a step waits cancels the step. B4: a long run of keys gives different results from run to run.
   ['Shift+Down, then Enter, in one frame', { burst: 'F2' }],
   ['a long run of keys with no pause between them', { burst: 'B4' }],
   // N1: Ctrl+E, which shows the source, pressed in the frame after a step drops the step.
   ['a typed letter, then Up', { viewSwitch: 'N1' }],
-  ['a typed letter, then Shift+Up', { viewSwitch: 'N1' }],
-  ['a typed letter, then Page Up', { viewSwitch: 'N1' }],
 ]);
 
 for (const run of runs) {

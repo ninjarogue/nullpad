@@ -35,7 +35,6 @@ const isShiftVertical = (k) => /^(Control\+)?Shift\+Arrow(Up|Down)$/.test(k);
 const isShiftHorizontal = (k) => /^(Control\+)?Shift\+(Arrow(Left|Right)|Home|End)$/.test(k);
 const isWordSelect = (k) => /^Control\+Shift\+Arrow(Left|Right)$/.test(k);
 
-const before = (c) => c.value.slice(0, c.head);
 const rowAt = (value, offset) => value.slice(0, offset).split('\n').length - 1;
 const columnAt = (value, offset) => offset - (value.slice(0, offset).lastIndexOf('\n') + 1);
 const atRowStart = (c) => columnAt(c.value, c.head) === 0;
@@ -63,8 +62,6 @@ const fontFree = (k, c) => {
 
 const hasBlockMarks = (c) => rows(c).some((r) => blockMark.test(r));
 const hasHardRows = (c) => rows(c).some((r) => hardRow.test(r));
-/** The caret is right of a row that is shorter than its column, so a kept column is clamped on the way. */
-const clamps = (c) => columnAt(c.value, c.head) > 0 && rows(c).some((r) => r.length < columnAt(c.value, c.head));
 
 /** A frame waited for before and after each key that waits for the page, which is how the old typist hid every race. */
 const waitAroundSteps = (script, pace) => {
@@ -112,32 +109,12 @@ export const known = [
     sanitize: (script) => script,
   },
   {
-    id: 'step-after-edit',
-    kind: 'open',
-    finding: 'F5',
-    reason:
-      'F5: a key that moves across the page, pressed in the frame after an edit, measures the page as it was before the edit, so Enter then Shift+Up does nothing. Left out of a burst by waiting a frame around every such key; the paced runs type them with no such wait and are compared in full.',
-    repro: ['Enter', 'Shift+ArrowUp'],
-    tries: 12,
-    sanitize: waitAroundSteps,
-  },
-  {
     id: 'step-then-key',
     kind: 'open',
     finding: 'F2',
     reason:
       'F2: a key typed while a step waits for the page cancels the step: Shift+Down then Enter, in one frame, edits where the selection was before the step. IME composition cannot be sent by the typist, so only the letter and Enter forms are compared.',
     repro: [P('alpha beta\n\nsecond para here\nthird row\n\nlast'), 'Control+Home', 'Shift+ArrowDown', 'Enter'],
-    tries: 12,
-    sanitize: waitAroundSteps,
-  },
-  {
-    id: 'queued-steps',
-    kind: 'open',
-    finding: 'X5',
-    reason:
-      'X5: a step the text field takes dispatches ControlChanged then Unstepped, and a typed key clears what waits, so the steps queued behind it are dropped. After a letter, two Shift+Down in a frame move once.',
-    repro: [P('aaaa\n'.repeat(6)), 'Control+Home', wait, 'a', 'Shift+ArrowDown', 'Shift+ArrowDown'],
     tries: 12,
     sanitize: waitAroundSteps,
   },
@@ -150,83 +127,6 @@ export const known = [
     repro: [P('# Head one\n\nbody text here\n\n## Two\nline\n\nend'), 'Control+Home', wait, 'ArrowDown', 'End', 'Enter', 'ArrowLeft', 'a', 'b', 'Shift+ArrowRight', 'Control+Shift+ArrowRight', 'Backspace', 'ArrowUp', 'Shift+End', 'Shift+ArrowDown', 'Control+ArrowRight', 'Control+Shift+ArrowRight', 'Shift+Home', 'x'],
     tries: 12,
     sanitize: waitAroundSteps,
-  },
-  {
-    id: 'step-then-view-switch',
-    kind: 'open',
-    finding: 'N1',
-    reason:
-      'N1 (new): Ctrl+E, which shows the source, pressed in the frame after a step key drops the step: Shift+Up after a letter selects nothing. The typist waits two frames before its own Ctrl+E, so only this repro sends it with the keys.',
-    repro: ['d', 'Shift+ArrowUp'],
-    closeAtOnce: true,
-    tries: 12,
-    sanitize: (script) => script,
-  },
-  {
-    id: 'undo-during-step',
-    kind: 'open',
-    finding: 'F3',
-    reason:
-      'F3: Ctrl+Z pressed while a step waits for the page. The step is taken after the undo, from the head before it, and moves the selection the undo put back. A textarea\'s undo is not a reference for nullpad\'s (see undo-steps), so the generated scripts never type it; this repro is one where the two agree once nullpad is right: one typed letter, undone.',
-    repro: [P('aaaa\naaaa\naaaa\naaaa'), 'Control+Home', 'z', 'Shift+ArrowDown', 'Shift+ArrowDown', 'Control+z'],
-    tries: 12,
-    sanitize: (script) => script,
-  },
-  {
-    id: 'up-into-marks',
-    kind: 'open',
-    finding: 'F1',
-    reason:
-      'F1: Up or Down from the start of a row lands inside the hidden marks of the next row, so the next letter goes between "#" and the text. A note whose rows start with marks has its vertical keys left out.',
-    repro: [P('# alpha\n\n- one'), 'Home', 'ArrowUp', 'ArrowUp', 'y'],
-    skip: (k, c) => isVertical(k) && hasBlockMarks(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'row-keeps-column',
-    kind: 'open',
-    finding: 'F4',
-    reason: 'F4: Ctrl+Up and Ctrl+Down do not keep the column across rows: through a shorter row the caret stays at its end.',
-    repro: [P('abcdef\nabc\nabcdef'), 'Control+ArrowUp', 'Control+ArrowUp'],
-    skip: (k, c) => isRowKey(k) && clamps(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'column-through-short-row',
-    kind: 'open',
-    finding: 'X2',
-    reason: 'X2: the column kept by Up and Down is lost through a short last row of a block; the caret lands where the short row ended.',
-    repro: [P('abcdefghijklmnop\nab\n\nabcdefghijklmnop'), 'Control+Home', ...times(10, 'ArrowRight'), ...times(3, 'ArrowDown')],
-    skip: (k, c) => isVertical(k) && clamps(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'stale-column',
-    kind: 'open',
-    finding: 'B1',
-    reason: 'B1: a column kept through a short row survives Ctrl+Home and the horizontal moves after it, and the next Up or Down goes to it.',
-    repro: [P('abcdefghij\n\nklmnopqrst\n\nuvwxyz'), 'Control+Home', ...times(6, 'ArrowRight'), 'ArrowDown', 'Control+Home', ...times(11, 'ArrowRight'), 'ArrowUp'],
-    skip: (k, c) => isVertical(k) && clamps(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'select-then-move',
-    kind: 'open',
-    finding: 'B2',
-    reason: 'B2: Shift+Down onto a short row, then a plain Up, drops the column the caret had before the selection.',
-    repro: [P('abcdefghij\n\nklmnopqrst\n\nuvwxyz'), 'Control+Home', ...times(5, 'ArrowRight'), 'Shift+ArrowDown', 'ArrowUp'],
-    skip: (k, c) => isVertical(k) && clamps(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'select-over-revealed-marks',
-    kind: 'open',
-    finding: 'X3',
-    reason: 'X3: the column of a Shift+Up or Shift+Down is measured in the text field, where the marks of the row are shown, and applied to the page, where they are hidden, so Shift+Down then Shift+Up does not come back.',
-    repro: [P('some **bold** words here\n\nplain second paragraph text'), 'Control+Home', 'End', ...times(3, 'ArrowLeft'), 'Shift+ArrowDown', 'Shift+ArrowUp'],
-    pace: 'frame',
-    skip: (k, c) => isShiftVertical(k) && inlineMark.test(c.value) && !atRowStart(c),
-    sanitize: (script) => script,
   },
   {
     id: 'select-over-fences-and-rules',
