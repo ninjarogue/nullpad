@@ -320,6 +320,21 @@ test('steps after an undo, in one frame, each move a row, also those the field t
   await expect(page.text).toHaveValue(expected);
 });
 
+test('keys typed into an empty note in one frame, the last a selection to the end of the note, act as in a plain field', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  const burst = [']', 'ArrowLeft', '~', 'Enter', 'ArrowUp', ctrl('Shift+ArrowDown')];
+  await editor.seed('');
+  const expected = await editor.plainField('', 0, burst, 'X');
+  await editor.show('');
+  await page.nextFrame();
+  await page.pressBeforeRedraw(...burst);
+  await browser.keyboard.type('X');
+  await page.markdown.tap();
+
+  await expect(page.text).toHaveValue(expected);
+});
+
 /**
  * A key the browser acts on past the rows the field holds, such as Ctrl+Delete
  * at the end of the note, is acted on with the whole note in the field, which
