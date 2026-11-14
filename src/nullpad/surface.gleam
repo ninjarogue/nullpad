@@ -481,7 +481,7 @@ pub fn sync(
             head.row,
             offset,
             onward,
-            head.col == 0,
+            x == 0.0,
             granularity,
             forward,
             select,
@@ -533,12 +533,14 @@ pub fn sync(
     // before the next paint lands where the arrow went, and again before
     // that paint, once the field is set for the rows it holds, unless a key
     // has moved the caret since.
-    editor.WriteAndAim(buffer, x:, line:) -> {
+    editor.WriteAndAim(buffer, x:, line:, select:) -> {
       let aim = fn(dispatch, again) {
         let #(text, start, end, backward) = to_control(buffer)
         let aimed =
           aim_control(
             control_id,
+            live_class,
+            painted_class,
             text,
             start,
             end,
@@ -549,16 +551,15 @@ pub fn sync(
               editor.LastLine -> 1
               editor.LineAbove -> 2
               editor.LineBelow -> 3
+              editor.HeadLine -> 4
             },
+            select,
             again,
           )
         case aimed {
           #(True, text, start, end, backward) ->
             dispatch(
-              on_event(editor.Aimed(
-                from_control(text, start, end, backward),
-                x:,
-              )),
+              on_event(editor.Aimed(from_control(text, start, end, backward))),
             )
           #(False, _, _, _, _) -> Nil
         }
@@ -578,18 +579,6 @@ pub fn sync(
         painted,
       ])
     }
-    editor.WriteAndMove(buffer, up:) ->
-      effect.batch([
-        effect.from(fn(dispatch) {
-          write_now(buffer)
-          move_line(control_id, up)
-          case decode.run(find_control(control_id), control_decoder()) {
-            Ok(shown) -> dispatch(on_event(editor.ControlChanged(shown, at: 0)))
-            Error(_) -> Nil
-          }
-        }),
-        painted,
-      ])
     // The browser acts on the key after the handler that wrote the field.
     editor.WriteAndRead(buffer) ->
       effect.batch([
@@ -893,23 +882,26 @@ fn edge_decoder(
   // The browser would move the caret by the layout of a field the page has
   // not yet set for the rows a press put in it.
   let #(pending, landed_x, landed) = press_landing()
-  let aimed = is_aimed(control_id)
   let from_press = fn(x) {
     case landed {
       True -> landed_x
       False -> x
     }
   }
-  let painted = shifted && is_painted(control_id, painted_class)
+  let painted_head = is_painted(control_id, painted_class)
+  let painted = shifted && painted_head
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
+    "ArrowUp" if bare && painted_head -> Ok(editor.Line(up: True, select: False))
+    "ArrowDown" if bare && painted_head ->
+      Ok(editor.Line(up: False, select: False))
     "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
     "ArrowUp" if bare && pending -> Ok(editor.Line(up: True, select: False))
     "ArrowDown" if bare && pending -> Ok(editor.Line(up: False, select: False))
-    "ArrowUp" if bare && aimed -> Ok(editor.Beside(up: True))
-    "ArrowDown" if bare && aimed -> Ok(editor.Beside(up: False))
+    "ArrowUp" if bare -> Ok(editor.Beside(up: True, select: False))
+    "ArrowDown" if bare -> Ok(editor.Beside(up: False, select: False))
     "ArrowUp" if shifted -> Ok(editor.Line(up: True, select: True))
     "ArrowDown" if shifted -> Ok(editor.Line(up: False, select: True))
     "ArrowLeft" if painted -> Ok(editor.SelectLeft)
@@ -946,38 +938,22 @@ fn edge_decoder(
   let edge = {
     use edge <- result.try(wanted)
     use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
+    let #(first, last, x) = head_line(control_id, live_class, painted_class)
     case edge {
-      editor.Up ->
-        case caret_line(control_id) {
-          #(True, _, x) -> Ok(#(edge, from_press(x)))
-          _ -> Error(Nil)
-        }
-      editor.Down ->
-        case caret_line(control_id) {
-          #(_, True, x) -> Ok(#(edge, from_press(x)))
-          _ -> Error(Nil)
-        }
-      // The step takes its place across from the caret once it is drawn.
-      editor.Line(..) if pending -> Ok(#(edge, 0.0))
-      editor.Line(up: True, select: True) ->
-        case head_line(control_id, live_class, painted_class) {
-          #(True, _, x) -> Ok(#(edge, x))
-          _ -> Error(Nil)
-        }
-      editor.Line(up: False, select: True) ->
-        case head_line(control_id, live_class, painted_class) {
-          #(_, True, x) -> Ok(#(edge, x))
-          _ -> Error(Nil)
-        }
-      editor.Line(select: False, ..) -> Error(Nil)
-      editor.Beside(..) -> {
-        let #(_, _, x) = head_line(control_id, live_class, painted_class)
-        Ok(#(edge, x))
-      }
-      editor.Page(..) -> {
-        let #(_, _, x) = head_line(control_id, live_class, painted_class)
-        Ok(#(edge, x))
-      }
+      editor.Up if first -> Ok(#(edge, from_press(x)))
+      editor.Down if last -> Ok(#(edge, from_press(x)))
+      editor.Up | editor.Down if pending ->
+        Ok(#(editor.Line(up: edge == editor.Up, select: False), -1.0))
+      editor.Up -> Ok(#(editor.Beside(up: True, select: False), x))
+      editor.Down -> Ok(#(editor.Beside(up: False, select: False), x))
+      // A step that waits for a press to be drawn measures the caret then.
+      editor.Line(select: False, ..) if pending -> Ok(#(edge, -1.0))
+      editor.Line(select: False, ..) -> Ok(#(edge, x))
+      editor.Line(up: True, select: True) if first -> Ok(#(edge, x))
+      editor.Line(up: False, select: True) if last -> Ok(#(edge, x))
+      editor.Line(up:, select: True) ->
+        Ok(#(editor.Beside(up:, select: True), x))
+      editor.Beside(..) | editor.Page(..) | editor.Row(..) -> Ok(#(edge, x))
       editor.JoinBefore
       | editor.JoinAfter
       | editor.SelectBefore
@@ -989,7 +965,6 @@ fn edge_decoder(
       | editor.SelectToStart
       | editor.SelectToEnd
       | editor.SelectAll
-      | editor.Row(..)
       | editor.Widen -> Ok(#(edge, 0.0))
     }
   }
@@ -1155,9 +1130,6 @@ fn holds_focus(id: String) -> Bool
 @external(javascript, "./surface.ffi.mjs", "drawnInPage")
 fn drawn_in_page(id: String, live_class: String) -> Bool
 
-@external(javascript, "./surface.ffi.mjs", "caretLine")
-fn caret_line(id: String) -> #(Bool, Bool, Float)
-
 @external(javascript, "./surface.ffi.mjs", "headLine")
 fn head_line(
   id: String,
@@ -1197,17 +1169,11 @@ fn note_painted(painted: Bool) -> Nil
 @external(javascript, "./surface.ffi.mjs", "notePress")
 fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
 
-@external(javascript, "./surface.ffi.mjs", "isAimed")
-fn is_aimed(id: String) -> Bool
-
 @external(javascript, "./surface.ffi.mjs", "pressLanding")
 fn press_landing() -> #(Bool, Float, Bool)
 
 @external(javascript, "./surface.ffi.mjs", "revealCaret")
 fn reveal_caret(id: String, live_class: String, painted_class: String) -> Nil
-
-@external(javascript, "./surface.ffi.mjs", "moveLine")
-fn move_line(id: String, up: Bool) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "afterDefault")
 fn after_default(run: fn() -> Nil) -> Nil
@@ -1241,12 +1207,15 @@ fn clear_paint() -> Nil
 @external(javascript, "./surface.ffi.mjs", "aimControl")
 fn aim_control(
   id: String,
+  live_class: String,
+  painted_class: String,
   text: String,
   start: Int,
   end: Int,
   backward: Bool,
   x: Float,
   line: Int,
+  select: Bool,
   again: Bool,
 ) -> #(Bool, String, Int, Int, Bool)
 

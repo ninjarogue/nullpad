@@ -22,6 +22,13 @@ import nullpad/vim.{Step}
 /// `waiting` holds the steps of the head over the drawn page that the page
 /// has not placed yet. Only the first is asked for, so each step starts
 /// where the step before it ended.
+///
+/// `goal` is where a run of moves up and down aims, as a text field keeps
+/// the caret's x: how far from the left of the page's text the head was
+/// drawn when the run began, with the start of a row at 0. Every move up or
+/// down lands nearest it, on the line as the page will show it. The first
+/// move of a run sets it, and any other change to the selection or the text
+/// ends the run.
 pub opaque type Editor {
   /// `press` is a mouse press the editor took, held until it is let go.
   /// `clicked` is where the last plain press put the caret.
@@ -38,7 +45,7 @@ pub opaque type Editor {
     dragging: Bool,
     composing: Bool,
     paints: Bool,
-    goal: Option(Goal),
+    goal: Option(Float),
     waiting: List(Queued),
   )
 }
@@ -61,13 +68,6 @@ type Press {
   /// A press on a painted selection, which drags it: let go where it was
   /// pressed, it puts the caret there.
   PressedOnSelection(Position)
-}
-
-/// Where a run of steps up or down aims on the drawn page: `x` from the left
-/// of the text, for as long as the head stays at `head`, where the last step
-/// put it.
-type Goal {
-  Goal(head: Position, x: Float)
 }
 
 type Focus {
@@ -105,8 +105,7 @@ type Field {
 /// What the surface does after a key at the edge of the field.
 type Then {
   Done
-  ByLine(up: Bool)
-  Aim(Line)
+  Aim(Line, select: Bool)
   StepTo(Queued)
 }
 
@@ -196,18 +195,17 @@ pub type Event {
   /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool, next: String)
   /// The page took the first waiting step of the head: the head moves to
-  /// the place on the drawn page that the step reached. A step of a line
-  /// aimed at `x` from the left of the text. The anchor stays.
+  /// the place on the drawn page that the step reached. The anchor stays.
+  /// `x` is where the step aimed, from the left of the text, which starts a
+  /// run that had no column yet.
   Stepped(row: Int, visible: String, at_end: Bool, next: String, x: Float)
-  /// A step the page had no place for: the head stays where it is, and a
-  /// step of a window goes to the start or end of the note.
+  /// A step the page had no place for: the head stays where it is.
   Unstepped(x: Float)
   /// The field took the first waiting step itself, and shows where it put
   /// the selection.
   FieldStepped(shown: Buffer, x: Float)
-  /// The field as an arrow up or down that crossed into it left it, aimed
-  /// `x` from the left of the text.
-  Aimed(shown: Buffer, x: Float)
+  /// The field as an aim at the run's column left it.
+  Aimed(shown: Buffer)
   /// A step with nothing drawn past the head: the head goes to the start or
   /// the end of the note, as in a text field.
   SteppedPast
@@ -247,10 +245,10 @@ pub type Edge {
   /// An arrow up or down: the head moves one line up or down the drawn
   /// page.
   Line(up: Bool, select: Bool)
-  /// An arrow up or down while the field is as an aim left it: the head
-  /// moves to the drawn line above or below in the field, at the column the
-  /// aim kept, which the browser does not know.
-  Beside(up: Bool)
+  /// An arrow up or down, with Shift for `select`, from a line of the field
+  /// that has a line of the field above or below it: the head moves to that
+  /// line, at the run's column, which the browser does not know.
+  Beside(up: Bool, select: Bool)
   SelectBefore
   SelectAfter
   /// Shift and an arrow left or right, Home or End, over a painted
@@ -265,10 +263,11 @@ pub type Edge {
   /// Page Up or Page Down: the head moves a window up or down the drawn
   /// page.
   Page(up: Bool, select: Bool)
-  /// Ctrl and an arrow up or down: the head moves to its column of the row
-  /// above or below, as in a text field that holds the markdown, or to the
-  /// start or end of the note from its first or last row. Without `select`
-  /// it moves from the start of the selection.
+  /// Ctrl and an arrow up or down: the head moves to the run's column on
+  /// the last drawn line of the row above, or the first of the row below, as
+  /// in a text field that holds the markdown, or to the start or end of the
+  /// note from its first or last row. Without `select` it moves from the
+  /// start of the selection.
   Row(up: Bool, select: Bool)
   /// A key the browser acts on by the text alone, which can take the head
   /// past the field: the field holds the whole note while it does.
@@ -279,9 +278,10 @@ pub type Sync {
   InSync
   Write(Buffer)
   WriteQuietly(Buffer)
-  /// Then the head moves to the place nearest `x` on the first or last drawn
-  /// line of its row. A selection keeps its anchor.
-  WriteAndAim(Buffer, x: Float, line: Line)
+  /// Then the head moves to the place nearest `x` from the left of the text
+  /// on a drawn line of the field. With `select` the anchor stays, and
+  /// without it the caret moves.
+  WriteAndAim(Buffer, x: Float, line: Line, select: Bool)
   /// Then the head takes `move` over the drawn page, a step of a line or a
   /// window to the place nearest `x` from the left of the text, or below
   /// where the head is drawn when `x` is below 0. A selection keeps its
@@ -289,9 +289,6 @@ pub type Sync {
   WriteAndStep(Buffer, move: Move, select: Bool, x: Float)
   /// Then the browser acts on the key, and the field is read once it has.
   WriteAndRead(Buffer)
-  /// Then the head moves a line up or down the field as the browser moves
-  /// it, which keeps the column for the next line.
-  WriteAndMove(Buffer, up: Bool)
   Release(Buffer)
   /// A press at `x`, `y` in the window: the field is written, when there is
   /// a write, and focused where it is, and the pointer is followed until it
@@ -302,11 +299,14 @@ pub type Sync {
   HoldSelection(x: Float, y: Float)
 }
 
+/// A line of the field, by where the head is: the first or last line of its
+/// row, the line above or below the head's, or the head's own.
 pub type Line {
   FirstLine
   LastLine
   LineAbove
   LineBelow
+  HeadLine
 }
 
 /// One move of the head over the drawn page, as a caret moves over it.
@@ -416,6 +416,75 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 }
 
 pub fn update(editor: Editor, event: Event) -> Outcome {
+  let outcome = apply(editor, event)
+  let goal = case in_run(event), outcome.editor.buffer == editor.buffer {
+    Moves, _ | Changes, True -> outcome.editor.goal
+    Changes, False | Ends, _ -> None
+  }
+  Outcome(..outcome, editor: Editor(..outcome.editor, goal:))
+}
+
+/// What an event does to a run of moves up and down: a move of the run, a
+/// key that ends it, or anything else, which ends it when it changes the
+/// selection or the text, as the caret's x is kept in a text field.
+type InRun {
+  Moves
+  Ends
+  Changes
+}
+
+fn in_run(event: Event) -> InRun {
+  case event {
+    EdgePressed(edge:, ..) ->
+      case is_vertical(edge) {
+        True -> Moves
+        False -> Ends
+      }
+    Stepped(..)
+    | Unstepped(..)
+    | FieldStepped(..)
+    | Aimed(..)
+    | SteppedPast
+    | Settled(..) -> Moves
+    ControlChanged(..)
+    | Composing(..)
+    | KeyPressed(..)
+    | EscapePressed(..)
+    | Pointed(..)
+    | LinePointed(..)
+    | ShiftPointed(..)
+    | Grabbed(..)
+    | WordPressed(..)
+    | SelectionPointed(..)
+    | Dragged(..)
+    | Released
+    | DragStarted
+    | Dropped(..)
+    | FocusChanged(..)
+    | UndoAsked
+    | RedoAsked -> Changes
+  }
+}
+
+fn is_vertical(edge: Edge) -> Bool {
+  case edge {
+    Up | Down | Line(..) | Beside(..) | Page(..) | Row(..) -> True
+    JoinBefore
+    | JoinAfter
+    | SelectBefore
+    | SelectAfter
+    | SelectLeft
+    | SelectRight
+    | SelectLineStart
+    | SelectLineEnd
+    | SelectToStart
+    | SelectToEnd
+    | SelectAll
+    | Widen -> False
+  }
+}
+
+fn apply(editor: Editor, event: Event) -> Outcome {
   case event {
     ControlChanged(shown:, at:) ->
       typed(Editor(..editor, clock: at), shown, None, realign)
@@ -566,16 +635,16 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
     Stepped(row:, visible:, at_end:, next:, x:) -> {
       let #(anchor, head) = buffer.selection(editor.buffer)
       let placed = place(editor.buffer, row:, visible:, at_end:, next:)
-      let #(line, line_or_page, select) = case editor.waiting {
+      let #(line, select) = case editor.waiting {
         [Queued(move: LineUp, select:), ..]
-        | [Queued(move: LineDown, select:), ..] -> #(True, True, select)
+        | [Queued(move: LineDown, select:), ..] -> #(True, select)
         [Queued(move: PageUp, select:), ..]
-        | [Queued(move: PageDown, select:), ..] -> #(False, True, select)
-        [Queued(move: LineStart, select:), ..]
+        | [Queued(move: PageDown, select:), ..]
+        | [Queued(move: LineStart, select:), ..]
         | [Queued(move: LineEnd, select:), ..]
         | [Queued(move: LetterBack, select:), ..]
-        | [Queued(move: LetterOn, select:), ..] -> #(False, False, select)
-        [] -> #(False, False, True)
+        | [Queued(move: LetterOn, select:), ..] -> #(False, select)
+        [] -> #(False, True)
       }
       // A caret's line step past rows the page does not draw, such as a
       // fence, stops on the first of them, as it does in a text field. A
@@ -589,29 +658,27 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         True -> anchor
         False -> placed
       }
-      let stepped =
-        edit(editor, buffer.select(editor.buffer, anchor:, head: placed))
-        |> realign
-      let goal = case line_or_page {
-        True -> Some(Goal(head: buffer.cursor(stepped.buffer), x:))
-        False -> None
-      }
-      next_step(Editor(..stepped, goal:), x)
+      let landed = landing(editor.waiting)
+      edit(editor, buffer.select(editor.buffer, anchor:, head: placed))
+      |> realign
+      |> begin_run(landed, x)
+      |> next_step(landed)
     }
-    Unstepped(x:) -> next_step(editor, x)
+    Unstepped(x:) ->
+      editor |> begin_run(landing(editor.waiting), x) |> next_step(None)
     FieldStepped(shown:, x:) ->
       case editor.waiting {
         [] -> typed(editor, shown, None, realign)
-        [_, ..] ->
-          editor |> edit(base(editor, shown)) |> realign |> next_step(x)
+        [_, ..] -> {
+          let landed = landing(editor.waiting)
+          editor
+          |> edit(base(editor, shown))
+          |> realign
+          |> begin_run(landed, x)
+          |> next_step(landed)
+        }
       }
-    Aimed(shown:, x:) -> {
-      let outcome = typed(editor, shown, None, realign)
-      let head = buffer.cursor(outcome.editor.buffer)
-      let goal = Some(Goal(head:, x:))
-      let editor = Editor(..outcome.editor, goal:)
-      Outcome(..outcome, editor:)
-    }
+    Aimed(shown:) -> typed(editor, shown, None, realign)
     SteppedPast -> {
       let #(anchor, _) = buffer.selection(editor.buffer)
       let #(back, select) = case editor.waiting {
@@ -633,11 +700,9 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
         True -> anchor
         False -> head
       }
-      let past =
-        Editor(..editor, goal: None)
-        |> edit(buffer.select(editor.buffer, anchor:, head:))
-        |> realign
-      next_step(past, 0.0)
+      edit(editor, buffer.select(editor.buffer, anchor:, head:))
+      |> realign
+      |> next_step(None)
     }
     Settled(from:, to: #(anchor, head)) ->
       case is_painted(editor) && buffer.selection(editor.buffer) == from {
@@ -748,15 +813,72 @@ fn travel(
   }
 }
 
-fn next_step(editor: Editor, x: Float) -> Outcome {
+/// The next waiting step, once the first has landed. A step up or down
+/// that `landed` with nothing waiting after it is aimed at the run's column
+/// on the line it reached, as the field shows that line, unless the
+/// selection is painted over the drawn page, which then shows it.
+fn next_step(editor: Editor, landed: Option(Bool)) -> Outcome {
   let waiting = list.drop(editor.waiting, 1)
   let editor = Editor(..editor, waiting:)
-  case waiting {
-    [] -> write(editor)
-    [Queued(move:, select:), ..] -> {
+  case waiting, landed, editor.goal {
+    [], Some(select), Some(x) ->
+      case is_painted(editor) {
+        True -> write(editor)
+        False -> {
+          let sync =
+            WriteAndAim(field_buffer(editor), x:, line: HeadLine, select:)
+          Outcome(editor:, sync:, requests: [])
+        }
+      }
+    [], _, _ -> write(editor)
+    [Queued(move:, select:), ..], _, _ -> {
+      let x = step_x(editor, move)
       let sync = WriteAndStep(field_buffer(editor), move:, select:, x:)
       Outcome(editor:, sync:, requests: [])
     }
+  }
+}
+
+/// A step up or down measured from where the head was drawn starts the
+/// run's column there, when the run has none yet.
+fn begin_run(editor: Editor, landed: Option(Bool), x: Float) -> Editor {
+  case landed, editor.goal {
+    Some(_), None if x >=. 0.0 -> Editor(..editor, goal: Some(x))
+    Some(_), _ | None, _ -> editor
+  }
+}
+
+/// Whether the first waiting step goes up or down, and if so whether it
+/// selects.
+fn landing(waiting: List(Queued)) -> Option(Bool) {
+  case waiting {
+    [Queued(move: LineUp, select:), ..]
+    | [Queued(move: LineDown, select:), ..]
+    | [Queued(move: PageUp, select:), ..]
+    | [Queued(move: PageDown, select:), ..] -> Some(select)
+    [Queued(move: LineStart, ..), ..]
+    | [Queued(move: LineEnd, ..), ..]
+    | [Queued(move: LetterBack, ..), ..]
+    | [Queued(move: LetterOn, ..), ..]
+    | [] -> None
+  }
+}
+
+/// A step up or down aims at the run's column. Any other, or one with no
+/// run, is measured from where the head is drawn.
+fn step_x(editor: Editor, move: Move) -> Float {
+  case move, editor.goal {
+    LineUp, Some(x) | LineDown, Some(x) | PageUp, Some(x) | PageDown, Some(x) ->
+      x
+    LineUp, None
+    | LineDown, None
+    | PageUp, None
+    | PageDown, None
+    | LineStart, _
+    | LineEnd, _
+    | LetterBack, _
+    | LetterOn, _
+    -> -1.0
   }
 }
 
@@ -911,20 +1033,31 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let row_below = live && cursor.row < list.length(lines) - 1
   let #(anchor, head) = buffer.selection(base)
   let reach = fn(head) { #(buffer.select(base, anchor:, head:), Done) }
-  let kept = case editor.goal {
-    Some(Goal(head: aimed, x: kept)) if aimed == head -> Some(kept)
-    Some(_) | None -> None
+  let goal = case
+    is_vertical(edge),
+    editor.goal,
+    shown == field_buffer(editor)
+  {
+    True, Some(goal), True -> Some(goal)
+    True, _, _ if x >=. 0.0 -> Some(x)
+    True, _, _ | False, _, _ -> None
+  }
+  let collapse = fn(select) {
+    case select {
+      True -> base
+      False -> buffer.move_to(base, head)
+    }
   }
   let start = Position(row: 0, col: 0)
   let end = end_of_row(list.length(lines) - 1)
   let #(wanted, then) = case edge {
     Up if row_above -> #(
       buffer.move_to(base, end_of_row(cursor.row - 1)),
-      Aim(LastLine),
+      Aim(LastLine, select: False),
     )
     Down if row_below -> #(
       buffer.move_to(base, Position(row: cursor.row + 1, col: 0)),
-      Aim(FirstLine),
+      Aim(FirstLine, select: False),
     )
     JoinBefore if row_above -> {
       let from = end_of_row(cursor.row - 1)
@@ -938,16 +1071,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     }
     Up if live && anchor != cursor -> #(buffer.move_to(base, start), Done)
     Down if live && anchor != cursor -> #(buffer.move_to(base, end), Done)
-    Up if live && cursor != start -> #(base, ByLine(up: True))
-    Down if live && cursor != end -> #(base, ByLine(up: False))
-    Line(up: True, select: False) if live && !row_above && cursor != start -> #(
-      base,
-      ByLine(up: True),
-    )
-    Line(up: False, select: False) if live && !row_below && cursor != end -> #(
-      base,
-      ByLine(up: False),
-    )
+    Up if live && cursor != start -> #(buffer.move_to(base, start), Done)
+    Down if live && cursor != end -> #(buffer.move_to(base, end), Done)
     Line(up: True, select:) if live -> #(base, StepTo(Queued(LineUp, select:)))
     Line(up: False, select:) if live -> #(
       base,
@@ -962,27 +1087,46 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     SelectRight if live -> #(base, StepTo(Queued(LetterOn, select: True)))
     SelectLineStart if live -> #(base, StepTo(Queued(LineStart, select: True)))
     SelectLineEnd if live -> #(base, StepTo(Queued(LineEnd, select: True)))
-    Beside(up: True) if live -> #(base, Aim(LineAbove))
-    Beside(up: False) if live -> #(base, Aim(LineBelow))
-    Row(up:, select:) -> {
+    Beside(up: True, select:) if live -> #(
+      collapse(select),
+      Aim(LineAbove, select:),
+    )
+    Beside(up: False, select:) if live -> #(
+      collapse(select),
+      Aim(LineBelow, select:),
+    )
+    Row(up:, select:) if live -> {
       let from = case select {
         True -> head
         False -> earlier(anchor, head)
       }
-      let line = fn(row) {
-        let length =
-          string.length(result_or_empty(list.first(list.drop(lines, row))))
-        Position(row:, col: int.min(from.col, length))
+      let #(to, then) = case up {
+        True if from.row == 0 -> #(start, Done)
+        True -> #(end_of_row(from.row - 1), Aim(LastLine, select:))
+        False if from.row == end.row -> #(end, Done)
+        False -> #(Position(row: from.row + 1, col: 0), Aim(FirstLine, select:))
       }
-      let to = case up {
-        True if from.row == 0 -> start
-        True -> line(from.row - 1)
-        False if from.row == end.row -> end
-        False -> line(from.row + 1)
-      }
-      case select {
-        True -> reach(to)
-        False -> #(buffer.move_to(base, to), Done)
+      let selected = buffer.select(base, anchor:, head: to)
+      // A selection painted over the drawn page is not laid out as the
+      // field lays it out, so its head steps over the page from the edge of
+      // its row instead.
+      case select, then, is_painted(edit(editor, selected) |> realign) {
+        True, Aim(..), True -> {
+          let edge = case up {
+            True -> Position(row: from.row, col: 0)
+            False -> end_of_row(from.row)
+          }
+          let move = case up {
+            True -> LineUp
+            False -> LineDown
+          }
+          #(
+            buffer.select(base, anchor:, head: edge),
+            StepTo(Queued(move:, select: True)),
+          )
+        }
+        True, _, _ -> #(selected, then)
+        False, _, _ -> #(buffer.move_to(base, to), then)
       }
     }
     SelectBefore if row_above -> reach(end_of_row(cursor.row - 1))
@@ -999,6 +1143,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | SelectAfter
     | Page(..)
     | Beside(..)
+    | Row(..)
     | Widen
     | SelectLeft
     | SelectRight
@@ -1007,16 +1152,16 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   }
   let waiting = case then {
     StepTo(step) -> list.append(editor.waiting, [step])
-    Done | ByLine(_) | Aim(_) -> editor.waiting
+    Done | Aim(..) -> editor.waiting
   }
   let first = editor.waiting == []
-  let editor = Editor(..edit(editor, wanted), waiting:) |> realign
+  let editor = Editor(..edit(editor, wanted), waiting:, goal:) |> realign
   let wanted_shown = field_buffer(editor)
   let sync = case then, wanted_shown == shown {
-    Aim(line), _ -> WriteAndAim(wanted_shown, x: option.unwrap(kept, x), line:)
-    ByLine(up:), _ -> WriteAndMove(wanted_shown, up:)
+    Aim(line, select:), _ ->
+      WriteAndAim(wanted_shown, x: option.unwrap(goal, x), line:, select:)
     StepTo(Queued(move:, select:)), _ if first ->
-      WriteAndStep(wanted_shown, move:, select:, x: option.unwrap(kept, -1.0))
+      WriteAndStep(wanted_shown, move:, select:, x: step_x(editor, move))
     StepTo(_), True | Done, True -> InSync
     StepTo(_), False | Done, False -> Write(wanted_shown)
   }

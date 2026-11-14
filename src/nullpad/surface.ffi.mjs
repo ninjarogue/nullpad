@@ -270,7 +270,8 @@ function measure(control) {
   for (const property of COPIED) ruler.style[property] = style[property];
   ruler.style.width = control.clientWidth + "px";
   // The extra character gives the end of the text a place of its own.
-  ruler.firstChild.data = control.value + "​";
+  const text = control.value + "​";
+  if (ruler.firstChild.data !== text) ruler.firstChild.data = text;
   const range = document.createRange();
   const left = ruler.getBoundingClientRect().left;
   return (offset) => {
@@ -338,12 +339,14 @@ function atLineEnd(control, head, place) {
 // whether a key has moved the caret since.
 const aimed = new WeakMap();
 
-// `line` is 0 for the first drawn line of the head's row, 1 for its last, and
-// 2 or 3 for the drawn line above or below the head's. Aimed again, a step
-// to the line beside stays on the line it reached. The answer starts with
-// whether the field was aimed: a key that moved the caret since the field
-// was written, or aimed, keeps its place and its own column.
-export function aimControl(id, text, start, end, backward, x, line, again) {
+// `line` is 0 for the first drawn line of the head's row, 1 for its last, 2
+// or 3 for the drawn line above or below the head's, and 4 for the head's
+// own. Aimed again, a step to the line beside stays on the line it reached.
+// `x` is from the left of the page's text, as `headLine` measures it. With
+// `select` the anchor stays, and without it a caret moves. The answer starts
+// with whether the field was aimed: a key that moved the caret since the
+// field was written, or aimed, keeps its place and its own column.
+export function aimControl(id, liveClass, paintedClass, text, start, end, backward, x, line, select, again) {
   const control = document.getElementById(id);
   if (!control) return [false, "", 0, 0, false];
   const shown = () => [
@@ -363,6 +366,7 @@ export function aimControl(id, text, start, end, backward, x, line, again) {
   }
   const head = backward ? start : end;
   const place = measure(control);
+  const left = control.getBoundingClientRect().left - textLeft(control, liveClass, paintedClass);
   const lineFrom = (offset, step) => {
     const top = place(offset).top;
     while (offset + step >= 0 && offset + step <= text.length && place(offset + step).top === top) offset += step;
@@ -371,7 +375,7 @@ export function aimControl(id, text, start, end, backward, x, line, again) {
   let from;
   if (line === 0) from = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
   else if (line === 1) from = lineFrom(text.indexOf("\n", head) < 0 ? text.length : text.indexOf("\n", head), -1);
-  else if (again) from = lineFrom(head, -1);
+  else if (again || line === 4) from = lineFrom(head, -1);
   else if (line === 2) {
     from = lineFrom(head, -1) - 1;
     if (from < 0) return [true, ...shown()];
@@ -384,12 +388,13 @@ export function aimControl(id, text, start, end, backward, x, line, again) {
   let best = from;
   let gap = Infinity;
   for (let offset = from; offset <= text.length && place(offset).top === top; offset++) {
-    if (Math.abs(place(offset).x - x) < gap) {
-      gap = Math.abs(place(offset).x - x);
+    const away = Math.abs(left + place(offset).x - x);
+    if (away < gap) {
+      gap = away;
       best = offset;
     }
   }
-  const anchor = start === end ? best : backward ? end : start;
+  const anchor = select ? (backward ? end : start) : best;
   control.setSelectionRange(
     Math.min(anchor, best),
     Math.max(anchor, best),
@@ -400,14 +405,12 @@ export function aimControl(id, text, start, end, backward, x, line, again) {
   return [true, ...shown()];
 }
 
-// The browser keeps the column of its own moves up and down, not of an aim,
-// so the editor takes the next one while the field is as the aim left it.
-export function isAimed(id) {
-  const control = document.getElementById(id);
-  const last = control && aimed.get(control);
-  if (!last) return false;
-  const now = [control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
-  return last.join("\u0000") === now.join("\u0000");
+// The left of the text the field's columns are measured from: the page's,
+// or the field's own while it is painted over, out of the page's flow.
+function textLeft(control, liveClass, paintedClass) {
+  const page = control.closest("." + liveClass);
+  if (!page || control.closest("." + paintedClass)) return control.getBoundingClientRect().left;
+  return columnLeft(page);
 }
 
 // A middle press puts the caret where it is pressed, where Linux pastes on
@@ -935,17 +938,21 @@ function fieldCaret(control) {
 }
 
 // Where the head of the selection is drawn: on the first line of the field,
-// on its last line, and how far from the left of the text. A painted head is
-// on both, so every step is taken on the drawn page.
+// on its last line, and how far from the left of the text, where the start
+// of every row is, as in a text field. A painted head is on both, so every
+// step is taken on the drawn page.
 export function headLine(id, liveClass, paintedClass) {
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
   if (!page) return [false, false, 0];
+  const at = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
+  const rowStart = at === 0 || control.value[at - 1] === "\n";
   const head = isPainted(id, paintedClass) && headPlace();
-  if (head) return [true, true, head.box.left - columnLeft(page)];
-  if (undrawn(control)) return [true, true, 0];
+  if (head) return [true, true, rowStart ? 0 : head.box.left - columnLeft(page)];
   const [first, last, x] = caretLine(id);
-  return [first, last, control.getBoundingClientRect().left + x - columnLeft(page)];
+  const across = rowStart ? 0 : control.getBoundingClientRect().left + x - textLeft(control, liveClass, paintedClass);
+  if (undrawn(control)) return [true, true, across];
+  return [first, last, across];
 }
 
 // A press puts rows in the field that the page has not yet set it for, so
@@ -1243,14 +1250,6 @@ export function revealCaret(id, liveClass, paintedClass) {
   if (!page || document.activeElement !== control || control.closest("." + paintedClass)) return;
   const { box } = fieldCaret(control);
   revealOnPage(page, box.top, box.bottom);
-}
-
-// The browser's own line move, from the first or last line to the start or
-// end of the field, remembers the column for the next one, as a key does.
-export function moveLine(id, up) {
-  const control = document.getElementById(id);
-  if (!control || document.activeElement !== control) return;
-  getSelection().modify("move", up ? "backward" : "forward", "line");
 }
 
 // Where text dropped on the page lands, the text, and whether the drop

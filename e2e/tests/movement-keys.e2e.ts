@@ -13,7 +13,7 @@ import { pause, test } from './nullpad.ts';
  * holding the same markdown.
  *
  * Where only the layout decides (Up, Down, Page Up and Page Down, and their
- * Shift forms), the plain field cannot be matched to the letter, because the
+ * Shift and Ctrl forms), the plain field cannot be matched to the letter, because the
  * page draws proportional fonts and hides marks, so its columns are not the
  * field's. Up and Down are held to the source row, and to the pixel the caret
  * was at, within a few pixels, or to the end of a row too short to reach it.
@@ -53,12 +53,12 @@ const keys: Row[] = [
   { key: ctrl('Shift+End') },
   { key: 'ArrowUp', follow: 'row and pixel' },
   { key: 'Shift+ArrowUp', follow: 'row and pixel' },
-  { key: ctrl('ArrowUp') },
-  { key: ctrl('Shift+ArrowUp') },
+  { key: ctrl('ArrowUp'), follow: 'row and pixel' },
+  { key: ctrl('Shift+ArrowUp'), follow: 'row and pixel' },
   { key: 'ArrowDown', follow: 'row and pixel' },
   { key: 'Shift+ArrowDown', follow: 'row and pixel' },
-  { key: ctrl('ArrowDown') },
-  { key: ctrl('Shift+ArrowDown') },
+  { key: ctrl('ArrowDown'), follow: 'row and pixel' },
+  { key: ctrl('Shift+ArrowDown'), follow: 'row and pixel' },
   { key: 'PageUp', follow: 'row' },
   { key: 'Shift+PageUp', follow: 'row' },
   { key: 'PageDown', follow: 'row' },
@@ -271,7 +271,10 @@ function judge(row: Row, want: Want, got: { anchor: Cell; head: Cell }, x: Pixel
  * selection go where the page draws them, so a selection never ends on a
  * fence the page hides.
  */
-const apart = new Set(['a table and a code block, a blank row between a table and a code block (row 4 column 0), Shift+ArrowDown']);
+const apart = new Set([
+  'a table and a code block, a blank row between a table and a code block (row 4 column 0), Shift+ArrowDown',
+  'a table and a code block, a blank row between a table and a code block (row 4 column 0), ControlOrMeta+Shift+ArrowDown',
+]);
 
 for (const row of keys) {
   test(`${row.key} leaves the text, cursor and selection where a plain text field does, at every edge`, async (fixtures) => {

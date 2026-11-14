@@ -233,8 +233,8 @@ const events = {
     ["Line up selecting", (field) => new editor.EdgePressed(new editor.Line(true, true), 0, field)],
     ["Line down selecting", (field) => new editor.EdgePressed(new editor.Line(false, true), 0, field)],
     ["Line down", (field) => new editor.EdgePressed(new editor.Line(false, false), 0, field)],
-    ["Beside up", (field) => new editor.EdgePressed(new editor.Beside(true), 0, field)],
-    ["Beside down", (field) => new editor.EdgePressed(new editor.Beside(false), 0, field)],
+    ["Beside up", (field) => new editor.EdgePressed(new editor.Beside(true, false), 0, field)],
+    ["Beside down selecting", (field) => new editor.EdgePressed(new editor.Beside(false, true), 0, field)],
     ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), 0, field)],
     ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), 0, field)],
     ["SelectLeft", (field) => new editor.EdgePressed(new editor.SelectLeft(), 0, field)],
@@ -293,7 +293,7 @@ const events = {
     ]],
   ],
   FieldStepped: [["", (field) => [asked(field), new editor.FieldStepped(moved(field, 0), 40)]]],
-  Aimed: [["moved", (field) => new editor.Aimed(moved(field, 0), 40)]],
+  Aimed: [["moved", (field) => new editor.Aimed(moved(field, 0))]],
   SteppedPast: [
     ["", (field) => [asked(field), new editor.SteppedPast()]],
     ["past the end of the note", (field) => [
