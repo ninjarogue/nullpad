@@ -385,8 +385,37 @@ button[aria-pressed="true"] {
   margin-block: 0;
 }
 
+/* In a quote, as at top level, a blank row is one empty line and nothing
+   else sets its blocks apart. */
+.page.live .preview blockquote > * {
+  margin-block: 0;
+}
+
+/* The field sets a quote of several rows as body text. There a heading
+   takes at least a line of body text, and a heading that ends a block takes,
+   with the blank row after it, two. */
+.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6):not(:empty) {
+  margin-block: 0 max(0px, 1.7rem - 1lh);
+}
+
+.page.live .preview blockquote > :is(h1, h2, h3, h4, h5, h6):not(:empty):has(+ .blank),
+.page.live .preview blockquote > :has(+ .blank) > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child,
+.page.live
+  .preview
+  blockquote
+  > :has(+ .blank)
+  > :last-child
+  > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child {
+  margin-bottom: calc(1.7rem - 1lh);
+}
+
+/* A heading with text keeps its line, even where its text draws nothing. */
+.page.live .preview :is(h1, h2, h3, h4, h5, h6):not(:empty) {
+  min-height: 1lh;
+}
+
 /* The field sets a heading in a quote in an item as a heading in an item. */
-.page.live .preview li blockquote > :is(h1, h2, h3, h4, h5, h6):last-child {
+.page.live .preview li blockquote:not(.rows) > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child {
   margin-bottom: 0.5em;
 }
 
@@ -404,7 +433,8 @@ button[aria-pressed="true"] {
   padding-block: calc(0.875rem * 1.5 - 1px);
 }
 
-.page.live .preview > hr {
+.page.live .preview > hr,
+.page.live .preview blockquote > hr {
   margin-block: calc(0.85rem - 1px);
 }
 

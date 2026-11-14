@@ -34,8 +34,9 @@ pub fn view(
 /// as in the whole list. Any other block the run cuts is left out and its
 /// rows are blank.
 ///
-/// A row outside every block is blank, and is drawn as one empty line
-/// (`div.blank`), so every row of the note has a place on the page.
+/// A row outside every block, or between the blocks of an item or a quote,
+/// is blank, and is drawn as one empty line (`div.blank`), so every row of
+/// the note has a place on the page.
 pub fn part(
   blocks: List(Block),
   rows rows: Int,
@@ -143,6 +144,15 @@ type Rows {
   Marked
 }
 
+/// The text field sets a block of several rows as body text, and the page
+/// is told which blocks those are.
+fn several_rows(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
+  case rows, shown.first_row < shown.last_row {
+    Marked, True -> [attribute.class("rows")]
+    Marked, False | Unmarked, _ -> []
+  }
+}
+
 fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
@@ -164,7 +174,16 @@ fn block(
     Paragraph(text) -> html.p(here, inlines(text))
     Rule -> html.hr(here)
     Quote(blocks) ->
-      html.blockquote(here, list.map(blocks, block(_, rows, on_task)))
+      html.blockquote(
+        list.append(several_rows(shown, rows), here),
+        spaced(
+          blocks,
+          from: shown.first_row,
+          to: shown.last_row + 1,
+          rows:,
+          draw: fn(child) { [block(child, rows, on_task)] },
+        ),
+      )
     BulletList(spacing, items) -> html.ul(here, list_items(items, spacing))
     OrderedList(1, spacing, items) -> html.ol(here, list_items(items, spacing))
     OrderedList(start, spacing, items) ->
