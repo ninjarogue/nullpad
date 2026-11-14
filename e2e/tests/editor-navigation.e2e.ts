@@ -456,3 +456,21 @@ test('ArrowUp into a heading lands straight above the caret, where the heading d
   expect(caret.col, 'the column, short of the same count of letters').toBeLessThan(20);
   await expect.poll(async () => Math.abs((await cursorAt(fixtures.browser))!.x - before), { message: 'how far across the caret moved' }).toBeLessThanOrEqual(12);
 });
+
+test('A click where the caret already is ends a run: ArrowDown takes the column clicked', async (fixtures) => {
+  const body = 'xxxxxxxxxa\nxb\nxxxxxxxxxc';
+  const editor = new Editing(fixtures);
+  await editor.open(body);
+  const expected = await editor.pageField(body, offsetOf(body, { word: 'xb', at: 2 }), ['ArrowDown'], 'X');
+  const endOfShortRow = await editor.point({ word: 'xb', at: 2 });
+  await editor.click({ word: 'xxxxxxxxxa', at: 8 });
+  await editor.press('ArrowDown');
+  await editor.clickAt(endOfShortRow.x, endOfShortRow.y);
+  await editor.press('ArrowDown');
+  await editor.type('X');
+
+  await editor.expectSaved(expected);
+});
+
+keepsTheColumn('End where the caret already is moves nothing and keeps the run', 'xxxxxxxxxa\nxb\nxxxxxxxxxc', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'End', 'ArrowDown']);
+keepsTheColumn('ArrowRight at the end of the note moves nothing and keeps the run', 'xxxxxxxxxa\nxb', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'ArrowRight', 'ArrowUp']);

@@ -1931,7 +1931,7 @@ pub fn a_key_that_moves_across_ends_the_run_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.ControlChanged(shown: caret("alpha one\n\nbravo two", 1, 0), at: 0),
+      editor.ControlChanged(shown: caret("alpha one\n\nbravo two", 0, 3), at: 0),
     )
   let Outcome(sync:, ..) =
     editor.update(
@@ -1953,6 +1953,121 @@ pub fn a_caret_the_browser_moved_since_starts_a_new_run_test() {
       ),
     )
   let assert editor.WriteAndAim(x: 12.0, ..) = sync
+}
+
+pub fn a_key_that_moves_nothing_keeps_the_run_test() {
+  let note = "alpha one\n\nbravo two"
+  let ed = run_down(note)
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Widen, x: 0.0, shown: caret("", 0, 0)),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret(note, 1, 0), at: 0))
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Down, x: 0.0, shown: editor.field_buffer(ed)),
+    )
+  let assert editor.WriteAndAim(x: 40.0, ..) = sync
+}
+
+pub fn a_press_where_the_caret_is_ends_the_run_test() {
+  let ed = run_down("alpha one\n\nbravo two")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Pointed(
+        row: 1,
+        visible: "",
+        at_end: True,
+        next: "",
+        x: 0.0,
+        y: 0.0,
+      ),
+    )
+  let Outcome(editor: ed, ..) = editor.update(ed, editor.Released)
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.Down, x: 0.0, shown: editor.field_buffer(ed)),
+    )
+  let assert editor.WriteAndAim(x: 0.0, ..) = sync
+}
+
+pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
+  let ed = pressed("alpha one\n\nbravo two", 0, "")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: False, select: True),
+        x: 40.0,
+        shown: caret("alpha one", 0, 4),
+      ),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: 40.0),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.SelectLeft,
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: True, select: True),
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.Stepped(
+        row: 0,
+        visible: "alpha one",
+        at_end: True,
+        next: "",
+        x: 0.0,
+      ),
+    )
+  let assert editor.WriteAndStep(move: editor.LineUp, x: -1.0, ..) = sync
+}
+
+pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
+  let note = "alpha one\nbravo two"
+  let ed = pressed(note, 0, "")
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: False, select: False),
+        x: -1.0,
+        shown: caret(note, 0, 4),
+      ),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.FieldStepped(shown: caret(note, 1, 4), x: 40.0))
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Beside(up: True, select: False),
+        x: 3.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  let assert editor.WriteAndAim(x: 40.0, line: editor.LineAbove, ..) = sync
 }
 
 pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
@@ -1981,10 +2096,10 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndAim(
-    x: 40.0,
-    line: editor.LineAbove,
+  let assert editor.WriteAndStep(
+    move: editor.LineUp,
     select: False,
+    x: 40.0,
     ..,
   ) = sync
 }
