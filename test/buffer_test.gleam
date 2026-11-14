@@ -69,3 +69,48 @@ pub fn replace_backwards_test() {
 
   assert buffer.text(replaced) == "hello there"
 }
+
+pub fn a_word_is_a_run_of_letters_spaces_or_marks_test() {
+  let note = buffer.from_text("say **hi**, you\n")
+  let word = fn(col) { buffer.word_at(note, Position(row: 0, col:)) }
+
+  assert word(1) == #(Position(0, 0), Position(0, 3))
+  assert word(3) == #(Position(0, 0), Position(0, 3))
+  assert word(4) == #(Position(0, 4), Position(0, 6))
+  assert word(6) == #(Position(0, 6), Position(0, 8))
+  assert word(8) == #(Position(0, 6), Position(0, 8))
+  assert word(11) == #(Position(0, 11), Position(0, 12))
+  assert word(13) == #(Position(0, 12), Position(0, 15))
+  assert buffer.word_at(note, Position(row: 1, col: 0))
+    == #(Position(1, 0), Position(1, 0))
+}
+
+pub fn moving_the_selection_takes_it_to_a_place_and_selects_it_there_test() {
+  let note =
+    buffer.from_text("alpha beta\ngamma delta")
+    |> buffer.select(anchor: Position(0, 6), head: Position(0, 10))
+  let moved = fn(to) {
+    let moved = buffer.move_selection(note, to:)
+    #(buffer.text(moved), buffer.selection(moved))
+  }
+
+  assert moved(Position(1, 6))
+    == #("alpha \ngamma betadelta", #(Position(1, 6), Position(1, 10)))
+  assert moved(Position(0, 0))
+    == #("betaalpha \ngamma delta", #(Position(0, 0), Position(0, 4)))
+  assert moved(Position(0, 8)) == #(buffer.text(note), buffer.selection(note))
+
+  let word =
+    buffer.from_text("alpha beta gamma")
+    |> buffer.select(anchor: Position(0, 0), head: Position(0, 5))
+    |> buffer.move_selection(to: Position(0, 11))
+  assert buffer.text(word) == " beta alphagamma"
+  assert buffer.selection(word) == #(Position(0, 6), Position(0, 11))
+
+  let across =
+    buffer.from_text("ab\ncd\nef")
+    |> buffer.select(anchor: Position(1, 1), head: Position(0, 1))
+    |> buffer.move_selection(to: Position(2, 1))
+  assert buffer.text(across) == "ad\neb\ncf"
+  assert buffer.selection(across) == #(Position(1, 1), Position(2, 1))
+}

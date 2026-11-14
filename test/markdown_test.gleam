@@ -492,7 +492,7 @@ pub fn a_fence_closes_only_with_as_long_a_run_of_its_mark_test() {
 }
 
 pub fn an_unclosed_fence_ends_with_its_container_test() {
-  assert markdown.parse("```\na\n") == [Block(0, 1, CodeBlock(None, "a\n", 1))]
+  assert markdown.parse("```\na") == [Block(0, 1, CodeBlock(None, "a\n", 1))]
   assert markdown.parse("> ```\n> a\nb")
     == [
       Block(0, 1, Quote([Block(0, 1, CodeBlock(None, "a\n", 1))])),
@@ -541,6 +541,18 @@ pub fn a_code_block_names_the_row_its_code_starts_on_test() {
   assert markdown.parse("p\n\n    a\n\n    b")
     == [para(0, "p"), Block(2, 4, CodeBlock(None, "a\n\nb\n", 2))]
   assert markdown.parse("```\n\n```") == [Block(0, 2, CodeBlock(None, "\n", 1))]
+}
+
+pub fn an_unclosed_fence_takes_the_empty_last_row_of_the_note_test() {
+  assert markdown.parse("```js\n")
+    == [Block(0, 1, CodeBlock(Some("js"), "", 0))]
+  assert markdown.parse("p\n\n```\na\n")
+    == [para(0, "p"), Block(2, 4, CodeBlock(None, "a\n", 3))]
+  assert markdown.parse("```\na\n```\n")
+    == [Block(0, 2, CodeBlock(None, "a\n", 1))]
+  assert markdown.parse("> ```\n> a\n")
+    == [Block(0, 1, Quote([Block(0, 1, CodeBlock(None, "a\n", 1))]))]
+  assert markdown.parse("- ```\n  a\n") == markdown.parse("- ```\n  a")
 }
 
 pub fn a_fence_with_no_code_names_its_opening_fence_test() {

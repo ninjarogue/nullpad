@@ -103,11 +103,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     EditorSent(event) -> apply(model, editor.update(model.editor, event))
     UserTickedTask(task:, checked:) ->
-      case markdown.set_task(editor.text(model.editor), task, checked) {
-        Ok(line) ->
-          apply(model, editor.replace_line(model.editor, task.row, with: line))
-        Error(Nil) -> #(model, effect.none())
-      }
+      apply(model, editor.tick(model.editor, task, checked))
 
     ToLibrary(event) -> tell_library(model, event)
 
@@ -239,7 +235,7 @@ fn describe(failure: Failure) -> String {
 }
 
 pub fn view(model: Model) -> Element(Msg) {
-  html.main([attribute.class("app")], [
+  html.main([attribute.class("app"), ..surface.files_refused(EditorSent)], [
     sidebar(model),
     html.section([attribute.class("note")], [
       toolbar(model),

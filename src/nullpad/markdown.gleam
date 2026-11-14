@@ -103,13 +103,24 @@ pub type Inline {
 /// Total: any text is a valid document (unknown or
 /// unclosed syntax becomes plain `Text`, and raw HTML is just text), so there
 /// is no error type.
+///
+/// A fence left open outside any container runs to the last row of the
+/// note, an empty one after the last line of text included, since what is
+/// typed there is code.
 pub fn parse(source: String) -> List(Block) {
   let lines = source_lines(source)
+  let rows = list.length(lines)
+  let last_row = case
+    string.ends_with(source, "\n") || string.ends_with(source, "\r")
+  {
+    True -> rows
+    False -> rows - 1
+  }
   lines
   |> list.index_fold(Open([], [], 0, NoLeaf), fn(open, chars, row) {
     step(open, new_line(row, chars))
   })
-  |> finish(list.length(lines))
+  |> finish(rows, last_row)
 }
 
 fn source_lines(source: String) -> List(List(String)) {
@@ -861,7 +872,15 @@ fn push_block(open: Open, block: Block) -> Open {
   }
 }
 
-fn finish(open: Open, rows: Int) -> List(Block) {
+fn finish(open: Open, rows: Int, last_row: Int) -> List(Block) {
+  let open = case open.leaf {
+    FencedLeaf(..) if open.depth == 0 -> close_leaf(open, last_row)
+    FencedLeaf(..)
+    | NoLeaf
+    | ParagraphLeaf(..)
+    | IndentedLeaf(..)
+    | TableLeaf(..) -> open
+  }
   list.reverse(close_to(open, 0, rows).blocks)
 }
 

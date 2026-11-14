@@ -13,10 +13,18 @@ export function listenForShortcut(key, run) {
   const apple = /Mac|iPhone|iPad/.test(navigator.platform);
   document.addEventListener("keydown", (event) => {
     const held = apple ? event.metaKey : event.ctrlKey;
-    if (!held || event.altKey || event.key.toLowerCase() !== key) return;
+    if (!held || event.altKey || !isKey(event, key)) return;
     event.preventDefault();
     run();
   });
+}
+
+// A shortcut letter on a keyboard laid out for another alphabet is named
+// by where the key sits.
+function isKey(event, letter) {
+  const typed = event.key.toLowerCase();
+  const latin = typed.length === 1 && typed >= "a" && typed <= "z";
+  return typed === letter || (!latin && event.code === "Key" + letter.toUpperCase());
 }
 
 // Runs when the page is hidden: a switched tab, a closed tab, or a phone

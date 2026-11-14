@@ -99,7 +99,7 @@ function opened(text) {
   );
   const [pointed] = app.update(
     ready,
-    new app.EditorSent(new editor.Pointed(paragraph, "", true)),
+    new app.EditorSent(new editor.Pointed(paragraph, "", true, "", 0, 0)),
   );
   return pointed;
 }
@@ -221,11 +221,46 @@ const events = {
     ["Down", (field) => new editor.EdgePressed(new editor.Down(), 0, field)],
     ["JoinBefore", (field) => new editor.EdgePressed(new editor.JoinBefore(), 0, field)],
     ["JoinAfter", (field) => new editor.EdgePressed(new editor.JoinAfter(), 0, field)],
+    ["SelectUp", (field) => new editor.EdgePressed(new editor.SelectUp(), 0, field)],
+    ["SelectDown", (field) => new editor.EdgePressed(new editor.SelectDown(), 0, field)],
+    ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), 0, field)],
+    ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), 0, field)],
+    ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToStart(), 0, field)],
+    ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToEnd(), 0, field)],
+    ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
   ],
   EscapePressed: [["", (field) => new editor.EscapePressed(field)]],
   Pointed: [
-    ["a row above", (_, row) => new editor.Pointed(Math.max(0, row - 9), "", true)],
-    ["a row below", (_, row) => new editor.Pointed(row + 9, "", false)],
+    ["a row above", (_, row) => new editor.Pointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.Pointed(row + 9, "", false, "", 0, 0)],
+  ],
+  WordPointed: [
+    ["a row above", (_, row) => new editor.WordPointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.WordPointed(row + 9, "", false, "", 0, 0)],
+  ],
+  LinePointed: [
+    ["a row above", (_, row) => new editor.LinePointed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.LinePointed(row + 9, "", false, "", 0, 0)],
+  ],
+  ShiftPointed: [
+    ["a row above", (field, row) => new editor.ShiftPointed(Math.max(0, row - 9), "", true, "", field, 0, 0)],
+    ["a row below", (field, row) => new editor.ShiftPointed(row + 9, "", false, "", field, 0, 0)],
+  ],
+  Grabbed: [
+    ["a row above", (_, row) => new editor.Grabbed(Math.max(0, row - 9), "", true, "", 0, 0)],
+    ["a row below", (_, row) => new editor.Grabbed(row + 9, "", false, "", 0, 0)],
+  ],
+  Dragged: [
+    ["a row above", (_, row) => new editor.Dragged(Math.max(0, row - 9), "", true, "")],
+    ["a row below", (_, row) => new editor.Dragged(row + 9, "", false, "")],
+    ["in place", (_, row) => new editor.Dragged(row, "", true, "")],
+  ],
+  Released: [["", () => new editor.Released()]],
+  DragStarted: [["", () => new editor.DragStarted()]],
+  Dropped: [
+    ["a row above", (field, row) => new editor.Dropped(Math.max(0, row - 9), "", true, "", "x", false, field)],
+    ["a row below", (field, row) => new editor.Dropped(row + 9, "", false, "", "x", false, field)],
+    ["copied", (field, row) => new editor.Dropped(row + 9, "", false, "", "x", true, field)],
   ],
   FocusChanged: [
     ["blur", () => new editor.FocusChanged(false)],
