@@ -1,5 +1,6 @@
 import { expect } from 'e2e';
 import { ctrl, Editing, offsetOf } from './editing.ts';
+import { cursorAt } from './guards.ts';
 import type { Spot } from './editing.ts';
 import { test } from './nullpad.ts';
 
@@ -345,4 +346,113 @@ test('a block the caret reaches with the keys is where the caret is when typed i
 
   await editor.expectNote('alpha one\n\nXbravo two words\n\ncharlie three');
   await expect(fixtures.page.text).toBeFocused();
+});
+
+/**
+ * A run of Up and Down keeps the place across the page that it started from,
+ * as a plain text field keeps the caret's x: through rows too short to reach
+ * it, wrapped rows and rows of other kinds, until another key or a click moves
+ * the caret. The page draws proportional type, so the plain field it is held to
+ * is set as the page sets a paragraph (`pageField`), and holds the markdown, as
+ * the text field shows the rows it holds.
+ */
+function keepsTheColumn(name: string, body: string, at: Spot, keys: string[]) {
+  test(name, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.open(body);
+    const expected = await editor.pageField(body, offsetOf(body, at), keys, 'X');
+    await editor.click(at);
+    await editor.press(...keys);
+    await editor.type('X');
+
+    await editor.expectSaved(expected);
+  });
+}
+
+/** Where a plain text field holding the markdown in monospace type agrees with the page: the start of a row, and type that is monospace on the page too. */
+function keepsTheColumnOfAPlainField(name: string, body: string, at: Spot, keys: string[]) {
+  test(name, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.seed(body);
+    const expected = await editor.plainField(body, offsetOf(body, at), keys, 'X');
+    await editor.show(body);
+    await editor.click(at);
+    await editor.press(...keys);
+    await editor.type('X');
+
+    await editor.expectSaved(expected);
+  });
+}
+
+const shortMiddle = 'xxxxxxxxxxxxxxxa\nxb\n\nxxxxxxxxxxxxxxxc\n\nxd\n\nxxxxxxxxxxxxxxxe';
+keepsTheColumn('ArrowDown three times keeps the column through a short last row of a block and a blank row', shortMiddle, { word: 'xxxxxxxxxxxxxxxa', at: 10 }, repeat('ArrowDown', 3));
+keepsTheColumn('ArrowDown six times keeps the column through short rows and blank rows', shortMiddle, { word: 'xxxxxxxxxxxxxxxa', at: 10 }, repeat('ArrowDown', 6));
+keepsTheColumn('ArrowUp six times keeps the column through short rows and blank rows', shortMiddle, { word: 'xxxxxxxxxxxxxxxe', at: 12 }, repeat('ArrowUp', 6));
+keepsTheColumn('ArrowDown and back up keeps the column through a short row', shortMiddle, { word: 'xxxxxxxxxxxxxxxa', at: 10 }, [...repeat('ArrowDown', 4), ...repeat('ArrowUp', 4)]);
+
+const wrapped = `xxxxxxxxxxxa\n\n${'xxxxx '.repeat(70)}xb\n\nxxxxxxxxxxxc`;
+keepsTheColumn('ArrowDown keeps the column on every line of a row the page wraps', wrapped, { word: 'xxxxxxxxxxxa', at: 7 }, repeat('ArrowDown', 7));
+keepsTheColumn('ArrowUp keeps the column on every line of a row the page wraps', wrapped, { word: 'xxxxxxxxxxxc', at: 7 }, repeat('ArrowUp', 7));
+
+const marked = 'xx **xx** [xx](http://example.com) xxxxxxxxxxxxxa\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxb\n\nxx **xx** [xx](http://example.com) xxxxxxxxxxxxxc';
+keepsTheColumn('ArrowDown keeps the column of the markdown the field shows, with hidden marks to the left of the caret', marked, { word: 'xxxxxxxxxxxxxa', at: 6 }, repeat('ArrowDown', 4));
+keepsTheColumn('ArrowDown and back up with hidden marks to the left of the caret comes back to where it started', marked, { word: 'xxxxxxxxxxxxxa', at: 6 }, [...repeat('ArrowDown', 2), ...repeat('ArrowUp', 2)]);
+keepsTheColumn('Shift+ArrowDown and Shift+ArrowUp across blocks, with hidden marks to the left, select nothing in the end', marked, { word: 'xxxxxxxxxxxxxa', at: 6 }, ['Shift+ArrowDown', 'Shift+ArrowUp']);
+keepsTheColumn('Shift+ArrowDown twice and Shift+ArrowUp twice across blocks, with hidden marks to the left, select nothing in the end', marked, { word: 'xxxxxxxxxxxxxa', at: 6 }, [...repeat('Shift+ArrowDown', 2), ...repeat('Shift+ArrowUp', 2)]);
+
+const columnsOfX = 'xxxxxxxxxa\n\nxxxxxxxxxb\n\nxxxxxc';
+keepsTheColumn('Ctrl+Home and arrows across a row end a run: ArrowUp takes the column the caret is at', columnsOfX, { word: 'xxxxxxxxxa', at: 0 }, [...repeat('ArrowRight', 6), 'ArrowDown', ctrl('Home'), ...repeat('ArrowRight', 11), 'ArrowUp']);
+keepsTheColumn('Ctrl+Home and arrows across a row end a run: ArrowDown takes the column the caret is at', columnsOfX, { word: 'xxxxxxxxxa', at: 0 }, [...repeat('ArrowRight', 6), 'ArrowDown', ctrl('Home'), ...repeat('ArrowRight', 11), 'ArrowDown']);
+keepsTheColumn('ArrowLeft ends a run: ArrowDown takes the column the caret is at', columnsOfX, { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowLeft', 'ArrowDown', 'ArrowDown']);
+keepsTheColumn('ArrowUp after Shift+ArrowDown onto a short row keeps the column the selection started at', columnsOfX, { word: 'xxxxxxxxxa', at: 5 }, ['Shift+ArrowDown', 'ArrowUp']);
+keepsTheColumn('ArrowDown after Shift+ArrowDown keeps the column through a blank row', columnsOfX, { word: 'xxxxxxxxxa', at: 5 }, ['Shift+ArrowDown', 'ArrowDown']);
+
+const rowsOfOneBlock = 'xxxxxxa\nxxb\nxxxxxxc';
+keepsTheColumn('Ctrl+ArrowUp twice keeps the column through a short row', rowsOfOneBlock, { word: 'xxxxxxc', at: 6 }, repeat(ctrl('ArrowUp'), 2));
+keepsTheColumn('Ctrl+ArrowDown twice keeps the column through a short row', rowsOfOneBlock, { word: 'xxxxxxa', at: 6 }, repeat(ctrl('ArrowDown'), 2));
+keepsTheColumn('Ctrl+ArrowUp keeps the column through short rows of other blocks', columnsOfX.split('\n').reverse().join('\n'), { word: 'xxxxxxxxxa', at: 8 }, repeat(ctrl('ArrowUp'), 4));
+keepsTheColumn('ArrowUp after Ctrl+ArrowUp keeps the same column', 'xxxxxxxxxa\nxb\nxxxxxxxxxc\nxxxxxxxxxd', { word: 'xxxxxxxxxd', at: 8 }, [ctrl('ArrowUp'), ctrl('ArrowUp'), 'ArrowUp']);
+
+keepsTheColumn('ArrowDown keeps the column through the rows of a quote and out of it', 'xxxxxxxxxxa\n\n> xxxxxxxxb\n> xc\n> xxxxxxxxd\n\nxxxxxxxxxxe', { word: 'xxxxxxxxxxa', at: 8 }, repeat('ArrowDown', 6));
+keepsTheColumn('ArrowDown keeps the column through list items with short ones between', '- xxxxxxxxxxa\n- xb\n- xxxxxxxxxxc\n- xd\n- xxxxxxxxxxe', { word: 'xxxxxxxxxxa', at: 8 }, repeat('ArrowDown', 4));
+keepsTheColumnOfAPlainField('ArrowDown keeps the column through the short rows of a code block', '```\nxxxxxxxxxxa\nxb\n\nxxxxxxxxxxc\n```', { word: 'xxxxxxxxxxa', at: 8 }, repeat('ArrowDown', 3));
+keepsTheColumnOfAPlainField('ArrowDown keeps the column through the rows of a table', '| xxxxxxxxa | xxxxxxxxxxb |\n| - | - |\n| xc | xd |\n| xxxxxxxxe | xxxxxxxxxxf |', { word: 'xxxxxxxxxxb', at: 8 }, repeat('ArrowDown', 3));
+
+/** The start of a row is the same column on every row, before the marks the page hides, as in a plain field holding the markdown. */
+const fromTheStart: [string, string, Spot, string[]][] = [
+  ['ArrowUp twice from the start of a list item lands at the start of a heading, before its marks', '# alpha\n\n- one', { word: 'one', at: 0 }, ['Home', 'ArrowUp', 'ArrowUp']],
+  ['ArrowUp twice from the start of a list item lands at the start of a quote, before its marks', '> alpha\n\n- one', { word: 'one', at: 0 }, ['Home', 'ArrowUp', 'ArrowUp']],
+  ['ArrowUp twice from the start of a list item lands at the start of a paragraph', 'aaaa\n\n- bbbb', { word: 'bbbb', at: 0 }, ['Home', 'ArrowUp', 'ArrowUp']],
+  ['ArrowDown twice from the start of a list item lands at the start of a heading, before its marks', '- one\n\n# alpha', { word: 'one', at: 0 }, ['Home', 'ArrowDown', 'ArrowDown']],
+  ['ArrowDown four times from the start of a paragraph lands at the start of a table, before its marks', 'aaaa\n\n| b | c |\n| - | - |\n| d | e |', { word: 'aaaa', at: 0 }, repeat('ArrowDown', 4)],
+  ['ArrowUp from the start of a quote row lands at the start of the quote row above', '> alpha\n> bravo', { word: 'bravo', at: 0 }, ['Home', 'ArrowUp']],
+];
+for (const [name, body, at, keys] of fromTheStart) keepsTheColumnOfAPlainField(name, body, at, keys);
+
+test('PageUp from the start of a list item lands at the start of a row, before its marks', async (fixtures) => {
+  const body = Array.from({ length: 30 }, (_, index) => `# head ${index}\n\n- item ${index}`).join('\n\n');
+  const editor = new Editing(fixtures);
+  await editor.open(body);
+  await editor.scrollToEnd();
+  await editor.click({ word: 'item 29', at: 0 });
+  await editor.press('Home', 'PageUp');
+
+  const caret = await editor.caret(body);
+  expect(caret.row, 'the row PageUp went to').toBeLessThan(body.split('\n').length - 5);
+  expect(caret.col, 'the column PageUp went to').toBe(0);
+});
+
+test('ArrowUp into a heading lands straight above the caret, where the heading draws its bigger letters, not at the same count of letters', async (fixtures) => {
+  const body = '# xxxxxxxxxxxxxxxxxxxxa\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxb';
+  const editor = new Editing(fixtures);
+  await editor.open(body);
+  await editor.click({ word: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxb', at: 24 });
+  const before = (await cursorAt(fixtures.browser))!.x;
+  await editor.press('ArrowUp', 'ArrowUp');
+
+  const caret = await editor.caret(body);
+  expect(caret.row, 'the row the caret went to').toBe(0);
+  expect(caret.col, 'the column, in the heading\'s text').toBeGreaterThan(2);
+  expect(caret.col, 'the column, short of the same count of letters').toBeLessThan(20);
+  await expect.poll(async () => Math.abs((await cursorAt(fixtures.browser))!.x - before), { message: 'how far across the caret moved' }).toBeLessThanOrEqual(12);
 });

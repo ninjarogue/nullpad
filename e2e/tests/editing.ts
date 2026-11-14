@@ -127,6 +127,42 @@ export class Editing {
   }
 
   /**
+   * What `plainField` answers, from a plain text field set as the page sets a
+   * paragraph: in the page's body type, as wide as the page's text and wrapped
+   * there, so that its columns are where the page draws them. Runs in the page
+   * view, over the note, and gives the focus back to the note's field.
+   */
+  async pageField(body: string, start: number, keys: string[], typed: string) {
+    const { browser } = this.fixtures;
+    await browser.evaluate(
+      (put: { body: string; start: number }) => {
+        const sheet = document.querySelector('.page')!;
+        const style = getComputedStyle(sheet);
+        const width = sheet.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const field = document.createElement('textarea');
+        field.dataset['plain'] = '';
+        field.style.cssText =
+          `position:fixed;top:0;left:0;z-index:9;width:${width}px;height:90vh;padding:0;border:0;` +
+          'font:1rem/1.7 var(--ui-font);font-variant-ligatures:none;white-space:pre-wrap;overflow-wrap:break-word;tab-size:4';
+        document.body.append(field);
+        field.value = put.body;
+        field.focus();
+        field.setSelectionRange(put.start, put.start);
+        return null;
+      },
+      { body, start },
+    );
+    for (const key of keys) await browser.keyboard.press(key);
+    await browser.keyboard.type(typed);
+    return browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('textarea[data-plain]')!;
+      const value = field.value;
+      field.remove();
+      return value;
+    });
+  }
+
+  /**
    * What a plain text field holding `body` ends with when `key` is pressed
    * with the caret at `start`, or with `start` to `end` selected: its text and
    * the two ends of its selection as offsets, `head` being the end that moves.
