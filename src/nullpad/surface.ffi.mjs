@@ -391,16 +391,20 @@ function aimIn(control, liveClass, paintedClass, x, line, select) {
     while (offset + step >= 0 && offset + step <= text.length && place(offset + step).top === top) offset += step;
     return offset;
   };
+  // A head at the end of a wrapped line is drawn on that line, though its
+  // offset starts the next.
+  const wrapEnd = headCaret(control, place).top !== place(head).top;
+  const headStart = wrapEnd ? lineFrom(head - 1, -1) : lineFrom(head, -1);
   let from;
   if (line === 0) from = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
   else if (line === 1) from = lineFrom(text.indexOf("\n", head) < 0 ? text.length : text.indexOf("\n", head), -1);
-  else if (line === 4) from = lineFrom(head, -1);
+  else if (line === 4) from = headStart;
   else if (line === 2) {
-    from = lineFrom(head, -1) - 1;
+    from = headStart - 1;
     if (from < 0) return false;
     from = lineFrom(from, -1);
   } else {
-    from = lineFrom(head, 1) + 1;
+    from = wrapEnd ? head : lineFrom(head, 1) + 1;
     if (from > text.length) return false;
   }
   const top = place(from).top;
