@@ -824,12 +824,22 @@ pub fn kind(editor: Editor) -> Option(live.Kind) {
 
 /// The kind of the field's rows as the page was laid out. The field keeps
 /// their height and margins while a row is typed as another kind, so the
-/// page around it does not move. None while the field holds the whole note.
+/// page around it does not move. A heading is the exception: a row typed
+/// as a heading, or a heading's row typed as something else, is set as typed
+/// at once, and the rows below move once. None while the field holds the
+/// whole note.
 pub fn frame(editor: Editor) -> Option(live.Kind) {
   case editor.field {
     Whole -> None
-    Part(rows:, drawn:, ..) ->
-      Some(live.kind(drawn, field: rows, lines: buffer.lines(editor.buffer)))
+    Part(rows:, drawn:, ..) -> {
+      let laid_out =
+        live.kind(drawn, field: rows, lines: buffer.lines(editor.buffer))
+      case laid_out, kind(editor) {
+        live.Title(_), Some(typed) -> Some(typed)
+        _, Some(live.Title(level)) -> Some(live.Title(level))
+        _, _ -> Some(laid_out)
+      }
+    }
   }
 }
 

@@ -1448,7 +1448,7 @@ pub fn nothing_is_dropped_in_vim_normal_mode_test() {
 pub fn a_selection_reaching_another_row_lays_out_the_row_typed_as_another_block_test() {
   let ed = live("- a\n- b") |> point(1) |> show(caret("# b", 0, 3))
   assert editor.region(ed) == Some(Region(1, 1))
-  let assert Some(live.ListItem(..)) = editor.frame(ed)
+  assert editor.frame(ed) == Some(live.Title(markdown.H1))
 
   let Outcome(editor: ed, ..) =
     editor.update(
