@@ -37,7 +37,6 @@ const isWordSelect = (k) => /^Control\+Shift\+Arrow(Left|Right)$/.test(k);
 const rowAt = (value, offset) => value.slice(0, offset).split('\n').length - 1;
 const columnAt = (value, offset) => offset - (value.slice(0, offset).lastIndexOf('\n') + 1);
 const atRowStart = (c) => columnAt(c.value, c.head) === 0;
-const selecting = (c) => c.anchor !== c.head;
 const crossRow = (c) => rowAt(c.value, c.anchor) !== rowAt(c.value, c.head);
 const rows = (c) => c.value.split('\n');
 
@@ -163,15 +162,6 @@ export const known = [
     repro: [P('one\n\n- item\n\n## Head'), 'Control+Home', 'End', 'Shift+ArrowRight', 'Shift+ArrowRight', 'Backspace'],
     pace: 'frame',
     skip: (k, c) => isShiftHorizontal(k) && hasBlockMarks(c) && crossRow(c),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'page-key-collapses-selection',
-    kind: 'open',
-    finding: 'B5',
-    reason: 'B5: Page Up and Page Down collapse a selection when nothing scrolls; a textarea keeps it.',
-    repro: [P('line1\nline2'), 'Control+Home', 'Shift+ArrowRight', 'Shift+ArrowRight', wait, 'PageUp'],
-    skip: (k, c) => /^Page(Up|Down)$/.test(k) && selecting(c),
     sanitize: (script) => script,
   },
 ];

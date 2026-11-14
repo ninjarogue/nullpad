@@ -463,7 +463,7 @@ pub fn sync(
           editor.PageUp -> #("page", False)
           editor.PageDown -> #("page", True)
         }
-        let head = buffer.cursor(editor.buffer(editor))
+        let head = editor.step_start(editor)
         let lines = buffer.lines(editor.buffer(editor))
         let #(row, visible) =
           holder_text(control_id, live_class, live.row_mark, head.row)

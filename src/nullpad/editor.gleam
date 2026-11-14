@@ -654,8 +654,13 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         False -> placed
       }
       let landed = landing(editor.waiting)
-      edit(editor, buffer.select(editor.buffer, anchor:, head: placed))
-      |> realign
+      let moved = case stays(editor, placed) {
+        True -> editor
+        False ->
+          edit(editor, buffer.select(editor.buffer, anchor:, head: placed))
+          |> realign
+      }
+      moved
       |> begin_run(editor, landed, x)
       |> next_step(landed)
     }
@@ -695,8 +700,13 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         True -> anchor
         False -> head
       }
-      edit(editor, buffer.select(editor.buffer, anchor:, head:))
-      |> realign
+      let moved = case stays(editor, head) {
+        True -> editor
+        False ->
+          edit(editor, buffer.select(editor.buffer, anchor:, head:))
+          |> realign
+      }
+      moved
       |> begin_run(editor, landing(editor.waiting), -1.0)
       |> next_step(None)
     }
@@ -864,6 +874,51 @@ fn landing(waiting: List(Queued)) -> Option(Bool) {
     | [Queued(move: LetterBack, ..), ..]
     | [Queued(move: LetterOn, ..), ..]
     | [] -> None
+  }
+}
+
+/// Where the first waiting step starts: the head, but for Page Up and Page
+/// Down without Shift, which go from the start and the end of a selection,
+/// as in Chrome's text field.
+pub fn step_start(editor: Editor) -> Position {
+  let #(anchor, head) = buffer.selection(editor.buffer)
+  let #(start, end) = case buffer.compare(anchor, head) {
+    order.Gt -> #(head, anchor)
+    order.Lt | order.Eq -> #(anchor, head)
+  }
+  case editor.waiting {
+    [Queued(move: PageUp, select: False), ..] -> start
+    [Queued(move: PageDown, select: False), ..] -> end
+    [Queued(move: PageUp, select: True), ..]
+    | [Queued(move: PageDown, select: True), ..]
+    | [Queued(move: LineUp, ..), ..]
+    | [Queued(move: LineDown, ..), ..]
+    | [Queued(move: LineStart, ..), ..]
+    | [Queued(move: LineEnd, ..), ..]
+    | [Queued(move: LetterBack, ..), ..]
+    | [Queued(move: LetterOn, ..), ..]
+    | [] -> head
+  }
+}
+
+/// A page step without Shift that reaches no further than where it started
+/// leaves a selection as it is, as Chrome's text field does when it has
+/// nowhere to go.
+fn stays(editor: Editor, reached: Position) -> Bool {
+  let #(anchor, head) = buffer.selection(editor.buffer)
+  case editor.waiting {
+    [Queued(move: PageUp, select: False), ..]
+    | [Queued(move: PageDown, select: False), ..] ->
+      anchor != head && reached == step_start(editor)
+    [Queued(move: PageUp, select: True), ..]
+    | [Queued(move: PageDown, select: True), ..]
+    | [Queued(move: LineUp, ..), ..]
+    | [Queued(move: LineDown, ..), ..]
+    | [Queued(move: LineStart, ..), ..]
+    | [Queued(move: LineEnd, ..), ..]
+    | [Queued(move: LetterBack, ..), ..]
+    | [Queued(move: LetterOn, ..), ..]
+    | [] -> False
   }
 }
 

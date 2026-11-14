@@ -2177,6 +2177,36 @@ pub fn a_page_step_past_the_note_goes_to_its_end_test() {
     == #(Position(row: 2, col: 9), Position(row: 2, col: 9))
 }
 
+pub fn a_page_key_goes_from_the_start_or_end_of_a_selection_and_keeps_it_with_nowhere_to_go_test() {
+  let note = "line1\nline2"
+  let ed = pressed(note, 0, "")
+  let page = fn(up, from, to) {
+    let Outcome(editor: ed, sync:, ..) =
+      editor.update(
+        ed,
+        editor.EdgePressed(
+          editor.Page(up:, select: False),
+          x: 4.0,
+          shown: selected(note, from, to),
+        ),
+      )
+    let assert editor.WriteAndStep(select: False, ..) = sync
+    ed
+  }
+  let selection = fn(ed) { buffer.selection(editor.buffer(ed)) }
+  let up = page(True, Position(0, 0), Position(0, 2))
+  assert editor.step_start(up) == Position(0, 0)
+  let Outcome(editor: up, ..) = editor.update(up, editor.SteppedPast)
+  assert selection(up) == #(Position(0, 0), Position(0, 2))
+  let down = page(False, Position(1, 3), Position(0, 2))
+  assert editor.step_start(down) == Position(1, 3)
+  let Outcome(editor: down, ..) = editor.update(down, editor.SteppedPast)
+  assert selection(down) == #(Position(1, 5), Position(1, 5))
+  let up = page(True, Position(0, 1), Position(0, 3))
+  let Outcome(editor: up, ..) = editor.update(up, editor.SteppedPast)
+  assert selection(up) == #(Position(0, 0), Position(0, 0))
+}
+
 pub fn an_arrow_through_a_blank_row_aims_where_the_last_one_did_test() {
   let note = "alpha one\n\nbravo two"
   let ed = pressed(note, 0, "")
