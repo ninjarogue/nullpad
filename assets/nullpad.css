@@ -410,7 +410,8 @@ button[aria-pressed="true"] {
 
 .page.live .preview blockquote.rows .blank + :is(h1, h2, h3, h4, h5, h6):not(:empty):not(:has(+ .blank)),
 .page.live .preview blockquote.rows .blank + * > :is(h1, h2, h3, h4, h5, h6):not(:empty):first-child:not(:last-child),
-.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child {
+.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child,
+.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child {
   margin-top: var(--over);
 }
 
