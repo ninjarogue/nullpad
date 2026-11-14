@@ -1701,11 +1701,14 @@ test('taking the # off a finished heading draws its line at body size at once', 
   await expect.poll(async () => (await page.placeOf('below'))!.top).toBeLessThan(before);
 });
 
-for (const [what, prefix] of [
-  ['a list item', '- '],
-  ['a quote', '> '],
-  ['a nested item', '- - '],
-  ['a quoted item', '> - '],
+for (const [what, prefix, marks, size] of [
+  ['a list item', '- ', '#', '32px'],
+  ['a quote', '> ', '#', '32px'],
+  ['a nested item', '- - ', '#', '32px'],
+  ['a quoted item', '> - ', '#', '32px'],
+  ['a list item at level 3', '- ', '###', '20px'],
+  ['a list item at level 6', '- ', '######', '14px'],
+  ['a quote at level 2', '> ', '##', '24px'],
 ] as const) {
   test(`a # typed in ${what} draws its line at heading size at once, and leaving the line moves nothing`, async ({
     app,
@@ -1724,15 +1727,15 @@ for (const [what, prefix] of [
     const bodySize = await page.sizesOf(field);
     const base = await belowAt();
 
-    await browser.keyboard.type('#');
-    await expect(page.text).toHaveValue(`${prefix}#Hello world`);
+    await browser.keyboard.type(marks);
+    await expect(page.text).toHaveValue(`${prefix}${marks}Hello world`);
     await page.nextFrame();
     expect(await page.sizesOf(field)).toEqual(bodySize);
     expect(await belowAt()).toBe(base);
 
     await browser.keyboard.type(' ');
-    await expect(page.text).toHaveValue(`${prefix}# Hello world`);
-    await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
+    await expect(page.text).toHaveValue(`${prefix}${marks} Hello world`);
+    await expect.poll(async () => (await page.sizesOf(field)).size).toBe(size);
     const typed = await page.sizesOf(field);
     await expect.poll(belowAt).toBeGreaterThan(base);
     const after = await belowAt();
@@ -1748,7 +1751,7 @@ for (const [what, prefix] of [
     await browser.keyboard.press('ArrowDown');
     await expect(page.text).toHaveValue('');
     await page.nextFrame();
-    expect(await page.sizesOf('[data-test-id="live-above"] h1')).toEqual(typed);
+    expect(await page.sizesOf(`[data-test-id="live-above"] h${marks.length}`)).toEqual(typed);
     expect(await belowAt()).toBe(after);
   });
 
@@ -1766,11 +1769,11 @@ for (const [what, prefix] of [
     await page.nextFrame();
     const bodySize = await page.sizesOf(field);
     const base = (await page.placeOf('below'))!.top;
-    await browser.keyboard.type('# ');
-    await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
+    await browser.keyboard.type(`${marks} `);
+    await expect.poll(async () => (await page.sizesOf(field)).size).toBe(size);
 
     await browser.keyboard.press('Backspace');
-    await expect(page.text).toHaveValue(`${prefix}#Hello world`);
+    await expect(page.text).toHaveValue(`${prefix}${marks}Hello world`);
     await expect.poll(() => page.sizesOf(field)).toEqual(bodySize);
     await expect.poll(async () => (await page.placeOf('below'))!.top).toBe(base);
   });

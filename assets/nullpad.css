@@ -457,6 +457,41 @@ button[aria-pressed="true"] {
   letter-spacing: 0.05em;
 }
 
+/* A heading in an item or a quote is set as it is drawn there: an item keeps
+   its own margins, with the heading's half-line below it where that is more,
+   and a quote adds none. */
+.editor.part.quote {
+  margin: 0;
+}
+
+.editor.part:is(.item, .quoted-item).h1 {
+  --title: 2rem;
+}
+
+.editor.part:is(.item, .quoted-item).h2 {
+  --title: 1.5rem;
+}
+
+.editor.part:is(.item, .quoted-item).h3 {
+  --title: 1.25rem;
+}
+
+.editor.part:is(.item, .quoted-item).h4 {
+  --title: 1.125rem;
+}
+
+.editor.part:is(.item, .quoted-item).h5 {
+  --title: 1rem;
+}
+
+.editor.part:is(.item, .quoted-item).h6 {
+  --title: 0.875rem;
+}
+
+.editor.part:is(.item, .quoted-item):is(.h1, .h2, .h3, .h4, .h5, .h6) {
+  margin-block: 0.25rem max(0.25rem, var(--title) / 2);
+}
+
 /* A row typed as another kind of block than the page laid it out as keeps
    the height and margins it was laid out with, so nothing around it moves. */
 .editor.part.framed {

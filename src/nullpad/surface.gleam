@@ -154,10 +154,13 @@ fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
 /// CSS cannot measure typed text, so the marker is measured here.
 fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
   case kind {
-    Some(live.ListItem(marker:, ..)) ->
+    Some(live.ListItem(marker:, ..)) | Some(live.ItemTitle(marker:, ..)) ->
       attribute.style("--marker", float.to_string(text_width(marker)) <> "px")
-    Some(live.Body) | Some(live.Mono) | Some(live.Title(_)) | None ->
-      attribute.none()
+    Some(live.Body)
+    | Some(live.Mono)
+    | Some(live.Title(_))
+    | Some(live.QuoteTitle(..))
+    | None -> attribute.none()
   }
 }
 
@@ -180,12 +183,10 @@ fn rows_of(kind: live.Kind) -> String {
     live.Mono -> "mono"
     live.ListItem(task: False, ..) -> "item"
     live.ListItem(task: True, ..) -> "task"
-    live.Title(markdown.H1) -> "h1"
-    live.Title(markdown.H2) -> "h2"
-    live.Title(markdown.H3) -> "h3"
-    live.Title(markdown.H4) -> "h4"
-    live.Title(markdown.H5) -> "h5"
-    live.Title(markdown.H6) -> "h6"
+    live.Title(level) -> heading_class(level)
+    live.ItemTitle(level, ..) -> "item-" <> heading_class(level)
+    live.QuoteTitle(level, in_item:) ->
+      "quote-" <> heading_class(level) <> bool.to_string(in_item)
   }
 }
 
@@ -195,12 +196,23 @@ fn set_as(kind: live.Kind) -> String {
     live.Mono -> "editor part mono"
     live.ListItem(task: False, ..) -> "editor part item"
     live.ListItem(task: True, ..) -> "editor part item task"
-    live.Title(markdown.H1) -> "editor part h1"
-    live.Title(markdown.H2) -> "editor part h2"
-    live.Title(markdown.H3) -> "editor part h3"
-    live.Title(markdown.H4) -> "editor part h4"
-    live.Title(markdown.H5) -> "editor part h5"
-    live.Title(markdown.H6) -> "editor part h6"
+    live.Title(level) -> "editor part " <> heading_class(level)
+    live.ItemTitle(level, ..) -> "editor part item " <> heading_class(level)
+    live.QuoteTitle(level, in_item: False) ->
+      "editor part quote " <> heading_class(level)
+    live.QuoteTitle(level, in_item: True) ->
+      "editor part quote quoted-item " <> heading_class(level)
+  }
+}
+
+fn heading_class(level: markdown.Level) -> String {
+  case level {
+    markdown.H1 -> "h1"
+    markdown.H2 -> "h2"
+    markdown.H3 -> "h3"
+    markdown.H4 -> "h4"
+    markdown.H5 -> "h5"
+    markdown.H6 -> "h6"
   }
 }
 

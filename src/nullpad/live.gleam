@@ -2,7 +2,7 @@
 
 import gleam/int
 import gleam/list
-import gleam/option
+import gleam/option.{None}
 import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
@@ -54,6 +54,16 @@ pub type Kind {
   Title(Level)
   Mono
   ListItem(task: Bool, marker: String)
+  ItemTitle(Level, marker: String)
+  QuoteTitle(Level, in_item: Bool)
+}
+
+/// Whether a row of this kind is drawn at a heading's size.
+pub fn is_title(kind: Kind) -> Bool {
+  case kind {
+    Title(_) | ItemTitle(..) | QuoteTitle(..) -> True
+    Body | Mono | ListItem(..) -> False
+  }
 }
 
 pub fn kind(
@@ -74,13 +84,51 @@ pub fn kind(
     | [Block(content: OrderedList(items:, ..), ..)] ->
       case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
         Ok(first) ->
-          ListItem(
-            task: option.is_some(first.task),
-            marker: marker(lines, first),
-          )
+          case first.task, heading_in(first.blocks, field, False) {
+            None, Ok(#(level, _)) ->
+              ItemTitle(level, marker: marker(lines, first))
+            _, _ ->
+              ListItem(
+                task: option.is_some(first.task),
+                marker: marker(lines, first),
+              )
+          }
+        Error(Nil) -> Body
+      }
+    [Block(content: Quote(blocks:), ..)] ->
+      case heading_in(blocks, field, False) {
+        Ok(#(level, in_item)) -> QuoteTitle(level, in_item:)
         Error(Nil) -> Body
       }
     _ -> Body
+  }
+}
+
+/// The level of the heading that fills the field, inside a quote or an item,
+/// and whether an item holds it. A field of several rows is set as one block,
+/// so a heading must hold them all.
+fn heading_in(
+  blocks: List(Block),
+  field: Region,
+  in_item: Bool,
+) -> Result(#(Level, Bool), Nil) {
+  let held = fn(first_row, last_row) {
+    first_row <= field.last_row && last_row >= field.first_row
+  }
+  case
+    list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
+  {
+    [Block(content: Heading(level:, ..), first_row:, last_row:)]
+      if first_row <= field.first_row && last_row >= field.last_row
+    -> Ok(#(level, in_item))
+    [Block(content: Quote(blocks:), ..)] -> heading_in(blocks, field, in_item)
+    [Block(content: BulletList(items:, ..), ..)]
+    | [Block(content: OrderedList(items:, ..), ..)] ->
+      case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
+        Ok(item) -> heading_in(item.blocks, field, True)
+        Error(Nil) -> Error(Nil)
+      }
+    _ -> Error(Nil)
   }
 }
 

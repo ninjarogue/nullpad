@@ -834,10 +834,13 @@ pub fn frame(editor: Editor) -> Option(live.Kind) {
     Part(rows:, drawn:, ..) -> {
       let laid_out =
         live.kind(drawn, field: rows, lines: buffer.lines(editor.buffer))
-      case laid_out, kind(editor) {
-        live.Title(_), Some(typed) -> Some(typed)
-        _, Some(live.Title(level)) -> Some(live.Title(level))
-        _, _ -> Some(laid_out)
+      let typed = kind(editor)
+      let heading =
+        live.is_title(laid_out)
+        || option.map(typed, live.is_title) == Some(True)
+      case heading {
+        True -> typed
+        False -> Some(laid_out)
       }
     }
   }
