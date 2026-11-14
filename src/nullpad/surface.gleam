@@ -482,7 +482,7 @@ pub fn sync(
             head.row,
             offset,
             onward,
-            x == 0.0,
+            x == 0.0 || x <. 0.0 && head.col == 0,
             granularity,
             forward,
             select,

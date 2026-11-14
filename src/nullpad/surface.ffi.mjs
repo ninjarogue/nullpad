@@ -1043,12 +1043,15 @@ function undrawn(control) {
 // boundary, or of a line from any line of the field but the last it steps
 // past. A `page` step scrolls the page by a window and takes the place that
 // is then where the head was. A step back to the start of a line that starts
-// a row lands before the row's marks, as Home does in a text field. A field typed in since it was drawn still
-// starts on the row it was drawn on, and the rows typed into it or out of it
-// move the rows drawn past it, so it is stepped from as it is.
+// a row lands before the row's marks, as Home does in a text field, and so
+// does a line step when `rowStart` says it is aimed at 0, as from a head at
+// the start of a row. A field typed in since it was drawn still starts on
+// the row it was drawn on, and the rows typed into it or out of it move the
+// rows drawn past it, so it is stepped from as it is.
 export function stepHead(
   id, liveClass, paintedClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x, fieldFirst, rowCount,
 ) {
+  if (x < 0 && rowStart) x = 0;
   const answer = (row, place = ["", false, ""]) => [row, ...place, x];
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
@@ -1085,7 +1088,8 @@ export function stepHead(
       if (!holder) return answer(-1);
       box = caretBox(...pointIn(holder, headOffset, onward));
     }
-    if (x < 0) x = box.left - columnLeft(page);
+    if (x < 0 && inField) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+    else if (x < 0) x = box.left - columnLeft(page);
     const place = pageStep(page, rowMark, box, forward, columnLeft(page) + x);
     return place ? [...moved(place), x] : answer(-2);
   }
