@@ -462,10 +462,11 @@ test('A click where the caret already is ends a run: ArrowDown takes the column 
   const editor = new Editing(fixtures);
   await editor.open(body);
   const expected = await editor.pageField(body, offsetOf(body, { word: 'xb', at: 2 }), ['ArrowDown'], 'X');
-  const endOfShortRow = await editor.point({ word: 'xb', at: 2 });
   await editor.click({ word: 'xxxxxxxxxa', at: 8 });
   await editor.press('ArrowDown');
-  await editor.clickAt(endOfShortRow.x, endOfShortRow.y);
+  // A person sees where the caret went before clicking on it.
+  await fixtures.page.nextFrame();
+  await editor.click({ word: 'xb', at: 2 });
   await editor.press('ArrowDown');
   await editor.type('X');
 
