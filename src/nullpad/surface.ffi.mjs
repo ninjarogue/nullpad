@@ -473,6 +473,7 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
     control.selectionDirection === "backward",
   ];
   if (again) {
+    if (!control.closest("." + liveClass)) return [false, ...shown()];
     const last = aimed.get(control);
     if (!last || last.join("\u0000") !== shown().join("\u0000")) return [false, ...shown()];
   } else {
