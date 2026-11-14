@@ -206,7 +206,10 @@ pub type Event {
   /// `x` is where the step aimed, from the left of the text, which starts a
   /// run that had no column yet.
   Stepped(row: Int, visible: String, at_end: Bool, next: String, x: Float)
-  /// A step the page had no place for: the head stays where it is.
+  /// A step that took the head nowhere: the page had no place for it, or
+  /// neither the page nor the field could be read for it. The head stays
+  /// where it is, and the next waiting step goes on. `x` is where the step
+  /// aimed, as for `Stepped`, and below 0 when it aimed nowhere.
   Unstepped(x: Float)
   /// The field took the first waiting step itself, and shows where it put
   /// the selection. `x` is where a step of a line aimed, as for `Stepped`.

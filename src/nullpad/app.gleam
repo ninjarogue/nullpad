@@ -350,7 +350,9 @@ fn note_row(model: Model, summary: Summary) -> Element(Msg) {
       attribute.aria_current(current),
       event.on_click(ToLibrary(library.UserPickedNote(summary.id))),
       // The text field keeps the focus, so that keys typed while the note
-      // loads are typed into a note and not lost on the button.
+      // loads are typed into a note and not lost on the button. Lustre
+      // prevents the default before it decodes, and a decoder that fails
+      // sends no message, which is all a press needs here.
       event.prevent_default(event.on(
         "mousedown",
         decode.failure(UserClosedMenu, expected: ""),
