@@ -105,7 +105,7 @@ export const known = [
     reason:
       'F5: a key that moves across the page, pressed in the frame after an edit, measures the page as it was before the edit, so Enter then Shift+Up does nothing. Left out of a burst by waiting a frame around every such key; the paced runs type them with no such wait and are compared in full.',
     repro: ['Enter', 'Shift+ArrowUp'],
-    tries: 4,
+    tries: 12,
     sanitize: waitAroundSteps,
   },
   {
@@ -115,7 +115,7 @@ export const known = [
     reason:
       'F2: a key typed while a step waits for the page cancels the step: Shift+Down then Enter, in one frame, edits where the selection was before the step. IME composition cannot be sent by the typist, so only the letter and Enter forms are compared.',
     repro: [P('alpha beta\n\nsecond para here\nthird row\n\nlast'), 'Control+Home', 'Shift+ArrowDown', 'Enter'],
-    tries: 4,
+    tries: 12,
     sanitize: waitAroundSteps,
   },
   {
@@ -125,7 +125,7 @@ export const known = [
     reason:
       'X5: a step the text field takes dispatches ControlChanged then Unstepped, and a typed key clears what waits, so the steps queued behind it are dropped. After a letter, two Shift+Down in a frame move once.',
     repro: [P('aaaa\n'.repeat(6)), 'Control+Home', wait, 'a', 'Shift+ArrowDown', 'Shift+ArrowDown'],
-    tries: 4,
+    tries: 12,
     sanitize: waitAroundSteps,
   },
   {
@@ -135,7 +135,7 @@ export const known = [
     reason:
       'B4: keys with no pause between them give different results from run to run (Down End Enter Left a b Shift+Right Ctrl+Shift+Right Backspace Up Shift+End Shift+Down ...), where a textarea always agrees with itself. Left out by waiting a frame around the keys that wait for the page.',
     repro: [P('# Head one\n\nbody text here\n\n## Two\nline\n\nend'), 'Control+Home', wait, 'ArrowDown', 'End', 'Enter', 'ArrowLeft', 'a', 'b', 'Shift+ArrowRight', 'Control+Shift+ArrowRight', 'Backspace', 'ArrowUp', 'Shift+End', 'Shift+ArrowDown', 'Control+ArrowRight', 'Control+Shift+ArrowRight', 'Shift+Home', 'x'],
-    tries: 4,
+    tries: 12,
     sanitize: waitAroundSteps,
   },
   {
@@ -146,7 +146,7 @@ export const known = [
       'N1 (new): Ctrl+E, which shows the source, pressed in the frame after a step key drops the step: Shift+Up after a letter selects nothing. The typist waits two frames before its own Ctrl+E, so only this repro sends it with the keys.',
     repro: ['d', 'Shift+ArrowUp'],
     closeAtOnce: true,
-    tries: 4,
+    tries: 12,
     sanitize: (script) => script,
   },
   {
@@ -154,8 +154,10 @@ export const known = [
     kind: 'open',
     finding: 'F3',
     reason:
-      'F3: Ctrl+Z pressed while a step waits for the page. A textarea\'s undo is not a reference for nullpad\'s (see undo-steps), so the typist has no way to compare it and keeps a step from sharing a frame with the undo that ends each script. Not caught here; the waits after each step in a burst stay while this entry does.',
-    sanitize: waitAroundSteps,
+      'F3: Ctrl+Z pressed while a step waits for the page. The step is taken after the undo, from the head before it, and moves the selection the undo put back. A textarea\'s undo is not a reference for nullpad\'s (see undo-steps), so the generated scripts never type it; this repro is one where the two agree once nullpad is right: one typed letter, undone.',
+    repro: [P('aaaa\naaaa\naaaa\naaaa'), 'Control+Home', 'z', 'Shift+ArrowDown', 'Shift+ArrowDown', 'Control+z'],
+    tries: 12,
+    sanitize: (script) => script,
   },
   {
     id: 'up-into-marks',
