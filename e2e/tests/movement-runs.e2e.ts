@@ -398,6 +398,20 @@ const runs: Run[] = [
     follow: 'plain field',
   },
   {
+    name: 'Ctrl+Home from the last paragraph goes to the top of the note, then Shift+Down',
+    body: 'alpha one\n\nbravo two\n\nlast',
+    start: [ctrl('End')],
+    steps: [ctrl('Home'), ...times(3, 'Shift+ArrowDown'), ctrl('End')],
+    follow: 'plain field',
+  },
+  {
+    name: 'Shift+Down from the start of the row above a quote, then a letter, keeps the quote mark',
+    body: 'first para here\n\n> quote line',
+    start: ['ArrowDown'],
+    steps: ['Shift+ArrowDown', 'x'],
+    follow: 'plain field',
+  },
+  {
     name: 'Page Up and Page Down on a selection when nothing scrolls',
     body: 'line1\nline2',
     start: ['Shift+ArrowRight', 'Shift+ArrowRight'],
