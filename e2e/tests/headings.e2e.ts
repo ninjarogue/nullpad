@@ -101,7 +101,9 @@ for (const { what, prefix, hangs } of containers) {
       for (const setting of settings) {
         await set(browser, setting);
         const { field, drawn } = await arriveAndLeave(page, browser, `${prefix}${marks} Hello world`, 'Hello', marks);
-        const drawnSize = (await page.sizesOf(`[data-test-id^="live-"] h${level}`)).size;
+        const heading = `[data-test-id^="live-"] h${level}`;
+        await expect(browser.locator(heading)).toHaveCount(1);
+        const drawnSize = (await page.sizesOf(heading)).size;
         expect({ setting, size: field.size, below: field.below, top: field.word!.top }).toEqual({
           setting,
           size: drawnSize,
@@ -140,7 +142,9 @@ for (const block of [
     for (const setting of settings) {
       await set(browser, setting);
       const { field, drawn } = await arriveAndLeave(page, browser, block, null, '#');
-      const drawnSize = (await page.sizesOf(`[data-test-id^="live-"] h${level}`)).size;
+      const heading = `[data-test-id^="live-"] h${level}`;
+      await expect(browser.locator(heading)).toHaveCount(1);
+      const drawnSize = (await page.sizesOf(heading)).size;
       expect({ setting, size: field.size, below: field.below }).toEqual({
         setting,
         size: drawnSize,
