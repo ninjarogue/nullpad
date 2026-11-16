@@ -157,8 +157,7 @@ pub fn the_field_is_left_alone_during_a_composition_test() {
   assert editor.region(ed) == Some(Region(0, 2))
   assert editor.text(ed) == "# Trip\n\nNew"
 
-  let Outcome(sync:, ..) =
-    editor.update(ed, editor.ControlChanged(shown:, at: 0))
+  let Outcome(sync:, ..) = editor.update(ed, editor.Composed(shown:, at: 0))
   assert sync == editor.Write(caret("New", 0, 3))
 }
 
@@ -366,7 +365,7 @@ pub fn composing_on_a_blank_row_keeps_the_blocks_around_the_field_test() {
   assert editor.blocks(ed) == around
 
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.ControlChanged(shown: composed, at: 0))
+    editor.update(ed, editor.Composed(shown: composed, at: 0))
   assert sync == editor.InSync
   assert editor.region(ed) == Some(Region(1, 1))
   assert editor.blocks(ed) == around
@@ -599,7 +598,7 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_composing_o
   assert editor.region(ed) == Some(Region(0, 2))
   assert !parsed(ed)
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.ControlChanged(shown: composed, at: 0))
+    editor.update(ed, editor.Composed(shown: composed, at: 0))
   assert editor.region(ed) == Some(Region(2, 2))
   let Outcome(editor: ed, ..) =
     editor.update(

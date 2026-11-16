@@ -458,3 +458,155 @@ test('PageDown pressed while a step waits for the rows an Enter in the same fram
     expect(await raw.evaluate(() => document.querySelector('textarea')!.value)).toBe(`z${note}X`);
   });
 });
+
+/**
+ * An IME composes in the field while keys wait behind a step, as they do when
+ * Enter and Shift+ArrowUp are pressed in one frame. A plain text field takes
+ * each key as it comes: the step and the key before the composition are done
+ * before it, and what the IME composes goes in at the caret they leave, over
+ * the selection they leave. So the composed text goes in after the keys that
+ * wait, once, and is never typed over by them. `frames` holds the page's
+ * redraws until `redraw`. An undo or a redo asked while the IME composes is
+ * not taken, as when nothing waits.
+ */
+type ImeStep = string | { ime: string } | { commit: string } | 'redraw' | 'late keydown';
+
+async function composeBehind(origin: string, steps: ImeStep[], frames: boolean) {
+  let text = '';
+  const seen: string[] = [];
+  await withRawPage(origin, note, async (raw) => {
+    const session = await raw.context().newCDPSession(raw);
+    const imeKey = (type: 'rawKeyDown' | 'keyUp') =>
+      session.send('Input.dispatchKeyEvent', { type, key: 'k', code: 'KeyK', windowsVirtualKeyCode: 229, nativeVirtualKeyCode: 229 });
+    if (frames) {
+      await raw.evaluate(() => {
+        const held: FrameRequestCallback[] = [];
+        const real = window.requestAnimationFrame.bind(window);
+        window.requestAnimationFrame = (run) => held.push(run);
+        (globalThis as { redraw?: () => void }).redraw = () => {
+          window.requestAnimationFrame = real;
+          for (const run of held.splice(0)) real(run);
+        };
+        return null;
+      });
+    }
+    const field = () => raw.evaluate(() => {
+      const control = document.querySelector('textarea')!;
+      return `${control.value.slice(0, control.selectionStart)}|${control.value.slice(control.selectionStart)}`;
+    });
+    for (const step of steps) {
+      if (step === 'redraw') {
+        if (!frames) continue;
+        await raw.evaluate(() => {
+          (globalThis as { redraw?: () => void }).redraw!();
+          return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        });
+        seen.push(await field());
+      } else if (step === 'late keydown') {
+        await imeKey('rawKeyDown');
+        await imeKey('keyUp');
+      } else if (typeof step === 'string') {
+        await raw.keyboard.press(step);
+      } else if ('ime' in step) {
+        await imeKey('rawKeyDown');
+        await session.send('Input.imeSetComposition', { text: step.ime, selectionStart: step.ime.length, selectionEnd: step.ime.length });
+        await imeKey('keyUp');
+      } else {
+        await session.send('Input.insertText', { text: step.commit });
+      }
+    }
+    await raw.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await raw.evaluate(() => new Promise((done) => setTimeout(done, 200)));
+    await raw.keyboard.press('Control+e');
+    text = await raw.evaluate(() => document.querySelector('textarea')!.value);
+  });
+  return { text, seen };
+}
+
+const behindAStep = ['Enter', 'Shift+ArrowUp'];
+
+test('text an IME composes while a key waits behind a step goes in after the key', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text } = await composeBehind(origin, [...behindAStep, 'z', { ime: 'k' }, { ime: 'か' }, { commit: 'か' }, 'redraw'], true);
+
+  expect(text).toBe(`zか${note}`);
+});
+
+test('text an IME composes while two keys wait behind a step goes in after both', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text } = await composeBehind(origin, [...behindAStep, 'z', 'y', { ime: 'k' }, { ime: 'か' }, { commit: 'か' }, 'redraw'], true);
+
+  expect(text).toBe(`zyか${note}`);
+});
+
+test('text an IME composes while only a step waits goes over what the step selects', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text } = await composeBehind(origin, [...behindAStep, { ime: 'k' }, { ime: 'か' }, { commit: 'か' }, 'redraw'], true);
+
+  expect(text).toBe(`か${note}`);
+});
+
+test('a key that waits behind a step while an IME composes leaves the composition alone when the page catches up, and goes in before it', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text, seen } = await composeBehind(origin, [...behindAStep, 'z', { ime: 'k' }, 'redraw', { ime: 'か' }, { commit: 'か' }], true);
+
+  expect(seen[0]?.startsWith('k|alpha one'), `the field keeps what the IME composes, where it composes it, in ${JSON.stringify(seen)}`).toBe(true);
+  expect(text).toBe(`zか${note}`);
+});
+
+test('text an IME composes behind a key goes in after it when compositionend comes before the last keydown', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text } = await composeBehind(origin, [...behindAStep, 'z', { ime: 'k' }, { ime: 'か' }, { commit: 'か' }, 'late keydown', 'redraw'], true);
+
+  expect(text).toBe(`zか${note}`);
+});
+
+test('an undo asked while an IME composes behind a key is not taken', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text } = await composeBehind(origin, [...behindAStep, 'z', { ime: 'k' }, 'Control+z', { ime: 'か' }, { commit: 'か' }, 'redraw'], true);
+
+  expect(text).toBe(`zか${note}`);
+});
+
+test('a redo asked while an IME composes behind an undo is not taken, and the undo still is', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text } = await composeBehind(origin, [...behindAStep, 'z', 'Control+z', { ime: 'k' }, 'Control+Shift+z', { ime: 'か' }, { commit: 'か' }, 'redraw'], true);
+
+  expect(text).toBe(`か${note}`);
+});
+
+test('an undo after a composition behind a key takes back the composition with the key', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const { text } = await composeBehind(origin, [...behindAStep, 'z', { ime: 'k' }, { ime: 'か' }, { commit: 'か' }, 'Control+z', 'redraw'], true);
+
+  expect(text).toBe(`\n${note}`);
+});
+
+for (const frames of [false, true]) {
+  const caughtUp = frames ? ['redraw'] : [];
+  const after = frames ? ', with the redraws held until the step is drawn' : '';
+
+  test(`an undo while an IME composes is not taken, though Chrome selects in the field as it composes${after}`, async ({ app, browser }) => {
+    await app.open('/blank');
+    const origin = new URL(await browser.url()).origin;
+    const { text } = await composeBehind(origin, [...behindAStep, 'z', ...caughtUp, { ime: 'k' }, 'Control+z', { ime: 'か' }, { commit: 'か' }], frames);
+
+    expect(text).toBe(`zか${note}`);
+  });
+
+  test(`a composition is one step of the history, though Chrome selects in the field as it composes${after}`, async ({ app, browser }) => {
+    await app.open('/blank');
+    const origin = new URL(await browser.url()).origin;
+    const { text } = await composeBehind(origin, [...behindAStep, 'z', ...caughtUp, { ime: 'k' }, { ime: 'か' }, { commit: 'か' }, 'Control+z'], frames);
+
+    expect(text).toBe(`\n${note}`);
+  });
+}

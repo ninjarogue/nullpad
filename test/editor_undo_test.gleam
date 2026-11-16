@@ -154,7 +154,7 @@ pub fn undo_while_composing_leaves_the_composition_and_the_history_test() {
   let ended =
     editor.update(
       after,
-      editor.ControlChanged(shown: caret("one two日本", 0, 9), at: 0),
+      editor.Composed(shown: caret("one two日本", 0, 9), at: 0),
     ).editor
   assert editor.text(undo(ended)) == "one two"
   assert editor.text(undo(undo(ended))) == "one"
@@ -202,7 +202,7 @@ pub fn a_composition_is_one_step_test() {
   let ended =
     editor.update(
       composing,
-      editor.ControlChanged(shown: caret("one 日本", 0, 6), at: 0),
+      editor.Composed(shown: caret("one 日本", 0, 6), at: 0),
     ).editor
 
   assert editor.text(undo(ended)) == "one"
@@ -435,4 +435,27 @@ pub fn undo_takes_back_a_drop_on_the_page_in_one_step_test() {
     |> fn(outcome: editor.Outcome) { outcome.editor }
   assert editor.text(ed) == " beta gamma\n\nsecond alphapara here"
   assert editor.text(undo(ed)) == "alpha beta gamma\n\nsecond para here"
+}
+
+/// Chrome sends `select` while an IME composes, which the surface reports as
+/// a change of the field: the composition goes on, undo and redo still wait
+/// for it to end, and it is still one step.
+pub fn a_select_while_composing_does_not_end_the_composition_test() {
+  use ed <- list.each([live("one"), whole("one")])
+  let ed = point(ed, 0, True)
+  let ed =
+    editor.update(ed, editor.Composing(shown: caret("one n", 0, 5))).editor
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: caret("one n", 0, 5), at: 0))
+  assert sync == editor.InSync
+  let ed =
+    editor.update(ed, editor.Composing(shown: caret("one に", 0, 5))).editor
+
+  let Outcome(editor: ed, sync:, ..) = editor.update(ed, editor.UndoAsked)
+  assert sync == editor.InSync
+  assert editor.text(ed) == "one に"
+
+  let ended =
+    editor.update(ed, editor.Composed(shown: caret("one に", 0, 5), at: 0)).editor
+  assert editor.text(undo(ended)) == "one"
 }
