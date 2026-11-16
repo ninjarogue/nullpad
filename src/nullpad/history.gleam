@@ -277,7 +277,8 @@ fn typed_over(before: Buffer, after: Buffer, rows: Rows) -> Change {
     order.Lt | order.Eq -> #(anchor, head)
   }
   let left = string.slice(row_of(buffer.lines(before), start.row), 0, start.col)
-  let right = string.drop_start(row_of(buffer.lines(before), end.row), end.col)
+  let right =
+    buffer.rest_of(row_of(buffer.lines(before), end.row), from: end.col)
   let new = row_of(buffer.lines(after), start.row)
   let typed = string.slice(new, start.col, 1)
   let rows_taken =
@@ -303,12 +304,12 @@ fn row_of(lines: List(String), row: Int) -> String {
 
 fn on_row(old: String, new: String, from: Position, to: Position) -> Change {
   let left = string.slice(old, 0, from.col)
-  let right = string.drop_start(old, from.col)
+  let right = buffer.rest_of(old, from: from.col)
   let typed = string.slice(new, from.col, 1)
   case to.col - from.col {
     1 if new == left <> typed <> right && typed != "" -> Typed(typed)
     -1 -> erased(new, string.drop_end(left, 1) <> right, Back)
-    0 -> erased(new, left <> string.drop_start(right, 1), Forward)
+    0 -> erased(new, left <> buffer.rest_of(right, from: 1), Forward)
     _ -> Replaced
   }
 }

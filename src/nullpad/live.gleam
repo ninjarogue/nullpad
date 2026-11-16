@@ -128,7 +128,7 @@ pub fn position(
         _ ->
           case closes(before, next) {
             True -> skip_to(rest, next, col)
-            False -> col + cell_start(string.drop_start(line, col), next)
+            False -> col + cell_start(buffer.rest_of(line, from: col), next)
           }
       }
       Position(row:, col:)
