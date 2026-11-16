@@ -71,6 +71,9 @@ for (const width of [1280, 412]) {
     '- [ ] a\n  # b',
     '- [ ] # a\n- b',
     '- ```\n  code\n  ```\n- b',
+    '>     code\n>     code\n>\n> b',
+    '> b\n> ```\n> code',
+    '    code\n    more\n\nb',
   ]) {
     test(`arriving at and leaving each row of ${JSON.stringify(shape)} moves no word drawn around the field, ${width}px wide`, async (fixtures) => {
       const rows = await open(fixtures, shape, width);

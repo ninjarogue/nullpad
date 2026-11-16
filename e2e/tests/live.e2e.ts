@@ -297,7 +297,7 @@ test('a box below the field ticks its own row of the note', async ({ app, disk, 
   expect(await disk.notes()).toEqual([stored('# Trip\n\n- [ ] one\n- [x] two')]);
 });
 
-test('the items below the field are numbered on from the items above it', async ({
+test('the items below the field are numbered on from the item it holds', async ({
   app,
   browser,
   disk,
@@ -308,8 +308,9 @@ test('the items below the field are numbered on from the items above it', async 
   await browser.keyboard.press('ArrowDown');
   await expect(page.text).toHaveValue('1. leave');
   await expect(page.drawnIn('live-above', 'ol')).not.toHaveAttribute('start');
-  await expect(page.drawnIn('live-below', 'ol')).toHaveAttribute('start', '3');
-  await expect(page.below.getByRole('listitem')).toHaveText(['arrive', 'rest']);
+  await expect(page.drawnIn('live-below', 'ol')).toHaveAttribute('start', '2');
+  await expect(page.drawnIn('live-below', 'li.bare')).toHaveText('');
+  await expect(page.below.getByRole('listitem')).toHaveText(['', 'arrive', 'rest']);
 });
 
 test('Markdown shows the whole note as typed, and the choice is remembered', async ({

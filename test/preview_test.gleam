@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import lustre/element
 import nullpad/live
@@ -502,7 +503,15 @@ fn marked(source: String) -> String {
 }
 
 fn pre_rows(source: String) -> List(String) {
-  marked(source) |> marks("<pre data-row=\"")
+  marked(source)
+  |> string.split("<pre")
+  |> list.drop(1)
+  |> list.filter_map(fn(rest) {
+    use #(tag, _) <- result.try(string.split_once(rest, ">"))
+    use #(_, row) <- result.try(string.split_once(tag, "data-row=\""))
+    use #(row, _) <- result.map(string.split_once(row, "\""))
+    row
+  })
 }
 
 fn tr_rows(source: String) -> List(String) {
@@ -710,7 +719,7 @@ pub fn a_code_block_in_a_quote_beside_the_field_is_drawn_as_at_the_top_test() {
     )
   assert beside_field(">     x\n>     y\n\nc", 0, 3, live.Region(3, 3))
     == drawn_part(
-      "<blockquote data-row=\"0\"><pre data-row=\"0\"><code>x\ny\n</code></pre></blockquote><div class=\"blank\" data-row=\"2\"></div><p class=\"held above\"></p>",
+      "<blockquote data-row=\"0\"><pre class=\"indented\" data-row=\"0\"><code>x\ny\n</code></pre></blockquote><div class=\"blank\" data-row=\"2\"></div><p class=\"held above\"></p>",
     )
 }
 
@@ -846,4 +855,16 @@ pub fn an_item_that_ends_before_a_blank_row_the_field_holds_is_not_cut_test() {
     == drawn_part(
       "<ul class=\"cut above\" data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">a</p></li></ul>",
     )
+}
+
+pub fn a_code_block_on_the_page_says_which_fences_it_has_test() {
+  assert string.contains(marked("```\na\n```"), "<pre data-row=\"1\">")
+  assert string.contains(
+    marked("```\na"),
+    "<pre class=\"unclosed\" data-row=\"1\">",
+  )
+  assert string.contains(
+    marked("    a"),
+    "<pre class=\"indented\" data-row=\"0\">",
+  )
 }

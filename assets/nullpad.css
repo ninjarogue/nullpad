@@ -408,8 +408,22 @@ button[aria-pressed="true"] {
   font-variant-ligatures: none;
 }
 
+/* Its box is an outline, which takes no room, so a code block is as tall
+   as its rows: one with no closing fence has no bottom padding, and
+   indented code none at all. */
 .page.live .preview pre {
-  padding-block: calc(0.875rem * 1.5 - 1px);
+  border: 0;
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+  padding-block: 1.3125rem;
+}
+
+.page.live .preview pre.unclosed {
+  padding-bottom: 0;
+}
+
+.page.live .preview pre.indented {
+  padding-block: 0;
 }
 
 .page.live .preview pre code {
@@ -446,6 +460,7 @@ button[aria-pressed="true"] {
   display: block;
   height: 0;
   min-height: 0;
+  outline: 0;
   overflow: visible;
   padding-block: 0;
 }

@@ -247,14 +247,14 @@ export class Page {
     this.below = screen.getByTestId('live-below');
   }
 
-  /** An element of the note drawn around the text field. */
+  /** An element of the note drawn around the text field. The empty place a part keeps for the block the field holds is not one. */
   drawn(selector: string) {
-    return this.browser.locator(`.page.live .part ${selector}`);
+    return this.browser.locator(`.page.live .part :is(${selector}):not(.held)`);
   }
 
   /** Elements of the part drawn above or below the text field. */
   drawnIn(part: 'live-above' | 'live-below', selector: string) {
-    return this.browser.locator(`[data-test-id="${part}"] ${selector}`);
+    return this.browser.locator(`[data-test-id="${part}"] :is(${selector}):not(.held)`);
   }
 
   /** Right-click the note's row, as a mouse does. */

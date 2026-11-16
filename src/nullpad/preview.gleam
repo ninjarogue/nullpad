@@ -5,6 +5,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -238,7 +239,19 @@ fn block(
         Some(word) -> [attribute.class("language-" <> word)]
         None -> []
       }
-      html.pre(at(rows, code_row), [html.code(class, [element.text(code)])])
+      let fences =
+        shown.last_row
+        - shown.first_row
+        + 1
+        - { list.length(string.split(code, "\n")) - 1 }
+      let fenced = case rows, fences {
+        Unmarked, _ | Marked(..), 2 -> []
+        Marked(..), 1 -> [attribute.class("unclosed")]
+        Marked(..), _ -> [attribute.class("indented")]
+      }
+      html.pre(list.append(fenced, at(rows, code_row)), [
+        html.code(class, [element.text(code)]),
+      ])
     }
     _, Table(columns, table_rows) ->
       table(shown.first_row, rows, columns, table_rows)

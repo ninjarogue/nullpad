@@ -40,7 +40,8 @@ function centreOf(spot: Spot) {
 
 /** The note as the page shows it: the part above the text field, the field, and the part below. */
 function shownInPage() {
-  const rows = (part: Element | null) => (part ? [...part.children].map((row) => row.textContent ?? '') : []);
+  const rows = (part: Element | null) =>
+    part ? [...part.children].filter((row) => !row.classList.contains('held')).map((row) => row.textContent ?? '') : [];
   const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
   return [
     ...rows(document.querySelector('[data-test-id="live-above"]')),
