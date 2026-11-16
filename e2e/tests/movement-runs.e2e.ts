@@ -859,3 +859,27 @@ for (const run of runs) {
     });
   }
 }
+
+const underHeadings = [`# ${'word '.repeat(50)}end`, '', `### ${'word '.repeat(70)}end`, '', 'below'];
+
+for (const [name, row] of [['an h1', 1], ['an h3', 3]] as const) {
+  test(`Up and Shift+Up from the blank row below ${name} the page wraps reach the same rows of it, a key at a time`, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    const body = underHeadings.join('\n');
+    const lines = body.split('\n');
+    const heads = async (step: string) => {
+      await editor.open(body);
+      await fixtures.browser.keyboard.press(ctrl('End'));
+      await fixtures.browser.keyboard.press('Home');
+      for (let up = 4; up > row; up--) await fixtures.browser.keyboard.press('ArrowUp');
+      const seen: string[] = [];
+      for (let press = 0; press < 3; press++) {
+        await fixtures.browser.keyboard.press(step);
+        const got = await look(editor, lines);
+        seen.push('problem' in got ? got.problem : show(got.head));
+      }
+      return seen;
+    };
+    expect(await heads('Shift+ArrowUp')).toEqual(await heads('ArrowUp'));
+  });
+}
