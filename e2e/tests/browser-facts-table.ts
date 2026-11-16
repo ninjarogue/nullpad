@@ -1,5 +1,6 @@
 import { fact } from './browser-facts.ts';
 import type { Fact } from './browser-facts.ts';
+import type { Page } from 'playwright-core';
 
 /**
  * What nullpad assumes about Chromium, found by reading the `.ffi.mjs` files,
@@ -41,6 +42,42 @@ const mediaAnswers = (seen: { matches: boolean; always: boolean; never: boolean;
   if (!seen.always || seen.never) return `matchMedia answers ${seen.always} to a query that is always true and ${seen.never} to one that is never true, so this looked at nothing`;
   return null;
 };
+
+const dragPage =
+  '<div id="src" draggable="true" style="position:absolute;left:20px;top:20px;width:100px;height:40px">drag</div>' +
+  '<div id="dst" style="position:absolute;left:300px;top:200px;width:200px;height:100px">drop</div>';
+
+/** Drags the source over to the target once for each list of held keys, and says what the drop of each carried. */
+async function dragWith(page: Page, held: string[][]) {
+  await page.evaluate(() => {
+    const log: { dropped: boolean; text: string; ctrl: boolean; alt: boolean }[] = [];
+    (window as unknown as { drops: typeof log }).drops = log;
+    document.getElementById('src')!.addEventListener('dragstart', (event) => {
+      event.dataTransfer!.setData('text/plain', 'carried text');
+      event.dataTransfer!.effectAllowed = 'copyMove';
+    });
+    const target = document.getElementById('dst')!;
+    target.addEventListener('dragover', (event) => event.preventDefault());
+    target.addEventListener('drop', (event) => {
+      event.preventDefault();
+      log.push({ dropped: true, text: event.dataTransfer!.getData('text/plain'), ctrl: event.ctrlKey, alt: event.altKey });
+    });
+  });
+  const seen: { dropped: boolean; text: string; ctrl: boolean; alt: boolean }[] = [];
+  for (const keys of held) {
+    const before = await page.evaluate(() => (window as unknown as { drops: unknown[] }).drops.length);
+    await page.mouse.move(60, 40);
+    for (const key of keys) await page.keyboard.down(key);
+    await page.mouse.down();
+    await page.mouse.move(200, 120, { steps: 5 });
+    await page.mouse.move(400, 250, { steps: 5 });
+    await page.mouse.up();
+    for (const key of keys) await page.keyboard.up(key);
+    const drops = await page.evaluate(() => (window as unknown as { drops: typeof seen }).drops);
+    seen.push(drops.length > before ? drops[drops.length - 1]! : { dropped: false, text: '', ctrl: false, alt: false });
+  }
+  return seen;
+}
 
 const finite = (...values: unknown[]) => values.every((value) => typeof value === 'number' && Number.isFinite(value));
 
@@ -1346,6 +1383,315 @@ export const facts: Fact[] = [
     },
     breaks: async (page) => {
       await page.addStyleTag({ content: '.zero li::marker { line-height: 1.7 !important; }' });
+    },
+  }),
+
+  fact({
+    id: 'hidden-page-fires-visibilitychange',
+    says: 'A page that is hidden gets a visibilitychange event on its document, and document.visibilityState already says hidden when it runs. Headless Chromium does not hide a page for another tab brought in front of it, so closing the page is the hiding that is looked at.',
+    relied: [
+      { file: platform, text: 'document.addEventListener("visibilitychange", () => {' },
+      { file: platform, text: 'if (document.visibilityState === "hidden") run();' },
+    ],
+    observe: async (page) => {
+      const heard: string[] = [];
+      page.on('console', (message) => heard.push(message.text()));
+      await page.evaluate(() => {
+        document.addEventListener('visibilitychange', () => console.log(`visibilitychange ${document.visibilityState}`));
+        console.log('listening');
+      });
+      await page.close();
+      for (let wait = 0; wait < 40 && !heard.includes('visibilitychange hidden'); wait++) await new Promise((done) => setTimeout(done, 50));
+      return heard;
+    },
+    holds: (seen) => {
+      if (!Array.isArray(seen) || !seen.includes('listening')) return `the console of the page said ${JSON.stringify(seen)}, so nothing could be heard and this looked at nothing`;
+      const changes = seen.filter((message) => typeof message === 'string' && message.startsWith('visibilitychange'));
+      return changes.includes('visibilitychange hidden') ? null : `closing the page fired ${JSON.stringify(changes)}, and no visibilitychange said hidden`;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        const add = document.addEventListener.bind(document);
+        document.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+          if (type !== 'visibilitychange') add(type, listener, options);
+        }) as unknown as typeof document.addEventListener;
+      });
+    },
+  }),
+
+  fact({
+    id: 'clipboard-write-is-a-promise-and-secure-only',
+    says: 'navigator.clipboard.writeText returns a promise and throws nothing, whether the page may write or not, and writes the text when it may. A page that is not a secure context has no navigator.clipboard, so the call is skipped.',
+    relied: [{ file: platform, text: 'navigator.clipboard?.writeText(text).catch(() => {});' }],
+    url: 'https://nullpad.test/',
+    observe: async (page) => {
+      const write = () =>
+        page.evaluate(async () => {
+          let promise: Promise<void> | undefined;
+          try {
+            promise = navigator.clipboard.writeText('nullpad');
+          } catch (error) {
+            return { threw: String(error), returned: 'nothing', settled: 'never' };
+          }
+          const returned = typeof promise?.then;
+          try {
+            await promise;
+            return { threw: '', returned, settled: 'resolved' };
+          } catch (error) {
+            return { threw: '', returned, settled: `rejected ${(error as Error).name}` };
+          }
+        });
+      const refused = await write();
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://nullpad.test' });
+      const allowed = await write();
+      const read = await page.evaluate(() => navigator.clipboard.readText());
+      const plain = await page.context().newPage();
+      await plain.setContent('<!doctype html><body></body>');
+      const insecure = await plain.evaluate(() => ({ secure: isSecureContext, clipboard: typeof navigator.clipboard }));
+      return { refused, allowed, read, insecure };
+    },
+    holds: (seen) => {
+      if (typeof seen?.refused?.returned !== 'string' || typeof seen?.allowed?.settled !== 'string' || typeof seen?.insecure?.clipboard !== 'string') {
+        return `the clipboard was read as ${JSON.stringify(seen)}`;
+      }
+      if (seen.insecure.secure !== false) return 'the page that was to be insecure is a secure context, so this looked at nothing';
+      if (seen.insecure.clipboard !== 'undefined') return `a page that is not a secure context has navigator.clipboard as a ${seen.insecure.clipboard}`;
+      if (seen.refused.threw !== '' || seen.refused.returned !== 'function') return `a write that was not allowed ${seen.refused.threw ? `threw ${seen.refused.threw}` : `returned ${seen.refused.returned}`}, and the app expects a promise`;
+      if (seen.allowed.settled !== 'resolved') return `a write that was allowed ${seen.allowed.settled}`;
+      return seen.read === 'nullpad' ? null : `the clipboard held ${JSON.stringify(seen.read)} after the text was written`;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        Object.defineProperty(Clipboard.prototype, 'writeText', {
+          value: () => {
+            throw new DOMException('not allowed', 'NotAllowedError');
+          },
+          configurable: true,
+        });
+      });
+    },
+  }),
+
+  fact({
+    id: 'scroll-into-view-nearest-moves-least',
+    says: 'scrollIntoView({ block: "nearest" }) leaves the page where it is when the element is in view, and otherwise scrolls only until the element touches the edge it came from: the bottom edge for an element below, the top edge for one above.',
+    relied: [{ file: ffi, text: 'control?.scrollIntoView({ block: "nearest" });' }],
+    html: '<body style="margin:0"><div style="height:3000px"></div><textarea id="t" style="display:block;height:100px;width:300px"></textarea><div style="height:3000px"></div></body>',
+    observe: (page) =>
+      page.evaluate(() => {
+        const field = document.getElementById('t')!;
+        scrollTo(0, 0);
+        field.scrollIntoView({ block: 'nearest' });
+        const fromAbove = { bottom: field.getBoundingClientRect().bottom, viewport: innerHeight };
+        scrollTo(0, field.offsetTop - 100);
+        const before = scrollY;
+        field.scrollIntoView({ block: 'nearest' });
+        const inView = { before, after: scrollY };
+        scrollTo(0, field.offsetTop + 2000);
+        field.scrollIntoView({ block: 'nearest' });
+        return { fromAbove, inView, fromBelow: { top: field.getBoundingClientRect().top } };
+      }),
+    holds: (seen) => {
+      if (!finite(seen?.fromAbove?.bottom, seen?.fromAbove?.viewport, seen?.inView?.before, seen?.inView?.after, seen?.fromBelow?.top)) {
+        return `the scroll positions were read as ${JSON.stringify(seen)}`;
+      }
+      if (!(seen.inView.before > 0)) return `the page was at ${seen.inView.before} before the element in view was scrolled to, so this looked at nothing`;
+      if (seen.inView.after !== seen.inView.before) return `an element in view moved the page from ${seen.inView.before} to ${seen.inView.after}`;
+      if (Math.abs(seen.fromAbove.bottom - seen.fromAbove.viewport) > 1) return `an element below the window ended with its bottom at ${seen.fromAbove.bottom}, and the window is ${seen.fromAbove.viewport} tall`;
+      return Math.abs(seen.fromBelow.top) <= 1 ? null : `an element above the window ended with its top at ${seen.fromBelow.top}, and the app expects 0`;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        const scroll = Element.prototype.scrollIntoView;
+        Element.prototype.scrollIntoView = function (this: Element) {
+          scroll.call(this, { block: 'center' });
+        };
+      });
+    },
+  }),
+
+  fact({
+    id: 'scroll-is-heard-before-the-frames-callbacks',
+    says: 'A scroll of an element that happens before a frame is drawn is told by its scroll event before the requestAnimationFrame callbacks of that frame run, so a listener that holds the page until that callback undoes it.',
+    relied: [{ file: ffi, text: 'page.addEventListener("scroll", keep);\n  requestAnimationFrame(() => page.removeEventListener("scroll", keep));' }],
+    html: '<div id="page" style="height:200px;overflow:auto"><div style="height:2000px"></div></div>',
+    observe: (page) =>
+      page.evaluate(
+        () =>
+          new Promise<string[]>((done) => {
+            const page = document.getElementById('page')!;
+            const heard: string[] = [];
+            page.addEventListener('scroll', () => heard.push('scroll'));
+            requestAnimationFrame(() => {
+              heard.push('frame');
+              setTimeout(() => done(heard), 100);
+            });
+            page.scrollTop = 300;
+          }),
+      ),
+    holds: (seen) => {
+      const expected = ['scroll', 'frame'];
+      return same(seen, expected) ? null : instead('what the page heard of a scroll and of the next frame, in order', expected, seen);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+          queueMicrotask(() => callback(0));
+          return 0;
+        };
+      });
+    },
+  }),
+
+  fact({
+    id: 'element-from-point-sees-through-pointer-events-none',
+    says: 'document.elementFromPoint takes a point of the window, scrolled containers included, and names the element drawn there, passing over one with pointer-events: none that covers it.',
+    relied: [
+      { file: ffi, text: 'const target = document.elementFromPoint(x, y)?.closest("[draggable], [data-row]");' },
+      { file: ffi, text: 'const hit = document.elementFromPoint(inX, inY);' },
+    ],
+    html:
+      '<div id="page" style="position:absolute;left:0;top:0;width:300px;height:200px;overflow:auto">' +
+      '<div id="r1" style="height:100px">one</div><div id="r2" style="height:100px">two</div><div id="r3" style="height:100px">three</div><div id="r4" style="height:100px">four</div></div>' +
+      '<div id="cover" style="position:fixed;left:0;top:100px;width:300px;height:100px;pointer-events:none"></div>',
+    observe: (page) =>
+      page.evaluate(() => {
+        const id = (x: number, y: number) => document.elementFromPoint(x, y)?.id ?? null;
+        document.getElementById('page')!.scrollTop = 150;
+        const throughCover = id(10, 120);
+        const above = id(10, 20);
+        const cover = document.getElementById('cover')!;
+        cover.style.pointerEvents = 'auto';
+        const onCover = id(10, 120);
+        cover.style.pointerEvents = 'none';
+        return { throughCover, above, onCover };
+      }),
+    holds: (seen) => {
+      if (seen?.onCover !== 'cover') return `the cover was found as ${JSON.stringify(seen?.onCover)} where it is drawn, so this looked at nothing`;
+      const expected = { throughCover: 'r3', above: 'r2' };
+      const got = { throughCover: seen.throughCover, above: seen.above };
+      return same(got, expected) ? null : instead('the elements at two points of a page scrolled by 150, one under a pointer-events: none cover', expected, got);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        const hit = document.elementFromPoint.bind(document);
+        document.elementFromPoint = (x: number, y: number) => {
+          const cover = document.getElementById('cover')!;
+          cover.style.pointerEvents = 'auto';
+          const found = hit(x, y);
+          cover.style.pointerEvents = 'none';
+          return found;
+        };
+      });
+    },
+  }),
+
+  fact({
+    id: 'element-from-point-is-null-outside-the-window',
+    says: 'document.elementFromPoint gives null for a point outside the window, as a drag that left it reaches, and an element for a point inside.',
+    relied: [{ file: ffi, text: 'const target = document.elementFromPoint(x, y)?.closest("[draggable], [data-row]");' }],
+    html: '<body style="margin:0"><div id="all" style="width:100vw;height:100vh"></div></body>',
+    observe: (page) =>
+      page.evaluate(() => {
+        const at = (x: number, y: number) => document.elementFromPoint(x, y)?.tagName ?? null;
+        return { inside: at(10, 10), outside: [at(-5, 10), at(10, -5), at(innerWidth + 5, 10), at(10, innerHeight + 5)] };
+      }),
+    holds: (seen) => {
+      if (typeof seen?.inside !== 'string' || !Array.isArray(seen.outside)) return `the elements at the points were read as ${JSON.stringify(seen)}`;
+      const expected = [null, null, null, null];
+      return same(seen.outside, expected) ? null : instead('the elements at four points just outside the window', expected, seen.outside);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        document.elementFromPoint = () => document.body;
+      });
+    },
+  }),
+
+  fact({
+    id: 'drop-carries-the-dragged-text',
+    says: 'Text that a dragstart handler sets as text/plain, with effectAllowed copyMove, is what getData("text/plain") gives on the drop event of another element.',
+    relied: [
+      { file: ffi, text: 'event.dataTransfer.setData("text/plain", value.slice(selectionStart, selectionEnd));' },
+      { file: ffi, text: 'const text = drop.dataTransfer?.getData("text/plain") ?? "";' },
+    ],
+    html: dragPage,
+    observe: async (page) => (await dragWith(page, [[]]))[0],
+    holds: (seen) => {
+      if (typeof seen !== 'object' || seen === null || !('dropped' in seen) || seen.dropped !== true) return `no drop was heard (${JSON.stringify(seen)}), so this looked at nothing`;
+      return seen.text === 'carried text' ? null : `the drop gave ${JSON.stringify(seen.text)} for the text that was set as carried text`;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        DataTransfer.prototype.getData = () => '';
+      });
+    },
+  }),
+
+  fact({
+    id: 'drop-reports-the-copy-key',
+    says: 'The drop event of a drag made with Control held has ctrlKey and not altKey, one made with Alt held has altKey and not ctrlKey, and one made with neither has neither, so the key that a text field copies with can be read from it. That Alt is the key on a Mac is the platform and not a page that can look.',
+    relied: [{ file: ffi, text: 'const copy = navigator.platform.startsWith("Mac") ? drop.altKey : drop.ctrlKey;' }],
+    html: dragPage,
+    observe: async (page) => {
+      const [plain, control, alt] = await dragWith(page, [[], ['Control'], ['Alt']]);
+      return { plain, control, alt };
+    },
+    holds: (seen) => {
+      for (const drop of [seen?.plain, seen?.control, seen?.alt]) {
+        if (drop?.dropped !== true) return `a drop was not heard (${JSON.stringify(seen)}), so this looked at nothing`;
+      }
+      const expected = { plain: [false, false], control: [true, false], alt: [false, true] };
+      const got = { plain: [seen.plain.ctrl, seen.plain.alt], control: [seen.control.ctrl, seen.control.alt], alt: [seen.alt.ctrl, seen.alt.alt] };
+      return same(got, expected) ? null : instead('the [ctrlKey, altKey] of a drop made with no key, with Control and with Alt', expected, got);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        Object.defineProperty(MouseEvent.prototype, 'ctrlKey', { get: () => false, configurable: true });
+      });
+    },
+  }),
+
+  fact({
+    id: 'middle-release-pastes-on-linux',
+    says: 'A middle press on a text field gives mousedown and mouseup with button 1, and on Linux the release is followed by a paste event and a beforeinput and input of type insertFromPaste, which scroll the page to the field. Off Linux only the first half is looked at. The text that is pasted is the primary selection, which headless Chromium has none of, so only the events can be looked at.',
+    relied: [
+      { file: ffi, text: 'if (press.button === 1 && (grabbed || target instanceof HTMLTextAreaElement)) return none;' },
+      { file: ffi, text: 'requestAnimationFrame(() => page.removeEventListener("scroll", keep));' },
+    ],
+    html: '<textarea id="t" style="width:300px;height:100px">abc</textarea>',
+    observe: async (page) => {
+      await page.evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as { log: string[] }).log = log;
+        for (const type of ['mousedown', 'mouseup', 'auxclick', 'paste', 'beforeinput', 'input']) {
+          document.addEventListener(
+            type,
+            (event) => log.push(`${type}${(event as MouseEvent).button === 1 ? ':1' : ''}${(event as InputEvent).inputType ? `:${(event as InputEvent).inputType}` : ''}`),
+            true,
+          );
+        }
+      });
+      await page.click('#t', { button: 'middle' });
+      await page.waitForFunction(() => (window as unknown as { log: string[] }).log.includes('input:insertFromPaste'), undefined, { timeout: 500 }).catch(() => {});
+      return page.evaluate(() => ({ linux: navigator.platform.startsWith('Linux'), events: (window as unknown as { log: string[] }).log }));
+    },
+    holds: (seen) => {
+      if (typeof seen?.linux !== 'boolean' || !Array.isArray(seen.events)) return `the events of a middle press were read as ${JSON.stringify(seen)}`;
+      if (!seen.events.includes('mousedown:1') || !seen.events.includes('mouseup:1')) return `a middle press fired ${JSON.stringify(seen.events)}, with no mousedown and mouseup of button 1, so this looked at nothing`;
+      const pasted = ['paste', 'beforeinput:insertFromPaste', 'input:insertFromPaste'].every((type) => seen.events.includes(type));
+      if (!seen.linux) return null;
+      if (!pasted) return `a middle release on Linux fired ${JSON.stringify(seen.events)}, and no paste`;
+      return seen.events.indexOf('paste') > seen.events.indexOf('mouseup:1') ? null : `the paste came before the release (${JSON.stringify(seen.events)})`;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        const add = EventTarget.prototype.addEventListener;
+        const heard = navigator.platform.startsWith('Linux') ? ['paste', 'beforeinput', 'input'] : ['mouseup'];
+        EventTarget.prototype.addEventListener = function (this: EventTarget, type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) {
+          if (!heard.includes(type)) add.call(this, type, listener, options);
+        } as typeof EventTarget.prototype.addEventListener;
+      });
     },
   }),
 ];

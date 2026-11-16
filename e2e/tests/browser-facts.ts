@@ -29,6 +29,8 @@ export type Fact = {
   pending?: string;
   /** The page the fact is looked at on. */
   html?: string;
+  /** An https address the page is served at, so that it is a secure context, as the clipboard needs. Without one, the page has no address. */
+  url?: string;
   context?: BrowserContextOptions;
   observe(page: Page): Promise<unknown>;
   holds(seen: any): string | null;
@@ -226,7 +228,13 @@ async function look(fact: Fact, sabotage: boolean) {
   try {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 }, ...fact.context });
     const page = await context.newPage();
-    await page.setContent(fact.html ?? '<!doctype html><body></body>');
+    const html = fact.html ?? '<!doctype html><body></body>';
+    if (fact.url) {
+      await page.route(fact.url, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.goto(fact.url);
+    } else {
+      await page.setContent(html);
+    }
     if (sabotage) await fact.breaks!(page);
     const seen = await fact.observe(page);
     return { version: browser.version(), problem: fact.holds(seen) };
