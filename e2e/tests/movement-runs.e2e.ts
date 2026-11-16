@@ -561,10 +561,10 @@ async function runPlan(editor: Editing, run: Run) {
 }
 
 /**
- * The plain field's states as the page holds them. An end of a selection across
- * blocks, which the page paints, never cuts a pair of marks the page hides, as
- * Delete would then leave half of it: a stop of the head inside a pair is passed
- * over, and an anchor inside one is at the nearer end of the pair.
+ * The plain field's states as the page holds them. The head of a selection
+ * across blocks, which the page paints, never stops inside a pair of marks the
+ * page hides, as Delete would then leave half of it: such a stop is passed over.
+ * The anchor stays where it was put, as in a plain field.
  */
 function wholePairs(run: Run, states: Plain[]): Plain[] {
   const pairs = run.pairs;
@@ -577,14 +577,7 @@ function wholePairs(run: Run, states: Plain[]): Plain[] {
     const [top, bottom] = [state.anchor[0], state.head[0]].sort((a, b) => a - b);
     return state.value.split('\n').slice(top, bottom + 1).includes('');
   };
-  const kept = states
-    .filter((state) => !(painted(state) && cut(state.value, state.head)))
-    .map((state) => {
-      const pair = painted(state) ? cut(state.value, state.anchor) : undefined;
-      if (!pair) return state;
-      const at = offsetOfCell(state.value, state.anchor);
-      return { ...state, anchor: rowCol(state.value, at - pair[0] <= pair[1] - at ? pair[0] : pair[1]) };
-    });
+  const kept = states.filter((state) => !(painted(state) && cut(state.value, state.head)));
   return states.map((_, index) => kept[Math.min(index, kept.length - 1)]!);
 }
 
