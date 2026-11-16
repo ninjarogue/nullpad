@@ -193,6 +193,7 @@ fn after(anchor: String, text: String) -> fn(String) -> String {
 
 const edge_decoder =
   "fn edge_decoder(
+  paints: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
 "
@@ -759,6 +760,15 @@ fn second_round() -> List(Break) {
       "platform JavaScript writes the field",
       platform_js,
       last("export function w(el) { el.value = 'x'; }"),
+    ),
+    Break(
+      Escapes,
+      "a measure a decoder calls reads the editor JavaScript keeps",
+      surface_js,
+      after(
+        "export function headLine(id, liveClass, paintedClass, painted) {\n",
+        "  painted = current != null && painted;\n",
+      ),
     ),
     Break(
       Escapes,

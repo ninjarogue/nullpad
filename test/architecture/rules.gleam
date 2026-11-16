@@ -40,10 +40,10 @@ const with_javascript = ["surface", "platform", "markdown"]
 /// function there counts as changing it.
 const measures = [
   "drawnInPage", "holdsFocus", "caretLine", "headLine", "holderText",
-  "isPainted", "locate", "findControl", "textWidth", "utf16Split", "utf16Length",
-  "below", "hasHardwareKeyboard", "canPaint", "readVimSetting",
+  "paintedOnPage", "locate", "findControl", "textWidth", "utf16Split",
+  "utf16Length", "below", "hasHardwareKeyboard", "canPaint", "readVimSetting",
   "readMarkdownSetting", "pressLanding", "dropped", "releasedOnSelection",
-  "focusStayed", "keysWait", "pastedText", "heldKeyEvent",
+  "focusStayed", "currentEditor", "pastedText", "heldKeyEvent",
 ]
 
 /// How many state parameters each of these decoders still takes.
@@ -52,7 +52,7 @@ const decoders_that_still_read_state: List(#(String, Int)) = []
 /// JavaScript that hands back app state an effect noted there, such as the
 /// editor the last message left. A decoder is given a callback for it
 /// instead of reading it, so what it decides on is in its parameters.
-const records = ["keysWait", "isPainted"]
+const records = ["currentEditor"]
 
 const plain_types = ["String", "Int", "Bool", "Float"]
 

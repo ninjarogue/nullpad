@@ -247,20 +247,21 @@ export function takeHeldStep(editor) {
   return true;
 }
 
-// The editor the last message left, and whether the page is behind it, so
-// that a key pressed now is held. A held key is replayed from the paint of
-// that editor only, once: the paint of an earlier editor in the same frame
-// would replay it on a field the editor has since left.
+// The editor the last message left. The page shows the last frame drawn,
+// which keys pressed since may have left behind, so a key is decided by this
+// editor. A held key is replayed from the paint of that editor only, once:
+// the paint of an earlier editor in the same frame would replay it on a
+// field the editor has since left.
 let latest = null;
-let behind = false;
+let current = null;
 
-export function noteEditor(editor, waiting) {
+export function noteEditor(editor) {
   latest = editor;
-  behind = waiting;
+  current = editor;
 }
 
-export function keysWait() {
-  return behind;
+export function currentEditor(drawn) {
+  return current ?? drawn;
 }
 
 export function takeReplay(editor) {
@@ -1053,18 +1054,11 @@ function caretBox(node, offset) {
   return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));
 }
 
-// Whether the editor paints its selection, as the last message left it. The
-// page shows the paint of the last frame drawn, which keys pressed since may
-// have taken off, so a key steps over the paint only when both say so, and
-// the field takes it otherwise.
-let painted = false;
-
-export function notePainted(value) {
-  painted = value;
-}
-
-export function isPainted(id, paintedClass) {
-  return painted && document.getElementById(id)?.closest("." + paintedClass) != null;
+// Whether the page shows the field painted over. A key steps over the paint
+// only when this and the editor the last message left both say so, and the
+// field takes it otherwise.
+export function paintedOnPage(id, paintedClass) {
+  return document.getElementById(id)?.closest("." + paintedClass) != null;
 }
 
 function headPlace() {
@@ -1087,14 +1081,15 @@ function fieldCaret(control) {
 // Where the head of the selection is drawn: on the first line of the field,
 // on its last line, and how far from the left of the text, where the start
 // of every row is, as in a text field. A painted head is on both, so every
-// step is taken on the drawn page.
-export function headLine(id, liveClass, paintedClass) {
+// step is taken on the drawn page. `painted` is whether the head is painted
+// over, by the editor and on the page.
+export function headLine(id, liveClass, paintedClass, painted) {
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
   if (!page) return [false, false, 0];
   const at = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
   const rowStart = at === 0 || control.value[at - 1] === "\n";
-  const head = isPainted(id, paintedClass) && headPlace();
+  const head = painted && headPlace();
   if (head) return [true, true, rowStart ? 0 : head.box.left - columnLeft(page)];
   const [first, last, x] = fieldCaretLine(control);
   const across = fieldAcross(control, liveClass, paintedClass, x);

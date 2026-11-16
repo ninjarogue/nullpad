@@ -74,6 +74,12 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
+  // A key is decided by the editor the last message left, which the page
+  // may not have drawn yet.
+  let now = fn() { current_editor(editor) }
+  let waits = fn() { editor.is_waiting(now()) }
+  let paints = fn() { editor.is_painted(now()) }
+  let claims = fn(key) { editor.claims(now(), key) }
   let kind = editor.kind(editor)
   let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
   let first_row = case editor.region(editor), drawn_whole {
@@ -120,13 +126,13 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         // back: the editor does not hear of it.
         event.on("blur", leave_decoder(on_event)),
         event.advanced("beforeinput", history_decoder(on_event)),
-        event.advanced("paste", paste_decoder(on_event)),
+        event.advanced("paste", paste_decoder(waits, on_event)),
         event.advanced(
           "keydown",
-          decode.one_of(hold_decoder(on_event), [
-            key_decoder(editor, on_event),
+          decode.one_of(hold_decoder(waits, on_event), [
+            key_decoder(claims, on_event),
             undo_key_decoder(on_event),
-            edge_decoder(on_event),
+            edge_decoder(paints, on_event),
             escape_decoder(on_event),
           ]),
         ),
@@ -443,8 +449,7 @@ pub fn sync(
   // drawn.
   let noted =
     effect.from(fn(_) {
-      note_painted(editor.is_painted(editor))
-      note_editor(editor, editor.is_waiting(editor))
+      note_editor(editor)
       case editor.is_stepping(editor) {
         True -> Nil
         False -> hold_step(False, editor)
@@ -895,6 +900,7 @@ fn control_decoder() -> Decoder(Buffer) {
 /// field as the page last drew it. A paste is held when its text arrives.
 /// An IME's keys go on to the field, which it owns while it composes.
 fn hold_decoder(
+  waits: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use key <- decode.field("key", decode.string)
@@ -926,13 +932,14 @@ fn hold_decoder(
     | "Escape" -> True
     _ -> string.length(key) == 1 && !pastes
   }
-  case keys_wait() && holds && !composing && key_code != 229 {
+  case waits() && holds && !composing && key_code != 229 {
     True -> decode.success(handler)
     False -> decode.failure(handler, expected: "a key the page is behind")
   }
 }
 
 fn paste_decoder(
+  waits: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use paste <- decode.then(decode.dynamic)
@@ -940,7 +947,7 @@ fn paste_decoder(
   let handler =
     on_event(editor.KeyHeld(editor.HeldPaste(text: pasted_text(paste), at:)))
     |> event.handler(prevent_default: True, stop_propagation: False)
-  case keys_wait() {
+  case waits() {
     True -> decode.success(handler)
     False -> decode.failure(handler, expected: "a paste the page is behind")
   }
@@ -971,9 +978,9 @@ fn replay_held(
     Some(editor.HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, at:)), True -> {
       let same = fn(event) { event }
       let keydown =
-        decode.one_of(key_decoder(editor, same), [
+        decode.one_of(key_decoder(editor.claims(editor, _), same), [
           undo_key_decoder(same),
-          edge_decoder(same),
+          edge_decoder(fn() { editor.is_painted(editor) }, same),
           escape_decoder(same),
         ])
       let pressed =
@@ -995,7 +1002,7 @@ fn replay_held(
 }
 
 fn key_decoder(
-  editor: Editor,
+  claims: fn(vim.Key) -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
@@ -1004,7 +1011,7 @@ fn key_decoder(
   use alt <- decode.field("altKey", decode.bool)
   use composing <- decode.field("isComposing", decode.bool)
   let key = parse_key(name, ctrl, meta || alt || composing)
-  case key, result.map(key, editor.claims(editor, _)) {
+  case key, result.map(key, claims) {
     Ok(key), Ok(True) -> {
       use shown <- decode.map(shown_decoder())
       on_event(editor.KeyPressed(key:, shown:))
@@ -1020,6 +1027,7 @@ fn key_decoder(
 }
 
 fn edge_decoder(
+  paints: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
@@ -1061,7 +1069,7 @@ fn edge_decoder(
       False -> x
     }
   }
-  let painted_head = is_painted(control_id, painted_class)
+  let painted_head = paints() && painted_on_page(control_id, painted_class)
   let painted = shifted && painted_head
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
@@ -1115,7 +1123,9 @@ fn edge_decoder(
   let edge = {
     use edge <- result.try(wanted)
     use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
-    let head = fn() { head_line(control_id, live_class, painted_class) }
+    let head = fn() {
+      head_line(control_id, live_class, painted_class, painted_head)
+    }
     case edge {
       editor.Up | editor.Down -> {
         let up = edge == editor.Up
@@ -1326,6 +1336,7 @@ fn head_line(
   id: String,
   live_class: String,
   painted_class: String,
+  painted: Bool,
 ) -> #(Bool, Bool, Float)
 
 @external(javascript, "./surface.ffi.mjs", "stepHead")
@@ -1350,10 +1361,10 @@ fn step_head(
 fn hold_step(held: Bool, for: Editor) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "noteEditor")
-fn note_editor(editor: Editor, waiting: Bool) -> Nil
+fn note_editor(editor: Editor) -> Nil
 
-@external(javascript, "./surface.ffi.mjs", "keysWait")
-fn keys_wait() -> Bool
+@external(javascript, "./surface.ffi.mjs", "currentEditor")
+fn current_editor(drawn: Editor) -> Editor
 
 @external(javascript, "./surface.ffi.mjs", "takeReplay")
 fn take_replay(for: Editor) -> Bool
@@ -1399,11 +1410,8 @@ fn press_on_page(
 @external(javascript, "./surface.ffi.mjs", "takeHeldStep")
 fn take_held_step(for: Editor) -> Bool
 
-@external(javascript, "./surface.ffi.mjs", "isPainted")
-fn is_painted(id: String, painted_class: String) -> Bool
-
-@external(javascript, "./surface.ffi.mjs", "notePainted")
-fn note_painted(painted: Bool) -> Nil
+@external(javascript, "./surface.ffi.mjs", "paintedOnPage")
+fn painted_on_page(id: String, painted_class: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "notePress")
 fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
