@@ -7,22 +7,30 @@ import { cursorProblem, fast, selectionOf } from './guards.ts';
 import type { Disk, Page } from './nullpad.ts';
 
 /** Where a person aims the pointer: the gap before character `at` of the first `word` drawn on the page. */
-export type Spot = { word: string; at: number };
+/** The gap before letter `at` of `word`, on source row `row` when the word is not unique in the note. */
+export type Spot = { word: string; at: number; row?: number };
 
 export type Fixtures = { app: App; browser: Browser; disk: Disk; page: Page };
 
 export const ctrl = (key: string) => `ControlOrMeta+${key}`;
 
-/** The offset of `spot` in `note`. A word that is not unique in the note cannot be aimed at. */
+/** The offset of `spot` in `note`. A word that is not unique in the note, or in its row, cannot be aimed at. */
 export function offsetOf(note: string, spot: Spot) {
-  expect(note.split(spot.word).length - 1, `"${spot.word}" appears once in the note`).toBe(1);
-  return note.indexOf(spot.word) + spot.at;
+  if (spot.row === undefined) {
+    expect(note.split(spot.word).length - 1, `"${spot.word}" appears once in the note`).toBe(1);
+    return note.indexOf(spot.word) + spot.at;
+  }
+  const lines = note.split('\n');
+  const line = lines[spot.row] ?? '';
+  expect(line.split(spot.word).length - 1, `"${spot.word}" appears once in row ${spot.row}`).toBe(1);
+  return lines.slice(0, spot.row).reduce((sum, each) => sum + each.length + 1, 0) + line.indexOf(spot.word) + spot.at;
 }
 
 function centreOf(spot: Spot) {
   const sheet = document.querySelector('.page')!;
+  const onRow = (node: Node) => spot.row === undefined || node.parentElement?.closest('[data-row]')?.getAttribute('data-row') === String(spot.row);
   const texts = document.createTreeWalker(sheet, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => (node.parentElement?.closest('textarea') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    acceptNode: (node) => (node.parentElement?.closest('textarea') || !onRow(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
   });
   for (let text = texts.nextNode() as Text | null; text; text = texts.nextNode() as Text | null) {
     const found = text.data.indexOf(spot.word);

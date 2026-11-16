@@ -133,6 +133,30 @@ const sheets: Sheet[] = [
       { name: 'the last row of a code block', at: { word: 'code two', at: 8 } },
     ],
   },
+  {
+    name: 'a quote holding nested items, a heading, a paragraph and code, then an item of two paragraphs',
+    note: ['> a', '> - b', '>   - c', '>', '> # h', '> text', '> ```', '> code', '> ```', '- a', '', '  b'].join('\n'),
+    places: [
+      { name: 'the start of a quote, before its hidden marks', at: 'opened' },
+      { name: 'the end of the first row of a quote', at: { word: 'a', at: 1, row: 0 } },
+      { name: 'the start of an item in a quote', at: { word: 'b', at: 0, row: 1 }, marks: true },
+      { name: 'the end of an item in a quote, before its nested item', at: { word: 'b', at: 1, row: 1 } },
+      { name: 'the start of a nested item in a quote', at: { word: 'c', at: 0, row: 2 }, marks: true },
+      { name: 'the end of a nested item in a quote', at: { word: 'c', at: 1, row: 2 } },
+      { name: 'a blank row in a quote, after its hidden mark', at: { blank: 3 } },
+      { name: 'the start of a heading in a quote', at: { word: 'h', at: 0, row: 4 }, marks: true },
+      { name: 'the end of a heading in a quote', at: { word: 'h', at: 1, row: 4 } },
+      { name: 'the start of a paragraph in a quote', at: { word: 'text', at: 0 }, marks: true },
+      { name: 'the end of a paragraph in a quote', at: { word: 'text', at: 4 } },
+      { name: 'the start of code in a quote', at: { word: 'code', at: 0 }, marks: true },
+      { name: 'the end of code in a quote, the last row of the quote', at: { word: 'code', at: 4 } },
+      { name: 'the start of an item after a quote', at: { word: 'a', at: 0, row: 9 }, marks: true },
+      { name: 'the end of the first paragraph of an item', at: { word: 'a', at: 1, row: 9 } },
+      { name: 'a blank row between the paragraphs of an item', at: { blank: 10 } },
+      { name: 'the start of the second paragraph of an item', at: { word: 'b', at: 0, row: 11 }, marks: true },
+      { name: 'the end of the note, in the second paragraph of an item', at: { word: 'b', at: 1, row: 11 } },
+    ],
+  },
 ];
 
 type Cell = [number, number];
@@ -144,9 +168,10 @@ const rowCol = (text: string, offset: number): Cell => {
 
 const offsetOfRow = (note: string, row: number) => note.split('\n').slice(0, row).reduce((sum, line) => sum + line.length + 1, 0);
 
+/** Where a place is in the note. A blank row may hold marks the page hides, such as a quote's `>`, and a click on it lands after them. */
 function startOf(sheet: Sheet, place: Place) {
   if (place.at === 'opened') return 0;
-  if ('blank' in place.at) return offsetOfRow(sheet.note, place.at.blank);
+  if ('blank' in place.at) return offsetOfRow(sheet.note, place.at.blank) + (sheet.note.split('\n')[place.at.blank] ?? '').length;
   return offsetOf(sheet.note, place.at);
 }
 
@@ -199,10 +224,14 @@ async function drawWholeNote(editor: Editing) {
   await editor.fixtures.page.nextFrame();
 }
 
-/** Puts the page where a place is reached from: the whole note drawn, or the note opened with the caret at its start. */
+/**
+ * Puts the page where a place is reached from: the whole note drawn, or the
+ * note opened with the caret at its start. A note opened again holds its first
+ * block in the text field, so it is drawn whole before a place in it is clicked.
+ */
 async function begin(editor: Editing, sheet: Sheet, place: Place, reopen: boolean) {
   if (reopen || place.at === 'opened') await editor.open(sheet.note);
-  else await drawWholeNote(editor);
+  if (place.at !== 'opened') await drawWholeNote(editor);
 }
 
 type Landing = { at: Cell; x: number } | { problem: string };
