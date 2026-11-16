@@ -297,6 +297,41 @@ test('undo puts the caret where the step began, and redo where it ended', async 
   await editor.expectNote('alpha oneYZ\n\nbravo two words\n\ncharlie three');
 });
 
+for (const [what, words] of [
+  ['accents typed as marks after their letters', ['cafe\u0301', ' nai\u0308ve']],
+  ['flags', ['🇯🇵🇺🇸', ' 🇫🇷']],
+  ['a family emoji', ['👨\u200d👩\u200d👧', ' x']],
+] as const) {
+  test(`${what}, typed one code point at a time, are undone a word at a time and never in part`, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.open('');
+    const typed = words.join('');
+    await editor.type(typed);
+    expect(await editor.shown()).toBe(typed);
+
+    await editor.press(ctrl('z'));
+    expect(await editor.shown()).toBe(words[0]);
+    await editor.press(ctrl('z'));
+    expect(await editor.shown()).toBe('');
+    await editor.press(ctrl('Shift+z'));
+    expect(await editor.shown()).toBe(words[0]);
+    await editor.press(ctrl('Shift+z'));
+    expect(await editor.shown()).toBe(typed);
+  });
+}
+
+test('a run of Backspaces over letters with their accents typed as marks is one undo step', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const letters = 'e\u0301e\u0301e\u0301';
+  await editor.open(`alpha one\n\n${letters} end`);
+  await editor.click({ word: ' end', at: 0 });
+  await editor.press('Backspace', 'Backspace');
+  expect(await editor.shown()).toBe('alpha one\n\ne\u0301e\u0301 end');
+
+  await editor.press(ctrl('z'));
+  expect(await editor.shown()).toBe(`alpha one\n\n${letters} end`);
+});
+
 test('a pause while typing ends an undo step, and typing without a pause is undone a word at a time', async (fixtures) => {
   const editor = new Editing(fixtures);
   await editor.open('');

@@ -2402,6 +2402,35 @@ for (const [cell, field] of [
   });
 }
 
+for (const [block, selector, row, field] of [
+  ['heading', 'h1', '# 👍🏽z', '# |👍🏽z'],
+  ['list item', 'li', '- 🇯🇵z', '- |🇯🇵z'],
+  ['quote', 'blockquote', '> 👨‍👩‍👧z', '> |👨‍👩‍👧z'],
+  ['table cell', 'td', '| a | b |\n|-|-|\n| e\u0301z | q |', '| a | b |\n|-|-|\n| |e\u0301z | q |'],
+] as const) {
+  test(`a click on the left of a drawn ${block}'s first letter made of several code points puts the caret before it, after the marks`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `Para.\n\n${row}\n\nEnd.`);
+    const at = await browser.evaluate((selector: string) => {
+      const text = document.createTreeWalker(document.querySelector(`.page.live ${selector}`)!, NodeFilter.SHOW_TEXT).nextNode() as Text;
+      const [first] = new Intl.Segmenter().segment(text.data);
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, first!.segment.length);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + box.width / 4, y: box.top + box.height / 2 };
+    }, selector);
+    await browser.mouse.move(at.x, at.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect.poll(() => page.caret()).toBe(field);
+  });
+}
+
 for (const [cell, row, field] of [
   ['語', '| 日本 | 語 |', '| 日本 | |語 |'],
   ['thé', '| café | thé |', '| café | |thé |'],

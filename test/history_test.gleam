@@ -469,3 +469,60 @@ pub fn typing_over_a_selected_accented_letter_is_one_step_with_the_typing_after_
   assert history.present(undone(typed)) == selected
   assert history.undo(undone(typed)) == Error(Nil)
 }
+
+pub fn a_code_point_typed_onto_the_letter_before_the_caret_joins_the_run_of_typing_test() {
+  let accent =
+    history.new(at("", 0))
+    |> record_all([
+      at("c", 1),
+      at("ca", 2),
+      at("caf", 3),
+      at("cafe", 4),
+      at("cafe\u{301}", 4),
+    ])
+  assert history.present(undone(accent)) == at("", 0)
+  assert history.undo(undone(accent)) == Error(Nil)
+  assert history.present(redone(undone(accent))) == at("cafe\u{301}", 4)
+
+  let flags =
+    history.new(at("", 0))
+    |> record_all([
+      at("🇯", 1),
+      at("🇯🇵", 1),
+      at("🇯🇵🇺", 2),
+      at("🇯🇵🇺🇸", 2),
+    ])
+  assert shown(undone(flags)) == ""
+
+  let family =
+    history.new(at("", 0))
+    |> record_all([
+      at("👨", 1),
+      at("👨\u{200d}", 1),
+      at("👨\u{200d}👩", 1),
+      at("👨\u{200d}👩\u{200d}", 1),
+      at("👨\u{200d}👩\u{200d}👧", 1),
+    ])
+  assert shown(undone(family)) == ""
+}
+
+pub fn a_letter_changed_into_another_before_the_caret_is_a_step_of_its_own_test() {
+  let changed =
+    history.new(at("", 0))
+    |> record_all([at("a", 1), at("ab", 2), at("abe", 3), at("abx", 3)])
+  assert shown(undone(changed)) == "abe"
+  assert shown(undone(undone(changed))) == ""
+}
+
+pub fn a_backspace_that_takes_only_an_accent_off_joins_the_run_of_backspaces_test() {
+  let letters = "e\u{301}e\u{301}e\u{301}"
+  let erased =
+    history.new(at(letters, 3))
+    |> record_all([
+      at("e\u{301}e\u{301}e", 3),
+      at("e\u{301}e\u{301}", 2),
+      at("e\u{301}e", 2),
+    ])
+  assert history.present(undone(erased)) == at(letters, 3)
+  assert history.undo(undone(erased)) == Error(Nil)
+}
