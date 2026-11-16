@@ -2402,6 +2402,32 @@ for (const [cell, field] of [
   });
 }
 
+for (const [cell, row, field] of [
+  ['語', '| 日本 | 語 |', '| 日本 | |語 |'],
+  ['thé', '| café | thé |', '| café | |thé |'],
+] as const) {
+  test(`a click at the start of the drawn table cell ${cell}, after a cell of letters of more than one byte, puts the caret in that cell`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `Para.\n\n| a | b |\n|-|-|\n${row}\n\nEnd.`);
+    const at = await browser.evaluate((cell: string) => {
+      const text = [...document.querySelectorAll('.page.live td')].find((td) => td.textContent === cell)!.firstChild!;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 1);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + box.width / 4, y: box.top + box.height / 2 };
+    }, cell);
+    await browser.mouse.move(at.x, at.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect.poll(() => page.caret()).toBe(`| a | b |\n|-|-|\n${field}`);
+  });
+}
+
 test('text dragged onto the right of a drawn table cell lands at the end of that cell', async ({
   app,
   browser,

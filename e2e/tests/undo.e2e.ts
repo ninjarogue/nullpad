@@ -352,6 +352,21 @@ test('undo takes back selected text dragged onto another block in one step, and 
   await editor.expectSaved(moved);
 });
 
+test('selected text dragged from after an accented letter to after CJK letters moves whole, and undo takes it back', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const start = 'café alpha beta\n\n日本 para here';
+  const moved = 'café  beta\n\n日本 alphapara here';
+  await editor.open(start);
+  await editor.press(...Array.from({ length: 5 }, () => 'ArrowRight'));
+  await editor.press(...Array.from({ length: 5 }, () => 'Shift+ArrowRight'));
+  await expect.poll(async () => (await fixtures.page.selection()).selected).toBe('alpha');
+  await glide(fixtures, await fixtures.page.pointAt('lpha'), await fixtures.page.pointAt('para here'));
+  await editor.expectSaved(moved);
+
+  await editor.press(ctrl('z'));
+  await editor.expectSaved(start);
+});
+
 test('undo takes back selected text dragged along its own row in one step', async (fixtures) => {
   const editor = new Editing(fixtures);
   const start = 'alpha beta gamma\n\nsecond para here';
@@ -501,6 +516,54 @@ test('typing over a selected word is undone in one step, back to the word select
   await editor.expectNote(note);
   await editor.type('X');
   await editor.expectNote('alpha one\n\nbravo X words\n\ncharlie three');
+});
+
+for (const run of [
+  { what: 'Backspaces after an accented letter', line: 'café latte', spot: { word: 'latte', at: 0 }, key: 'Backspace', left: 'caflatte' },
+  { what: 'Backspaces after CJK letters', line: '日本語 abc', spot: { word: 'abc', at: 0 }, key: 'Backspace', left: '日本abc' },
+  { what: 'Backspaces over an emoji', line: 'I 👍 it', spot: { word: 'it', at: 0 }, key: 'Backspace', left: 'I it' },
+  { what: 'Deletes after an accented letter', line: 'café abc def', spot: { word: 'abc', at: 0 }, key: 'Delete', left: 'café c def' },
+  { what: 'Deletes over CJK letters', line: 'abc 日本語 def', spot: { word: '日本語', at: 0 }, key: 'Delete', left: 'abc 語 def' },
+  { what: 'Deletes over an emoji', line: 'go 👍👍 now', spot: { word: 'go ', at: 3 }, key: 'Delete', left: 'go  now' },
+]) {
+  test(`undo takes back a run of ${run.what} in one step`, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    const note = `alpha one\n\n${run.line}`;
+    await editor.open(note);
+    await editor.click(run.spot);
+    await editor.press(run.key, run.key);
+    await editor.expectNote(`alpha one\n\n${run.left}`);
+
+    await editor.press(ctrl('z'));
+    await editor.expectNote(note);
+  });
+}
+
+test('undo takes back a word typed after an accented letter in one step', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const note = 'alpha one\n\ncafé latte';
+  await editor.open(note);
+  await editor.click({ word: 'latte', at: 0 });
+  await editor.type('big');
+  await editor.expectNote('alpha one\n\ncafé biglatte');
+
+  await editor.press(ctrl('z'));
+  await editor.expectNote(note);
+});
+
+test('typing over a selected accented letter is undone in one step, back to the letter selected', async (fixtures) => {
+  const editor = new Editing(fixtures);
+  const note = 'alpha one\n\nabc é def';
+  await editor.open(note);
+  await editor.click({ word: 'é', at: 0 });
+  await editor.press('Shift+ArrowRight');
+  await editor.type('xy');
+  await editor.expectNote('alpha one\n\nabc xy def');
+
+  await editor.press(ctrl('z'));
+  await editor.expectNote(note);
+  await editor.type('Z');
+  await editor.expectNote('alpha one\n\nabc Z def');
 });
 
 type Chord = { key: string; code: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; isComposing?: boolean };
