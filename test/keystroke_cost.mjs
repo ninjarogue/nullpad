@@ -228,6 +228,8 @@ const events = {
   EdgePressed: [
     ["Up", (field) => new editor.EdgePressed(new editor.Up(), 0, field)],
     ["Down", (field) => new editor.EdgePressed(new editor.Down(), 0, field)],
+    ["Before", (field) => new editor.EdgePressed(new editor.Before(), 0, field)],
+    ["After", (field) => new editor.EdgePressed(new editor.After(), 0, field)],
     ["JoinBefore", (field) => new editor.EdgePressed(new editor.JoinBefore(), 0, field)],
     ["JoinAfter", (field) => new editor.EdgePressed(new editor.JoinAfter(), 0, field)],
     ["SelectUp", (field) => new editor.EdgePressed(new editor.SelectUp(), 0, field)],

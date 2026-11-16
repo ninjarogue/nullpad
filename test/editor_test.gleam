@@ -1072,6 +1072,53 @@ pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
     == #(Position(row: 2, col: 23), Position(row: 3, col: 0))
 }
 
+pub fn arrows_at_the_ends_of_the_field_cross_to_the_next_row_test() {
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      pressed(live_note, 2, ""),
+      editor.EdgePressed(
+        editor.Before,
+        x: 0.0,
+        shown: caret("Flights are **booked**.", 0, 0),
+      ),
+    )
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 1, col: 0)
+  assert sync == editor.Write(caret("", 0, 0))
+
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      pressed(live_note, 4, ""),
+      editor.EdgePressed(editor.Before, x: 0.0, shown: caret("- one", 0, 0)),
+    )
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 3, col: 0)
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      pressed(live_note, 4, ""),
+      editor.EdgePressed(editor.After, x: 0.0, shown: caret("- one", 0, 5)),
+    )
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 5, col: 0)
+  assert sync == editor.Write(caret("- two", 0, 0))
+}
+
+pub fn arrows_at_the_ends_of_the_note_stay_test() {
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      pressed(live_note, 0, ""),
+      editor.EdgePressed(editor.Before, x: 0.0, shown: caret("# Trip", 0, 0)),
+    )
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 0, col: 0)
+  assert sync == editor.InSync
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      pressed(live_note, 5, ""),
+      editor.EdgePressed(editor.After, x: 0.0, shown: caret("- two", 0, 5)),
+    )
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 5, col: 5)
+  assert sync == editor.InSync
+}
+
 pub fn select_all_takes_the_whole_note_into_the_field_test() {
   let Outcome(editor: ed, sync:, ..) =
     live(live_note)

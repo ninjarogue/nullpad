@@ -806,6 +806,8 @@ fn edge_decoder(
     "Delete" if plain && head == end -> Ok(editor.JoinAfter)
     "ArrowUp" if bare && head.row == 0 -> Ok(editor.Up)
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
+    "ArrowLeft" if plain && head == start -> Ok(editor.Before)
+    "ArrowRight" if plain && head == end -> Ok(editor.After)
     "ArrowUp" if shifted -> Ok(editor.SelectUp)
     "ArrowDown" if shifted -> Ok(editor.SelectDown)
     "ArrowLeft" if painted -> Ok(editor.SelectLeft)
@@ -845,7 +847,9 @@ fn edge_decoder(
           #(_, True, x) -> Ok(#(edge, x))
           _ -> Error(Nil)
         }
-      editor.JoinBefore
+      editor.Before
+      | editor.After
+      | editor.JoinBefore
       | editor.JoinAfter
       | editor.SelectBefore
       | editor.SelectAfter

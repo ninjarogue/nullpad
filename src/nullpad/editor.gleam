@@ -216,6 +216,10 @@ pub type Event {
 pub type Edge {
   Up
   Down
+  /// An arrow left at the start of the field, or right at its end, with
+  /// nothing selected: the caret crosses to the row before or after.
+  Before
+  After
   JoinBefore
   JoinAfter
   SelectUp
@@ -793,6 +797,14 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
       buffer.move_to(base, Position(row: cursor.row + 1, col: 0)),
       Aim(FirstLine),
     )
+    Before if row_above -> #(
+      buffer.move_to(base, end_of_row(cursor.row - 1)),
+      Done,
+    )
+    After if row_below -> #(
+      buffer.move_to(base, Position(row: cursor.row + 1, col: 0)),
+      Done,
+    )
     JoinBefore if row_above -> {
       let from = end_of_row(cursor.row - 1)
       let to = Position(row: cursor.row, col: 0)
@@ -818,6 +830,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     SelectAll -> #(buffer.select(base, anchor: start, head: end), Done)
     Up
     | Down
+    | Before
+    | After
     | JoinBefore
     | JoinAfter
     | SelectUp
