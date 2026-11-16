@@ -359,3 +359,62 @@ for (const [block, size] of [
     expect((await page.fieldFont()).size).toBe(size);
   });
 }
+
+test("a bullet is centred on the first line of a heading in its item, as on a line of body text", async ({ app }) => {
+  await app.open('/');
+  const own = await chromium.launch();
+  try {
+    const tab = await (await own.newContext({ viewport: { width: 900, height: 700 } })).newPage();
+    await tab.goto(`${app.baseUrl}/`);
+    await tab.getByLabel('Note text').fill('- # one\n- ## one\n- ### one\n> - # one\n- one\n\npara');
+    await tab.keyboard.press('Control+End');
+    await expect.poll(() => tab.locator('.page.live .preview li').count()).toBe(5);
+    const items = await tab.evaluate(() =>
+      [...document.querySelectorAll('.page.live .preview li')].map((item) => {
+        const words = document.createRange();
+        words.selectNodeContents(item.firstElementChild ?? item);
+        const first = words.getClientRects()[0]!;
+        return { left: first.left, right: first.right, top: first.top, bottom: first.bottom };
+      }),
+    );
+    const shot = (await tab.screenshot()).toString('base64');
+    const middles = await tab.evaluate(
+      async (given: { shot: string; items: typeof items }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${given.shot}`;
+        await image.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, 0, 0);
+        const scale = image.width / innerWidth;
+        const inkMiddle = (left: number, right: number, top: number, bottom: number) => {
+          const [x, y] = [Math.floor(left * scale), Math.floor(top * scale)];
+          const pixels = context.getImageData(x, y, Math.ceil((right - left) * scale), Math.ceil((bottom - top) * scale));
+          const rows: number[] = [];
+          for (let row = 0; row < pixels.height; row++) {
+            for (let column = 0; column < pixels.width; column++) {
+              const at = (row * pixels.width + column) * 4;
+              if (pixels.data[at]! + pixels.data[at + 1]! + pixels.data[at + 2]! < 3 * 160) {
+                rows.push(row);
+                break;
+              }
+            }
+          }
+          return rows.length === 0 ? null : (rows[0]! + rows[rows.length - 1]!) / 2 / scale;
+        };
+        return given.items.map(({ left, right, top, bottom }) => ({
+          marker: inkMiddle(left - 40, left - 2, top, bottom),
+          words: inkMiddle(left, right, top, bottom),
+        }));
+      },
+      { shot, items },
+    );
+    const apart = middles.map(({ marker, words }) => (marker === null || words === null ? null : Math.abs(marker - words)));
+    expect(apart[4], 'a bullet beside body text is centred on its letters').toBeLessThanOrEqual(1.5);
+    for (const [at, by] of apart.entries()) expect(by, `the bullet of item ${at} is centred on its first line`).toBeLessThanOrEqual(1.5);
+  } finally {
+    await own.close();
+  }
+});
