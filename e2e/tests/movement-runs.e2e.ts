@@ -788,6 +788,17 @@ for (const run of runs) {
     if (pending?.held) test.fail(pending.held);
     const wanted = wholePairs(run, plan.states).at(-1)!;
     const problems: string[] = [];
+    // A plain field does not wrap where the page does, so wrapped rows end
+    // where the same keys pressed a frame apart end.
+    let paced: Look | null = null;
+    if (run.follow === 'wrapped') {
+      await begin(editor, run);
+      for (const step of run.steps) {
+        await fixtures.browser.keyboard.press(key(step));
+        const got = await look(editor, lines(wanted.value));
+        paced = 'problem' in got ? null : got;
+      }
+    }
     for (let again = 0; again < (run.repeat ?? 1); again++) {
       await begin(editor, run);
       for (const step of run.steps) await fixtures.browser.keyboard.press(key(step));
@@ -796,9 +807,15 @@ for (const run of runs) {
         problems.push(`press ${again + 1}: ${got.problem}`);
         continue;
       }
+      if (run.follow === 'wrapped') {
+        if (!paced || !same(paced.anchor, got.anchor) || !same(paced.head, got.head)) {
+          problems.push(`press ${again + 1}: a frame apart the keys select from ${paced?.anchor} to ${paced?.head}, with no frame between them from ${got.anchor} to ${got.head}`);
+        }
+        continue;
+      }
       const last = key(run.steps.at(-1)!);
       const line = lines(wanted.value)[got.head[0]] ?? '';
-      const follow: Follow = run.follow === 'wrapped' ? 'row' : isVertical(last) ? run.follow : 'plain field';
+      const follow: Follow = isVertical(last) ? run.follow : 'plain field';
       for (const problem of judge(follow, wanted, got, plan.from.x, line.length)) problems.push(`press ${again + 1}: ${problem}`);
     }
     expect(problems).toEqual([]);
