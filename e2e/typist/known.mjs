@@ -86,8 +86,28 @@ export const known = [
     id: 'word-select-over-marks',
     kind: 'intended',
     reason:
-      'A painted selection never ends inside a pair of marks the page hides, so Delete never leaves a literal ** behind. Where a textarea\'s word step stops inside a pair, as between ** and bold, the painted head goes on past the pair, or back before it, the way the step was going. Only a paced run paints between the keys.',
-    skip: (k, c, pace) => pace !== 'burst' && isWordSelect(k) && inlineMark.test(c.value),
+      'The head of a painted selection that a key moves never ends inside a pair of marks the page hides. Where a textarea\'s word step stops inside a pair, as between ** and bold, the painted head goes on past the pair, or back before it, the way the step was going. Only a paced run paints between the keys, and only a selection across rows can be painted: one already across rows, or one whose head the step takes over the end of its row.',
+    skip: (k, c, pace) => {
+      if (pace === 'burst' || !isWordSelect(k) || !inlineMark.test(c.value)) return false;
+      const line = rows(c)[rowAt(c.value, c.head)];
+      const column = columnAt(c.value, c.head);
+      const edge = /Right$/.test(k) ? line.slice(column).trim() === '' : line.slice(0, column).trim() === '';
+      return rowAt(c.value, c.anchor) !== rowAt(c.value, c.head) || edge;
+    },
+    sanitize: (script) => script,
+  },
+  {
+    id: 'painted-letter-over-marks',
+    kind: 'intended',
+    finding: 'B1',
+    reason:
+      'Shift and an arrow left or right on a selection painted across blocks steps one letter of the drawn page, so it also passes the marks the page hides beside that letter, and a head that ends among the marks of a pair goes on past the pair. A textarea steps one character of the markdown. Whether it should is a question for aric; if the answer is one character, this entry becomes open. Left out: only Shift+ArrowLeft or Shift+ArrowRight with the selection across rows and a mark within two characters on the side the head steps to.',
+    repro: ['#', ' ', 'a', 'Enter', '*', '*', 'b', '*', '*', ' ', 'c', 'Enter', 'd', 'Control+Home', 'Shift+ArrowDown', 'Shift+ArrowRight'],
+    skip: (k, c) => {
+      if (!/^Shift\+Arrow(Left|Right)$/.test(k) || rowAt(c.value, c.anchor) === rowAt(c.value, c.head)) return false;
+      const beside = /Right$/.test(k) ? c.value.slice(c.head, c.head + 2) : c.value.slice(Math.max(0, c.head - 2), c.head);
+      return anyMark.test(beside);
+    },
     sanitize: (script) => script,
   },
 ];

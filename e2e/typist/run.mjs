@@ -222,11 +222,15 @@ async function open(browser, url, kind, errors) {
 const differ = (a, b) =>
   b.anchorMoves?.length ? 'anchor moved on a Shift key' : sign(a.state) !== sign(b.state) ? 'text, cursor or selection' : b.undone !== '' ? 'undo everything' : null;
 
-/** Remove chunks of keys, halving the chunk size, while the script still fails. */
-async function shrink(keys, fails) {
+/**
+ * Remove chunks of keys, halving the chunk size, while the script still fails. `comparable`
+ * leaves out of each shorter script the keys known.mjs cannot compare there: a key that was
+ * comparable in the whole script may not be once the keys before it are gone.
+ */
+async function shrink(keys, fails, comparable = async (candidate) => candidate) {
   for (let size = Math.ceil(keys.length / 2); size >= 1; size = size === 1 ? 0 : Math.ceil(size / 2)) {
     for (let at = 0; at < keys.length; ) {
-      const candidate = keys.slice(0, at).concat(keys.slice(at + size));
+      const candidate = await comparable(keys.slice(0, at).concat(keys.slice(at + size)));
       if (candidate.length && (await fails(candidate))) keys = candidate;
       else at += size;
     }
@@ -321,7 +325,8 @@ async function main() {
     const seen = new Set();
     for (const f of failed.slice(0, Number(args.shrink ?? 8))) {
       const pace = paceOfScript(f.i);
-      const keys = await shrink(scripts[f.i], async (c) => (await differs(pairs[0], c, pace, 2)).why !== null);
+      const comparable = useKnown && !args.script ? (c) => pairs[0].plain.prune(c, pace) : undefined;
+      const keys = await shrink(scripts[f.i], async (c) => (await differs(pairs[0], c, pace, 2)).why !== null, comparable);
       const text = show(keys);
       if (seen.has(text)) continue;
       seen.add(text);
