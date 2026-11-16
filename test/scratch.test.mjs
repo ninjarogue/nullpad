@@ -10,12 +10,12 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { after, describe, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { nodeTestFiles } from "./steps.mjs";
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
-const self = fileURLToPath(import.meta.url);
 const scratchModule = pathToFileURL(join(repo, "test/scratch.mjs")).href;
 
 const own = [];
@@ -57,22 +57,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 `;
 const dirWithAFile = `const dir = mkdtempSync(join(tmpdir(), "made-")); writeFileSync(join(dir, "file"), "x");`;
-
-function nodeTestFiles(dir) {
-  const found = [];
-  const walk = (current) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = join(current, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== "node_modules" && !entry.name.startsWith(".")) walk(path);
-      } else if (entry.name.endsWith(".test.mjs") && path !== self) {
-        found.push(path);
-      }
-    }
-  };
-  walk(dir);
-  return found.sort();
-}
 
 describe("the detector", () => {
   test("finds the directory a test file leaves behind", () => {
@@ -145,15 +129,15 @@ test("makes one, then fails", () => { scratch.make("d-"); throw new Error("boom"
 });
 
 describe("the node tests of the gate", () => {
-  const files = nodeTestFiles(join(repo, "test")).concat(nodeTestFiles(join(repo, "tools")));
+  const files = nodeTestFiles().filter((file) => file !== "test/scratch.test.mjs");
 
   test("there are some, so the proof is not about nothing", () => {
-    assert.ok(files.length >= 2, `found ${files.map((file) => relative(repo, file)).join(", ")}`);
+    assert.ok(files.length >= 2, `found ${files.join(", ")}`);
   });
 
   for (const file of files) {
-    test(`${relative(repo, file)} leaves nothing in the temp directory`, () => {
-      const result = leftBehind(file);
+    test(`${file} leaves nothing in the temp directory`, () => {
+      const result = leftBehind(join(repo, file));
       assert.equal(result.status, 0, result.output);
       assert.deepEqual(result.left, []);
     });

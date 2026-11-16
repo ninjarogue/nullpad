@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { useScratch } from "./scratch.mjs";
-import { e2eConfigs, readers } from "./steps.mjs";
+import { e2eConfigs, gateSteps, nodeTestFiles, readers } from "./steps.mjs";
 import { gate, judge, loadCounts, runStep } from "./test_counts.mjs";
 
 const scratch = useScratch();
@@ -382,5 +382,22 @@ describe("the e2e configs", () => {
     mkdirSync(join(dir, "tests"));
     writeFileSync(join(dir, "tests", "x.config.ts"), "");
     assert.deepEqual(e2eConfigs(dir), ["e2e.config.ts", "e2e.dpr2.config.mjs"]);
+  });
+});
+
+describe("the node tests", () => {
+  test("every node test file under test/ and tools/ is a step of the gate, so a new one cannot go unrun", () => {
+    const run = gateSteps().flatMap((step) => step.command("").filter((arg) => arg.endsWith(".test.mjs")));
+    assert.deepEqual(run.sort(), nodeTestFiles());
+  });
+
+  test("a node test file is any *.test.mjs under test/ or tools/, outside node_modules and hidden folders", () => {
+    const base = scratch.make("tree-");
+    const put = (name) => {
+      mkdirSync(join(base, name, ".."), { recursive: true });
+      writeFileSync(join(base, name), "");
+    };
+    for (const name of ["test/a.test.mjs", "tools/x/b.test.mjs", "test/c.mjs", "test/node_modules/d.test.mjs", "tools/.hidden/e.test.mjs", "e2e/f.test.mjs", "g.test.mjs"]) put(name);
+    assert.deepEqual(nodeTestFiles(base), ["test/a.test.mjs", "tools/x/b.test.mjs"]);
   });
 });

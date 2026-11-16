@@ -4,7 +4,7 @@
 // to how a runner is called or read is made once.
 
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const root = fileURLToPath(new URL("..", import.meta.url));
@@ -99,6 +99,23 @@ export const nodeTest = (id, file) => ({
   command: () => ["node", "--test", "--test-reporter=tap", file],
   read: readers.nodeTest,
 });
+
+/** Every `*.test.mjs` under `test/` and `tools/` of `base`, as paths from it, sorted. */
+export function nodeTestFiles(base = root) {
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules" && !entry.name.startsWith(".")) walk(path);
+      } else if (entry.name.endsWith(".test.mjs")) {
+        found.push(relative(base, path));
+      }
+    }
+  };
+  for (const top of ["test", "tools"]) walk(join(base, top));
+  return found.sort();
+}
 
 const e2eDir = join(root, "e2e");
 
