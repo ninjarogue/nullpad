@@ -59,6 +59,58 @@ const strays = {
   "scripts/looped.ts": "import { test } from '@e2e-dev/web';\nfor (const n of [1, 2]) test(`n ${n}`, async () => {});\n",
 };
 
+
+// Registrations a person writes without a literal title or a function last: each sits in a file
+// that is not named like a test, and no config discovers it. `helpers` are files that are not tests.
+const helpers = {
+  "tests/custom.ts": "import { test as base } from '@e2e-dev/web';\nexport const spec = base.extend({});\nexport default base.extend({});\nexport const aliased = base;\n",
+  "tests/renamed.ts": "export { test as it } from './helper.ts';\n",
+  "tests/starred.ts": "export * from './custom.ts';\n",
+  "tests/viaconst.ts": "import { spec } from './custom.ts';\nexport const again = spec;\n",
+};
+
+const run = "const run = async () => {};\nconst name = 'x';\n";
+const moreStrays = {
+  "scripts/loop-title.ts": "import { test } from '@e2e-dev/web';\nconst cases = [{ title: 'a', run: async () => {} }];\nfor (const c of cases) test(c.title, c.run);\n",
+  "scripts/plain-arguments.ts": `import { test } from '@e2e-dev/web';\n${run}test(name, run);\n`,
+  "scripts/alias-const.ts": `import { test } from '@e2e-dev/web';\n${run}const t = test;\nt(name, run);\n`,
+  "scripts/alias-let.ts": `import { test } from '@e2e-dev/web';\n${run}let t;\nt = test;\nt(name, run);\n`,
+  "scripts/default-import.ts": `import e2e from 'e2e';\n${run}e2e.test(name, run);\n`,
+  "scripts/namespace-alias.ts": `import * as e2e from 'e2e';\n${run}const t = e2e.test;\nt(name, run);\n`,
+  "scripts/namespace-destructured.ts": `import * as e2e from '@e2e-dev/web';\n${run}const { test: t } = e2e;\nt(name, run);\n`,
+  "scripts/extend-here.ts": `import { test } from '@e2e-dev/web';\n${run}const it = test.extend({});\nit(name, run);\n`,
+  "scripts/extend-called.ts": `import { test } from '@e2e-dev/web';\n${run}test.extend({})(name, run);\n`,
+  "scripts/extend-named-helper.ts": `import { spec } from '../tests/custom.ts';\n${run}spec(name, run);\n`,
+  "scripts/extend-default-helper.ts": `import it from '../tests/custom.ts';\n${run}it(name, run);\n`,
+  "scripts/extend-aliased-helper.ts": `import { aliased as t } from '../tests/custom.ts';\n${run}t(name, run);\n`,
+  "scripts/extend-renamed-export.ts": `import { it } from '../tests/renamed.ts';\n${run}it(name, run);\n`,
+  "scripts/extend-starred-export.ts": `import { spec } from '../tests/starred.ts';\n${run}spec(name, run);\n`,
+  "scripts/extend-through-const.ts": `import { again } from '../tests/viaconst.ts';\n${run}again(name, run);\n`,
+  "scripts/helper-namespace.ts": `import * as h from '../tests/helper.ts';\n${run}h.test(name, run);\n`,
+  "scripts/dynamic-member.ts": `${run}(await import('e2e')).test(name, run);\n`,
+  "scripts/dynamic-web-member.ts": `${run}(await import('@e2e-dev/web')).test(name, run);\n`,
+  "scripts/dynamic-helper.ts": `${run}const h = await import('../tests/custom.ts');\nh.spec(name, run);\n`,
+  "scripts/required-namespace.cjs": `const e2e = require('e2e');\n${run}e2e.test(name, run);\n`,
+  "scripts/skip-with-names.ts": `import { test } from '@e2e-dev/web';\n${run}test.skip(name, run);\n`,
+  "scripts/only-with-names.ts": `import { test } from '@e2e-dev/web';\n${run}test.only(name, run);\n`,
+  "scripts/describe-with-names.ts": `import { describe } from '@e2e-dev/web';\nconst body = () => {};\ndescribe(name, body);\n`,
+  "scripts/in-a-function.ts": `import { test } from '@e2e-dev/web';\n${run}export function register(): void {\n  test(name, run);\n}\n`,
+  "scripts/for-each.ts": "import { test } from '@e2e-dev/web';\n[{ title: 'a', run: async () => {} }].forEach((c) => test(c.title, c.run));\n",
+  "tests/x.config.ts": "import { test } from '@e2e-dev/web';\ntest('x', async () => {});\n",
+  "tests/nested/y.config.mjs": "import { test } from '@e2e-dev/web';\ntest('y', async () => {});\n",
+};
+
+// Files that use the e2e API without registering a test.
+const moreNotTests = {
+  ...helpers,
+  "tests/in-a-body.ts": "import { test } from '@e2e-dev/web';\nexport function guard(on: boolean): void {\n  test.skip(on, 'a reason');\n  test.fail(on, 'another');\n  test.skip('always');\n  test.fail('known gap');\n}\n",
+  "tests/own-registrar.ts": "export function test(title: string, body: () => void): void {\n  body();\n}\ntest('not the e2e one', () => {});\n",
+  "tests/alias-not-called.ts": "import { test } from '@e2e-dev/web';\nexport const t = test;\nexport const same = test.extend({});\n",
+  "tests/hooks-only.ts": "import { afterAll, beforeEach } from 'e2e';\nbeforeEach(async () => {});\nafterAll(async () => {});\n",
+  "tests/namespace-members.ts": "import e2e from 'e2e';\nimport * as all from '@e2e-dev/web';\nexport const same = e2e.expect;\nexport const other = all.web;\nconst t = e2e.expect;\nt(1);\n",
+  "tests/uses-helper-namespace.e2e.ts": "import * as h from './helper.ts';\nh.test('through a namespace', async () => {});\n",
+};
+
 function toy(files, { configs = {} } = {}) {
   const dir = scratch.make("e2e-dir-");
   symlinkSync(join(real, "node_modules"), join(dir, "node_modules"));
@@ -121,5 +173,33 @@ describe("a file under e2e/ that looks like a test", () => {
     assert.match(out, /other\/x\.e2e\.ts.*(name|looks like a test)/is);
     assert.match(out, /scripts\/direct\.mjs.*(registers|test API)/is);
     assert.match(out, /config|tests glob|rename/i);
+  });
+});
+
+const lazily = (make) => {
+  let value;
+  return () => (value ??= make());
+};
+
+describe("a registration whatever its arguments, through whatever binds the e2e test API", () => {
+  const everything = lazily(() => check(toy({ ...notTests, ...moreNotTests, ...moreStrays })));
+  for (const name of names(moreStrays)) {
+    test(`${name} is named`, () => {
+      const { status, out } = everything();
+      assert.equal(status, 1, out);
+      assert.match(out, new RegExp(`FAIL ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`), `${name} is not named:\n${out}`);
+    });
+  }
+
+  test("none of the files that use the API without registering a test are named", () => {
+    const { out } = everything();
+    for (const name of names(moreNotTests)) {
+      assert.doesNotMatch(out, new RegExp(`FAIL ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`), `${name} is named:\n${out}`);
+    }
+  });
+
+  test("passes when only the files that use the API without registering are there", () => {
+    const { status, out } = check(toy({ ...notTests, ...moreNotTests }));
+    assert.equal(status, 0, out);
   });
 });
