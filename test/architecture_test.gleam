@@ -111,7 +111,7 @@ pub fn every_rule_has_a_break_that_proves_it_test() {
 }
 
 fn all_breaks() -> List(Break) {
-  list.flatten([breaks(), outside_breaks(), second_round()])
+  list.flatten([breaks(), outside_breaks(), second_round(), third_round()])
 }
 
 fn swap(result: Result(a, b)) -> Result(b, a) {
@@ -784,6 +784,139 @@ fn second_round() -> List(Break) {
       "core JavaScript reads the document",
       "nullpad/markdown.ffi.mjs",
       last("export const w = () => document.title;"),
+    ),
+  ]
+}
+
+/// From a third attacker, who had not read the breaks above: decoders made
+/// where no function is named a decoder, closures over the drawn editor, a
+/// measure that hands back app state, and an import alias.
+fn third_round() -> List(Break) {
+  let surface = "nullpad/surface.gleam"
+  let inline_decoder =
+    "event.on(\"dblclick\", decode.success(on_event(editor.FocusChanged(editor.is_idle(editor))))),\n"
+  [
+    Break(
+      Caught(rules.DecoderState),
+      "the view hands a decoder a callback over the editor it draws",
+      surface,
+      fn(rest) {
+        string.replace(
+          rest,
+          "let claims = fn(key) { editor.claims(now(), key) }",
+          "let claims = fn(key) { editor.claims(editor, key) }",
+        )
+      },
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a decoder is handed a closure over the editor outside the view",
+      surface,
+      last(
+        "fn painted_edge(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"keydown\", edge_decoder(fn() { editor.is_painted(editor) }, on_event))\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a decoder is handed a capture of an editor function over the editor",
+      surface,
+      last(
+        "fn claimed(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"keydown\", key_decoder(editor.claims(editor, _), on_event))\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "an attribute helper makes a decoder from the editor",
+      surface,
+      last(
+        "fn double_click(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"dblclick\", decode.success(on_event(editor.FocusChanged(editor.is_idle(editor)))))\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "the view makes a decoder inline from the editor it draws",
+      surface,
+      after(
+        "        event.on(\"input\", typed),\n",
+        "        " <> inline_decoder,
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "the view makes a decoder from the editor in the body of a use",
+      surface,
+      after(
+        "        event.on(\"input\", typed),\n",
+        "        event.on(\"dblclick\", {\n          use _ <- decode.map(decode.dynamic)\n          on_event(editor.FocusChanged(editor.is_idle(editor)))\n        }),\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a decoder is handed a value read from the editor through a pipe",
+      surface,
+      last(
+        "fn idle_now(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  let idle = editor.is_idle(editor)\n  event.on(\"dblclick\", on_event(editor.FocusChanged(idle)) |> decode.success)\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a measure hands back the editor JavaScript keeps",
+      surface,
+      last(
+        "@external(javascript, \"./surface.ffi.mjs\", \"pastedText\")\nfn last_editor(paste: Dynamic) -> Editor",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a decoder named through an import alias takes the editor",
+      surface,
+      both(
+        fn(rest) {
+          string.replace(
+            rest,
+            "import gleam/dynamic/decode.{type Decoder}",
+            "import gleam/dynamic/decode.{type Decoder, type Decoder as Dec}",
+          )
+        },
+        last(
+          "fn tab(editor: Editor, done: msg) -> Dec(msg) {\n  case editor.is_idle(editor) {\n    True -> decode.success(done)\n    False -> decode.failure(done, \"idle\")\n  }\n}",
+        ),
+      ),
+    ),
+    Break(
+      Clean,
+      "a decoder is handed a callback that reads the editor through the record",
+      surface,
+      fn(rest) {
+        string.replace(
+          rest,
+          "hold_decoder(waits, on_event)",
+          "hold_decoder(fn() { editor.is_waiting(current_editor(editor)) }, on_event)",
+        )
+      },
+    ),
+    Break(
+      Clean,
+      "a decoder made from a message and a constructor of the editor module",
+      surface,
+      after(
+        "        event.on(\"input\", typed),\n",
+        "        event.on(\"dblclick\", decode.success(on_event(editor.Released))),\n",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a plain value read from the drawn editor reaches a decoder through a helper's parameter",
+      surface,
+      both(
+        last(
+          "fn on_double_click(idle: Bool, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"dblclick\", decode.success(on_event(editor.FocusChanged(idle))))\n}",
+        ),
+        after(
+          "        event.on(\"input\", typed),\n",
+          "        on_double_click(editor.is_idle(editor), on_event),\n",
+        ),
+      ),
     ),
   ]
 }
