@@ -11,11 +11,10 @@ import lustre/element/html
 import lustre/event
 import nullpad/live
 import nullpad/markdown.{
-  type Alignment, type Block, type Cell, type Column, type Content, type Inline,
-  type Item, type Level, type Spacing, type Task, Block, BulletList, Center,
-  Code, CodeBlock, Emphasis, H1, H2, H3, H4, H5, H6, Heading, Left, Link,
-  OrderedList, Paragraph, Quote, Right, Rule, Strike, Strong, Table, Text, Tight,
-  Unaligned,
+  type Alignment, type Block, type Cell, type Column, type Inline, type Item,
+  type Level, type Spacing, type Task, BulletList, Center, Code, CodeBlock,
+  Emphasis, H1, H2, H3, H4, H5, H6, Heading, Left, Link, OrderedList, Paragraph,
+  Quote, Right, Rule, Strike, Strong, Table, Text, Tight, Unaligned,
 }
 
 /// Safe by construction: all text goes through `element.text` (escaped) and
@@ -381,7 +380,11 @@ fn item(
     })
   case shown.task, bare {
     None, _ -> html.li(around, children)
-    Some(_), True -> html.li([attribute.class("task"), ..around], children)
+    Some(_), True ->
+      html.li([attribute.class("task"), ..around], [
+        html.span([attribute.hidden(True)], []),
+        ..children
+      ])
     Some(task), False ->
       html.li([attribute.class("task"), ..around], [
         html.input([

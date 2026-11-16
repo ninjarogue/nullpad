@@ -107,22 +107,21 @@ pub fn a_heading_in_a_quote_or_after_the_first_line_of_an_item_is_set_as_a_headi
 }
 
 pub fn the_first_line_of_an_item_at_any_depth_is_set_with_its_own_marker_test() {
-  assert leaf_kind("- aa\n  - # Head\n  - bb", 0)
-    == live.ListItem(task: False, marker: "- ")
+  assert leaf_kind("- aa\n  - # Head\n  - bb", 0) == live.ListItem(marker: "- ")
   assert leaf_kind("- aa\n  - # Head\n  - bb", 1)
     == live.ItemTitle(markdown.H1, marker: "  - ")
   assert leaf_kind("- aa\n  - # Head\n  - bb", 2)
-    == live.ListItem(task: False, marker: "  - ")
+    == live.ListItem(marker: "  - ")
   assert leaf_kind("1. x\n   1. ## sub", 1)
     == live.ItemTitle(markdown.H2, marker: "   1. ")
   assert leaf_kind("> - # a\n>   # b", 0)
     == live.ItemTitle(markdown.H1, marker: "> - ")
   assert leaf_kind("> - [ ] # a\n> - [x] b", 1)
-    == live.ListItem(task: True, marker: "> - [x] ")
-  assert leaf_kind("- - a", 0) == live.ListItem(task: False, marker: "- - ")
+    == live.ListItem(marker: "> - [x] ")
+  assert leaf_kind("- - a", 0) == live.ListItem(marker: "- - ")
   assert leaf_kind("- Hello\n  ===", 1)
     == live.ItemTitle(markdown.H1, marker: "- ")
-  assert leaf_kind("-\n  foo", 0) == live.ListItem(task: False, marker: "-")
+  assert leaf_kind("-\n  foo", 0) == live.ListItem(marker: "-")
 }
 
 pub fn a_paragraph_or_code_inside_a_quote_or_an_item_is_set_as_itself_test() {
@@ -131,6 +130,7 @@ pub fn a_paragraph_or_code_inside_a_quote_or_an_item_is_set_as_itself_test() {
   assert leaf_kind("-\n  foo", 1) == live.Body
   assert leaf_kind("> a\n>\n> b", 1) == live.Body
   assert leaf_kind("> ```\n> x\n> ```", 1) == live.Mono
+  assert leaf_kind("- ```\n  x\n  ```", 0) == live.Mono
   assert leaf_kind("- a\n\n      code", 2) == live.Mono
 }
 
@@ -277,10 +277,9 @@ fn kind_of(text: String) -> live.Kind {
 pub fn the_field_is_set_like_the_block_it_holds_test() {
   assert kind_of("## Packing") == live.Title(markdown.H2)
   assert kind_of("Title\n===") == live.Title(markdown.H1)
-  assert kind_of("- Shoes\n  and socks")
-    == live.ListItem(task: False, marker: "- ")
-  assert kind_of("2. two") == live.ListItem(task: False, marker: "2. ")
-  assert kind_of("- [ ] pack") == live.ListItem(task: True, marker: "- [ ] ")
+  assert kind_of("- Shoes\n  and socks") == live.ListItem(marker: "- ")
+  assert kind_of("2. two") == live.ListItem(marker: "2. ")
+  assert kind_of("- [ ] pack") == live.ListItem(marker: "- [ ] ")
   assert kind_of("```\ncode\n```") == live.Mono
   assert kind_of("| a |\n|---|") == live.Mono
   assert kind_of("plain words") == live.Body
@@ -299,16 +298,16 @@ pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
   assert field_kind(0, 0) == live.Title(markdown.H1)
   assert field_kind(1, 1) == live.Body
   assert field_kind(2, 3) == live.Body
-  assert field_kind(5, 5) == live.ListItem(task: True, marker: "- [ ] ")
-  assert field_kind(6, 7) == live.ListItem(task: False, marker: "- ")
-  assert field_kind(10, 10) == live.ListItem(task: False, marker: "2. ")
+  assert field_kind(5, 5) == live.ListItem(marker: "- [ ] ")
+  assert field_kind(6, 7) == live.ListItem(marker: "- ")
+  assert field_kind(10, 10) == live.ListItem(marker: "2. ")
   assert field_kind(12, 14) == live.Mono
 }
 
 pub fn a_field_with_a_blank_row_beside_its_block_is_set_like_the_block_test() {
   assert field_kind(0, 1) == live.Title(markdown.H1)
-  assert field_kind(4, 7) == live.ListItem(task: True, marker: "- [ ] ")
-  assert field_kind(8, 10) == live.ListItem(task: False, marker: "1. ")
+  assert field_kind(4, 7) == live.ListItem(marker: "- [ ] ")
+  assert field_kind(8, 10) == live.ListItem(marker: "1. ")
   assert field_kind(11, 14) == live.Mono
 }
 
@@ -324,12 +323,12 @@ pub fn a_blank_row_between_two_items_is_set_as_body_text_test() {
 
   assert live.kind(blocks, field: Region(1, 1), lines:) == live.Body
   assert live.kind(blocks, field: Region(1, 2), lines:)
-    == live.ListItem(task: False, marker: "- ")
+    == live.ListItem(marker: "- ")
 }
 
 fn marker(field_text: String) -> String {
   case kind_of(field_text) {
-    live.ListItem(marker:, ..) | live.ItemTitle(marker:, ..) -> marker
+    live.ListItem(marker:) | live.ItemTitle(marker:, ..) -> marker
     live.Body | live.Mono | live.Title(_) -> "not an item"
   }
 }

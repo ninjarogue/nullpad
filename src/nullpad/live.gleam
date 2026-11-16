@@ -253,7 +253,7 @@ pub type Kind {
   Body
   Title(Level)
   Mono
-  ListItem(task: Bool, marker: String)
+  ListItem(marker: String)
   ItemTitle(Level, marker: String)
 }
 
@@ -267,7 +267,8 @@ pub fn is_title(kind: Kind) -> Bool {
 
 /// How the field is set while it holds the rows `field`: like the one leaf
 /// it holds. A leaf on the row of the item it starts, at any depth, is set
-/// as that item's line, with that item's marker. A field with leaves of one
+/// as that item's line, with that item's marker, unless it is fenced code
+/// or a table. A field with leaves of one
 /// list is set like the first, and one with other leaves as body text. A
 /// field with no leaf is body text, or the line of the item whose row it is.
 pub fn kind(
@@ -309,11 +310,19 @@ fn leaf_kind(placed: Placed, lines: List(String)) -> Kind {
     [InItem(_), ..] | [InQuote, ..] | [] -> Error(Nil)
   }
   case leaf.content, own {
-    Heading(level:, text: [_, ..]), Ok(Item(task: None, ..) as item) ->
+    Heading(level:, text: [_, ..]), Ok(item) ->
       ItemTitle(level, marker: marker(lines, item))
-    _, Ok(item) -> item_kind(item, lines)
     Heading(level:, text: [_, ..]), Error(Nil) -> Title(level)
-    CodeBlock(..), Error(Nil) | Table(..), Error(Nil) -> Mono
+    CodeBlock(code_row:, ..), Ok(item) if code_row == leaf.first_row ->
+      item_kind(item, lines)
+    CodeBlock(..), _ | Table(..), _ -> Mono
+    Heading(..), Ok(item)
+    | Paragraph(..), Ok(item)
+    | Rule, Ok(item)
+    | BulletList(..), Ok(item)
+    | OrderedList(..), Ok(item)
+    | Quote(..), Ok(item)
+    -> item_kind(item, lines)
     Heading(..), Error(Nil)
     | Paragraph(..), Error(Nil)
     | Rule, Error(Nil)
@@ -325,7 +334,7 @@ fn leaf_kind(placed: Placed, lines: List(String)) -> Kind {
 }
 
 fn item_kind(item: Item, lines: List(String)) -> Kind {
-  ListItem(task: option.is_some(item.task), marker: marker(lines, item))
+  ListItem(marker: marker(lines, item))
 }
 
 fn marker(lines: List(String), item: Item) -> String {

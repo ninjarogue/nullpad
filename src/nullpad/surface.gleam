@@ -170,8 +170,7 @@ fn marker(setting: Option(editor.Setting)) -> attribute.Attribute(msg) {
     )
   }
   case setting {
-    Some(editor.Setting(kind: live.ListItem(marker:, ..), ..)) ->
-      width(marker, "")
+    Some(editor.Setting(kind: live.ListItem(marker:), ..)) -> width(marker, "")
     Some(editor.Setting(kind: live.ItemTitle(level, marker:), ..)) ->
       width(marker, heading_class(level))
     Some(editor.Setting(kind: live.Body, ..))
@@ -208,8 +207,7 @@ fn set_as(kind: live.Kind) -> String {
   case kind {
     live.Body -> "editor part"
     live.Mono -> "editor part mono"
-    live.ListItem(task: False, ..) -> "editor part item"
-    live.ListItem(task: True, ..) -> "editor part item task"
+    live.ListItem(..) -> "editor part item"
     live.Title(level) -> "editor part " <> heading_class(level)
     live.ItemTitle(level, ..) -> "editor part item " <> heading_class(level)
   }

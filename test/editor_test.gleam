@@ -1343,7 +1343,7 @@ pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
   assert editor.kind(show(ed, caret("# T", 0, 3)))
     == Some(live.Title(markdown.H1))
   assert editor.kind(show(ed, caret("- item", 0, 6)))
-    == Some(live.ListItem(task: False, marker: "- "))
+    == Some(live.ListItem(marker: "- "))
   assert editor.kind(show(ed, caret("```", 0, 3))) == Some(live.Mono)
 }
 
@@ -1643,11 +1643,11 @@ pub fn a_row_typed_as_another_block_keeps_the_frame_of_the_row_laid_out_test() {
 
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret("- x", 0, 3), at: 0))
-  assert editor.kind(ed) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.kind(ed) == Some(live.ListItem(marker: "- "))
   assert editor.frame(ed) == Some(live.Body)
 
   let ed = ed |> point(4) |> point(2)
-  assert editor.frame(ed) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(ed) == Some(live.ListItem(marker: "- "))
 }
 
 pub fn a_heading_typed_on_a_row_is_framed_as_that_heading_at_once_test() {
@@ -1674,7 +1674,7 @@ pub fn a_heading_typed_in_an_item_or_a_quote_is_framed_as_that_heading_at_once_t
   assert editor.blocks(marks) == editor.blocks(item)
 
   let bare = show(item, caret("- #Hello", 0, 3))
-  assert editor.kind(bare) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.kind(bare) == Some(live.ListItem(marker: "- "))
   assert editor.frame(bare) == Some(live.Body)
 
   let quote = show(item, caret("> ## Hello", 0, 5))
@@ -1694,7 +1694,7 @@ pub fn the_marks_of_a_heading_in_an_item_or_a_quote_removed_frame_the_row_at_onc
   let item = live("- # Hello\n\nbelow")
   assert editor.frame(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
   let removed = show(item, caret("- Hello", 0, 2))
-  assert editor.frame(removed) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(removed) == Some(live.ListItem(marker: "- "))
 
   let quote = live("> # Hello\n\nbelow")
   assert editor.frame(quote) == Some(live.Title(markdown.H1))
@@ -1713,7 +1713,7 @@ pub fn a_heading_with_no_text_is_set_and_framed_as_body_text_test() {
   assert editor.frame(spaced) == Some(live.Body)
 
   let item = show(ed, caret("- #", 0, 3))
-  assert editor.kind(item) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.kind(item) == Some(live.ListItem(marker: "- "))
   assert editor.frame(item) == Some(live.Body)
 
   let quote = show(ed, caret("> ## ", 0, 5))

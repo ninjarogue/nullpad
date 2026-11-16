@@ -50,14 +50,16 @@ async function at(page: Page, word: string) {
 }
 
 /**
- * Puts the caret in the block on row 2, then moves it to the blank row below,
- * and gives where `word`, the first character of `typed` and the row below
- * were each time, with the field's font size and the drawn heading's.
+ * Puts the caret on the first row of the block on row 2, then moves it to the
+ * blank row below, and gives where `word`, the first character of `typed` and
+ * the row below were each time, with the field's font size and the drawn
+ * heading's.
  */
 async function arriveAndLeave(page: Page, browser: Browser, block: string, word: string | null, typed: string) {
   await browser.keyboard.press('ArrowDown');
   await browser.keyboard.press('ArrowDown');
-  await expect(page.text).toHaveValue(block);
+  await expect.poll(() => page.caretRow()).toBe(2);
+  await expect(page.text).toHaveValue(new RegExp(`^${escape(block.split('\n')[0])}`));
   await page.nextFrame();
   const field = {
     word: word === null ? null : await at(page, word),
@@ -75,6 +77,10 @@ async function arriveAndLeave(page: Page, browser: Browser, block: string, word:
   for (const _ of ['', '', ...block.split('\n')]) await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('top');
   return { field, drawn };
+}
+
+function escape(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 const containers = [
@@ -335,8 +341,11 @@ for (const [block, words] of [
   });
 }
 
-for (const block of ['- Hello\n  ===', '> Hello\n> ---']) {
-  test(`a setext heading of two rows, ${JSON.stringify(block)}, is set as body text in the field`, async ({
+for (const [block, size] of [
+  ['- Hello\n  ===', '32px'],
+  ['> Hello\n> ---', '24px'],
+] as const) {
+  test(`a setext heading of two rows, ${JSON.stringify(block)}, is set in the field as the heading it is drawn as`, async ({
     app,
     browser,
     disk,
@@ -347,6 +356,6 @@ for (const block of ['- Hello\n  ===', '> Hello\n> ---']) {
     await browser.keyboard.press('ArrowDown');
     await browser.keyboard.press('ArrowDown');
     await expect(page.text).toHaveValue(block);
-    expect((await page.fieldFont()).size).toBe('16px');
+    expect((await page.fieldFont()).size).toBe(size);
   });
 }

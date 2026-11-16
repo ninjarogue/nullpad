@@ -661,7 +661,7 @@ pub fn an_item_beside_the_field_is_drawn_with_what_it_holds_test() {
     )
   assert beside_field("- [ ] a\n- [x] b\n- [ ] c", 2, 1, live.Region(1, 1))
     == drawn_part(
-      "<ul class=\"cut below\" data-row=\"2\"><li class=\"task bare cut below\"></li><li class=\"task\" data-row=\"2\"><input aria-label=\"c\" type=\"checkbox\">c</li></ul>",
+      "<ul class=\"cut below\" data-row=\"2\"><li class=\"task bare cut below\"><span hidden></span></li><li class=\"task\" data-row=\"2\"><input aria-label=\"c\" type=\"checkbox\">c</li></ul>",
     )
 }
 
