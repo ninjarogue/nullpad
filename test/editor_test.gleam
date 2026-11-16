@@ -2370,6 +2370,38 @@ pub fn a_line_step_onto_a_fence_takes_the_runs_column_test() {
   let assert editor.Write(_) = sync
 }
 
+pub fn a_run_begun_by_a_step_in_the_frame_of_a_press_keeps_the_column_from_before_it_onto_fences_test() {
+  let note = "abcdefgh\nxy\n```longinfo\n``````\nend"
+  let ed = pressed(note, 0, "abcde")
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 0, col: 5)
+  let down = fn(ed, x) {
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: False, select: False),
+        x:,
+        shown: editor.field_buffer(ed),
+      ),
+    ).editor
+  }
+  let stepped = fn(ed, row, visible, at_end) {
+    editor.update(
+      ed,
+      editor.Stepped(row:, visible:, at_end:, next: "", x: 40.0),
+    )
+  }
+  let Outcome(editor: ed, ..) = down(ed, -1.0) |> stepped(1, "xy", True)
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 1, col: 2)
+
+  let Outcome(editor: ed, sync:, ..) = down(ed, 0.0) |> stepped(4, "", False)
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 2, col: 5)
+  let assert editor.Write(_) = sync
+
+  let Outcome(editor: ed, sync:, ..) = down(ed, 0.0) |> stepped(4, "", False)
+  assert buffer.cursor(editor.buffer(ed)) == Position(row: 3, col: 5)
+  let assert editor.Write(_) = sync
+}
+
 pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
   let note = "alpha\n\n```\ncode\n```"
   let ed = pressed(note, 1, "")

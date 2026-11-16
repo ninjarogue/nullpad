@@ -4,6 +4,7 @@
 
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/order
 import nullpad/buffer.{Position}
 import nullpad/editor.{type Editor, type Held, Outcome}
 
@@ -271,4 +272,26 @@ pub fn keys_wait_while_the_field_holds_the_note_for_the_browser_test() {
   assert editor.replay(ed) == None
   let ed = editor.update(ed, editor.ControlChanged(shown: whole, at: 0)).editor
   assert editor.replay(ed) == Some(shifted("ArrowLeft"))
+}
+
+pub fn a_replayed_key_steers_the_head_the_way_it_moved_it_test() {
+  let held = shifted("ArrowLeft")
+  let ed = opened() |> step_down |> hold(held) |> stepped
+  assert editor.direction(ed) == order.Gt
+  assert editor.replay(ed) == Some(held)
+
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Replayed(
+        Some(editor.EdgePressed(
+          editor.SelectLeft,
+          x: 0.0,
+          shown: editor.field_buffer(ed),
+        )),
+      ),
+    )
+  assert buffer.selection(editor.buffer(ed))
+    == #(Position(row: 0, col: 0), Position(row: 0, col: 10))
+  assert editor.direction(ed) == order.Lt
 }
