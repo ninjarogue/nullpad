@@ -114,3 +114,37 @@ pub fn moving_the_selection_takes_it_to_a_place_and_selects_it_there_test() {
   assert buffer.text(across) == "ad\neb\ncf"
   assert buffer.selection(across) == #(Position(1, 1), Position(2, 1))
 }
+
+pub fn replace_keeps_the_text_after_letters_written_in_more_than_one_byte_test() {
+  let put = fn(text, col) {
+    let at = Position(row: 0, col:)
+    buffer.from_text(text)
+    |> buffer.replace(from: at, to: at, with: "X")
+    |> buffer.text
+  }
+  assert put("café latte", 5) == "café Xlatte"
+  assert put("日本語 abc", 4) == "日本語 Xabc"
+  assert put("I 👍 it", 4) == "I 👍 Xit"
+  assert put("a 👨‍👩‍👧 b", 3) == "a 👨‍👩‍👧X b"
+
+  let erased =
+    buffer.from_text("naïve tête-à-tête")
+    |> buffer.replace(from: Position(0, 6), to: Position(0, 11), with: "")
+  assert buffer.text(erased) == "naïve à-tête"
+}
+
+pub fn moving_a_selection_after_letters_written_in_more_than_one_byte_moves_it_whole_test() {
+  let moved =
+    buffer.from_text("café alpha beta\n日本 gamma")
+    |> buffer.select(anchor: Position(0, 5), head: Position(0, 10))
+    |> buffer.move_selection(to: Position(1, 3))
+  assert buffer.text(moved) == "café  beta\n日本 alphagamma"
+  assert buffer.selection(moved) == #(Position(1, 3), Position(1, 8))
+
+  let across =
+    buffer.from_text("café alpha\nab cd\nxy")
+    |> buffer.select(anchor: Position(0, 5), head: Position(1, 2))
+    |> buffer.move_selection(to: Position(2, 1))
+  assert buffer.text(across) == "café  cd\nxalpha\naby"
+  assert buffer.selection(across) == #(Position(1, 1), Position(2, 2))
+}

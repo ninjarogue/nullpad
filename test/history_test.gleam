@@ -409,3 +409,63 @@ fn texts_on_the_way(history: History) -> List(String) {
     Error(Nil) -> []
   }
 }
+
+pub fn a_run_of_backspaces_after_letters_written_in_more_than_one_byte_is_one_step_test() {
+  let accented =
+    history.new(at("café latte", 5))
+    |> record_all([at("cafélatte", 4), at("caflatte", 3)])
+  assert history.present(undone(accented)) == at("café latte", 5)
+  assert history.undo(undone(accented)) == Error(Nil)
+
+  let cjk =
+    history.new(at("日本語 abc", 4))
+    |> record_all([at("日本語abc", 3), at("日本abc", 2)])
+  assert shown(undone(cjk)) == "日本語 abc"
+
+  let emoji =
+    history.new(at("I 👍 it", 4))
+    |> record_all([at("I 👍it", 3), at("I it", 2)])
+  assert shown(undone(emoji)) == "I 👍 it"
+}
+
+pub fn a_run_of_deletes_after_or_over_letters_written_in_more_than_one_byte_is_one_step_test() {
+  let after_accent =
+    history.new(at("café abc def", 5))
+    |> record_all([at("café bc def", 5), at("café c def", 5)])
+  assert history.present(undone(after_accent)) == at("café abc def", 5)
+  assert history.undo(undone(after_accent)) == Error(Nil)
+
+  let over_cjk =
+    history.new(at("abc 日本語 def", 4))
+    |> record_all([at("abc 本語 def", 4), at("abc 語 def", 4)])
+  assert shown(undone(over_cjk)) == "abc 日本語 def"
+
+  let over_emoji =
+    history.new(at("go 👍👍 now", 3))
+    |> record_all([at("go 👍 now", 3), at("go  now", 3)])
+  assert shown(undone(over_emoji)) == "go 👍👍 now"
+}
+
+pub fn a_run_of_typing_after_an_accented_letter_is_one_step_test() {
+  let typed =
+    history.new(at("café latte", 5))
+    |> record_all([
+      at("café blatte", 6),
+      at("café bilatte", 7),
+      at("café biglatte", 8),
+    ])
+  assert history.present(undone(typed)) == at("café latte", 5)
+  assert history.undo(undone(typed)) == Error(Nil)
+}
+
+pub fn typing_over_a_selected_accented_letter_is_one_step_with_the_typing_after_it_test() {
+  let selected =
+    buffer.from_text("abc é def")
+    |> buffer.select(anchor: Position(0, 4), head: Position(0, 5))
+  let typed =
+    history.new(selected)
+    |> record_all([at("abc x def", 5), at("abc xy def", 6)])
+
+  assert history.present(undone(typed)) == selected
+  assert history.undo(undone(typed)) == Error(Nil)
+}
