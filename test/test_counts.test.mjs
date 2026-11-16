@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { useScratch } from "./scratch.mjs";
-import { e2e as e2eStep, e2eConfigs, gateSteps, nodeTest as nodeTestStep, nodeTestFiles, readers } from "./steps.mjs";
+import { e2e as e2eStep, e2eConfigs, gateSteps, nodeTest as nodeTestStep, nodeTestFiles, readers, root } from "./steps.mjs";
 import { gate, judge, loadCounts, runStep } from "./test_counts.mjs";
 
 const scratch = useScratch();
@@ -586,5 +586,15 @@ describe("node tests that no step runs, and a clone that runs no hook", () => {
         else process.env[name] = value;
       }
     }
+  });
+});
+
+describe("what the docs tell a clone with no hook to run", () => {
+  test("the verify skill's fallback runs the gate, not the steps that skip the count check", () => {
+    const skill = readFileSync(join(root, ".claude/skills/verify-nullpad/SKILL.md"), "utf8");
+    const line = skill.split("\n").find((text) => text.includes("core.hooksPath"));
+    assert.ok(line, "the skill no longer says how to turn the hook on");
+    assert.match(line, /node test\/test_counts\.mjs run/);
+    assert.doesNotMatch(line, /gleam test/);
   });
 });
