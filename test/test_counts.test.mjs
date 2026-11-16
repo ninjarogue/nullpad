@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { useScratch } from "./scratch.mjs";
-import { e2eConfigs, gateSteps, nodeTestFiles, readers } from "./steps.mjs";
+import { e2e as e2eStep, e2eConfigs, gateSteps, nodeTest as nodeTestStep, nodeTestFiles, readers } from "./steps.mjs";
 import { gate, judge, loadCounts, runStep } from "./test_counts.mjs";
 
 const scratch = useScratch();
@@ -45,12 +45,13 @@ function workspace() {
     writeFileSync(file, source);
     return file;
   };
-  const step = (id, file, read = readers.gleeunit) => ({
+  const step = (id, file, read = readers.gleeunit, held) => ({
     id,
     cwd: dir,
     counted: true,
     command: (outDir) => ["node", file, outDir],
     read,
+    ...(held ? { held } : {}),
   });
   const known = (counts) => writeFileSync(countsFile, JSON.stringify(counts, null, 2) + "\n");
   const stored = () => JSON.parse(readFileSync(countsFile, "utf8"));
@@ -399,5 +400,118 @@ describe("the node tests", () => {
     };
     for (const name of ["test/a.test.mjs", "tools/x/b.test.mjs", "test/c.mjs", "test/node_modules/d.test.mjs", "tools/.hidden/e.test.mjs", "e2e/f.test.mjs", "g.test.mjs"]) put(name);
     assert.deepEqual(nodeTestFiles(base), ["test/a.test.mjs", "tools/x/b.test.mjs"]);
+  });
+});
+
+describe("what a step holds back from its count: tests marked to fail, and todos", () => {
+  const sayHeld = ({ output }) => Object.fromEntries([...output.matchAll(/^held (\S+)=(\d+)$/gm)].map(([, name, count]) => [name, Number(count)]));
+  const prints = (w, heldLines) => w.runner("held.mjs", `console.log("\\n5 passed, no failures\\n${heldLines.map((line) => `held ${line}`).join("\\n")}");`);
+  const run = (w, file) => runStep(w.step("fake", file, readers.gleeunit, sayHeld), { countsFile: w.countsFile, ...quietly });
+
+  const marked = (count, { unexpectedPass = false } = {}) => {
+    const parsed = JSON.parse(report({ passed: 4 }));
+    for (let at = 0; at < count; at++) parsed.run.results[at].expectedFailure = { reason: "known gap" };
+    if (unexpectedPass) {
+      parsed.run.results.push({ kind: "test", status: "failed", expectedFailure: { reason: "was marked" } });
+      parsed.run.summary.failed = 1;
+    }
+    return JSON.stringify(parsed);
+  };
+
+  test("an e2e step counts the tests that passed by failing as expected, apart from the passes", () => {
+    const dir = scratch.make("report-");
+    const step = e2eStep("e2e.config.ts");
+    assert.equal(typeof step.held, "function", "an e2e step says nothing about the tests marked test.fail");
+    writeFileSync(join(dir, "report.json"), marked(2, { unexpectedPass: true }));
+    assert.deepEqual(step.held({ output: "", outDir: dir }), { "expected-fail": 2 });
+    writeFileSync(join(dir, "report.json"), report({ passed: 4 }));
+    assert.deepEqual(step.held({ output: "", outDir: dir }), { "expected-fail": 0 });
+  });
+
+  test("a node test step counts its todos, and a summary with no todo line is an error", () => {
+    const step = nodeTestStep("fake", "test/fake.test.mjs");
+    assert.equal(typeof step.held, "function", "a node test step says nothing about its todos");
+    assert.deepEqual(step.held({ output: "# tests 5\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 1\n# todo 3\n" }), { todo: 3 });
+    assert.throws(() => step.held({ output: "# tests 5\n# pass 5\n# fail 0\n" }), /todo/);
+  });
+
+  test("a rise in the tests marked to fail fails the step, says what to edit by hand, and leaves the file alone", async () => {
+    const w = workspace();
+    w.known({ fake: 5 });
+    const verdict = await run(w, prints(w, ["expected-fail=1"]));
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.failures.join("\n"), /expected-fail/);
+    assert.match(verdict.failures.join("\n"), /by hand/);
+    assert.deepEqual(w.stored(), { fake: 5 });
+  });
+
+  test("a rise in todos fails the step the same way", async () => {
+    const w = workspace();
+    w.known({ fake: 5, "fake todo": 1 });
+    const verdict = await run(w, prints(w, ["todo=2"]));
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.failures.join("\n"), /todo/);
+    assert.deepEqual(w.stored(), { fake: 5, "fake todo": 1 });
+  });
+
+  test("the number a person wrote in the file is the number that is allowed", async () => {
+    const w = workspace();
+    w.known({ fake: 5, "fake expected-fail": 2, "fake todo": 1 });
+    const verdict = await run(w, prints(w, ["expected-fail=2", "todo=1"]));
+    assert.equal(verdict.ok, true, verdict.failures.join("\n"));
+    assert.deepEqual(w.stored(), { fake: 5, "fake expected-fail": 2, "fake todo": 1 });
+  });
+
+  test("a step that holds none needs no line in the file", async () => {
+    const w = workspace();
+    w.known({ fake: 5 });
+    const verdict = await run(w, prints(w, ["expected-fail=0", "todo=0"]));
+    assert.equal(verdict.ok, true, verdict.failures.join("\n"));
+    assert.deepEqual(w.stored(), { fake: 5 });
+  });
+
+  test("a fall lowers the number in the file, and the last one takes the line out, so the slack cannot be spent on a new one", async () => {
+    const w = workspace();
+    w.known({ fake: 5, "fake expected-fail": 3 });
+    const two = await run(w, prints(w, ["expected-fail=2"]));
+    assert.equal(two.ok, true, two.failures.join("\n"));
+    assert.deepEqual(w.stored(), { fake: 5, "fake expected-fail": 2 });
+    const none = await run(w, prints(w, ["expected-fail=0"]));
+    assert.equal(none.ok, true);
+    assert.deepEqual(w.stored(), { fake: 5 });
+    const back = await run(w, prints(w, ["expected-fail=1"]));
+    assert.equal(back.ok, false);
+  });
+
+  test("a rise in the passes does not pay for a rise in the tests marked to fail", async () => {
+    const w = workspace();
+    w.known({ fake: 3 });
+    const verdict = await run(w, prints(w, ["expected-fail=1"]));
+    assert.equal(verdict.ok, false);
+    assert.deepEqual(w.stored(), { fake: 3 });
+  });
+
+  test("a step that failed changes nothing in the file, not even a number that fell", async () => {
+    const w = workspace();
+    w.known({ fake: 5, "fake todo": 4 });
+    const red = w.runner("red.mjs", `console.log("\\n5 passed, 1 failures\\nheld todo=1"); process.exit(1);`);
+    const verdict = await run(w, red);
+    assert.equal(verdict.ok, false);
+    assert.deepEqual(w.stored(), { fake: 5, "fake todo": 4 });
+  });
+
+  test("a held number for a step the gate no longer runs fails the gate", async () => {
+    const w = workspace();
+    w.known({ fake: 5, "gone expected-fail": 2 });
+    const verdict = await gate({ steps: [w.step("fake", prints(w, []), readers.gleeunit, sayHeld)], countsFile: w.countsFile, ...quietly });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.failures.join("\n"), /gone expected-fail/);
+  });
+
+  test("a held number for a step that ran is not an orphan", async () => {
+    const w = workspace();
+    w.known({ fake: 5, "fake expected-fail": 2 });
+    const verdict = await gate({ steps: [w.step("fake", prints(w, ["expected-fail=2"]), readers.gleeunit, sayHeld)], countsFile: w.countsFile, ...quietly });
+    assert.equal(verdict.ok, true, verdict.failures.join("\n"));
   });
 });
