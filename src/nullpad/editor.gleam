@@ -1105,6 +1105,17 @@ fn begin_run(
   }
 }
 
+/// Whether a step up or down lands at the start of a row, before the marks
+/// the page hides, as a text field's does from the start of a row: when the
+/// run of steps began at the start of a row, or, before a run, when the head
+/// is there.
+pub fn from_row_start(editor: Editor) -> Bool {
+  case editor.goal {
+    Some(Goal(col:, ..)) -> col == 0
+    None -> step_start(editor).col == 0
+  }
+}
+
 /// Whether the first waiting step goes up or down, and if so whether it
 /// selects.
 fn landing(waiting: List(Queued)) -> Option(Bool) {

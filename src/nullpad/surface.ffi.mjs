@@ -478,11 +478,12 @@ function aimedHere(control) {
 // or 3 for the drawn line above or below the head's, and 4 for the head's
 // own. Aimed again, a step to the line beside stays on the line it reached.
 // `x` is from the left of the page's text, as `headLine` measures it. With
-// `select` the anchor stays, and without it a caret moves. The answer starts
+// `select` the anchor stays, and without it a caret moves. With `rowStart`
+// the head goes to the start of the line. The answer starts
 // with whether the field was aimed: a key that moved the caret since the
 // field was written, or aimed, keeps its place and its own column. `by`
 // names the aim: only the last one made is made again.
-export function aimControl(id, liveClass, paintedClass, text, start, end, backward, x, line, select, again, by) {
+export function aimControl(id, liveClass, paintedClass, text, start, end, backward, x, line, select, rowStart, again, by) {
   const control = document.getElementById(id);
   if (!control) return [false, "", 0, 0, false];
   const shown = () => [
@@ -505,7 +506,7 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
       return [false, ...shown()];
     }
   }
-  const atEnd = aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select);
+  const atEnd = aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select, rowStart);
   if (atEnd === null) aimed.delete(control);
   else aimed.set(control, { by, shown: shown(), atEnd });
   return [true, ...shown()];
@@ -514,7 +515,7 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
 // Moves the head of the field's selection to the place nearest `x` on a
 // line of the field, numbered as for `aimControl`, and answers whether it
 // is at the end of a line that wraps, or null when there was no such line.
-function aimIn(control, liveClass, paintedClass, x, line, select) {
+function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
   const text = control.value;
   const { selectionStart: start, selectionEnd: end } = control;
   const backward = control.selectionDirection === "backward";
@@ -553,13 +554,13 @@ function aimIn(control, liveClass, paintedClass, x, line, select) {
       best = offset;
     }
   }
-  // The run's column from the start of a row starts the line, before the
-  // marks a heading hangs left of its text.
-  if (x <= 0) best = from;
+  // A run from the start of a row starts the line, before the marks a
+  // heading hangs left of its text.
+  if (rowStart) best = from;
   // The end of a line that wraps shares its offset with the start of the
   // next, and only a move to the line's end puts the caret there.
   const lastOnLine = offset - 1;
-  const wraps = x > 0 && offset <= text.length && text[lastOnLine] !== "\n" && document.activeElement === control;
+  const wraps = !rowStart && offset <= text.length && text[lastOnLine] !== "\n" && document.activeElement === control;
   const atEnd = wraps && Math.abs(left + place(lastOnLine).right - x) < gap;
   if (atEnd) best = lastOnLine;
   const anchor = select ? (backward ? end : start) : best;
@@ -1221,7 +1222,7 @@ export function stepHead(
       return answer(-4);
     }
     if (x < 0) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
-    aimIn(control, liveClass, paintedClass, x, forward ? 3 : 2, select);
+    aimIn(control, liveClass, paintedClass, x, forward ? 3 : 2, select, rowStart);
     return answer(-4);
   }
   const { marks, rows } = drawnMarks(id, liveClass, rowMark);

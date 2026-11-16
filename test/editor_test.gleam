@@ -2284,6 +2284,28 @@ pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
   let assert editor.WriteAndAim(x: 40.0, line: editor.LineAbove, ..) = sync
 }
 
+pub fn a_run_from_the_start_of_a_row_lands_at_the_start_of_rows_test() {
+  let note = "alpha one\nbravo two\ncharlie"
+  let run = fn(col) {
+    let ed = pressed(note, 0, "")
+    let Outcome(editor: ed, ..) =
+      editor.update(
+        ed,
+        editor.EdgePressed(
+          editor.Line(up: False, select: False),
+          x: -1.0,
+          shown: caret(note, 0, col),
+        ),
+      )
+    let before = editor.from_row_start(ed)
+    let Outcome(editor: ed, ..) =
+      editor.update(ed, editor.FieldStepped(shown: caret(note, 1, col), x: 0.0))
+    #(before, editor.from_row_start(ed))
+  }
+  assert run(0) == #(True, True)
+  assert run(4) == #(False, False)
+}
+
 pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
   let note = "alpha one\n\nbravo two"
   let ed = pressed(note, 0, "")

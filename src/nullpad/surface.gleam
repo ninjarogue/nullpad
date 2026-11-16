@@ -551,7 +551,7 @@ pub fn sync(
             head.row,
             offset,
             onward,
-            x == 0.0 || x <. 0.0 && head.col == 0,
+            editor.from_row_start(editor),
             granularity,
             forward,
             select,
@@ -624,6 +624,7 @@ pub fn sync(
               editor.HeadLine -> 4
             },
             select,
+            editor.from_row_start(editor),
             again,
             editor,
           )
@@ -1504,6 +1505,7 @@ fn aim_control(
   x: Float,
   line: Int,
   select: Bool,
+  row_start: Bool,
   again: Bool,
   by: Editor,
 ) -> #(Bool, String, Int, Int, Bool)
