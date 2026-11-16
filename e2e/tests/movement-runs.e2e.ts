@@ -250,7 +250,7 @@ type Run = {
   follow: Follow;
   /** The finding that shows when the run fails today, for the paced press and for the held one. */
   fail?: { paced?: string; held?: string };
-  /** Milliseconds between presses of the paced run, where the page needs time to settle a painted selection. */
+  /** Milliseconds between presses of the paced run, as a person types, or where the page needs time to settle a painted selection. */
   pace?: number;
   /** The held run is pressed this many times, for a race that does not always happen. */
   repeat?: number;
@@ -353,10 +353,12 @@ const runs: Run[] = [
   { name: 'Shift+Down through rules', body: rules, start: [], steps: downBy(9, 'Shift+ArrowDown'), follow: 'plain field' },
   { name: 'Down and Up over a row the page wraps', body: wrapped, start: rightBy(10), steps: [...downBy(4), ...downBy(4, 'ArrowUp')], follow: 'wrapped' },
   { name: 'Shift+Down and Shift+Up over a row the page wraps', body: wrapped, start: rightBy(10), steps: [...downBy(4, 'Shift+ArrowDown'), ...downBy(4, 'Shift+ArrowUp')], follow: 'wrapped' },
-  { name: 'Shift+Down from the start of each row of the page in a wrapped paragraph', body: wrapped, start: [], steps: downBy(4, 'Shift+ArrowDown'), follow: 'wrapped' },
-  { name: 'Down, then Shift+Down, from the start of a row of the page in a wrapped paragraph', body: wrapped, start: [], steps: ['ArrowDown', ...downBy(3, 'Shift+ArrowDown')], follow: 'wrapped' },
-  { name: 'Shift+Down from the start of rows of the page through a wrapped paragraph, heading, quote and list item', body: wrappedBlocks, start: [], steps: downBy(16, 'Shift+ArrowDown'), follow: 'wrapped' },
-  { name: 'Down through a wrapped paragraph, heading, quote and list item, from the start of a row', body: wrappedBlocks, start: [], steps: downBy(16), follow: 'wrapped' },
+  { name: 'Shift+Down from the start of each row of the page in a wrapped paragraph', body: wrapped, start: [], steps: downBy(4, 'Shift+ArrowDown'), follow: 'wrapped', pace: 70 },
+  { name: 'Down, then Shift+Down, from the start of a row of the page in a wrapped paragraph', body: wrapped, start: [], steps: ['ArrowDown', ...downBy(3, 'Shift+ArrowDown')], follow: 'wrapped', pace: 70 },
+  { name: 'Shift+Down from the start of rows of the page through a wrapped paragraph, heading, quote and list item', body: wrappedBlocks, start: [], steps: downBy(16, 'Shift+ArrowDown'), follow: 'wrapped', pace: 70 },
+  { name: 'Down through a wrapped paragraph, heading, quote and list item, from the start of a row', body: wrappedBlocks, start: [], steps: downBy(16), follow: 'wrapped', pace: 70 },
+  { name: 'Shift+Up from the start of rows of the page back through a wrapped list item, quote, heading and paragraph', body: wrappedBlocks, start: [ctrl('End'), 'Home'], steps: downBy(16, 'Shift+ArrowUp'), follow: 'wrapped', pace: 70 },
+  { name: 'Up from the end of rows of the page back through a wrapped list item, quote, heading and paragraph', body: wrappedBlocks, start: [ctrl('End')], steps: downBy(16, 'ArrowUp'), follow: 'wrapped', pace: 70 },
   {
     name: 'Shift+Down then Shift+Up over a row whose marks are hidden returns to where it began',
     body: 'some **bold** words here\n\nplain second paragraph text',

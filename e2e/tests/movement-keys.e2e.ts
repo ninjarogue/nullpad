@@ -20,8 +20,12 @@ import { pause, test } from './nullpad.ts';
  * Page Up and Page Down are held to the source row alone. Both are marked in
  * `follow`. A key that lands exactly where the plain field does always passes.
  *
+ * A row the page wraps has lines a plain field does not. On a sheet of such
+ * rows a key may instead leave the cursor and selection where a text field
+ * does that is set as the page's field is, holding the same rows.
+ *
  * With `NULLPAD_FAST=1` each key is pressed in the same frame as the click that
- * put the caret there.
+ * put the caret there. Without it each key waits for the page to be drawn.
  *
  * To check a new key, add a row to `keys`. A test fails for every key the
  * browser's own text field moves a caret or selection with that has no row.
@@ -76,8 +80,12 @@ const keys: Row[] = [
 /** How far, in pixels, a caret may land from where it was where only the layout decides: half a wide letter of a heading. */
 const pixelSlack = 16;
 
-/** Where the caret is put before the key: the note as opened, a blank row, or the gap before a letter of a word drawn on the page. */
-type Where = 'opened' | { blank: number } | Spot;
+/**
+ * Where the caret is put before the key: the note as opened, a blank row, the
+ * start of a line of a row the page wraps, counted from 0, or the gap before a
+ * letter of a word drawn on the page.
+ */
+type Where = 'opened' | { blank: number } | { line: number; of: number } | Spot;
 
 type Place = {
   name: string;
@@ -90,7 +98,10 @@ type Sheet = {
   name: string;
   note: string;
   places: Place[];
+  wrapped?: true;
 };
+
+const counted = (letter: string, count: number) => Array.from({ length: count }, (_, index) => `${letter}${index}`).join(' ');
 
 const sheets: Sheet[] = [
   {
@@ -157,6 +168,27 @@ const sheets: Sheet[] = [
       { name: 'the end of the note, in the second paragraph of an item', at: { word: 'b', at: 1, row: 11 } },
     ],
   },
+  {
+    name: 'a paragraph, a heading, a quote and a list item the page wraps',
+    note: [counted('p', 60), '', `## ${counted('h', 36)}`, '', `> ${counted('q', 50)}`, '', `- ${counted('i', 50)}`, '', 'last'].join('\n'),
+    wrapped: true,
+    places: [
+      { name: 'the start of a wrapped paragraph', at: 'opened' },
+      { name: 'the start of the second line of a wrapped paragraph', at: { line: 1, of: 0 } },
+      { name: 'the middle of a wrapped paragraph', at: { word: 'p25', at: 1 } },
+      { name: 'the end of a wrapped paragraph', at: { word: 'p59', at: 3 } },
+      { name: 'the text of a wrapped heading, after its hidden marks', at: { word: 'h0', at: 0 }, marks: true },
+      { name: 'the start of the second line of a wrapped heading', at: { line: 1, of: 2 } },
+      { name: 'the middle of a wrapped heading', at: { word: 'h20', at: 1 } },
+      { name: 'the end of a wrapped heading', at: { word: 'h35', at: 3 } },
+      { name: 'the start of the second line of a wrapped quote', at: { line: 1, of: 4 } },
+      { name: 'the middle of a wrapped quote', at: { word: 'q30', at: 1 } },
+      { name: 'the end of a wrapped quote', at: { word: 'q49', at: 3 } },
+      { name: 'the start of the second line of a wrapped list item', at: { line: 1, of: 6 } },
+      { name: 'the middle of a wrapped list item', at: { word: 'i30', at: 1 } },
+      { name: 'the end of a wrapped list item', at: { word: 'i49', at: 3 } },
+    ],
+  },
 ];
 
 type Cell = [number, number];
@@ -172,10 +204,12 @@ const offsetOfRow = (note: string, row: number) => note.split('\n').slice(0, row
 function startOf(sheet: Sheet, place: Place) {
   if (place.at === 'opened') return 0;
   if ('blank' in place.at) return offsetOfRow(sheet.note, place.at.blank) + (sheet.note.split('\n')[place.at.blank] ?? '').length;
+  if ('line' in place.at) return offsetOfRow(sheet.note, place.at.of);
   return offsetOf(sheet.note, place.at);
 }
 
 const show = ([row, col]: Cell) => `row ${row} column ${col}`;
+const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
 
 const describe = (anchor: Cell, head: Cell) =>
   anchor[0] === head[0] && anchor[1] === head[1] ? `the caret at ${show(head)}` : `the selection from ${show(anchor)} to ${show(head)}`;
@@ -193,13 +227,78 @@ async function blankPoint(editor: Editing, row: number) {
   return point!;
 }
 
+/** Presses the pointer just inside the start of a line of a row the page draws. */
+async function linePoint(editor: Editing, line: number, row: number) {
+  const point = await editor.fixtures.browser.evaluate(
+    ({ line, row }: { line: number; row: number }) => {
+      const drawn = document.querySelector(`.page [data-row="${row}"]:not(textarea)`);
+      if (!drawn) return null;
+      const range = document.createRange();
+      range.selectNodeContents(drawn);
+      const starts = new Map<number, DOMRect>();
+      for (const box of range.getClientRects()) {
+        if (box.width === 0) continue;
+        const top = Math.round(box.top);
+        const known = starts.get(top);
+        if (!known || box.left < known.left) starts.set(top, box);
+      }
+      const box = [...starts.entries()].sort(([a], [b]) => a - b)[line]?.[1];
+      return box ? { x: box.left + 2, y: box.top + box.height / 2 } : null;
+    },
+    { line, row },
+  );
+  expect(point, `line ${line} of row ${row} is drawn on the page`).not.toBeNull();
+  return point!;
+}
+
 async function reach(editor: Editing, place: Place) {
   if (place.at === 'opened') return;
   if ('blank' in place.at) {
     const { x, y } = await blankPoint(editor, place.at.blank);
     return editor.clickAt(x, y);
   }
+  if ('line' in place.at) {
+    const { x, y } = await linePoint(editor, place.at.line, place.at.of);
+    return editor.clickAt(x, y);
+  }
   return editor.click(place.at);
+}
+
+/**
+ * What the key does in a text field set as the page's field is, holding the
+ * rows it holds with the same selection, laid over the page. The page's field
+ * loses the focus to it.
+ */
+async function fieldKey(editor: Editing, key: string) {
+  const { browser } = editor.fixtures;
+  const first = await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    const style = getComputedStyle(field);
+    const twin = document.createElement('textarea');
+    twin.dataset['twin'] = '';
+    for (const name of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariantLigatures', 'fontKerning', 'lineHeight', 'letterSpacing', 'wordSpacing', 'tabSize', 'textIndent', 'whiteSpace', 'overflowWrap', 'wordBreak', 'paddingLeft', 'paddingRight'] as const) {
+      twin.style[name] = style[name];
+    }
+    twin.style.cssText += `;position:fixed;top:0;left:0;z-index:9;box-sizing:border-box;border:0;margin:0;height:90vh;width:${field.clientWidth}px`;
+    document.body.append(twin);
+    twin.value = field.value;
+    twin.focus();
+    twin.setSelectionRange(field.selectionStart, field.selectionEnd, field.selectionDirection);
+    return Number(field.dataset['row']);
+  });
+  await browser.keyboard.press(key);
+  const done = await browser.evaluate(() => {
+    const twin = document.querySelector<HTMLTextAreaElement>('textarea[data-twin]')!;
+    const backward = twin.selectionDirection === 'backward';
+    const out = { value: twin.value, anchor: backward ? twin.selectionEnd : twin.selectionStart, head: backward ? twin.selectionStart : twin.selectionEnd };
+    twin.remove();
+    return out;
+  });
+  const cell = (offset: number): Cell => {
+    const [row, col] = rowCol(done.value, offset);
+    return [row + first, col];
+  };
+  return { value: done.value, rows: done.value, first, anchor: cell(done.anchor), head: cell(done.head) };
 }
 
 /** Waits for the page to draw what was pressed, then reads the selection of the text field. */
@@ -296,6 +395,15 @@ function judge(row: Row, want: Want, got: { anchor: Cell; head: Cell }, x: Pixel
 }
 
 /**
+ * A step up or down keeps the caret's place across the page, which draws the
+ * row it starts from as it does, so it may stop a letter from where the field
+ * set as the page's does, on the same line, as long as it keeps its pixel.
+ */
+function nearTwin(row: Row, twin: Cell, got: Cell, before: number, after: number) {
+  return row.follow === 'row and pixel' && twin[0] === got[0] && Math.abs(twin[1] - got[1]) <= 1 && Math.abs(after - before) <= pixelSlack;
+}
+
+/**
  * Where the page differs from a plain field on purpose: the ends of a painted
  * selection go where the page draws them, so a selection never ends on a
  * fence the page hides.
@@ -347,6 +455,16 @@ for (const row of keys) {
             continue;
           }
         }
+        let twin: Awaited<ReturnType<typeof fieldKey>> | null = null;
+        if (sheet.wrapped && !fast) {
+          const held = await looked(editor, sheet.note);
+          twin = await fieldKey(editor, row.key);
+          if ('problem' in held) twin = null;
+          else twin.value = [...lines.slice(0, held.first), twin.value, ...lines.slice(held.first + held.value.split('\n').length)].join('\n');
+          await fixtures.page.text.focus();
+          await begin(editor, sheet, place, false);
+          await reach(editor, place);
+        }
         await editor.press(row.key);
         tried++;
         const want = plain.get(place)!;
@@ -358,11 +476,15 @@ for (const row of keys) {
         }
 
         const xAfter = (await cursorAt(fixtures.browser))?.x ?? NaN;
-        const problems = judge(row, want, got, { before: landing.x, after: xAfter }, want.value.split('\n')[got.head[0]]?.length ?? 0);
-        const edited = want.value !== sheet.note;
+        const fits = (want: Cell, end: Cell) => same(want, end) || nearTwin(row, want, end, landing.x, xAfter);
+        const asTwin = twin !== null && (twin.value !== sheet.note) === (want.value !== sheet.note) && twin.rows === got.value && twin.first === got.first && fits(twin.anchor, got.anchor) && fits(twin.head, got.head);
+        const problems = asTwin ? [] : judge(row, want, got, { before: landing.x, after: xAfter }, want.value.split('\n')[got.head[0]]?.length ?? 0);
+        if (twin && !asTwin && problems.length > 0) problems.push(`a field set as the page's ends with ${describe(twin.anchor, twin.head)}`);
+        const expected = asTwin ? twin!.value : want.value;
+        const edited = expected !== sheet.note;
         if (edited) {
-          const saved = await savedAs(editor, want.value);
-          if (saved !== want.value) problems.push(`the plain field holds ${JSON.stringify(want.value)}, the saved note is ${JSON.stringify(saved)}`);
+          const saved = await savedAs(editor, expected);
+          if (saved !== expected) problems.push(`the ${asTwin ? "field set as the page's" : 'plain field'} holds ${JSON.stringify(expected)}, the saved note is ${JSON.stringify(saved)}`);
           reopen = true;
         } else {
           const held = lines.slice(got.first, got.first + got.value.split('\n').length).join('\n');
@@ -372,6 +494,7 @@ for (const row of keys) {
           }
         }
         if (!apart.has(where)) for (const problem of problems) failures.push(`${where}: ${problem}`);
+        if (sheet.wrapped) reopen = true;
       }
     }
 
@@ -390,6 +513,10 @@ test('the page puts the caret where a click aimed at every place of the checklis
       const landing = lands.get(place)!;
       if ('problem' in landing) {
         failures.push(`${sheet.name}, ${place.name}: ${landing.problem}`);
+        continue;
+      }
+      if (place.at !== 'opened' && 'line' in place.at) {
+        if (landing.at[0] !== place.at.of || landing.at[1] === 0) failures.push(`${sheet.name}, ${place.name}: the caret should start a line of row ${place.at.of} past its first, and is at ${show(landing.at)}`);
         continue;
       }
       const from = rowCol(sheet.note, startOf(sheet, place));

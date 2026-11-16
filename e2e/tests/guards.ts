@@ -106,7 +106,8 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     if (at.top < rect.top - 0.5 || at.bottom > rect.bottom + 0.5) {
       return { at, problem: `${where(at)}, and the text field's box ends at y ${round(rect.top)} to ${round(rect.bottom)}` };
     }
-    const hit = document.elementFromPoint(at.x + 0.5, (at.top + at.bottom) / 2);
+    // A caret before a space that ends a wrapped line is drawn at the field's right edge.
+    const hit = document.elementFromPoint(Math.min(at.x + 0.5, rect.right - 0.5), (at.top + at.bottom) / 2);
     if (hit !== field) return { at, problem: `${where(at)}, and ${named(hit)} is drawn over it` };
     return { at, problem: null };
   };
