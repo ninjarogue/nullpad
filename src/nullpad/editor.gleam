@@ -15,9 +15,9 @@ import nullpad/vim.{Step}
 /// Every change to `buffer` goes through `edit` or `compose`. `edit`
 /// records it in `history`, except while a drag is under way: the browser
 /// moves dragged text in two changes, and the drag's end records both as
-/// one step. `composing` is while an IME composes in the field, from its
-/// first change through `compose` to the next through `edit`: undo and redo
-/// wait for it to end.
+/// one step. `ime` is while an IME composes in the field, from its first
+/// change through `compose` to its end or the next change through `edit`:
+/// undo and redo are not taken until it ends.
 ///
 /// `page` is what the page has yet to do for the editor: the steps of the
 /// head over the drawn page that it has not placed yet, and the keys
@@ -40,7 +40,7 @@ pub opaque type Editor {
     press: Option(Press),
     clicked: Option(Position),
     dragging: Bool,
-    composing: Bool,
+    ime: Ime,
     paints: Bool,
     goal: Option(Goal),
     page: Page,
@@ -59,6 +59,19 @@ type Page {
   /// behind them, and are replayed one at a time once no step waits, each
   /// once the page has drawn what the one before it did.
   Behind(steps: List(Queued), keys: List(Held))
+}
+
+/// What an IME does in the field, which is its own until it ends: the editor
+/// does not write the field meanwhile.
+type Ime {
+  NotComposing
+  /// The editor takes in each change it makes to the field as it makes it.
+  ComposingHere
+  /// It began to compose while the page was behind. A text field would have
+  /// done the steps and keys that wait first, so the editor takes in nothing
+  /// it composes, and holds the text it ends with behind them, to go over
+  /// the selection they leave. The steps wait for it to end too.
+  ComposingBehind
 }
 
 /// `x` is how far from the left of the page's text the head was drawn when
@@ -281,7 +294,7 @@ pub type Held {
     alt: Bool,
     at: Int,
   )
-  /// Text pasted into the field at `at`.
+  /// Text pasted into the field, or composed in it by an IME, at `at`.
   HeldPaste(text: String, at: Int)
   /// Undo or redo from the browser's menu.
   HeldUndo
@@ -412,7 +425,7 @@ pub fn new(
     press: None,
     clicked: None,
     dragging: False,
-    composing: False,
+    ime: NotComposing,
     paints:,
     goal: None,
     page: CaughtUp,
@@ -440,7 +453,7 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     buffer:,
     field:,
     history: history.new(buffer),
-    composing: False,
+    ime: NotComposing,
     page: CaughtUp,
     travel: order.Eq,
   )
@@ -614,11 +627,19 @@ fn is_vertical(edge: Edge) -> Bool {
 fn apply(editor: Editor, event: Event) -> Outcome {
   let unasked = steps(editor) == []
   case event {
+    // Chrome sends `select` while an IME composes.
     ControlChanged(shown:, at:) ->
-      typed(Editor(..editor, clock: at), shown, None, realign)
+      case editor.ime {
+        NotComposing -> typed(Editor(..editor, clock: at), shown, None, realign)
+        ComposingHere | ComposingBehind -> compose(editor, shown)
+      }
     Composing(shown:) -> compose(editor, shown)
     Composed(shown:, at:) ->
-      typed(Editor(..editor, clock: at), shown, None, realign)
+      case editor.ime {
+        ComposingBehind -> hold_composition(editor, shown, at)
+        ComposingHere | NotComposing ->
+          typed(Editor(..editor, clock: at), shown, None, realign)
+      }
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge: Widen, shown:, ..) -> spread(editor, shown)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
@@ -940,14 +961,16 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       Outcome(editor: changed, sync:, requests: [])
     }
     UndoAsked ->
-      case editor.page {
-        CaughtUp -> travel(editor, history.undo)
-        Behind(..) -> hold_key(editor, HeldUndo)
+      case editor.page, editor.ime {
+        Behind(..), NotComposing -> hold_key(editor, HeldUndo)
+        CaughtUp, _ | Behind(..), ComposingHere | Behind(..), ComposingBehind ->
+          travel(editor, history.undo)
       }
     RedoAsked ->
-      case editor.page {
-        CaughtUp -> travel(editor, history.redo)
-        Behind(..) -> hold_key(editor, HeldRedo)
+      case editor.page, editor.ime {
+        Behind(..), NotComposing -> hold_key(editor, HeldRedo)
+        CaughtUp, _ | Behind(..), ComposingHere | Behind(..), ComposingBehind ->
+          travel(editor, history.redo)
       }
     KeyHeld(held) -> hold_key(editor, held)
     Replayed(Some(UndoAsked)) -> travel(replayed(editor), history.undo)
@@ -1022,15 +1045,15 @@ fn travel(
   editor: Editor,
   through: fn(History) -> Result(History, Nil),
 ) -> Outcome {
-  case editor.composing, editor.focus, through(editor.history) {
-    True, Focused, _ | True, Away, _ ->
+  case editor.ime, editor.focus, through(editor.history) {
+    ComposingHere, _, _ | ComposingBehind, _, _ ->
       Outcome(editor:, sync: InSync, requests: [])
-    False, Focused, Ok(history) ->
+    NotComposing, Focused, Ok(history) ->
       Editor(..editor, history:, page: behind([], held_keys(editor)))
       |> edit(history.present(history))
       |> realign
       |> write
-    False, Focused, Error(Nil) | False, Away, _ ->
+    NotComposing, Focused, Error(Nil) | NotComposing, Away, _ ->
       Outcome(editor:, sync: WriteQuietly(field_buffer(editor)), requests: [])
   }
 }
@@ -1327,6 +1350,18 @@ fn typed(
 /// Its keys are not steps of the history: the event that ends it records the
 /// whole composition as one.
 fn compose(editor: Editor, shown: Buffer) -> Outcome {
+  case editor.ime, editor.page {
+    ComposingBehind, _ | NotComposing, Behind(..) ->
+      Outcome(
+        editor: Editor(..editor, ime: ComposingBehind),
+        sync: InSync,
+        requests: [],
+      )
+    ComposingHere, _ | NotComposing, CaughtUp -> compose_here(editor, shown)
+  }
+}
+
+fn compose_here(editor: Editor, shown: Buffer) -> Outcome {
   let composed = base(editor, shown)
   let rows_kept =
     list.length(buffer.lines(composed))
@@ -1335,7 +1370,7 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
     Part(rows:, drawn:, parsed:, ..), True -> {
       let field = Part(rows:, drawn:, parsed:, composing: True, wide: False)
       Outcome(
-        editor: Editor(..editor, buffer: composed, field:, composing: True),
+        editor: Editor(..editor, buffer: composed, field:, ime: ComposingHere),
         sync: InSync,
         requests: [],
       )
@@ -1353,8 +1388,57 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
 
 fn keep_history(before: Editor, outcome: Outcome) -> Outcome {
   let editor =
-    Editor(..outcome.editor, history: before.history, composing: True)
+    Editor(..outcome.editor, history: before.history, ime: ComposingHere)
   Outcome(..outcome, editor:)
+}
+
+/// What an IME composed behind the page waits behind the steps and keys
+/// that wait, and the field it composed in is put back as the editor has it.
+/// When the IME changed the field past the selection it began in, as it may
+/// to convert text again, its text stays where it composed it.
+fn hold_composition(editor: Editor, shown: Buffer, at: Int) -> Outcome {
+  let field = field_buffer(editor)
+  case composed_text(field, shown) {
+    Error(Nil) -> typed(Editor(..editor, clock: at), shown, None, realign)
+    Ok(text) -> {
+      let keys = case text {
+        "" -> held_keys(editor)
+        _ -> list.append(held_keys(editor), [HeldPaste(text:, at:)])
+      }
+      let editor =
+        Editor(..editor, ime: NotComposing, page: behind(steps(editor), keys))
+      let sync = case steps(editor) {
+        [Queued(move:, select:), ..] ->
+          WriteAndStep(field, move:, select:, x: step_x(editor, move))
+        [] -> Write(field)
+      }
+      Outcome(editor:, sync:, requests: [])
+    }
+  }
+}
+
+/// The text an IME put over the selection of `before` to leave `after`,
+/// with the caret after it.
+fn composed_text(before: Buffer, after: Buffer) -> Result(String, Nil) {
+  let #(anchor, head) = buffer.selection(before)
+  let #(from, to) = case buffer.compare(anchor, head) {
+    order.Gt -> #(head, anchor)
+    order.Lt | order.Eq -> #(anchor, head)
+  }
+  let end = buffer.cursor(after)
+  let without = fn(text: Buffer, to: Position) {
+    buffer.text(buffer.replace(text, from:, to:, with: ""))
+  }
+  case buffer.compare(from, end), without(before, to) == without(after, end) {
+    order.Lt, True | order.Eq, True -> {
+      let last = buffer.end_of(buffer.text(after))
+      buffer.replace(after, from: end, to: last, with: "")
+      |> buffer.replace(from: Position(0, 0), to: from, with: "")
+      |> buffer.text
+      |> Ok
+    }
+    order.Gt, _ | order.Lt, False | order.Eq, False -> Error(Nil)
+  }
 }
 
 /// The field holds the whole note, as it is, for the browser to act on.
@@ -1616,7 +1700,7 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
     True -> editor.history
     False -> history.record(editor.history, buffer, at: editor.clock)
   }
-  Editor(..editor, buffer:, field:, history:, composing: False)
+  Editor(..editor, buffer:, field:, history:, ime: NotComposing)
 }
 
 /// The page keeps how it was laid out through an edit that leaves the
@@ -1823,9 +1907,10 @@ pub fn is_painted(editor: Editor) -> Bool {
   }
 }
 
-/// Whether a step of the head waits for the page.
+/// Whether the page is to take a step of the head: one waits, and no IME
+/// composes in the field, where the step would move the caret.
 pub fn is_stepping(editor: Editor) -> Bool {
-  steps(editor) != []
+  steps(editor) != [] && editor.ime == NotComposing
 }
 
 /// Whether the page is behind the editor, so that a key pressed now is held.
@@ -1841,7 +1926,7 @@ pub fn is_waiting(editor: Editor) -> Bool {
 /// composes in it. The surface replays it once the page has drawn the
 /// editor as it is.
 pub fn replay(editor: Editor) -> Option(Held) {
-  case editor.page, editor.composing || is_wide(editor) {
+  case editor.page, editor.ime != NotComposing || is_wide(editor) {
     Behind(steps: [], keys: [key, ..]), False -> Some(key)
     Behind(steps: [], keys: [_, ..]), True
     | Behind(steps: [], keys: []), _

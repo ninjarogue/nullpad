@@ -448,3 +448,18 @@ pub fn an_undo_after_a_composition_behind_a_key_takes_back_the_composition_test(
   assert editor.text(ed) == note
   assert !editor.is_waiting(ed)
 }
+
+/// An IME may convert text before the caret again, past the selection it
+/// began in: what it leaves is kept where it left it.
+pub fn text_an_ime_converts_again_behind_a_held_key_is_kept_test() {
+  let ed = opened() |> step_down |> hold(key("z"))
+  let converted =
+    buffer.from_text("ALPHA beta") |> buffer.move_to(Position(row: 0, col: 5))
+  let ed = editor.update(ed, editor.Composing(shown: converted)).editor
+  let ed = editor.update(ed, editor.Composed(shown: converted, at: 0)).editor
+  assert editor.text(ed) == "ALPHA beta\n\nsecond para here\nthird row\n\nlast"
+
+  let ed = drain(ed)
+  assert editor.text(ed) == "ALPHAz beta\n\nsecond para here\nthird row\n\nlast"
+  assert !editor.is_waiting(ed)
+}
