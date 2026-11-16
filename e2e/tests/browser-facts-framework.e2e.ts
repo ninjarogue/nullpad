@@ -1,10 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fact, locate, noticed, problemsWithTable, sources, verify } from './browser-facts.ts';
 import type { Fact } from './browser-facts.ts';
-import { test } from './nullpad.ts';
 
 /**
  * Break cases for the machinery under `browser-facts.e2e.ts`: how a fact
