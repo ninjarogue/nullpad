@@ -415,14 +415,14 @@ pub fn sync(
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
-  // The page paints the selection, and settles it where it can draw its
-  // ends. True when there is nothing to settle.
+  // The page paints the selection, and settles its head where it can draw
+  // it. True when there is nothing to settle.
   let draw = fn(dispatch) {
     paint(editor)
     note_drawn(editor.row_count(editor))
     case settling(editor) {
-      Some(#(from, to)) -> {
-        dispatch(on_event(editor.Settled(from:, to:)))
+      Some(#(from, head)) -> {
+        dispatch(on_event(editor.Settled(from:, head:)))
         False
       }
       None -> True
@@ -771,25 +771,25 @@ fn paint(editor: Editor) -> Nil {
   }
 }
 
-/// Where a painted selection settles, when the page cannot draw its ends
-/// where they are: an end never cuts a pair of marks the page hides.
-fn settling(
-  editor: Editor,
-) -> Option(#(#(Position, Position), #(Position, Position))) {
-  use <- bool.guard(!editor.is_painted(editor), None)
+/// Where the head of a painted selection settles, when a key moved it among
+/// marks the page hides: it never cuts a pair of them.
+fn settling(editor: Editor) -> Option(#(#(Position, Position), Position)) {
+  let toward = editor.direction(editor)
+  use <- bool.guard(!editor.is_painted(editor) || toward == order.Eq, None)
   let buffer = editor.buffer(editor)
-  let lines = buffer.lines(buffer)
   let #(anchor, head) = buffer.selection(buffer)
-  let settle = fn(at: Position, other: Position, toward: order.Order) {
-    let #(row, visible) =
-      holder_text(control_id, live_class, live.row_mark, at.row)
-    live.settle(lines, row:, visible:, at:, other:, toward:)
-  }
-  let to = #(
-    settle(anchor, head, order.Eq),
-    settle(head, anchor, editor.direction(editor)),
-  )
-  case to == #(anchor, head) {
+  let #(row, visible) =
+    holder_text(control_id, live_class, live.row_mark, head.row)
+  let to =
+    live.settle(
+      buffer.lines(buffer),
+      row:,
+      visible:,
+      at: head,
+      other: anchor,
+      toward:,
+    )
+  case to == head {
     True -> None
     False -> Some(#(#(anchor, head), to))
   }

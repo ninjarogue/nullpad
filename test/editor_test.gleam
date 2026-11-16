@@ -1090,7 +1090,34 @@ pub fn a_change_the_editor_did_not_write_ends_the_waiting_steps_test() {
   assert late == ed
 }
 
-pub fn a_painted_selection_settles_where_the_page_painted_it_test() {
+pub fn a_painted_head_a_key_moved_settles_where_the_page_painted_it_test() {
+  let Outcome(editor: ed, ..) =
+    pressed(live_note, 0, "Tr")
+    |> step_to(row: 1, visible: "", at_end: False, x: 9.0)
+  let Outcome(editor: ed, ..) =
+    step_to(ed, row: 2, visible: "Flights are ", at_end: False, x: 9.0)
+  assert editor.is_painted(ed)
+  let from = #(Position(0, 4), Position(2, 12))
+  assert buffer.selection(editor.buffer(ed)) == from
+  let head = Position(2, 14)
+
+  let Outcome(editor: stale, sync:, ..) =
+    editor.update(ed, editor.Settled(from: #(Position(0, 3), from.1), head:))
+  assert sync == editor.InSync
+  assert stale == ed
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Settled(from:, head:))
+  assert sync
+    == editor.WriteQuietly(selected(
+      "# Trip\n\nFlights are **booked**.",
+      from: from.0,
+      to: head,
+    ))
+  assert editor.text(ed) == live_note
+}
+
+pub fn a_painted_head_a_drag_put_among_hidden_marks_stays_there_test() {
   let ed = pressed(live_note, 0, "Tr")
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1099,25 +1126,15 @@ pub fn a_painted_selection_settles_where_the_page_painted_it_test() {
     )
   assert editor.is_painted(ed)
   let from = #(Position(0, 4), Position(2, 12))
-  let to = #(Position(0, 4), Position(2, 14))
+  assert buffer.selection(editor.buffer(ed)) == from
 
-  let Outcome(editor: stale, sync:, ..) =
-    editor.update(ed, editor.Settled(from: #(Position(0, 3), from.1), to:))
+  let Outcome(editor: kept, sync:, ..) =
+    editor.update(ed, editor.Settled(from:, head: Position(2, 14)))
   assert sync == editor.InSync
-  assert stale == ed
-
-  let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.Settled(from:, to:))
-  assert sync
-    == editor.WriteQuietly(selected(
-      "# Trip\n\nFlights are **booked**.",
-      from: to.0,
-      to: to.1,
-    ))
-  assert editor.text(ed) == live_note
+  assert kept == ed
 }
 
-pub fn the_page_never_moves_the_anchor_of_a_painted_selection_test() {
+pub fn the_page_settles_the_head_a_key_moved_and_never_the_anchor_test() {
   let ed = pressed(live_note, 2, "Flights are ")
   let inside = caret("Flights are **booked**.", 0, 13)
   let Outcome(editor: ed, ..) =
@@ -1132,11 +1149,9 @@ pub fn the_page_never_moves_the_anchor_of_a_painted_selection_test() {
   assert from == #(Position(2, 13), Position(5, 5))
 
   let Outcome(editor: ed, ..) =
-    editor.update(
-      ed,
-      editor.Settled(from:, to: #(Position(2, 14), Position(5, 5))),
-    )
-  assert buffer.selection(editor.buffer(ed)) == from
+    editor.update(ed, editor.Settled(from:, head: Position(5, 4)))
+  assert buffer.selection(editor.buffer(ed))
+    == #(Position(2, 13), Position(5, 4))
 }
 
 pub fn a_selection_made_in_the_markdown_keeps_its_ends_in_the_page_test() {
@@ -1151,10 +1166,7 @@ pub fn a_selection_made_in_the_markdown_keeps_its_ends_in_the_page_test() {
   assert from == #(Position(4, 0), Position(2, 14))
 
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(
-      ed,
-      editor.Settled(from:, to: #(Position(4, 0), Position(2, 12))),
-    )
+    editor.update(ed, editor.Settled(from:, head: Position(2, 12)))
   assert sync == editor.InSync
   assert buffer.selection(editor.buffer(ed)) == from
 }

@@ -232,10 +232,12 @@ pub type Event {
   /// A step with nothing drawn past the head: the head goes to the start or
   /// the end of the note, as in a text field.
   SteppedPast
-  /// The page painted a selection from `from`, whose ends it draws where
-  /// `live.settle` puts them, at `to`. Unless the selection has moved since,
-  /// it is taken there, so it holds what is painted.
-  Settled(from: #(Position, Position), to: #(Position, Position))
+  /// The page painted a selection from `from` whose head a key moved among
+  /// marks it hides, and draws the head where `live.settle` puts it, at
+  /// `head`. Unless the selection has moved since, the head is taken there.
+  /// The anchor stays where it was put, as do both ends of a selection no
+  /// key moved, so what is deleted or typed over is what was selected.
+  Settled(from: #(Position, Position), head: Position)
   Released
   /// The browser starts to drag the field's selection.
   DragStarted
@@ -429,6 +431,7 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     history: history.new(buffer),
     composing: False,
     page: CaughtUp,
+    travel: order.Eq,
   )
   |> realign
   |> write_and_focus
@@ -454,6 +457,7 @@ fn write(editor: Editor) -> Outcome {
 }
 
 pub fn set_live(editor: Editor, on: Bool) -> Outcome {
+  let editor = Editor(..editor, travel: order.Eq)
   let editor = case on {
     True -> Editor(..editor, field: laid_out(editor.buffer)) |> realign
     False -> Editor(..editor, field: Whole)
@@ -488,7 +492,8 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
 }
 
 /// Which way the last key moved the head: a painted head among hidden marks
-/// settles that way, so a step never settles back where it came from.
+/// settles that way, so a step never settles back where it came from. `Eq`
+/// once anything but a key put the head where it is, which then stays.
 pub fn direction(editor: Editor) -> order.Order {
   editor.travel
 }
@@ -828,9 +833,14 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       |> begin_run(editor, landing(steps(editor)), -1.0)
       |> next_step(None, False)
     }
-    Settled(from:, to: #(anchor, head)) ->
-      case is_painted(editor) && buffer.selection(editor.buffer) == from {
+    Settled(from:, head:) ->
+      case
+        is_painted(editor)
+        && editor.travel != order.Eq
+        && buffer.selection(editor.buffer) == from
+      {
         True -> {
+          let #(anchor, _) = from
           let settled =
             edit(editor, buffer.select(editor.buffer, anchor:, head:))
             |> realign
