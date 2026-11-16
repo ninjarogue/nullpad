@@ -7,12 +7,13 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { gone, interrupted } from "./interrupt.mjs";
 import { useScratch } from "./scratch.mjs";
-import { e2e as e2eStep, e2eConfigs, gateSteps, nodeTest as nodeTestStep, nodeTestFiles, readers, root } from "./steps.mjs";
+import { e2e as e2eStep, e2eConfigs, gateSteps, gleamTest, keystrokeCost, nodeTest as nodeTestStep, nodeTestFiles, readers, root } from "./steps.mjs";
 import { gate, judge, loadCounts, runStep } from "./test_counts.mjs";
 
 const scratch = useScratch();
@@ -596,5 +597,111 @@ describe("what the docs tell a clone with no hook to run", () => {
     assert.ok(line, "the skill no longer says how to turn the hook on");
     assert.match(line, /node test\/test_counts\.mjs run/);
     assert.doesNotMatch(line, /gleam test/);
+  });
+});
+
+describe("the gate stopped from outside, in the middle of a step", () => {
+  // The real test/test_counts.mjs, in a folder of its own, with a test/steps.mjs
+  // that has one step: a runner that writes in the folder it is given and hangs.
+  function hangingGate() {
+    const dir = scratch.make("gate-");
+    const mark = join(scratch.make("gate-mark-"), "mark");
+    mkdirSync(join(dir, "test"));
+    copyFileSync(join(root, "test/test_counts.mjs"), join(dir, "test/test_counts.mjs"));
+    writeFileSync(join(dir, "test/test_counts.json"), '{\n  "e2e:hang": 1\n}\n');
+    writeFileSync(join(dir, "hang.mjs"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(mark)}, String(process.pid)); setInterval(() => {}, 1000);`);
+    writeFileSync(
+      join(dir, "test/steps.mjs"),
+      `import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+export const root = fileURLToPath(new URL("..", import.meta.url));
+export const heldNames = [];
+export const strayNodeTests = () => [];
+export const gateSteps = () => [{ id: "e2e:hang", cwd: root, counted: true, outIn: join(root, ".e2e"), command: (outDir) => ["node", "hang.mjs", outDir], read: () => ({ passed: 1, failed: 0, skipped: 0 }) }];
+`,
+    );
+    return { dir, mark, left: () => (existsSync(join(dir, ".e2e")) ? readdirSync(join(dir, ".e2e")).filter((name) => name.startsWith("step-")) : []) };
+  }
+
+  for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) {
+    test(`${signal} removes the folder the step wrote in and stops the step, and the gate ends with ${code}`, async () => {
+      const gateDir = hangingGate();
+      const ended = await interrupted({ argv: ["node", "test/test_counts.mjs", "run"], cwd: gateDir.dir, mark: gateDir.mark, signal });
+      assert.equal(ended.by, null, `it was ended by ${ended.by}, so nothing cleaned up:\n${ended.output}`);
+      assert.equal(ended.code, code, ended.output);
+      assert.deepEqual(gateDir.left(), [], "the folder the step wrote in is still there");
+      assert.ok(await gone(Number(ended.held)), "the step is still running");
+    });
+  }
+});
+
+describe("which tests failed, as each runner says", () => {
+  const has = (step) => assert.equal(typeof step.failing, "function", `${step.id} cannot say which tests failed`);
+
+  test("gleam test: the module and function of each failure, with the colour codes in the way", () => {
+    has(gleamTest);
+    const output = [
+      "\u001b[32m.\u001b[39m\u001b[1m\u001b[31massert\u001b[39m\u001b[22m \u001b[90mtest/editor_test.gleam:12\u001b[39m",
+      "\u001b[36m test\u001b[39m: editor_test.undo_test",
+      "\u001b[36m info\u001b[39m: Assertion failed.",
+      "\u001b[90mbuffer_test.move_test\u001b[39m",
+      "An unexpected error occurred:",
+      "",
+      "  Error(Nil)",
+      "",
+      "1 passed, 2 failures",
+    ].join("\n");
+    assert.deepEqual(gleamTest.failing({ output }), ["editor_test.undo_test", "buffer_test.move_test"]);
+    assert.deepEqual(gleamTest.failing({ output: "5 passed, no failures" }), []);
+  });
+
+  test("keystroke_cost: the rows over budget and the lines it printed to say what broke", () => {
+    has(keystrokeCost);
+    const output = [
+      "│ 0 │ '20 KB' │ 'typed character' │ 2 │ 'OVER BUDGET (1)' │",
+      "│ 1 │ '20 KB' │ 'caret move' │ 0 │ 'ok' │",
+      "editor.Foo has no entry in test/keystroke_cost.mjs.",
+      "undo history: 599 of 600 steps could be undone.",
+    ].join("\n");
+    const failing = keystrokeCost.failing({ output });
+    assert.equal(failing.length, 3);
+    assert.match(failing[0], /typed character/);
+    assert.match(failing[1], /editor\.Foo has no entry/);
+    assert.match(failing[2], /undo history/);
+  });
+
+  test("node:test: the names of the tests that failed, and not the todos and skips", () => {
+    const step = nodeTestStep("fake", "test/fake.test.mjs");
+    has(step);
+    const output = "ok 1 - fine\nnot ok 2 - broken one\n  ---\nnot ok 3 - a todo # TODO\nok 4 - skipped # SKIP\nnot ok 5 - broken two # extra\n";
+    assert.deepEqual(step.failing({ output }), ["broken one", "broken two"]);
+  });
+
+  test("e2e: the file and title of each test the report says did not pass", () => {
+    const step = e2eStep("e2e.config.ts");
+    has(step);
+    const dir = scratch.make("report-");
+    const parsed = JSON.parse(report({ passed: 2 }));
+    parsed.run.results.push(
+      { kind: "test", status: "failed", file: "tests/live.e2e.ts", titlePath: ["a describe", "a test"] },
+      { kind: "test", status: "skipped", file: "tests/live.e2e.ts", titlePath: ["left out"] },
+      { kind: "test", status: "interrupted", file: "tests/undo.e2e.ts", titlePath: ["cut short"] },
+    );
+    writeFileSync(join(dir, "report.json"), JSON.stringify(parsed));
+    assert.deepEqual(step.failing({ output: "", outDir: dir }), ["tests/live.e2e.ts > a describe > a test", "tests/undo.e2e.ts > cut short"]);
+  });
+
+  test("e2e: a step can be narrowed to the tests that failed, to run them again on the clean tree", () => {
+    const step = e2eStep("e2e.dpr2.config.ts", ["--max-failures", "1"]);
+    assert.equal(typeof step.narrow, "function", "an e2e step cannot be run again for only the tests that failed");
+    const narrowed = step.narrow(["tests/live.e2e.ts > a describe > a (test)", "tests/undo.e2e.ts > cut short"]);
+    const argv = narrowed.command("/out");
+    assert.equal(narrowed.id, step.id);
+    assert.ok(argv.includes("e2e.dpr2.config.ts") && argv.includes("/out") && argv.includes("--max-failures"), argv.join(" "));
+    const greps = argv.flatMap((arg, at) => (argv[at - 1] === "--grep" ? [arg] : []));
+    assert.equal(greps.length, 2);
+    assert.ok(new RegExp(greps[0]).test("a describe a (test)"), greps[0]);
+    assert.ok(!new RegExp(greps[0]).test("a describe a Xtest)"), greps[0]);
+    assert.ok(new RegExp(greps[1]).test("cut short"));
   });
 });

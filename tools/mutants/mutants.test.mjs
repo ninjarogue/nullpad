@@ -11,8 +11,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
 import { pathToFileURL } from "node:url";
+import { alive, gone, interrupted } from "../../test/interrupt.mjs";
 import { useScratch } from "../../test/scratch.mjs";
-import { readers, root } from "../../test/steps.mjs";
+import { gleamTest, readers, root } from "../../test/steps.mjs";
 import { HarnessError, classify, defaultChecks, runMutants, validate } from "./mutants.mjs";
 
 const scratch = useScratch();
@@ -43,10 +44,18 @@ const files = {
     else if (mode === "silent") finish("\\n2 passed, no failures", 1);
     else if (mode === "empty") finish("\\n0 passed, no failures", 0);
     else if (mode === "hang") setInterval(() => {}, 1000);
-    else {
+    else if (mode === "refused") finish(" test: toy.page\\nAPP_UNREACHABLE: nothing answered at http://127.0.0.1:1/blank (ERR_CONNECTION_REFUSED)\\n\\n1 passed, 1 failures", 1);
+    else if (mode === "unreachable") finish(" test: toy.page\\nAPP_UNREACHABLE: the app did not start\\n\\n1 passed, 1 failures", 1);
+    else if (mode === "reset") finish(" test: toy.page\\nnet::ERR_CONNECTION_RESET at http://127.0.0.1:1/\\n\\n1 passed, 1 failures", 1);
+    else if (mode === "closed") finish(" test: toy.page\\nTarget page, context or browser has been closed\\n\\n1 passed, 1 failures", 1);
+    else if (mode === "again" && readFileSync(process.env.TOY_LOG, "utf8").split("\\n").filter((line) => line.startsWith("unit ")).length === 2) {
+      finish(" test: toy.alpha\\n\\n1 passed, 1 failures", 1);
+    } else {
       if (mode === "big") for (let line = 0; line < 20000; line++) console.log("line " + line + " of a long report");
-      const failed = ["alpha", "beta"].filter((word) => !src.includes(word)).length;
-      finish(failed === 0 ? "\\n2 passed, no failures" : "\\n" + (2 - failed) + " passed, " + failed + " failures", failed === 0 ? 0 : 1);
+      const missing = ["alpha", "beta"].filter((word) => !src.includes(word));
+      const failed = missing.length;
+      const names = missing.map((word) => " test: toy." + word).join("\\n");
+      finish(failed === 0 ? "\\n2 passed, no failures" : names + "\\n\\n" + (2 - failed) + " passed, " + failed + " failures", failed === 0 ? 0 : 1);
     }`,
   "second.mjs": `
     import { appendFileSync, readFileSync } from "node:fs";
@@ -85,6 +94,7 @@ function toy({ mode = "", timeoutMs = 20_000 } = {}) {
     counted: true,
     command: () => ["node", file],
     read: readers.gleeunit,
+    failing: gleamTest.failing ?? (() => []),
     env: { TOY_LOG: log, TOY_MODE: id === "unit" ? mode : "" },
     ...extra,
   });
@@ -137,11 +147,11 @@ describe("a planted bug", () => {
     assert.deepEqual(t.ran("BROKEN"), ["build"]);
   });
 
-  test("a test that cannot compile is INVALID, not CAUGHT", async () => {
+  test("a test that cannot compile is CAUGHT-BY-COMPILE: not CAUGHT, because no test failed, and not INVALID, because the source builds", async () => {
     const t = toy();
     t.checks[1].compileFailed = (output) => /^error:/m.test(output);
     const { results } = await t.run([mutant("M-types", "delta", "NOCOMPILE")]);
-    assert.equal(by(results, "M-types").status, "INVALID");
+    assert.equal(by(results, "M-types").status, "CAUGHT-BY-COMPILE");
     assert.equal(by(results, "M-types").check, "unit");
   });
 
@@ -165,6 +175,58 @@ describe("a planted bug", () => {
     assert.equal(real.check, "unit");
     assert.equal(real.kind, "mutant");
     assert.ok(lines.some((line) => line.kind === "calibration" && line.id === "CAL-noop" && line.status === "MISSED"));
+  });
+});
+
+describe("a CAUGHT mutant", () => {
+  test("says which tests failed, in the result and in the results file", async () => {
+    const t = toy();
+    const { results } = await t.run([mutant("M-unit", "alpha", "alpxa")]);
+    assert.deepEqual(by(results, "M-unit").failing, ["toy.alpha"]);
+    const lines = readFileSync(join(t.outDir, "results.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(lines.find((line) => line.id === "M-unit").failing, ["toy.alpha"]);
+  });
+
+  test("is run again on the clean tree, the build first and then the check that caught it", async () => {
+    const t = toy();
+    await t.run([mutant("M-unit", "alpha", "alpxa")]);
+    const log = readFileSync(t.log, "utf8").split("\n").filter(Boolean);
+    const at = log.findIndex((line) => line.startsWith("unit ") && line.includes("alpxa"));
+    assert.ok(at >= 0, "the mutant was not run");
+    assert.match(log[at + 1] ?? "", /^build .*alpha/, "the build was not run on the clean tree");
+    assert.match(log[at + 2] ?? "", /^unit .*alpha/, "the check that caught it was not run on the clean tree");
+  });
+
+  test("is an ERROR, and the run stops, when the check fails on the clean tree too", async () => {
+    const t = toy({ mode: "again" });
+    await assert.rejects(t.run([mutant("M-unit", "alpha", "alpxa")]), (error) => {
+      assert.ok(error instanceof HarnessError, String(error));
+      assert.match(error.message, /clean tree/);
+      assert.ok(error.records.some((record) => record.status === "ERROR" && record.check === "unit"), JSON.stringify(error.records));
+      assert.ok(!error.records.some((record) => record.status === "CAUGHT"), "a catch that does not hold was recorded as CAUGHT");
+      return true;
+    });
+    assert.equal(t.src(), SRC);
+    assert.equal(t.status(), "");
+  });
+
+  test("is not run again when nothing was caught, and a build that broke is not either", async () => {
+    const t = toy();
+    await t.run([mutant("M-missed", "delta", "deltb"), mutant("M-invalid", "delta", "BROKEN")]);
+    assert.deepEqual(t.ran("deltb"), ["build", "unit", "second"]);
+    assert.deepEqual(t.ran("BROKEN"), ["build"]);
+    const log = readFileSync(t.log, "utf8").split("\n").filter(Boolean);
+    const last = log.findLastIndex((line) => line.includes("BROKEN"));
+    assert.deepEqual(log.slice(last + 1).map((line) => line.split(" ")[0]), ["build"], "only the build that clears the last bug may run after the last mutant");
+  });
+
+  test("by a test that cannot compile is run again on the clean tree, too", async () => {
+    const t = toy();
+    t.checks[1].compileFailed = (output) => /^error:/m.test(output);
+    await t.run([mutant("M-types", "delta", "NOCOMPILE")]);
+    const log = readFileSync(t.log, "utf8").split("\n").filter(Boolean);
+    const at = log.findLastIndex((line) => line.startsWith("unit ") && line.includes("NOCOMPILE"));
+    assert.match(log[at + 2] ?? "", /^unit .*delta/);
   });
 });
 
@@ -323,6 +385,10 @@ describe("a check that does not do its job is an error, never CAUGHT", () => {
   harness("lies", /exited 0.*failed|reported failures/s);
   harness("silent", /exited 1.*no test failed|without a failed test/s);
   harness("empty", /0 tests/);
+  harness("refused", /ERR_CONNECTION_REFUSED|infrastructure/);
+  harness("unreachable", /APP_UNREACHABLE|infrastructure/);
+  harness("reset", /ERR_CONNECTION_RESET|infrastructure/);
+  harness("closed", /has been closed|infrastructure/);
 
   test("a check that is not there, exit 127, is an error", async () => {
     const t = toy();
@@ -358,6 +424,27 @@ describe("classify", () => {
   test("does not catch on 'No tests found' whatever else it says", () => {
     assert.equal(classify(unit, result({ exitCode: 1, output: "\nNo tests found!\n", counts: { passed: 0, failed: 0, skipped: 0 } })).verdict, "error");
     assert.equal(classify(unit, result({ exitCode: 1, output: "\u001b[1mNo tests found!\u001b[22m", counts: null, problem: "no summary" })).verdict, "error");
+  });
+
+  test("does not catch on a failure that is the harness's: the app unreachable, a connection refused or reset, a browser closed", () => {
+    const failing = { exitCode: 1, counts: { passed: 4, failed: 1, skipped: 0 } };
+    for (const output of [
+      "APP_UNREACHABLE: nothing answered at http://127.0.0.1:39211/blank (ERR_CONNECTION_REFUSED)",
+      "x \u001b[31mERR_CONNECTION_RESET\u001b[39m",
+      "Error: connect ECONNREFUSED 127.0.0.1:8080",
+      "Target page, context or browser has been closed",
+      "WORKER_CRASH: the worker exited",
+    ]) {
+      assert.equal(classify(unit, result({ ...failing, output })).verdict, "error", output);
+    }
+    assert.equal(classify(unit, result({ ...failing, output: "expected 1 to be 2" })).verdict, "caught");
+  });
+
+  test("calls a test that cannot compile CAUGHT-BY-COMPILE, and only when the check can tell a compile failure", () => {
+    const compiling = { id: "unit", counted: true, compileFailed: (output) => /^error:/m.test(output) };
+    const noCounts = { exitCode: 1, counts: null, problem: "no summary", output: "error: Unknown variable" };
+    assert.equal(classify(compiling, result(noCounts)).verdict, "caught-by-compile");
+    assert.equal(classify(unit, result(noCounts)).verdict, "error");
   });
 
   test("treats a build that fails as invalid, and one that is killed as an error", () => {
@@ -536,4 +623,85 @@ describe("--repo", () => {
     assert.deepEqual(other.ran(), []);
     assert.equal(other.status(), "");
   });
+});
+
+// The tool stopped from outside, in the middle of a check, as Ctrl+C, a
+// terminal that is closed, or `kill` do. The bug that was planted has to come
+// out, the folder the check was writing in has to go, and so has the check.
+function hangRepo() {
+  const dir = scratch.make("hang-");
+  const logDir = scratch.make("hang-log-");
+  const mark = join(logDir, "mark");
+  const write = (name, text) => {
+    mkdirSync(join(dir, name, ".."), { recursive: true });
+    writeFileSync(join(dir, name), text);
+  };
+  write("src.txt", SRC);
+  write(".gitignore", "/.e2e\n");
+  write("build.mjs", "");
+  write(
+    "hang.mjs",
+    `import { readFileSync, writeFileSync } from "node:fs";
+const src = readFileSync("src.txt", "utf8");
+if (src.includes("HANG")) {
+  writeFileSync(process.env.TOY_MARK, String(process.pid));
+  setInterval(() => {}, 1000);
+} else if (src.includes("bexa")) {
+  console.log("\\n1 passed, 1 failures");
+  process.exit(1);
+} else {
+  console.log("\\n2 passed, no failures");
+}`,
+  );
+  write(
+    "test/steps.mjs",
+    `import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+export const root = fileURLToPath(new URL("..", import.meta.url));
+const env = { TOY_MARK: ${JSON.stringify(mark)} };
+export const gleamBuild = { id: "build", cwd: root, counted: false, build: true, command: () => ["node", "build.mjs"] };
+export const gleamTest = {
+  id: "gleam-test",
+  cwd: root,
+  counted: true,
+  outIn: join(root, ".e2e"),
+  command: (outDir) => ["node", "hang.mjs", outDir],
+  read: ({ output }) => ({ passed: output.includes("2 passed") ? 2 : 1, failed: output.includes("1 failures") ? 1 : 0, skipped: 0 }),
+  env,
+};
+export const keystrokeCost = gleamTest;
+export const e2eConfigs = () => [];
+export const e2e = () => { throw new Error("no e2e here"); };
+`,
+  );
+  gitIn(dir, "init", "-q");
+  gitIn(dir, "add", "-A");
+  gitIn(dir, "commit", "-q", "-m", "hang");
+  const calibrationFile = join(logDir, "calibration.json");
+  const mutantsFile = join(logDir, "mutants.json");
+  writeFileSync(calibrationFile, JSON.stringify({ caught: [{ by: "gleam-test", ...mutant("CAL-unit", "beta", "bexa") }], noop: mutant("CAL-noop", "# note", "# notes") }));
+  writeFileSync(mutantsFile, JSON.stringify([mutant("M-hang", "delta", "HANG")]));
+  return {
+    dir,
+    mark,
+    argv: ["node", join(root, "tools/mutants/mutants.mjs"), mutantsFile, "--repo", dir, "--calibration", calibrationFile, "--checks", "gleam-test", "--out", join(logDir, "out")],
+    src: () => readFileSync(join(dir, "src.txt"), "utf8"),
+    status: () => gitIn(dir, "status", "--porcelain", "--untracked-files=all"),
+    left: () => (existsSync(join(dir, ".e2e")) ? readdirSync(join(dir, ".e2e")).filter((name) => name.startsWith("step-")) : []),
+  };
+}
+
+describe("the tool stopped from outside, in the middle of a check", () => {
+  for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) {
+    test(`${signal} takes the planted bug out, removes the folder the check wrote in, and stops the check`, async () => {
+      const repo = hangRepo();
+      const ended = await interrupted({ argv: repo.argv, cwd: repo.dir, mark: repo.mark, signal });
+      assert.equal(ended.by, null, `it was ended by ${ended.by}, so nothing put the file back:\n${ended.output}`);
+      assert.equal(ended.code, code, ended.output);
+      assert.equal(repo.src(), SRC, "the planted bug is still in the file");
+      assert.equal(repo.status(), "");
+      assert.deepEqual(repo.left(), [], "the folder the check wrote in is still there");
+      assert.ok(await gone(Number(ended.held)), "the check is still running");
+    });
+  }
 });
