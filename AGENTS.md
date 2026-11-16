@@ -11,7 +11,7 @@ A markdown note editor in Gleam with Lustre. Read this before changing code.
 | A core module's JavaScript touches no browser. | review |
 | Every function says what it takes and returns. | `gleam test` |
 | Only a function that returns an `Effect` or `Nil` may change the page. Drawing and decoding code may measure it. | `gleam test` |
-| A decoder takes callbacks and plain values, never app state from the last drawn frame. The editor decides what a key does. | `gleam test`, and review for the second half |
+| A decoder takes callbacks and plain values, never app state from the last drawn frame. Wherever a decoder is made, by a `lustre/event` handler, a `decode` builder or a decoder function, nothing handed to it holds or reads an `Editor`, `Model`, `Buffer` or `History`, except an editor handed to a record. No measure hands back app state. The editor decides what a key does. | `gleam test`. Review covers a plain value read from the drawn editor that reaches a decoder through another function's parameter, what a measure's JavaScript reads, and the second half |
 | `surface` is the only module that draws the text field. | `gleam test` |
 | `surface` is the only module that writes the text field, through `surface.sync`. | review |
 | The Gleam parser is the only code that looks for markdown markers. JavaScript has no regex. | review |
@@ -28,7 +28,7 @@ The rules live in `test/architecture/rules.gleam`. It parses every Gleam file wi
 
 - A rule that breaks twice gets a check, not a reminder: add it to `rules.gleam`, to this table, and add the break that proves it to `architecture_test.gleam`.
 - New JavaScript counts as changing the page until it is listed under `measures` in `rules.gleam`. Drawing and decoding code may only call measures.
-- JavaScript that hands back app state an effect noted there, such as the editor the last message left, is listed under `records`. No decoder may reach one: it is given a callback instead.
+- JavaScript that hands back app state an effect noted there, such as the editor the last message left, is listed under `records`. No decoder may reach one: it is given a callback instead, which reads the record. A measure whose Gleam type hands back app state fails until it is listed as a record.
 - `gleam run -m architecture_test` prints what each rule examined. A rule that examines nothing fails the test.
 - A check or script that judges code reads the syntax tree, not the text. Pick the tool that can see the real code before the one that is fastest to write, and ship the check with its break cases and the score from an attacker who is not its author.
 - The check was wrong three times when only its author tested it. After adding a rule, have someone who has not read the break list try to get past it, and add what they find.

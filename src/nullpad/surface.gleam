@@ -982,10 +982,11 @@ fn replay_held(
     }
     Some(editor.HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, at:)), True -> {
       let same = fn(event) { event }
+      let now = fn() { current_editor(editor) }
       let keydown =
-        decode.one_of(key_decoder(editor.claims(editor, _), same), [
+        decode.one_of(key_decoder(fn(key) { editor.claims(now(), key) }, same), [
           undo_key_decoder(same),
-          edge_decoder(fn() { editor.is_painted(editor) }, same),
+          edge_decoder(fn() { editor.is_painted(now()) }, same),
           escape_decoder(same),
         ])
       let pressed =

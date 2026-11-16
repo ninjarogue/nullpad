@@ -567,7 +567,7 @@ fn outside_breaks() -> List(Break) {
       ),
     ),
     Break(
-      Escapes,
+      Caught(rules.DecoderState),
       "an inline handler reads the editor it was drawn with",
       surface,
       last(
