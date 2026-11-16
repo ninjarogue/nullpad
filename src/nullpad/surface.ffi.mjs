@@ -506,10 +506,18 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
       return [false, ...shown()];
     }
   }
-  const atEnd = aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select, rowStart);
-  if (atEnd === null) aimed.delete(control);
-  else aimed.set(control, { by, shown: shown(), atEnd });
+  noteAim(control, by, aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select, rowStart));
   return [true, ...shown()];
+}
+
+// Notes how an aim, `by` an editor or by a step, left the field.
+function noteAim(control, by, atEnd) {
+  if (atEnd === null) {
+    aimed.delete(control);
+    return;
+  }
+  const shown = [control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
+  aimed.set(control, { by, shown, atEnd });
 }
 
 // Moves the head of the field's selection to the place nearest `x` on a
@@ -1222,7 +1230,7 @@ export function stepHead(
       return answer(-4);
     }
     if (x < 0) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
-    aimIn(control, liveClass, paintedClass, x, forward ? 3 : 2, select, rowStart);
+    noteAim(control, null, aimIn(control, liveClass, paintedClass, x, forward ? 3 : 2, select, rowStart));
     return answer(-4);
   }
   const { marks, rows } = drawnMarks(id, liveClass, rowMark);
