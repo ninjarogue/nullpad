@@ -339,6 +339,8 @@ const runs: Run[] = [
   { name: 'Up through a code block, from the start of a row', body: fenced, start: [ctrl('End'), 'Home'], steps: downBy(9, 'ArrowUp'), follow: 'plain field' },
   { name: 'Shift+Up from the blank row below a code block', body: 'top\n\n```\ncode one\ncode two\n```\n\nend', start: [ctrl('End'), 'Home'], steps: downBy(4, 'Shift+ArrowUp'), follow: 'plain field' },
   { name: 'Shift+Down through a code block', body: 'top\n\n```\ncode one\ncode two\n```\n\nend', start: [], steps: downBy(7, 'Shift+ArrowDown'), follow: 'plain field' },
+  { name: 'Shift+Up from the middle of a row over the blank row below a code block', body: '```\ncode\n```\n\nz', start: [ctrl('End')], steps: downBy(2, 'Shift+ArrowUp'), follow: 'plain field' },
+  { name: 'Shift+Up from the middle of a row through the nested items of a quote', body: '> a\n> - b\n>   - c\n\nd', start: [ctrl('End')], steps: downBy(3, 'Shift+ArrowUp'), follow: 'plain field' },
   { name: 'Down through setext headings and their underlines, from the start of a row', body: setext, start: [], steps: downBy(9), follow: 'plain field' },
   { name: 'Up through setext headings and their underlines, from the start of a row', body: setext, start: [ctrl('End'), 'Home'], steps: downBy(9, 'ArrowUp'), follow: 'plain field' },
   { name: 'Shift+Up through setext headings and their underlines', body: setext, start: [ctrl('End'), 'Home'], steps: downBy(8, 'Shift+ArrowUp'), follow: 'plain field' },
