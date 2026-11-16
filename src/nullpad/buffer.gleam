@@ -83,7 +83,7 @@ pub fn replace(
 ) -> Buffer {
   let #(from, to) = in_order(clamp(buffer.lines, from), clamp(buffer.lines, to))
   let before = string.slice(line(buffer.lines, from.row), 0, from.col)
-  let after = string.drop_start(line(buffer.lines, to.row), to.col)
+  let after = drop_start(line(buffer.lines, to.row), to.col)
   let inserted_end = end_of(before <> new)
   let end = Position(row: from.row + inserted_end.row, col: inserted_end.col)
   let lines =
@@ -124,7 +124,7 @@ fn moved(
     list.drop(buffer.lines, start.row)
     |> list.take(end.row - start.row + 1)
     |> string.join("\n")
-    |> string.drop_start(start.col)
+    |> drop_start(start.col)
   let text =
     string.drop_end(text, string.length(line(buffer.lines, end.row)) - end.col)
   let taken = replace(buffer, from: start, to: end, with: "")
@@ -142,6 +142,12 @@ pub fn end_of(text: String) -> Position {
 
 fn to_lines(text: String) -> List(String) {
   text |> string.replace("\r\n", "\n") |> string.split("\n")
+}
+
+/// gleam_stdlib's `string.drop_start` counts what it drops in UTF-8 bytes
+/// and drops UTF-16 units on JavaScript.
+fn drop_start(text: String, graphemes: Int) -> String {
+  string.slice(text, graphemes, string.length(text))
 }
 
 fn line(lines: List(String), row: Int) -> String {
