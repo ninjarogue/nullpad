@@ -362,25 +362,21 @@ button[aria-pressed="true"] {
   margin-block: 0;
 }
 
-.page.live .preview > :is(h1, h2, h3, h4, h5, h6),
-.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) {
+.page.live .preview > :is(h1, h2, h3, h4, h5, h6) {
   margin: 0.4rem 0 0;
 }
 
-.page.live .preview:first-child > :is(h1, h2, h3, h4, h5, h6):first-child,
-.page.live .preview:empty + .editor.part {
+.page.live .preview:first-child > :is(h1, h2, h3, h4, h5, h6):first-child {
   margin-top: 0;
 }
 
 /* A heading with no text is set as body text in the field, so on the page
    it is one empty line too. */
-.page.live .preview :is(h1, h2, h3, h4, h5, h6):empty {
+.page.live .preview :is(h1, h2, h3, h4, h5, h6):empty:not(.held) {
   height: 1.7rem;
   margin-block: 0;
 }
 
-/* The field sets every row of an item or a quote in one line height, so
-   nothing but the field's own margins sets its rows apart on the page. */
 .page.live .preview :is(li, blockquote) :is(li, ul, ol, blockquote) {
   margin-block: 0;
 }
@@ -391,43 +387,10 @@ button[aria-pressed="true"] {
   margin-block: 0;
 }
 
-/* The field sets a quote of several rows as body text, a line to a row.
-   There a heading takes at least the lines of its rows (`--rows`, set where
-   it is more than one), and a heading taller than its row gives what it
-   takes over back to a blank row next to it, where nothing is drawn. */
-.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6):not(:empty) {
-  --over: min(0px, var(--rows, 1) * 1.7rem - 1lh);
-  margin-block: 0;
-  min-height: calc(var(--rows, 1) * 1.7rem);
-}
-
-.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6):not(:empty):has(+ .blank),
-.page.live .preview blockquote.rows :has(+ .blank) > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child,
-.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child,
-.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :last-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child {
-  margin-bottom: var(--over);
-}
-
-.page.live .preview blockquote.rows .blank + :is(h1, h2, h3, h4, h5, h6):not(:empty):not(:has(+ .blank)),
-.page.live .preview blockquote.rows .blank + * > :is(h1, h2, h3, h4, h5, h6):not(:empty):first-child:not(:last-child):not(:has(+ .blank)),
-.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child,
-.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child {
-  margin-top: var(--over);
-}
-
-/* A heading with text keeps its line, even where its text draws nothing. */
+/* A heading with text keeps its line, even where its text draws nothing, and
+   the field sets one over several rows a line to a row (`--rows`). */
 .page.live .preview :is(h1, h2, h3, h4, h5, h6):not(:empty) {
-  min-height: 1lh;
-}
-
-/* The field sets a setext heading on its own a line to a row. */
-.page.live .preview > :is(h1, h2, h3, h4, h5, h6):not(:empty) {
   min-height: calc(var(--rows, 1) * 1lh);
-}
-
-/* The field sets a heading in a quote in an item as a heading in an item. */
-.page.live .preview li blockquote:not(.rows) > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child {
-  margin-bottom: 0.5em;
 }
 
 /* An item's marker is outside its words, on their first line. With the
@@ -437,45 +400,78 @@ button[aria-pressed="true"] {
   line-height: 0;
 }
 
-/* The two fence rows of a code block are its top and bottom padding. */
-.page.live .preview > pre {
-  margin-block: 0;
-  line-height: 1.3125rem;
+/* The two fence rows of a code block are its top and bottom padding. Its
+   lines are set as in the field, with no strut of body text among them. */
+.page.live .preview pre,
+.editor.part.mono > * {
+  font: 0.875rem/1.5 var(--text-font);
+  font-variant-ligatures: none;
+}
+
+.page.live .preview pre {
   padding-block: calc(0.875rem * 1.5 - 1px);
 }
 
-/* In a quote of several rows, which the field sets as body text, a code
-   block takes its rows, fences among them, with its code in the middle. */
-.page.live .preview blockquote.rows > pre {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  height: calc(var(--rows, 1) * 1.7rem);
-  justify-content: center;
-  overflow-y: hidden;
-  padding-block: 0;
+.page.live .preview pre code {
+  font: inherit;
 }
 
-.page.live .preview blockquote.rows > pre > code {
-  line-height: 1.7rem;
+.page.live .preview > pre {
+  margin-block: 0;
 }
 
-.page.live .preview > hr {
-  margin-block: calc(0.85rem - 1px);
-}
-
-/* In a quote two rules in a row would share the room between them. The
-   line is a border, which forced colors and print keep. */
-.page.live .preview blockquote > hr {
+/* A rule is one row, as in the field, with its line in the middle. Two rules
+   in a row then keep the room between them. The line is a border, which
+   forced colors and print keep. */
+.page.live .preview hr {
   align-items: center;
   border: 0;
   display: grid;
   height: 1.7rem;
+  margin-block: 0;
 }
 
-.page.live .preview blockquote > hr::before {
+.page.live .preview hr::before {
   border-top: 2px solid var(--line);
   content: "";
+}
+
+/* The field holds one block, with no margins. The part above it and the part
+   below draw that block where it was, empty and with no height, keeping
+   only the margin on their own side, so the field takes its place among the
+   blocks around it. A quote, list or item the field cuts has nothing on that
+   side, and an item whose own line the field holds draws no marker. */
+.page.live .preview .held {
+  border-block: 0;
+  display: block;
+  height: 0;
+  min-height: 0;
+  overflow: visible;
+  padding-block: 0;
+}
+
+.page.live .preview .held.above {
+  margin-bottom: 0 !important;
+}
+
+.page.live .preview .held.below {
+  margin-top: 0 !important;
+}
+
+.page.live .preview .cut.above {
+  border-bottom: 0;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.page.live .preview .cut.below {
+  border-top: 0;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+.page.live .preview li.bare {
+  list-style-type: none;
 }
 
 .editor.part {
@@ -563,16 +559,10 @@ button[aria-pressed="true"] {
   top: var(--break-top, auto);
 }
 
-.editor.part.mono > * {
-  font: 0.875rem/1.5 var(--text-font);
-  font-variant-ligatures: none;
-}
-
 /* An item's marker sits in the list's gutter when drawn. In the field the
    typed marker hangs left by its own width (`--marker`, set by `surface`),
    so the item's words stay in place, on every wrapped line. */
 .editor.part.item {
-  margin: 0.25rem 0;
   margin-left: min(0px, var(--gutter) - var(--marker));
 }
 
@@ -581,89 +571,18 @@ button[aria-pressed="true"] {
   text-indent: calc(-1 * var(--marker));
 }
 
-.editor.part.task > * {
-  padding-block: var(--task-pad);
-}
-
-.editor.part.h1 {
-  --title: var(--h1);
-}
-
-.editor.part.h2 {
-  --title: var(--h2);
-}
-
-.editor.part.h3 {
-  --title: var(--h3);
-}
-
-.editor.part.h4 {
-  --title: var(--h4);
-}
-
-.editor.part.h5 {
-  --title: var(--h5);
-}
-
-.editor.part.h6 {
-  --title: var(--h6);
-}
-
-.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
-  font-size: var(--title);
-  font-weight: bold;
-  line-height: 1.25;
-}
-
-.editor.part.h6 > * {
-  letter-spacing: var(--h6-tracking);
-}
-
-/* A heading in an item or a quote is set as it is drawn there: an item keeps
-   its own margins, with the heading's half-line below it where that is more,
-   an item in a quote has only that half-line, and a quote adds none. */
-.editor.part.quote {
-  margin: 0;
-}
-
-.editor.part.item:is(.h1, .h2, .h3, .h4, .h5, .h6) {
-  margin-block: 0.25rem max(0.25rem, var(--title) / 2);
-}
-
-.editor.part.quoted-item:is(.h1, .h2, .h3, .h4, .h5, .h6) {
-  margin-block: 0 calc(var(--title) / 2);
-}
-
 /* A row typed as another kind of block than the page laid it out as keeps
-   the height and margins it was laid out with, so nothing around it moves. */
-.editor.part.framed {
-  margin-block: 0;
-}
-
+   the height it was laid out with, so nothing around it moves. */
 .editor.part.framed > * {
   line-height: var(--frame-line);
-  padding-block: 0;
 }
 
-.editor.part:is(.framed-body, .framed-item, .framed-task) {
+.editor.part.framed-body {
   --frame-line: 1.7rem;
-}
-
-.editor.part:is(.framed-item, .framed-task) {
-  margin-block: 0.25rem;
-}
-
-.editor.part.framed-task > * {
-  padding-block: var(--task-pad);
 }
 
 .editor.part.framed-mono {
   --frame-line: 1.3125rem;
-}
-
-.page.live > .editor.part:first-child,
-.page.live > .part:empty + .editor.part {
-  margin-top: 0;
 }
 
 .preview {
@@ -691,32 +610,44 @@ button[aria-pressed="true"] {
 }
 
 .preview :is(h1, h2, h3, h4, h5, h6) {
-  font-size: 1rem;
-  line-height: 1.25;
   margin: 1.6em 0 0.5em;
 }
 
-.preview h1 {
+/* A heading is set alike drawn and in the field. */
+.preview :is(h1, h2, h3, h4, h5, h6),
+.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
+  font-size: 1rem;
+  font-weight: bold;
+  line-height: 1.25;
+}
+
+.preview h1,
+.editor.part.h1 > * {
   font-size: var(--h1);
 }
 
-.preview h2 {
+.preview h2,
+.editor.part.h2 > * {
   font-size: var(--h2);
 }
 
-.preview h3 {
+.preview h3,
+.editor.part.h3 > * {
   font-size: var(--h3);
 }
 
-.preview h4 {
+.preview h4,
+.editor.part.h4 > * {
   font-size: var(--h4);
 }
 
-.preview h5 {
+.preview h5,
+.editor.part.h5 > * {
   font-size: var(--h5);
 }
 
-.preview h6 {
+.preview h6,
+.editor.part.h6 > * {
   font-size: var(--h6);
   letter-spacing: var(--h6-tracking);
 }

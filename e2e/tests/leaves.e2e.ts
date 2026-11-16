@@ -30,11 +30,14 @@ function moved(row: number, words: Words, idle: Words) {
   });
 }
 
-/** Moves the caret down every row of the note, and gives every drawn word that moved on the way. */
+/** Moves the caret down every row of the note, a wrapped row taking more than one press, and gives every drawn word that moved on the way. */
 async function walk(page: Page, browser: Browser, rows: number) {
   const seen: { row: number; words: Words }[] = [];
   for (let row = 0; row < rows; row++) {
-    if (row > 0) await browser.keyboard.press('ArrowDown');
+    for (let presses = 0; presses < 4 && (await page.caretRow()) < row; presses++) {
+      await browser.keyboard.press('ArrowDown');
+      await page.nextFrame();
+    }
     await expect.poll(() => page.caretRow()).toBe(row);
     await page.nextFrame();
     seen.push({ row, words: await page.drawnWords() });
@@ -55,7 +58,7 @@ for (const width of [1280, 412]) {
     '> # a\n> > ## b',
     '> # h\n> b',
     '> - # a\n>   # b',
-    '> a heading that wraps\n> # A heading long enough to wrap across the narrow page width here\n> b',
+    '> lines above\n> # A heading long enough to wrap across the narrow page width here\n> b',
     '1. x\n   1. ## sub',
     '- a\n  - ## nested\n  - ### nested2\n- b',
     '> # h\n> b\n>',

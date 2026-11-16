@@ -1,5 +1,6 @@
 //// Imported by: the app shell. Imports: `markdown`.
 
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -50,7 +51,11 @@ pub fn part(
   on_task on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let to = first_row + rows
-  let run = Marked(from: first_row, to:, field:)
+  let ends = case field {
+    Some(_) -> live.item_ends(blocks)
+    None -> dict.new()
+  }
+  let run = Marked(from: first_row, to:, field:, ends:)
   html.div(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
     live.cut(blocks, from: first_row, to:, field:)
@@ -119,10 +124,16 @@ fn blank_rows(
 }
 
 /// `Marked`: the rows `from` up to `to` of the note, beside the field that
-/// holds the rows `field`, each element marked with its first row.
+/// holds the rows `field`, each element marked with its first row. `ends`
+/// holds the last row of each item the run may cut.
 type Rows {
   Unmarked
-  Marked(from: Int, to: Int, field: Option(live.Region))
+  Marked(
+    from: Int,
+    to: Int,
+    field: Option(live.Region),
+    ends: Dict(#(Int, Int), Int),
+  )
 }
 
 /// The field sets a heading over several rows a line to a row, at its size,
@@ -156,18 +167,20 @@ fn held(rows: Rows, first_row: Int, last_row: Int) -> Option(String) {
 }
 
 /// The class and row mark of a quote, list or item from `first_row` to
-/// `last_row`, which the run may cut. A cut one is marked with the first row
-/// it draws, and one that draws none of the run's rows is not marked.
+/// `last_row`, which the run may cut, and which draws its rows up to
+/// `drawn_to`. A cut one is marked with the first row it draws, and one that
+/// draws none of the run's rows is not marked.
 fn cut(
   rows: Rows,
   first_row: Int,
   last_row: Int,
+  drawn_to: Int,
 ) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
     Marked(from:, to:, ..) -> {
       let drawn_from = int.max(first_row, from)
-      let mark = case drawn_from <= int.min(last_row, to - 1) {
+      let mark = case drawn_from <= int.min(drawn_to, to - 1) {
         True -> at(rows, drawn_from)
         False -> []
       }
@@ -189,9 +202,9 @@ fn block(
   let list_items = fn(listed: List(Item), spacing) {
     items(listed, spacing, shown.first_row, shown.last_row + 1, rows, on_task)
   }
-  let around = cut(rows, shown.first_row, shown.last_row)
+  let around = cut(rows, shown.first_row, shown.last_row, shown.last_row)
   case held(rows, shown.first_row, shown.last_row), shown.content {
-    Some(_), Heading(_, []) -> element.none()
+    Some(side), Heading(_, []) -> html.div([attribute.class(side)], [])
     Some(side), Heading(level, _) -> heading(level, [attribute.class(side)], [])
     Some(side), Paragraph(_) -> html.p([attribute.class(side)], [])
     Some(side), Rule -> html.hr([attribute.class(side)])
@@ -345,13 +358,18 @@ fn item(
   rows: Rows,
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
-  let bare = case rows {
-    Marked(from:, to:, ..) -> shown.row < from || shown.row >= to
-    Unmarked -> False
+  let #(bare, last) = case rows {
+    Marked(from:, to:, ends:, ..) -> #(
+      shown.row < from || shown.row >= to,
+      dict.get(ends, #(shown.row, shown.content_col))
+        |> result.unwrap(last_row(shown)),
+    )
+    Unmarked -> #(False, last_row(shown))
   }
+  let around = cut(rows, shown.row, last, last_row(shown))
   let around = case bare {
-    True -> [attribute.class("bare"), ..cut(rows, shown.row, last_row(shown))]
-    False -> cut(rows, shown.row, last_row(shown))
+    True -> [attribute.class("bare"), ..around]
+    False -> around
   }
   let children =
     spaced(shown.blocks, from: shown.row, to: end, rows:, draw: fn(child) {

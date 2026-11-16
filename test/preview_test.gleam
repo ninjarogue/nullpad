@@ -827,3 +827,23 @@ pub fn a_part_draws_no_blank_row_for_the_rows_the_field_holds_test() {
   assert string.contains(above, "class=\"blank\" data-row=\"1\"")
   assert list.length(string.split(above, "class=\"blank\"")) == 2
 }
+
+pub fn an_item_is_cut_at_a_blank_row_inside_it_that_the_field_holds_test() {
+  let source = "- a\n\n  b\n- c"
+  assert beside(source, live.Region(1, 1), rows: 1, first_row: 0)
+    == drawn_part(
+      "<ul class=\"cut above\" data-row=\"0\"><li class=\"cut above\" data-row=\"0\"><p data-row=\"0\">a</p></li></ul>",
+    )
+  assert beside(source, live.Region(1, 1), rows: 2, first_row: 2)
+    == drawn_part(
+      "<ul class=\"cut below\" data-row=\"2\"><li class=\"bare cut below\" data-row=\"2\"><p data-row=\"2\">b</p></li><li data-row=\"3\"><p data-row=\"3\">c</p></li></ul>",
+    )
+}
+
+pub fn an_item_that_ends_before_a_blank_row_the_field_holds_is_not_cut_test() {
+  let source = "- a\n\n- c"
+  assert beside(source, live.Region(1, 1), rows: 1, first_row: 0)
+    == drawn_part(
+      "<ul class=\"cut above\" data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">a</p></li></ul>",
+    )
+}

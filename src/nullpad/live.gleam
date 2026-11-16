@@ -1,5 +1,6 @@
 //// Imported by: `editor`, `surface`, tests. Imports: `markdown`, `buffer`.
 
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -71,6 +72,14 @@ fn items_in(blocks: List(Block)) -> List(Item) {
       list.flat_map(items, fn(item) { [item, ..items_in(item.blocks)] })
     Heading(..) | Paragraph(..) | CodeBlock(..) | Rule | Table(..) -> []
   }
+}
+
+/// The last row of every item at any depth, by the row and column it starts
+/// at: what `cut` keeps of an item may end before the item does.
+pub fn item_ends(blocks: List(Block)) -> Dict(#(Int, Int), Int) {
+  items_in(blocks)
+  |> list.map(fn(item) { #(#(item.row, item.content_col), item_last_row(item)) })
+  |> dict.from_list
 }
 
 fn item_last_row(item: Item) -> Int {

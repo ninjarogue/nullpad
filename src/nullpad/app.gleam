@@ -273,34 +273,35 @@ fn page(model: Model) -> Element(Msg) {
     None -> keyed.div(surface.page(model.editor, EditorSent), [field])
     Some(region) -> {
       let row_count = editor.row_count(model.editor)
-      let blocks = editor.blocks(model.editor)
-      let part = fn(rows, first_row, test_id) {
+      let part = fn(blocks, rows, first_row, field, test_id) {
         preview.part(
           blocks,
           rows:,
           first_row:,
-          field: None,
+          field:,
           test_id:,
           on_task: UserTickedTask,
         )
       }
+      let whole = editor.blocks(model.editor)
       let #(above, below) = case
         editor.is_idle(model.editor),
         editor.is_painted(model.editor)
       {
         True, _ -> #(
-          part(row_count, 0, "preview"),
-          part(0, row_count, "live-below"),
+          part(whole, row_count, 0, None, "preview"),
+          part(whole, 0, row_count, None, "live-below"),
         )
         False, True -> #(
-          part(row_count, 0, "live-above"),
-          part(0, row_count, "live-below"),
+          part(whole, row_count, 0, None, "live-above"),
+          part(whole, 0, row_count, None, "live-below"),
         )
         False, False -> {
+          let blocks = editor.page(model.editor)
           let after = region.last_row + 1
           #(
-            part(region.first_row, 0, "live-above"),
-            part(row_count - after, after, "live-below"),
+            part(blocks, region.first_row, 0, Some(region), "live-above"),
+            part(blocks, row_count - after, after, Some(region), "live-below"),
           )
         }
       }
