@@ -15,6 +15,7 @@ import { gone, interrupted } from "./interrupt.mjs";
 import { useScratch } from "./scratch.mjs";
 import { e2e as e2eStep, e2eConfigs, gateSteps, gleamTest, keystrokeCost, nodeTest as nodeTestStep, nodeTestFiles, readers, root } from "./steps.mjs";
 import { gate, judge, loadCounts, runStep } from "./test_counts.mjs";
+import * as counts from "./test_counts.mjs";
 
 const scratch = useScratch();
 
@@ -703,5 +704,171 @@ describe("which tests failed, as each runner says", () => {
     assert.ok(new RegExp(greps[0]).test("a describe a (test)"), greps[0]);
     assert.ok(!new RegExp(greps[0]).test("a describe a Xtest)"), greps[0]);
     assert.ok(new RegExp(greps[1]).test("cut short"));
+  });
+});
+
+describe("a counts file that the run raised, or that was changed by hand, and is not committed", () => {
+  const repository = () => {
+    const dir = scratch.make("counts-repo-");
+    const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
+    const git = (...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: dir, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    git("init", "-q");
+    mkdirSync(join(dir, "test"));
+    const countsFile = join(dir, "test", "test_counts.json");
+    const known = (numbers) => writeFileSync(countsFile, JSON.stringify(numbers, null, 2) + "\n");
+    const commit = () => {
+      git("add", "-A");
+      git("commit", "-q", "-m", "counts");
+    };
+    return { dir, countsFile, known, commit, git, stored: () => JSON.parse(readFileSync(countsFile, "utf8")) };
+  };
+  const printing = (w, name, passed) => w.runner(name, `console.log("\\n${passed} passed, no failures");`);
+  const run = (repo, steps, options = {}) => gate({ steps, countsFile: repo.countsFile, base: repo.dir, partial: true, commitCheck: true, ...options, ...quietly });
+  const said = /commit test\/test_counts\.json/;
+
+  test("a run that raises a count fails until the file is committed, and then passes", async () => {
+    const w = workspace();
+    const repo = repository();
+    repo.known({ a: 5 });
+    repo.commit();
+    const six = printing(w, "six.mjs", 6);
+    const first = await run(repo, [w.step("a", six)]);
+    assert.equal(first.ok, false, "a raised count that nobody committed passed the gate");
+    assert.match(first.failures.join("\n"), said);
+    assert.deepEqual(repo.stored(), { a: 6 });
+    repo.commit();
+    const second = await run(repo, [w.step("a", six)]);
+    assert.equal(second.ok, true, second.failures.join("\n"));
+  });
+
+  test("a file that already differs from HEAD fails even when the run changes nothing", async () => {
+    const w = workspace();
+    const repo = repository();
+    repo.known({ a: 5 });
+    repo.commit();
+    repo.known({ a: 4 });
+    const verdict = await run(repo, [w.step("a", printing(w, "four.mjs", 4))]);
+    assert.equal(verdict.ok, false, "a count lowered by hand and never committed passed the gate");
+    assert.match(verdict.failures.join("\n"), said);
+    assert.deepEqual(verdict.raised, {});
+  });
+
+  test("a file that is staged and not committed fails too", async () => {
+    const w = workspace();
+    const repo = repository();
+    repo.known({ a: 5 });
+    repo.commit();
+    repo.known({ a: 4 });
+    repo.git("add", "test/test_counts.json");
+    assert.match((await run(repo, [w.step("a", printing(w, "four.mjs", 4))])).failures.join("\n"), said);
+  });
+
+  test("a file that is new and not committed fails", async () => {
+    const w = workspace();
+    const repo = repository();
+    repo.known({ a: 5 });
+    assert.match((await run(repo, [w.step("a", printing(w, "five.mjs", 5))])).failures.join("\n"), said);
+  });
+
+  test("a file that is committed and held passes", async () => {
+    const w = workspace();
+    const repo = repository();
+    repo.known({ a: 5 });
+    repo.commit();
+    const verdict = await run(repo, [w.step("a", printing(w, "five.mjs", 5))]);
+    assert.equal(verdict.ok, true, verdict.failures.join("\n"));
+  });
+
+  test("a step that fails reports its own failure, with no commit failure in the way", async () => {
+    const w = workspace();
+    const repo = repository();
+    repo.known({ a: 5 });
+    repo.commit();
+    const verdict = await run(repo, [w.step("a", printing(w, "four.mjs", 4))]);
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.failures.join("\n"), /ran 4 tests/);
+  });
+
+  test("a deliberate local run can leave the file uncommitted, and still raises it", async () => {
+    const w = workspace();
+    const repo = repository();
+    repo.known({ a: 5 });
+    repo.commit();
+    const verdict = await run(repo, [w.step("a", printing(w, "six.mjs", 6))], { commitCheck: false });
+    assert.equal(verdict.ok, true, verdict.failures.join("\n"));
+    assert.deepEqual(repo.stored(), { a: 6 });
+  });
+
+  test("the check is on unless the flag turns it off, and the hook does not pass the flag", () => {
+    assert.equal(counts.parseArgs(["run"]).commitCheck, true);
+    assert.equal(counts.parseArgs(["run", "gleam-test"]).commitCheck, true);
+    const off = counts.parseArgs(["run", "--no-commit-check", "gleam-test"]);
+    assert.equal(off.commitCheck, false);
+    assert.deepEqual(off.selected, ["gleam-test"]);
+    assert.match(counts.parseArgs(["run", "--no-such-flag"]).error, /--no-such-flag/);
+    const hook = readFileSync(join(root, ".githooks/pre-push"), "utf8");
+    assert.match(hook, /node test\/test_counts\.mjs run/);
+    assert.doesNotMatch(hook, /no-commit-check/);
+  });
+
+  test("a counts file outside a repository fails, because nobody can say it was committed", async () => {
+    const w = workspace();
+    w.known({ a: 5 });
+    const verdict = await gate({ steps: [w.step("a", printing(w, "five.mjs", 5))], countsFile: w.countsFile, base: w.dir, partial: true, commitCheck: true, ...quietly });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.failures.join("\n"), /cannot tell|commit/);
+  });
+});
+
+describe("two steps with one id", () => {
+  test("fail the gate before either runs, and the id is named", async () => {
+    const w = workspace();
+    w.known({});
+    const marker = join(w.dir, "ran");
+    const six = w.runner("six.mjs", `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(marker)}, "x"); console.log("\\n6 passed, no failures");`);
+    const three = w.runner("three.mjs", `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(marker)}, "x"); console.log("\\n3 passed, no failures");`);
+    const verdict = await gate({ steps: [w.step("same", six), w.step("other", six), w.step("same", three)], countsFile: w.countsFile, ...quietly });
+    assert.equal(verdict.ok, false, "two steps with one id passed the gate");
+    assert.match(verdict.failures.join("\n"), /same/);
+    assert.match(verdict.failures.join("\n"), /twice|more than one|duplicate/i);
+    assert.equal(existsSync(marker), false, "a step ran before the ids were checked");
+    assert.deepEqual(w.stored(), {});
+  });
+
+  test("are not among the steps of the gate", () => {
+    const ids = gateSteps().map((step) => step.id);
+    assert.deepEqual(ids.filter((id, at) => ids.indexOf(id) !== at), []);
+  });
+});
+
+describe("a counts file with a key twice", () => {
+  const twice = (text) => {
+    const w = workspace();
+    writeFileSync(w.countsFile, text);
+    return w;
+  };
+
+  test("is refused, and the key is named, because JSON.parse keeps the last", () => {
+    for (const text of [
+      '{ "a": 5, "a": 6 }',
+      '{\n  "a": 5,\n  "b": 7,\n  "a": 4\n}\n',
+      '{ "a": 5, "\\u0061": 6 }',
+      '{ "e2e:e2e.config.ts": 460, "gleam-test": 465, "e2e:e2e.config.ts": 1 }',
+    ]) {
+      const w = twice(text);
+      assert.throws(() => loadCounts(w.countsFile), /twice/, text);
+    }
+    assert.throws(() => loadCounts(twice('{ "a": 5, "b": 1, "a": 6 }').countsFile), /"a"/);
+  });
+
+  test("fails the gate before any step runs", async () => {
+    const w = twice('{ "a": 5, "a": 6 }');
+    const five = w.runner("five.mjs", `console.log("\\n5 passed, no failures");`);
+    await assert.rejects(gate({ steps: [w.step("a", five)], countsFile: w.countsFile, ...quietly }), /twice/);
+  });
+
+  test("is not taken for keys that only look alike", () => {
+    const w = twice('{ "a": 5, "A": 6, "a ": 7, "a todo": 1, "a expected-fail": 1 }');
+    assert.deepEqual(loadCounts(w.countsFile), { a: 5, A: 6, "a ": 7, "a todo": 1, "a expected-fail": 1 });
   });
 });
