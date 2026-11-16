@@ -433,3 +433,40 @@ for (const id of [
     expect(takenForNothing(entry)).toEqual([]);
   });
 }
+
+test('verify: a fact with a url is looked at on a page served at that https address, so on a secure context with that html', async () => {
+  const look = (page: { evaluate<T>(run: () => T): Promise<T> }) =>
+    page.evaluate(() => ({ href: location.href, secure: isSecureContext, text: document.getElementById('x')?.textContent ?? null }));
+  const served = (over: Partial<Fact> = {}) =>
+    toy({
+      id: 'toy-served',
+      html: '<p id="x">served</p>',
+      observe: look,
+      holds: (seen: any) =>
+        seen?.href === 'https://toy.test/' && seen.secure === true && seen.text === 'served' ? null : `the page was ${JSON.stringify(seen)}`,
+      ...over,
+    });
+  await inSource(toySource, async (root) => {
+    await verify(Object.assign(served(), { url: 'https://toy.test/' }), root);
+    const message = await failure(verify(served(), root));
+    expect(message).toContain('the page was');
+  });
+});
+
+test('noticed: the sabotage of a fact with a url is planted on the page served there', async () => {
+  const where = toy({
+    id: 'toy-served-sabotage',
+    html: '<p id="x">served</p>',
+    observe: (page) => page.evaluate(() => ({ href: location.href, answer: (globalThis as { answer?: number }).answer ?? null })),
+    holds: (seen: any) => {
+      if (seen?.href !== 'https://toy.test/') return `the page was at ${seen?.href}`;
+      return seen.answer === null ? null : `the page said ${seen.answer}`;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        (globalThis as { answer?: number }).answer = 3;
+      });
+    },
+  });
+  expect(await noticed(Object.assign(where, { url: 'https://toy.test/' }))).toBe('the page said 3');
+});
