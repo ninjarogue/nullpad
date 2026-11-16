@@ -341,6 +341,7 @@ fn blank_rows(blocks: List(Block), from: Int, to: Int) -> List(#(Int, Int)) {
       blocks,
       rows: to - from,
       first_row: from,
+      field: None,
       test_id: "part",
       on_task: fn(_, _) { Nil },
     )

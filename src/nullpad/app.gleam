@@ -279,6 +279,7 @@ fn page(model: Model) -> Element(Msg) {
           blocks,
           rows:,
           first_row:,
+          field: None,
           test_id:,
           on_task: UserTickedTask,
         )

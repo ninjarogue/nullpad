@@ -1946,3 +1946,37 @@ pub fn a_press_on_a_selection_no_longer_painted_is_a_plain_press_test() {
   assert editor.buffer(plain) == editor.buffer(pointed)
   assert sync == pointed_sync
 }
+
+pub fn a_cursor_in_a_quote_or_a_nested_item_holds_only_its_own_block_test() {
+  let quote = live("> # q1\n> ## q2\n\nbelow") |> point(1)
+  assert editor.region(quote) == Some(Region(1, 1))
+  assert editor.kind(quote) == Some(live.Title(markdown.H2))
+
+  let item = live("- aa\n  - # Head\n  - bb") |> point(1)
+  assert editor.region(item) == Some(Region(1, 1))
+  assert editor.kind(item) == Some(live.ItemTitle(markdown.H1, marker: "  - "))
+}
+
+pub fn a_heading_typed_on_a_row_of_a_paragraph_takes_that_row_out_of_it_test() {
+  let ed = live("top\n\nline one\nline two\n\nbelow") |> point(3)
+  assert editor.region(ed) == Some(Region(2, 3))
+
+  let typed = show(ed, caret("line one\n# line two", 1, 2))
+  assert editor.region(typed) == Some(Region(3, 3))
+  assert editor.kind(typed) == Some(live.Title(markdown.H1))
+  assert editor.frame(typed) == Some(live.Title(markdown.H1))
+  assert editor.blocks(typed)
+    == markdown.parse("top\n\nline one\n# line two\n\nbelow")
+}
+
+pub fn the_page_lends_a_heading_typed_in_an_item_the_margins_of_that_item_test() {
+  let ed = live("top\n\nHello\n\nbelow") |> point(2)
+  assert editor.page(ed) == editor.blocks(ed)
+
+  let marks = show(ed, caret("- # Hello", 0, 4))
+  assert editor.page(marks) == markdown.parse("top\n\n- # Hello\n\nbelow")
+  assert editor.blocks(marks) == editor.blocks(ed)
+
+  let item = show(ed, caret("- Hello", 0, 2))
+  assert editor.page(item) == editor.blocks(ed)
+}

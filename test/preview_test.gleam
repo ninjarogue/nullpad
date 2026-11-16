@@ -2,6 +2,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
+import nullpad/live
 import nullpad/markdown.{
   type Content, type Inline, Block, BulletList, Center, Code, CodeBlock, Column,
   Emphasis, H1, H2, H3, H4, H5, H6, Heading, Left, Link, Loose, OrderedList,
@@ -427,6 +428,7 @@ pub fn a_part_marks_each_element_with_its_row_in_the_note_test() {
     |> preview.part(
       rows: 12,
       first_row: 10,
+      field: None,
       test_id: "live-below",
       on_task: fn(task, _) { task },
     )
@@ -460,6 +462,7 @@ pub fn a_part_draws_the_blank_rows_inside_a_list_test() {
     |> preview.part(
       rows: 8,
       first_row: 0,
+      field: None,
       test_id: "live-below",
       on_task: fn(task, _) { task },
     )
@@ -491,6 +494,7 @@ fn marked(source: String) -> String {
   |> preview.part(
     rows: list.length(string.split(source, "\n")),
     first_row: 0,
+    field: None,
     test_id: "live-below",
     on_task: fn(task, _) { task },
   )
@@ -575,6 +579,7 @@ fn beside_field(note: String, first_row: Int, rows: Int) -> String {
   |> preview.part(
     rows:,
     first_row:,
+    field: None,
     test_id: "live-below",
     on_task: fn(task, _) { task },
   )
@@ -738,4 +743,68 @@ pub fn a_list_of_twenty_thousand_items_is_drawn_test() {
 
   assert items(render_blocks(markdown.parse(note))) == 20_000
   assert items(beside_field(note, 0, 40_000)) == 39_999
+}
+
+fn beside(
+  source: String,
+  field: live.Region,
+  rows rows: Int,
+  first_row first_row: Int,
+) -> String {
+  markdown.parse(source)
+  |> preview.part(
+    rows:,
+    first_row:,
+    field: Some(field),
+    test_id: "live-below",
+    on_task: fn(task, _) { task },
+  )
+  |> element.to_string
+}
+
+pub fn a_part_beside_the_field_draws_the_rest_of_the_quote_it_is_in_test() {
+  let source = "> # q1\n> ## q2\n> b"
+  let below = beside(source, live.Region(1, 1), rows: 1, first_row: 2)
+  assert string.contains(below, "class=\"cut below\"")
+  assert string.contains(below, "<h2 class=\"held below\"></h2>")
+  assert string.contains(below, ">b</p>")
+  assert !string.contains(below, "q1")
+  assert !string.contains(below, "q2")
+
+  let above = beside(source, live.Region(1, 1), rows: 1, first_row: 0)
+  assert string.contains(above, "class=\"cut above\"")
+  assert string.contains(above, ">q1</h1>")
+  assert string.contains(above, "<h2 class=\"held above\"></h2>")
+  assert !string.contains(above, ">b<")
+}
+
+pub fn an_item_whose_line_the_field_holds_draws_no_marker_and_no_box_test() {
+  let source = "- [ ] a\n  - b"
+  let above = beside(source, live.Region(0, 0), rows: 0, first_row: 0)
+  assert !string.contains(above, "checkbox")
+  assert string.contains(above, "bare")
+  assert !string.contains(above, ">a<")
+
+  let below = beside(source, live.Region(0, 0), rows: 1, first_row: 1)
+  assert !string.contains(below, "checkbox")
+  assert string.contains(below, "bare")
+  assert string.contains(below, ">b</li>")
+}
+
+pub fn a_list_below_the_field_keeps_its_numbers_test() {
+  let below =
+    beside("1. a\n2. b\n3. c", live.Region(1, 1), rows: 1, first_row: 2)
+  assert string.contains(below, "start=\"2\"")
+  assert string.contains(below, ">c</li>")
+  assert !string.contains(below, ">a<")
+}
+
+pub fn a_part_draws_no_blank_row_for_the_rows_the_field_holds_test() {
+  let below =
+    beside("> a\n>\n> b\n> c", live.Region(2, 3), rows: 0, first_row: 4)
+  assert !string.contains(below, "class=\"blank\"")
+  let above =
+    beside("> a\n>\n> b\n> c", live.Region(2, 3), rows: 2, first_row: 0)
+  assert string.contains(above, "class=\"blank\" data-row=\"1\"")
+  assert list.length(string.split(above, "class=\"blank\"")) == 2
 }

@@ -49,6 +49,26 @@ fn item_last_row(item: Item) -> Int {
   int.max(last, block.last_row)
 }
 
+/// What the page draws of `blocks` for the rows `from` up to `to`, beside the
+/// field that holds `field`.
+pub fn cut(
+  blocks: List(Block),
+  from from: Int,
+  to to: Int,
+  field field: Option(Region),
+) -> List(Block) {
+  todo
+}
+
+/// `drawn`, with the rows `rows` laid out as `typed` has them.
+pub fn lay(
+  drawn: List(Block),
+  typed typed: List(Block),
+  rows rows: Region,
+) -> List(Block) {
+  todo
+}
+
 pub type Kind {
   Body
   Title(Level)
@@ -304,7 +324,7 @@ pub fn settle(
         False -> []
       }
       let whole_at = fn(col) {
-        cut(typed, list.sort([col, ..cuts], int.compare), 0, [])
+        split_at(typed, list.sort([col, ..cuts], int.compare), 0, [])
         |> list.map(markdown.inline_text)
         |> string.concat
         == whole
@@ -319,7 +339,7 @@ pub fn settle(
 }
 
 /// The pieces of `typed` between the columns `at`, in order.
-fn cut(
+fn split_at(
   typed: List(String),
   at: List(Int),
   col: Int,
@@ -329,7 +349,7 @@ fn cut(
     [] -> list.reverse([string.concat(typed), ..pieces])
     [next, ..rest] -> {
       let #(piece, typed) = list.split(typed, int.max(next - col, 0))
-      cut(typed, rest, int.max(next, col), [string.concat(piece), ..pieces])
+      split_at(typed, rest, int.max(next, col), [string.concat(piece), ..pieces])
     }
   }
 }

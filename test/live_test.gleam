@@ -3,6 +3,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/option
 import gleam/string
 import nullpad/buffer.{Position}
 import nullpad/live.{Region}
@@ -53,6 +54,217 @@ pub fn a_selection_reveals_every_block_it_touches_test() {
 
 pub fn a_row_past_the_note_is_kept_as_asked_test() {
   assert live.reveal([], from: 0, to: 0) == Region(0, 0)
+}
+
+fn reveal_in(text: String, row: Int) -> live.Region {
+  markdown.parse(text) |> live.reveal(from: row, to: row)
+}
+
+pub fn a_cursor_in_a_quote_reveals_only_the_block_it_is_in_test() {
+  assert reveal_in("> # q1\n> ## q2", 0) == Region(0, 0)
+  assert reveal_in("> # q1\n> ## q2", 1) == Region(1, 1)
+  assert reveal_in("> # a\n> > ## b", 1) == Region(1, 1)
+  assert reveal_in("> a\nlazy\n>\n> b", 1) == Region(0, 1)
+  assert reveal_in("> a\nlazy\n>\n> b", 2) == Region(2, 2)
+  assert reveal_in("> a\nlazy\n>\n> b", 3) == Region(3, 3)
+  assert reveal_in("> ```\n> x\n> ```\n> b", 1) == Region(0, 2)
+  assert reveal_in("> b\n> c\n> ===", 0) == Region(0, 2)
+}
+
+pub fn a_cursor_in_an_item_reveals_only_its_own_line_or_the_block_it_is_in_test() {
+  assert reveal_in("- aa\n  - # Head\n  - bb", 0) == Region(0, 0)
+  assert reveal_in("- aa\n  - # Head\n  - bb", 1) == Region(1, 1)
+  assert reveal_in("- # Head\n  para", 1) == Region(1, 1)
+  assert reveal_in("- aa\n  # Head", 0) == Region(0, 0)
+  assert reveal_in("1. x\n   1. ## sub", 1) == Region(1, 1)
+  assert reveal_in("- Shoes\n  and socks\n  - nested", 1) == Region(0, 1)
+  assert reveal_in("-\n  foo", 0) == Region(0, 0)
+  assert reveal_in("-\n  foo", 1) == Region(1, 1)
+}
+
+pub fn a_selection_reveals_every_leaf_it_touches_test() {
+  assert live.reveal(markdown.parse("> a\n> # b\n> c"), from: 0, to: 1)
+    == Region(0, 1)
+  assert live.reveal(markdown.parse("- a\n  - b\n  - c"), from: 2, to: 1)
+    == Region(1, 2)
+}
+
+/// How the field is set while it holds the block the caret on `row` reveals.
+fn leaf_kind(text: String, row: Int) -> live.Kind {
+  let blocks = markdown.parse(text)
+  let field = live.reveal(blocks, from: row, to: row)
+  live.kind(blocks, field:, lines: string.split(text, "\n"))
+}
+
+pub fn a_heading_in_a_quote_or_after_the_first_line_of_an_item_is_set_as_a_heading_test() {
+  assert leaf_kind("> # q1\n> ## q2", 1) == live.Title(markdown.H2)
+  assert leaf_kind("> # a\n> > ## b", 1) == live.Title(markdown.H2)
+  assert leaf_kind("- aa\n  # Head", 1) == live.Title(markdown.H1)
+  assert leaf_kind("- aa\n  > # Head", 1) == live.Title(markdown.H1)
+  assert leaf_kind("> - # a\n>   # b", 1) == live.Title(markdown.H1)
+  assert leaf_kind("- > # h", 0) == live.Title(markdown.H1)
+  assert leaf_kind("> Hello\n> ---", 1) == live.Title(markdown.H2)
+}
+
+pub fn the_first_line_of_an_item_at_any_depth_is_set_with_its_own_marker_test() {
+  assert leaf_kind("- aa\n  - # Head\n  - bb", 0)
+    == live.ListItem(task: False, marker: "- ")
+  assert leaf_kind("- aa\n  - # Head\n  - bb", 1)
+    == live.ItemTitle(markdown.H1, marker: "  - ")
+  assert leaf_kind("- aa\n  - # Head\n  - bb", 2)
+    == live.ListItem(task: False, marker: "  - ")
+  assert leaf_kind("1. x\n   1. ## sub", 1)
+    == live.ItemTitle(markdown.H2, marker: "   1. ")
+  assert leaf_kind("> - # a\n>   # b", 0)
+    == live.ItemTitle(markdown.H1, marker: "> - ")
+  assert leaf_kind("> - [ ] # a\n> - [x] b", 1)
+    == live.ListItem(task: True, marker: "> - [x] ")
+  assert leaf_kind("- - a", 0) == live.ListItem(task: False, marker: "- - ")
+  assert leaf_kind("- Hello\n  ===", 1)
+    == live.ItemTitle(markdown.H1, marker: "- ")
+  assert leaf_kind("-\n  foo", 0) == live.ListItem(task: False, marker: "-")
+}
+
+pub fn a_paragraph_or_code_inside_a_quote_or_an_item_is_set_as_itself_test() {
+  assert leaf_kind("> # h\n> b", 1) == live.Body
+  assert leaf_kind("- # Head\n  para", 1) == live.Body
+  assert leaf_kind("-\n  foo", 1) == live.Body
+  assert leaf_kind("> a\n>\n> b", 1) == live.Body
+  assert leaf_kind("> ```\n> x\n> ```", 1) == live.Mono
+  assert leaf_kind("- a\n\n      code", 2) == live.Mono
+}
+
+fn text(words: String) -> List(markdown.Inline) {
+  [markdown.Text(words)]
+}
+
+fn heading(row: Int, level: markdown.Level, words: String) -> markdown.Block {
+  markdown.Block(row, row, markdown.Heading(level, text(words)))
+}
+
+fn para(first_row: Int, last_row: Int, words: String) -> markdown.Block {
+  markdown.Block(first_row, last_row, markdown.Paragraph(text(words)))
+}
+
+fn item(
+  row: Int,
+  content_col: Int,
+  blocks: List(markdown.Block),
+) -> markdown.Item {
+  markdown.Item(row:, content_col:, task: option.None, blocks:)
+}
+
+pub fn the_page_beside_a_field_in_a_quote_draws_the_rest_of_the_quote_test() {
+  let blocks = markdown.parse("> # q1\n> ## q2\n> b")
+  let field = option.Some(Region(1, 1))
+  assert live.cut(blocks, from: 0, to: 1, field:)
+    == [
+      markdown.Block(
+        0,
+        2,
+        markdown.Quote([
+          heading(0, markdown.H1, "q1"),
+          heading(1, markdown.H2, "q2"),
+        ]),
+      ),
+    ]
+  assert live.cut(blocks, from: 2, to: 3, field:)
+    == [
+      markdown.Block(
+        0,
+        2,
+        markdown.Quote([heading(1, markdown.H2, "q2"), para(2, 2, "b")]),
+      ),
+    ]
+}
+
+pub fn the_page_beside_a_field_in_a_nested_item_draws_the_rest_of_both_items_test() {
+  let blocks = markdown.parse("- aa\n  - # Head\n  - bb\n- cc")
+  let field = option.Some(Region(1, 1))
+  let nested = fn(items) {
+    markdown.Block(1, 2, markdown.BulletList(markdown.Tight, items))
+  }
+  let head = item(1, 4, [heading(1, markdown.H1, "Head")])
+  assert live.cut(blocks, from: 0, to: 1, field:)
+    == [
+      markdown.Block(
+        0,
+        3,
+        markdown.BulletList(markdown.Tight, [
+          item(0, 2, [para(0, 0, "aa"), nested([head])]),
+        ]),
+      ),
+    ]
+  assert live.cut(blocks, from: 2, to: 4, field:)
+    == [
+      markdown.Block(
+        0,
+        3,
+        markdown.BulletList(markdown.Tight, [
+          item(0, 2, [nested([head, item(2, 4, [para(2, 2, "bb")])])]),
+          item(3, 2, [para(3, 3, "cc")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn the_page_below_a_field_in_an_ordered_list_keeps_its_numbers_test() {
+  let blocks = markdown.parse("1. a\n2. b\n3. c")
+  assert live.cut(blocks, from: 2, to: 3, field: option.Some(Region(1, 1)))
+    == [
+      markdown.Block(
+        0,
+        2,
+        markdown.OrderedList(2, markdown.Tight, [
+          item(1, 3, [para(1, 1, "b")]),
+          item(2, 3, [para(2, 2, "c")]),
+        ]),
+      ),
+    ]
+}
+
+pub fn the_whole_page_is_cut_nowhere_test() {
+  let blocks = markdown.parse("> a\n\n- b\n  - c")
+  assert live.cut(blocks, from: 0, to: 4, field: option.None) == blocks
+  assert live.cut(blocks, from: 0, to: 0, field: option.None) == []
+}
+
+pub fn a_field_laid_out_as_typed_takes_the_blocks_typed_in_its_rows_test() {
+  let typed = fn(before: String, after: String, rows: live.Region) {
+    live.lay(markdown.parse(before), typed: markdown.parse(after), rows:)
+  }
+  assert typed(
+      "top\n\nHello\n\nbelow",
+      "top\n\n- # Hello\n\nbelow",
+      Region(2, 2),
+    )
+    == markdown.parse("top\n\n- # Hello\n\nbelow")
+  assert typed("> a\n>\n> c", "> a\n> # b\n> c", Region(1, 1))
+    == markdown.parse("> a\n> # b\n> c")
+  assert typed("line one\nline two", "line one\n# line two", Region(0, 1))
+    == markdown.parse("line one\n# line two")
+  assert typed("- a\n  b\n- c", "- a\n  # b\n- c", Region(0, 1))
+    == markdown.parse("- a\n  # b\n- c")
+}
+
+pub fn a_field_laid_out_as_typed_keeps_the_rows_outside_it_as_they_were_test() {
+  let drawn = markdown.parse("~~wow~~\n\n")
+  assert live.lay(
+      drawn,
+      typed: markdown.parse("~~wow~~\n-\n"),
+      rows: Region(1, 1),
+    )
+    == drawn
+  let drawn = markdown.parse("> a\n>\n> c")
+  assert live.lay(
+      drawn,
+      typed: markdown.parse("> a\nb\n> c"),
+      rows: Region(1, 1),
+    )
+    == drawn
+  let drawn = markdown.parse("a\n\nb")
+  assert live.lay(drawn, typed: markdown.parse("a\n\n# b"), rows: Region(2, 2))
+    == markdown.parse("a\n\n# b")
 }
 
 /// How the field is set while it holds all of `text`.

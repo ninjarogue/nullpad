@@ -1128,6 +1128,11 @@ pub fn blocks(editor: Editor) -> List(Block) {
   }
 }
 
+/// The page drawn around the field.
+pub fn page(editor: Editor) -> List(Block) {
+  blocks(editor)
+}
+
 /// A selection that reaches past the block it ends in is painted over the
 /// drawn page, which is drawn whole. The field keeps the focus and the
 /// selected rows, and is not seen.

@@ -41,10 +41,12 @@ pub fn part(
   blocks: List(Block),
   rows rows: Int,
   first_row first_row: Int,
+  field field: Option(live.Region),
   test_id test_id: String,
   on_task on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let to = first_row + rows
+  let _ = field
   html.div(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
     inside(blocks, from: first_row, to:)

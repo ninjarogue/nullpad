@@ -324,6 +324,39 @@ export class Page {
     }, word);
   }
 
+  /** Where every word drawn on the page outside the text field is, however far the page is scrolled. */
+  drawnWords() {
+    return this.browser.evaluate(() => {
+      const sheet = document.querySelector('.page')!;
+      const base = sheet.getBoundingClientRect();
+      const found: Record<string, { left: number; top: number }> = {};
+      const texts = document.createTreeWalker(sheet, NodeFilter.SHOW_TEXT);
+      for (let text = texts.nextNode() as Text | null; text; text = texts.nextNode() as Text | null) {
+        if (text.parentElement!.closest('.editor')) continue;
+        for (const word of text.data.matchAll(/\S+/g)) {
+          const range = document.createRange();
+          range.setStart(text, word.index);
+          range.setEnd(text, word.index + word[0].length);
+          const box = range.getClientRects()[0];
+          if (!box) continue;
+          let key = word[0];
+          while (key in found) key += "'";
+          found[key] = { left: box.left - base.left, top: box.top - base.top + sheet.scrollTop };
+        }
+      }
+      return found;
+    });
+  }
+
+  /** The row of the note the caret is on. */
+  caretRow() {
+    return this.browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      const above = field.value.slice(0, field.selectionStart).split('\n').length - 1;
+      return Number(field.dataset.row ?? 0) + above;
+    });
+  }
+
   /**
    * Presses `keys` one after another while the page draws nothing, as on a
    * device too busy to draw between two key presses. Then lets it draw.
