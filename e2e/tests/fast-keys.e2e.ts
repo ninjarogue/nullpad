@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { ctrl, Editing, offsetOf } from './editing.ts';
+import { ctrl, Editing, offsetOf, withRawPage } from './editing.ts';
 import type { Fixtures, Spot } from './editing.ts';
 import { pause, test } from './nullpad.ts';
 
@@ -376,4 +376,85 @@ test('Shift+ArrowLeft after Ctrl+Delete at the end of the note, drawn before the
   await page.markdown.tap();
 
   await expect(page.text).toHaveValue(expected);
+});
+
+/**
+ * An IME owns the field while it composes, so its keys go on to the field
+ * even while the page is behind, as it is when a step waits for the rows an
+ * Enter in the same frame added. An IME's key has keyCode 229, and once the
+ * composition has begun, isComposing too. Held, it would be typed again as a
+ * letter once the page caught up.
+ */
+test('a key an IME sends while the page is behind goes to the IME, and is not typed again', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  await withRawPage(origin, note, async (raw) => {
+    const session = await raw.context().newCDPSession(raw);
+    const imeKey = (type: 'rawKeyDown' | 'keyUp') =>
+      session.send('Input.dispatchKeyEvent', { type, key: 'k', code: 'KeyK', windowsVirtualKeyCode: 229, nativeVirtualKeyCode: 229 });
+    await raw.evaluate(() => {
+      const seen: { key: string; ime: boolean; held: boolean }[] = [];
+      document.querySelector('textarea')!.addEventListener('keydown', (key) => {
+        queueMicrotask(() => seen.push({ key: key.key, ime: key.keyCode === 229, held: key.defaultPrevented }));
+      });
+      (globalThis as { keys?: typeof seen }).keys = seen;
+      const held: FrameRequestCallback[] = [];
+      const real = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (run) => held.push(run);
+      (globalThis as { redraw?: () => void }).redraw = () => {
+        window.requestAnimationFrame = real;
+        for (const run of held) real(run);
+      };
+      return null;
+    });
+    await raw.keyboard.press('Enter');
+    await raw.keyboard.press('Shift+ArrowUp');
+    await raw.keyboard.press('z');
+    await imeKey('rawKeyDown');
+    await session.send('Input.imeSetComposition', { text: 'k', selectionStart: 1, selectionEnd: 1 });
+    await imeKey('keyUp');
+    await imeKey('rawKeyDown');
+    await session.send('Input.imeSetComposition', { text: 'か', selectionStart: 1, selectionEnd: 1 });
+    await imeKey('keyUp');
+    await session.send('Input.insertText', { text: 'か' });
+    const keys = await raw.evaluate(() => (globalThis as { keys?: { key: string; ime: boolean; held: boolean }[] }).keys!);
+    await raw.evaluate(() => {
+      (globalThis as { redraw?: () => void }).redraw!();
+      return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    });
+    await raw.evaluate(() => new Promise((done) => setTimeout(done, 200)));
+    await raw.keyboard.press('Control+e');
+    const text = await raw.evaluate(() => document.querySelector('textarea')!.value);
+
+    expect(keys.find((key) => key.key === 'z'), 'the page is behind when z is pressed, so z is held').toMatchObject({ held: true });
+    expect(keys.filter((key) => key.ime).map((key) => key.held), "the IME's keys go on to the field").toEqual([false, false]);
+    expect(text.split('k').length - 1, `no letter of the IME is typed again in ${JSON.stringify(text)}`).toBe(0);
+  });
+});
+
+test('PageDown pressed while a step waits for the rows an Enter in the same frame added waits behind the letter before it', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  await withRawPage(origin, note, async (raw) => {
+    await raw.evaluate(() => {
+      const held: FrameRequestCallback[] = [];
+      const real = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (run) => held.push(run);
+      (globalThis as { redraw?: () => void }).redraw = () => {
+        window.requestAnimationFrame = real;
+        for (const run of held) real(run);
+      };
+      return null;
+    });
+    for (const key of ['Enter', 'Shift+ArrowUp', 'z', 'PageDown']) await raw.keyboard.press(key);
+    await raw.evaluate(() => {
+      (globalThis as { redraw?: () => void }).redraw!();
+      return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    });
+    await raw.keyboard.type('X');
+    await raw.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await raw.keyboard.press('Control+e');
+
+    expect(await raw.evaluate(() => document.querySelector('textarea')!.value)).toBe(`z${note}X`);
+  });
 });
