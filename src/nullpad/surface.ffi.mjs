@@ -445,6 +445,7 @@ function headCaret(control, place) {
 function atLineEnd(control, head, place) {
   const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = control;
   if (head === 0 || control.value[head - 1] === "\n" || document.activeElement !== control) return false;
+  if (aimedHere(control)) return false;
   if (place(head - 1).top === place(head).top) return false;
   const anchor = direction === "backward" ? end : start;
   getSelection().modify("extend", "backward", "lineboundary");
@@ -460,6 +461,17 @@ function atLineEnd(control, head, place) {
 // The field as the last aim left it, and who aimed it, so that aiming again
 // can tell whether a key, or a later aim, has moved the caret since.
 const aimed = new WeakMap();
+
+// Whether the field is as the last aim left it. An aim puts the head on the
+// line it aims at, at its start where a row wraps, as a text field's line
+// moves do, though the browser draws the end of a selection there at the end
+// of the line before and says so.
+function aimedHere(control) {
+  const last = aimed.get(control);
+  if (!last) return false;
+  const now = [control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
+  return last.shown.join("\u0000") === now.join("\u0000");
+}
 
 // `line` is 0 for the first drawn line of the head's row, 1 for its last, 2
 // or 3 for the drawn line above or below the head's, and 4 for the head's
@@ -485,12 +497,15 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
       return [false, ...shown()];
     }
   } else {
-    aimed.delete(control);
     const written =
       control.value === text && control.selectionStart === start && control.selectionEnd === end;
-    if (!written) return [false, ...shown()];
+    if (!written) {
+      aimed.delete(control);
+      return [false, ...shown()];
+    }
   }
   if (aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select)) aimed.set(control, { by, shown: shown() });
+  else aimed.delete(control);
   return [true, ...shown()];
 }
 
