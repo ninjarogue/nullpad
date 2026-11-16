@@ -110,6 +110,43 @@ pub fn every_rule_has_a_break_that_proves_it_test() {
   }
 }
 
+pub fn a_written_ahead_test_that_was_renamed_is_a_fault_test() {
+  let renamed =
+    rules.read_test_file(Source(
+      "test/editor_test.gleam",
+      "pub fn pending_dd_deletes_the_cursor_line_test() {\n  assert 1 == 1\n}\n",
+    ))
+  let report = rules.judge([renamed])
+  assert list.any(report.faults, string.contains(_, "written-ahead test"))
+  assert list.any(report.faults, string.contains(
+    _,
+    "pending_dd_deletes_the_cursor_line",
+  ))
+}
+
+pub fn a_written_ahead_test_is_not_flagged_while_it_is_not_named_test() {
+  let ahead =
+    rules.read_test_file(Source(
+      "test/editor_test.gleam",
+      "pub fn pending_dd_deletes_the_cursor_line() {\n  assert 1 == 2\n}\n",
+    ))
+  let report = rules.judge([ahead])
+  assert report.broken == []
+  assert !list.any(report.faults, string.contains(
+    _,
+    "pending_dd_deletes_the_cursor_line",
+  ))
+}
+
+pub fn the_same_function_in_another_file_is_flagged_test() {
+  let other =
+    rules.read_test_file(Source(
+      "test/other_test.gleam",
+      "pub fn pending_dd_deletes_the_cursor_line() {\n  assert 1 == 2\n}\n",
+    ))
+  assert list.length(rules.judge([other]).broken) == 1
+}
+
 fn all_breaks() -> List(Break) {
   list.flatten([breaks(), outside_breaks(), second_round(), test_breaks()])
 }

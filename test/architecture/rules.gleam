@@ -50,6 +50,14 @@ const decoders_that_still_read_state = [#("surface.key_decoder", 1)]
 
 const plain_types = ["String", "Int", "Bool", "Float"]
 
+/// Tests written before the code they test, which is why they are not named
+/// _test yet: "<path> <function>". When the code is built, rename the test,
+/// and the check says to take it out of here.
+const written_ahead = [
+  "test/editor_test.gleam pending_dd_deletes_the_cursor_line",
+  "test/editor_test.gleam pending_one_insert_is_one_undo_step",
+]
+
 pub type Source {
   /// `path` is relative to `src`: "nullpad/editor.gleam".
   Source(path: String, text: String)
@@ -185,7 +193,7 @@ pub fn judge(files: List(File)) -> Report {
             forbidden_calls(path, name, module),
           ])
         JavaScript(path:, name:) -> javascript(path, name)
-        GleamTest(path:, ..) -> [Looked(TestRuns, path)]
+        GleamTest(path:, module:) -> tests_run(path, module)
         Other(path) -> [
           Found(Broken(JavaScriptFile, path, "not a .gleam or .ffi.mjs file")),
         ]
@@ -591,7 +599,7 @@ fn forbidden_calls(
               Ok(
                 Found(Broken(FieldWrite, path, holder <> " names a text field")),
               )
-            Text(_) | Name(_) | Remote(..) | Bound(_) -> Error(Nil)
+            Text(_) | Name(_) | Remote(..) | Bound(_) | Stops -> Error(Nil)
           }
         })
       list.append(calls, texts)
@@ -698,14 +706,14 @@ fn uses(
       list.filter_map(seen, fn(one) {
         case one {
           Bound(name) -> Ok(name)
-          Name(_) | Remote(..) | Text(_) -> Error(Nil)
+          Name(_) | Remote(..) | Text(_) | Stops -> Error(Nil)
         }
       }),
     )
   list.filter(seen, fn(one) {
     case one {
       Name(name) -> !list.contains(bound, name)
-      Remote(..) | Text(_) | Bound(_) -> True
+      Remote(..) | Text(_) | Bound(_) | Stops -> True
     }
   })
   |> list.filter_map(resolve)
@@ -756,7 +764,7 @@ fn resolver(
       Remote(alias, label) ->
         dict.get(aliases, alias)
         |> result.map(fn(module) { module <> "." <> label })
-      Text(_) | Bound(_) -> Error(Nil)
+      Text(_) | Bound(_) | Stops -> Error(Nil)
     }
   }
 }
@@ -768,6 +776,8 @@ type Seen {
   Text(String)
   /// A name the code binds: a `let`, a pattern variable, a closure parameter.
   Bound(String)
+  /// An `assert`, a `let assert`, a `panic` or a `todo`: code that crashes when it is wrong.
+  Stops
 }
 
 fn statements(body: List(glance.Statement)) -> List(Seen) {
@@ -785,12 +795,14 @@ fn statements(body: List(glance.Statement)) -> List(Seen) {
           pattern(assigned),
           expression(value),
           case kind {
-            glance.LetAssert(message) -> maybe(message)
+            glance.LetAssert(message) -> [Stops, ..maybe(message)]
             glance.Let -> []
           },
         ])
-      glance.Assert(expression: asserted, message:, ..) ->
-        list.append(expression(asserted), maybe(message))
+      glance.Assert(expression: asserted, message:, ..) -> [
+        Stops,
+        ..list.append(expression(asserted), maybe(message))
+      ]
       glance.Expression(inner) -> expression(inner)
     }
   })
@@ -837,7 +849,10 @@ fn expression(subject: glance.Expression) -> List(Seen) {
     glance.NegateInt(value:, ..) | glance.NegateBool(value:, ..) ->
       expression(value)
     glance.Block(statements: inner, ..) -> statements(inner)
-    glance.Panic(message:, ..) | glance.Todo(message:, ..) -> maybe(message)
+    glance.Panic(message:, ..) | glance.Todo(message:, ..) -> [
+      Stops,
+      ..maybe(message)
+    ]
     glance.Tuple(elements:, ..) -> list.flat_map(elements, expression)
     glance.List(elements:, rest:, ..) ->
       list.append(list.flat_map(elements, expression), maybe(rest))
@@ -935,6 +950,69 @@ fn pattern(subject: glance.Pattern) -> List(Seen) {
   }
 }
 
+/// What gleeunit does with a module of `test/` on JavaScript: it calls every
+/// public function whose name ends in `_test`, with no arguments. So a private
+/// `_test` function and one for the Erlang target are never run, and a public
+/// function with no arguments that asserts or panics, under any other name, is
+/// a test somebody forgot to name. A helper that takes arguments is not one.
+fn tests_run(path: String, module: glance.Module) -> List(Finding) {
+  let found =
+    list.flat_map(module.functions, fn(definition) {
+      let function = definition.definition
+      let named_test = string.ends_with(function.name, "_test")
+      let public = function.publicity == glance.Public
+      let forgotten =
+        public
+        && !named_test
+        && function.parameters == []
+        && list.contains(statements(function.body), Stops)
+      let key = path <> " " <> function.name
+      let ahead = forgotten && list.contains(written_ahead, key)
+      list.flatten([
+        when(targets_erlang(definition), fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " is for the Erlang target, and the tests run on JavaScript",
+            )),
+          ]
+        }),
+        when(named_test && !public, fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name <> " is private, so gleeunit never calls it",
+            )),
+          ]
+        }),
+        when(forgotten && !ahead, fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " asserts or panics and takes nothing, but its name does not end in _test, so gleeunit never calls it",
+            )),
+          ]
+        }),
+        when(ahead, fn() { [Looked(TestRuns, key)] }),
+      ])
+    })
+  [Looked(TestRuns, path), ..found]
+}
+
+fn targets_erlang(definition: glance.Definition(glance.Function)) -> Bool {
+  list.any(definition.attributes, fn(attribute) {
+    case attribute {
+      glance.Attribute("target", [glance.Variable(name: "erlang", ..)]) -> True
+      glance.Attribute(..) -> False
+    }
+  })
+}
+
 fn javascript(path: String, name: String) -> List(Finding) {
   [
     Looked(JavaScriptFile, path),
@@ -979,7 +1057,7 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
         JavaScript(..) | GleamTest(..) | Other(_) | Unreadable(_) -> []
       }
     })
-  let decoders = list.map(looked, fn(one) { one.1 })
+  let looked_at = list.map(looked, fn(one) { one.1 })
   let unused = fn(allowed: List(String), used: List(String), what: String) {
     list.filter(allowed, fn(one) { !list.contains(used, one) })
     |> list.map(fn(one) {
@@ -993,8 +1071,9 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
     unused(measures, externals, "measure"),
     unused(
       list.map(decoders_that_still_read_state, fn(one) { one.0 }),
-      decoders,
+      looked_at,
       "decoder allowance",
     ),
+    unused(written_ahead, looked_at, "written-ahead test"),
   ])
 }
