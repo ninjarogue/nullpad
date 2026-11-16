@@ -10,12 +10,12 @@
 // count can only be lowered by editing the file by hand, so that the removal
 // shows in the diff.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gateSteps, heldNames } from "./steps.mjs";
+import { gateSteps, heldNames, root, strayNodeTests } from "./steps.mjs";
 
 export const countsFile = fileURLToPath(new URL("./test_counts.json", import.meta.url));
 const COUNTS = "test/test_counts.json";
@@ -234,13 +234,29 @@ export async function runStep(step, { countsFile: file = countsFile, log = conso
   return { ok: failures.length === 0, id: step.id, failures, raised: raise, lowered };
 }
 
+/** What to say when `git push` in `base` would run no gate: its `core.hooksPath` is not `.githooks`. Null when it is. */
+export function hooksWarning(base = root) {
+  let value = "";
+  try {
+    value = execFileSync("git", ["config", "--get", "core.hooksPath"], { cwd: base, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {}
+  if (value !== "" && resolve(base, value) === resolve(base, ".githooks")) return null;
+  return (
+    `core.hooksPath is ${value === "" ? "not set" : JSON.stringify(value)}, so git push in this clone runs no gate. ` +
+    "Run `git config core.hooksPath .githooks` once, or run `node test/test_counts.mjs run` before every push."
+  );
+}
+
 /**
- * Runs `steps` in order and stops at the first that fails. When every step of
- * the gate ran (not `partial`), a known count with no step to run it fails
- * too, so a step cannot be dropped from the gate and leave its count behind.
+ * Runs `steps` in order and stops at the first that fails. Given the `base` of
+ * a repository, it also warns when a push there would run no gate, and, when
+ * every step of the gate ran (not `partial`), fails on a node test file that
+ * no step runs. Then too, a known count with no step to run it fails, so a
+ * step cannot be dropped from the gate and leave its count behind.
  */
-export async function gate({ steps, countsFile: file = countsFile, partial = false, ...io }) {
+export async function gate({ steps, countsFile: file = countsFile, partial = false, base, ...io }) {
   loadCounts(file);
+  const warnings = base === undefined ? [] : [hooksWarning(base)].filter((warning) => warning !== null);
   const ran = [];
   const raised = {};
   const lowered = {};
@@ -249,15 +265,21 @@ export async function gate({ steps, countsFile: file = countsFile, partial = fal
     ran.push(step.id);
     if (verdict.raised !== null) raised[step.id] = verdict.raised;
     for (const [name, count] of Object.entries(verdict.lowered ?? {})) lowered[heldKey(step.id, name)] = count;
-    if (!verdict.ok) return { ok: false, ran, raised, lowered, failures: verdict.failures };
+    if (!verdict.ok) return { ok: false, ran, raised, lowered, warnings, failures: verdict.failures };
   }
   const orphans = partial ? [] : Object.entries(loadCounts(file)).filter(([key]) => !ran.includes(stepOf(key)));
-  const failures = orphans.map(([key, count]) =>
-    key === stepOf(key)
-      ? `${key}: ${COUNTS} knows ${tests(count)} for it, and no step of the gate runs it. ` + `If the step was removed on purpose, remove its line from ${COUNTS} by hand.`
-      : `${key}: ${COUNTS} allows ${count} for ${stepOf(key)}, and no step of the gate runs it. ` + `If the step was removed on purpose, remove its line from ${COUNTS} by hand.`,
-  );
-  return { ok: failures.length === 0, ran, raised, lowered, failures };
+  const removed = " If the step was removed on purpose, remove its line from " + `${COUNTS} by hand.`;
+  const failures = [
+    ...orphans.map(([key, count]) =>
+      key === stepOf(key)
+        ? `${key}: ${COUNTS} knows ${tests(count)} for it, and no step of the gate runs it.${removed}`
+        : `${key}: ${COUNTS} allows ${count} for ${stepOf(key)}, and no step of the gate runs it.${removed}`,
+    ),
+    ...(partial || base === undefined ? [] : strayNodeTests(steps, base)).map(
+      (name) => `${name}: it is named like a node test and no step of the gate runs it. Add a step for it in test/steps.mjs, or rename it if it is not a test.`,
+    ),
+  ];
+  return { ok: failures.length === 0, ran, raised, lowered, warnings, failures };
 }
 
 async function main(args) {
@@ -274,7 +296,8 @@ async function main(args) {
     console.error(`unknown step ${unknown.join(", ")}. Steps: ${[...names].join(", ")}, e2e`);
     return 2;
   }
-  const verdict = await gate({ steps, partial: selected.length > 0 });
+  const verdict = await gate({ steps, partial: selected.length > 0, base: root });
+  for (const warning of verdict.warnings) console.error(`\n!!! WARNING: ${warning}\n`);
   for (const failure of verdict.failures) console.error(`FAIL ${failure}`);
   const rose = Object.entries(verdict.raised);
   if (rose.length > 0) console.log(`${COUNTS} was raised for ${rose.map(([id, count]) => `${id} (${count})`).join(", ")}. Commit it.`);

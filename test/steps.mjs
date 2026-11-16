@@ -148,6 +148,34 @@ export function nodeTestFiles(base = root) {
   return found.sort();
 }
 
+const nodeTestName = /\.test\.(?:mjs|cjs|js|mts|cts|ts)$/;
+const neverTests = new Set(["node_modules", ".git"]);
+const madeAtTop = new Set(["build", "dist", ".lustre", ".mutants", ".verify"]);
+
+/** Every file in `base` named like a node test, outside node_modules and what the build and the tools make, as paths from it, sorted. */
+export function nodeTestsNamed(base = root) {
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      const from = relative(base, path);
+      if (entry.isDirectory()) {
+        if (!neverTests.has(entry.name) && !(madeAtTop.has(from)) && from !== join("e2e", ".e2e")) walk(path);
+      } else if (nodeTestName.test(entry.name)) {
+        found.push(from);
+      }
+    }
+  };
+  walk(base);
+  return found.sort();
+}
+
+/** The files named like a node test, anywhere in `base`, that no command of `steps` names, so that nothing runs them. */
+export function strayNodeTests(steps, base = root) {
+  const run = new Set(steps.flatMap((step) => step.command("").filter((arg) => nodeTestName.test(arg))));
+  return nodeTestsNamed(base).filter((file) => !run.has(file));
+}
+
 const e2eDir = join(root, "e2e");
 
 // The e2e runner writes only inside its own project, in a folder git ignores.
