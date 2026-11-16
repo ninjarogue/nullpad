@@ -1049,6 +1049,20 @@ fn test_breaks() -> List(Break) {
       ),
     ),
     Break(
+      Caught(rules.TestRuns),
+      "a public main that asserts itself",
+      buffer,
+      last("pub fn main() -> Nil {\n  assert 1 == 1\n}"),
+    ),
+    Break(
+      Clean,
+      "a public main that only reaches an assert through another function, as the entry of a program does",
+      buffer,
+      last(
+        "pub fn main() -> Nil {\n  check()\n}\n\nfn check() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
       Clean,
       "a test that asserts and then gives Nil",
       file,

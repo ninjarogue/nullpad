@@ -10,7 +10,7 @@ A markdown note editor in Gleam with Lustre. Read this before changing code.
 | A core module imports only `gleam/*` and other core modules. | `gleam test` |
 | A core module's JavaScript touches no browser. | review |
 | Every function says what it takes and returns. | `gleam test` |
-| Every test function in `test/*.gleam` is one gleeunit runs: public, no arguments, a name that ends in `_test`, no `@target(erlang)`. A private `*_test`, or a public function with a test's body and another name, is a test that never runs. | `gleam test` |
+| Every test function in `test/*.gleam` is one gleeunit runs: public, no arguments, a name that ends in `_test`, no `@target(erlang)`. A private `*_test`, or a public function with no arguments and another name that asserts, panics, calls `gleeunit/should` or calls a function of its module that does, is a test that never runs. A `*_test` that takes arguments, or whose body is just `Nil`, runs and checks nothing. | `gleam test` |
 | Only a function that returns an `Effect` or `Nil` may change the page. Drawing and decoding code may measure it. | `gleam test` |
 | A decoder takes callbacks and plain values, never app state from the last drawn frame. The editor decides what a key does. | `gleam test`, and review for the second half |
 | `surface` is the only module that draws the text field. | `gleam test` |
@@ -33,6 +33,7 @@ The rules live in `test/architecture/rules.gleam`. It parses every Gleam file wi
 - A check or script that judges code reads the syntax tree, not the text. Pick the tool that can see the real code before the one that is fastest to write, and ship the check with its break cases and the score from an attacker who is not its author.
 - The check was wrong three times when only its author tested it. After adding a rule, have someone who has not read the break list try to get past it, and add what they find.
 - The check is there to stop honest mistakes, not a determined dodge. Change it when a real mistake gets past it in a real PR, or when a rule is added. A rule that keeps cracking moves back to review.
+- The test rule leaves four escapes to review, each listed as `Escapes` in `architecture_test.gleam` so that the day a rule catches one the test says so: a `_test` that asserts only in a closure nobody calls, one that returns before its assert (`use <- bool.guard(True, Nil)`), one that is an `@external` function whose JavaScript checks nothing, and a misnamed function that reaches its assert through a helper of another module. A `main` that reaches an assert only through other functions is not taken for a forgotten test.
 - `test/keystroke_cost.mjs` sends every variant of `editor.Event`, with vim off and on. A new variant with no entry there fails.
 
 ## Checks

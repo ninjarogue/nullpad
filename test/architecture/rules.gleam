@@ -112,7 +112,7 @@ pub fn says(rule: Rule) -> String {
       "a public editor function that changes the editor returns an Outcome"
     RawHtml -> "nothing draws raw HTML"
     TestRuns ->
-      "every test in test/ is one gleeunit runs on JavaScript: public, named _test, and for a target we run"
+      "every test in test/ is one gleeunit runs on JavaScript: public, no arguments, named _test, and for a target we run"
   }
 }
 
@@ -953,20 +953,46 @@ fn pattern(subject: glance.Pattern) -> List(Seen) {
 /// What gleeunit does with a module of `test/` on JavaScript: it calls every
 /// public function whose name ends in `_test`, with no arguments. So a private
 /// `_test` function and one for the Erlang target are never run, and a public
-/// function with no arguments that asserts or panics, under any other name, is
-/// a test somebody forgot to name. A helper that takes arguments is not one.
+/// function with no arguments that asserts, panics, calls `gleeunit/should` or
+/// calls a function of the module that does, under any other name, is a test
+/// somebody forgot to name. A helper that takes arguments is not one. Neither
+/// is a `main` that only reaches an assert through other functions, which
+/// `gleam run -m` calls. A `_test` that takes arguments gets none, and one
+/// whose body is just `Nil` checks nothing.
 fn tests_run(path: String, module: glance.Module) -> List(Finding) {
+  let resolve = resolver(path, module)
+  let functions =
+    list.map(module.functions, fn(definition) {
+      let function = definition.definition
+      let used = uses(function, resolve)
+      let checks =
+        list.contains(statements(function.body), Stops)
+        || list.any(used, string.starts_with(_, "gleeunit/should."))
+      #(path <> "." <> function.name, used, checks)
+    })
+  let asserting =
+    list.filter(functions, fn(function) { function.2 })
+    |> list.map(fn(function) { function.0 })
+    |> set.from_list
+    |> grow(functions)
   let found =
     list.flat_map(module.functions, fn(definition) {
       let function = definition.definition
       let named_test = string.ends_with(function.name, "_test")
       let public = function.publicity == glance.Public
+      let key = path <> " " <> function.name
+      let stops = list.contains(statements(function.body), Stops)
       let forgotten =
         public
         && !named_test
         && function.parameters == []
-        && list.contains(statements(function.body), Stops)
-      let key = path <> " " <> function.name
+        && {
+          stops
+          || {
+            function.name != "main"
+            && set.contains(asserting, path <> "." <> function.name)
+          }
+        }
       let ahead = forgotten && list.contains(written_ahead, key)
       list.flatten([
         when(targets_erlang(definition), fn() {
@@ -988,13 +1014,38 @@ fn tests_run(path: String, module: glance.Module) -> List(Finding) {
             )),
           ]
         }),
+        when(named_test && public && function.parameters != [], fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " takes arguments, and gleeunit calls it with none",
+            )),
+          ]
+        }),
+        when(
+          named_test
+            && public
+            && option.is_none(external(definition))
+            && just_nil(function.body),
+          fn() {
+            [
+              Found(Broken(
+                TestRuns,
+                path,
+                function.name <> " gives Nil and checks nothing",
+              )),
+            ]
+          },
+        ),
         when(forgotten && !ahead, fn() {
           [
             Found(Broken(
               TestRuns,
               path,
               function.name
-                <> " asserts or panics and takes nothing, but its name does not end in _test, so gleeunit never calls it",
+                <> " asserts, panics or calls should, or calls a function that does, and takes nothing, but its name does not end in _test, so gleeunit never calls it",
             )),
           ]
         }),
@@ -1002,6 +1053,14 @@ fn tests_run(path: String, module: glance.Module) -> List(Finding) {
       ])
     })
   [Looked(TestRuns, path), ..found]
+}
+
+fn just_nil(body: List(glance.Statement)) -> Bool {
+  case body {
+    [] -> True
+    [glance.Expression(glance.Variable(name: "Nil", ..))] -> True
+    _ -> False
+  }
 }
 
 fn targets_erlang(definition: glance.Definition(glance.Function)) -> Bool {
