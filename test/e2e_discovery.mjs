@@ -4,12 +4,19 @@
 //   node test/e2e_discovery.mjs [e2e folder]
 //
 // A file looks like a test when its name says so (`x.e2e.mts`, `y.test.ts`,
-// `z.spec.js`) or when it registers tests with the e2e test API: it calls
-// `test` or `describe`, imported from `e2e`, from `@e2e-dev/*`, or from a file
-// of the folder that exports them, as `tests/nullpad.ts` does with `extend`.
+// `z.spec.js`) or when it registers tests with the e2e test API: it calls,
+// with any arguments, a binding that is `test` or `describe` from `e2e` or
+// `@e2e-dev/*`. That is an alias of one (`const t = test`), what `extend`
+// gave back, a default, namespace or dynamic import of the module, or any of
+// these exported from a file of the folder under any name, as
+// `tests/nullpad.ts` does with `extend`, and imported or re-exported from
+// there. A config of the folder is not read, and a `x.config.ts` further down
+// is a file like any other.
 // The files are read with oxc-parser, which e2e itself reads tests with, so a
 // call in a comment or a string is not one. What is discovered is what
-// `e2e list` says each config of the folder selects.
+// `e2e list` says each config of the folder selects. Bindings are followed by
+// name through the whole file, not by scope: a parameter that is called `test`
+// is taken for the API.
 
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
@@ -21,21 +28,21 @@ import { e2eConfigs, root } from "./steps.mjs";
 const skippedFolders = new Set(["node_modules", ".e2e", ".git"]);
 const source = /\.[cm]?[jt]sx?$/;
 const declaration = /\.d\.[cm]?ts$/;
-const config = /\.config\.[cm]?[jt]s$/;
-const api = new Set(["test", "describe"]);
 const hooks = new Set(["beforeAll", "beforeEach", "afterAll", "afterEach"]);
 const fromE2e = (specifier) => specifier === "e2e" || specifier.startsWith("e2e/") || specifier.startsWith("@e2e-dev/");
 
-/** Every file of `dir` the runner could load, as paths from it with `/`, outside node_modules and the folders the runner writes. Declaration files are left out. */
+/** Every file of `dir` the runner could load, as paths from it with `/`, outside node_modules and the folders the runner writes. Declaration files are left out, and so are the configs of the folder itself: a `x.config.ts` further down is a file like any other. */
 export function sourceFiles(dir) {
   const found = [];
+  const configs = new Set(e2eConfigs(dir));
   const walk = (folder) => {
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
       const path = join(folder, entry.name);
       if (entry.isDirectory()) {
         if (!skippedFolders.has(entry.name)) walk(path);
-      } else if (source.test(entry.name) && !declaration.test(entry.name) && !config.test(entry.name)) {
-        found.push(relative(dir, path).split("\\").join("/"));
+      } else if (source.test(entry.name) && !declaration.test(entry.name)) {
+        const name = relative(dir, path).split("\\").join("/");
+        if (!configs.has(name)) found.push(name);
       }
     }
   };
@@ -58,74 +65,149 @@ function walk(node, visit) {
 
 const stringOf = (node) => (node?.type === "Literal" && typeof node.value === "string" ? node.value : null);
 
-/** What `program` imports from the e2e API: `{ names: local name -> imported name, spaces: Set of local names of the whole module }`. `provides(specifier)` says whether a module is that API. */
-function imported(program, provides) {
-  const names = new Map();
-  const spaces = new Set();
-  const bind = (pattern, request) => {
-    if (!provides(request)) return;
-    if (pattern.type === "Identifier") spaces.add(pattern.name);
-    if (pattern.type === "ObjectPattern") {
-      for (const property of pattern.properties) {
-        if (property.type === "Property" && property.key.type === "Identifier" && property.value.type === "Identifier") names.set(property.value.name, property.key.name);
+const registering = new Set(["test", "describe"]);
+const wrappers = new Set(["ParenthesizedExpression", "TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion", "TSInstantiationExpression", "ChainExpression"]);
+const untyped = (kind) => kind !== "type";
+const extensions = [".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"];
+
+/** The name a member expression reads, or null when it is computed from something that is not a string. */
+const keyOf = (node) => (node.computed ? stringOf(node.property) : node.property.type === "Identifier" ? node.property.name : null);
+const nameOf = (node) => (node.type === "Identifier" ? node.name : stringOf(node));
+
+/**
+ * What every binding of the files holds, as far as it comes from the e2e
+ * test API. A value is "api" (the module: `import e2e from 'e2e'`),
+ * "call" (a function that registers: `test`, `describe`, what `extend`
+ * gave back, an alias of any of them), or "module:<file>" (a helper of the
+ * folder, whose exports are followed the same way). Bindings are looked up
+ * by name for the whole file, so scopes are not told apart.
+ */
+function bindings(programs) {
+  const state = new Map([...programs.keys()].map((file) => [file, { env: new Map(), exports: new Map() }]));
+  let changed = false;
+  const set = (map, name, value) => {
+    if (value !== null && value !== undefined && !map.has(name)) {
+      map.set(name, value);
+      changed = true;
+    }
+  };
+  const find = (from, specifier) => {
+    if (!specifier.startsWith(".")) return null;
+    const target = posix.join(dirname(from), specifier);
+    const bare = target.replace(/\.[cm]?[jt]sx?$/, "");
+    return [target, ...extensions.map((ext) => bare + ext), ...extensions.map((ext) => target + ext), ...extensions.map((ext) => `${target}/index${ext}`)].find((candidate) => programs.has(candidate)) ?? null;
+  };
+  const moduleOf = (from, specifier) => {
+    if (fromE2e(specifier)) return "api";
+    const found = find(from, specifier);
+    return found === null ? null : `module:${found}`;
+  };
+  const member = (object, key) => {
+    if (object === "api") return registering.has(key) ? "call" : key === "default" ? "api" : null;
+    if (object === "call") return nonRegistering.has(key) ? null : "call";
+    if (object?.startsWith("module:")) return state.get(object.slice(7)).exports.get(key) ?? null;
+    return null;
+  };
+  const valueOf = (node, file) => {
+    if (node === null || node === undefined) return null;
+    if (wrappers.has(node.type)) return valueOf(node.expression, file);
+    if (node.type === "AwaitExpression") return valueOf(node.argument, file);
+    if (node.type === "Identifier") return state.get(file).env.get(node.name) ?? null;
+    if (node.type === "ImportExpression") return stringOf(node.source) === null ? null : moduleOf(file, stringOf(node.source));
+    if (node.type === "MemberExpression") {
+      const key = keyOf(node);
+      const object = valueOf(node.object, file);
+      return key === null || object === null ? null : member(object, key);
+    }
+    if (node.type === "CallExpression") {
+      const callee = node.callee;
+      if (callee.type === "Identifier" && callee.name === "require" && stringOf(node.arguments[0]) !== null) return moduleOf(file, stringOf(node.arguments[0]));
+      if (callee.type === "MemberExpression" && keyOf(callee) === "extend" && valueOf(callee.object, file) === "call") return "call";
+    }
+    return null;
+  };
+  const bind = (pattern, value, file) => {
+    if (value === null || value === undefined) return;
+    if (pattern.type === "Identifier") set(state.get(file).env, pattern.name, value);
+    if (pattern.type === "AssignmentPattern") bind(pattern.left, value, file);
+    if (pattern.type !== "ObjectPattern") return;
+    for (const property of pattern.properties) {
+      if (property.type !== "Property") continue;
+      const key = property.computed ? stringOf(property.key) : nameOf(property.key);
+      if (key !== null) bind(property.value, member(value, key), file);
+    }
+  };
+  const visit = (node, file) => {
+    const { env, exports } = state.get(file);
+    if (node.type === "ImportDeclaration" && untyped(node.importKind)) {
+      const module = moduleOf(file, stringOf(node.source) ?? "");
+      for (const specifier of module === null ? [] : node.specifiers) {
+        if (!untyped(specifier.importKind)) continue;
+        if (specifier.type === "ImportNamespaceSpecifier") set(env, specifier.local.name, module);
+        if (specifier.type === "ImportDefaultSpecifier") set(env, specifier.local.name, module === "api" ? "api" : member(module, "default"));
+        if (specifier.type === "ImportSpecifier") set(env, specifier.local.name, member(module, nameOf(specifier.imported)));
+      }
+    }
+    if (node.type === "VariableDeclarator") bind(node.id, valueOf(node.init, file), file);
+    if (node.type === "AssignmentExpression" && node.operator === "=" && node.left.type === "Identifier") set(env, node.left.name, valueOf(node.right, file));
+    if (node.type === "ExportDefaultDeclaration") set(exports, "default", valueOf(node.declaration, file));
+    if (node.type === "ExportAllDeclaration" && untyped(node.exportKind)) {
+      const module = moduleOf(file, stringOf(node.source) ?? "");
+      if (module === null) return;
+      if (node.exported) set(exports, nameOf(node.exported), module);
+      else if (module === "api") for (const name of registering) set(exports, name, "call");
+      else for (const [name, value] of state.get(module.slice(7)).exports) if (name !== "default") set(exports, name, value);
+    }
+    if (node.type === "ExportNamedDeclaration" && untyped(node.exportKind)) {
+      const module = node.source ? moduleOf(file, stringOf(node.source) ?? "") : null;
+      for (const specifier of node.specifiers ?? []) {
+        if (!untyped(specifier.exportKind)) continue;
+        const exported = nameOf(specifier.exported);
+        if (node.source) set(exports, exported, module === null ? null : member(module, nameOf(specifier.local)));
+        else if (specifier.local.type === "Identifier") set(exports, exported, env.get(specifier.local.name));
+      }
+      if (node.declaration?.type === "VariableDeclaration") {
+        for (const declarator of node.declaration.declarations) if (declarator.id.type === "Identifier") set(exports, declarator.id.name, env.get(declarator.id.name));
       }
     }
   };
-  walk(program, (node) => {
-    if (node.type === "ImportDeclaration" && node.importKind !== "type" && provides(stringOf(node.source) ?? "")) {
-      for (const specifier of node.specifiers) {
-        if (specifier.importKind === "type") continue;
-        if (specifier.type === "ImportSpecifier") names.set(specifier.local.name, specifier.imported.name ?? specifier.imported.value);
-        if (specifier.type === "ImportNamespaceSpecifier") spaces.add(specifier.local.name);
-      }
-    }
-    if (node.type === "VariableDeclarator" && node.init) {
-      let init = node.init;
-      if (init.type === "AwaitExpression") init = init.argument;
-      if (init.type === "ImportExpression") bind(node.id, stringOf(init.source) ?? "");
-      if (init.type === "CallExpression" && init.callee.type === "Identifier" && init.callee.name === "require") bind(node.id, stringOf(init.arguments[0]) ?? "");
-    }
-  });
-  return { names, spaces };
+  for (let round = 0; round < 25; round++) {
+    changed = false;
+    for (const [file, program] of programs) walk(program, (node) => visit(node, file));
+    if (!changed) break;
+  }
+  return (file) => ({ valueOf: (node) => valueOf(node, file), member });
 }
 
-/** Whether `program` exports `test` or `describe`, as a helper that extends them does, or everything another module does. */
-function exportsApi(program) {
-  let yes = false;
-  walk(program, (node) => {
-    if (node.type === "ExportAllDeclaration") yes = true;
-    if (node.type !== "ExportNamedDeclaration") return;
-    for (const specifier of node.specifiers ?? []) if (api.has(specifier.exported.name ?? specifier.exported.value)) yes = true;
-    const inner = node.declaration;
-    if (inner?.type === "VariableDeclaration") for (const declarator of inner.declarations) if (declarator.id.type === "Identifier" && api.has(declarator.id.name)) yes = true;
-  });
-  return yes;
-}
+const nonRegistering = new Set(["extend", "use", ...hooks]);
+const isText = (node) => (node?.type === "Literal" && typeof node.value === "string") || node?.type === "TemplateLiteral";
 
-const isFunction = (node) => node?.type === "ArrowFunctionExpression" || node?.type === "FunctionExpression";
-const isTitle = (node) => node?.type === "Literal" || node?.type === "TemplateLiteral";
+const spell = (node) => {
+  if (node.type === "Identifier") return node.name;
+  if (node.type === "MemberExpression") return `${spell(node.object)}.${keyOf(node) ?? "..."}`;
+  if (wrappers.has(node.type) || node.type === "AwaitExpression") return spell(node.expression ?? node.argument);
+  return node.type === "ImportExpression" ? `import(${JSON.stringify(stringOf(node.source) ?? "...")})` : "...";
+};
 
-/** The calls of `program` that register a test or a group with an API the file imports: `test('x', fn)`, `test.fail('x', fn)`, `describe(...)`, `e2e.test(...)`. */
-function registrations(program, { names, spaces }) {
+/**
+ * The calls of `program` that register a test or a group: any call through a
+ * binding that is the e2e test API, whatever its arguments, as `test(name, run)`,
+ * `t(...)` after `const t = test`, `e2e.test(...)`, `(await import('e2e')).test(...)`
+ * or a helper's `base.extend({})`. Hooks, `extend` and `use` register none. A
+ * `test.skip(condition, reason)` or `test.fail(condition)` is the form that is
+ * called inside a test, and is not one either.
+ */
+function registrations(program, { valueOf }) {
   const found = [];
   walk(program, (node) => {
     if (node.type !== "CallExpression") return;
-    const chain = [];
-    let at = node.callee;
-    while (at.type === "MemberExpression" && !at.computed) {
-      chain.unshift(at.property.name);
-      at = at.object;
-    }
-    if (at.type !== "Identifier") return;
-    let imports = names.get(at.name);
-    if (imports === undefined && spaces.has(at.name) && chain.length > 0) imports = chain.shift();
-    if (imports === undefined || hooks.has(imports) || !api.has(imports)) return;
-    if (chain[0] === "extend" || chain[0] === "use") return;
+    const callee = node.callee;
+    if (callee.type === "MemberExpression" && nonRegistering.has(keyOf(callee))) return;
+    if (valueOf(callee) !== "call") return;
     const args = node.arguments;
-    const last = args.at(-1);
-    if (args.length >= 2 && (isFunction(last) || (isTitle(args[0]) && ["Identifier", "MemberExpression", "CallExpression"].includes(last.type)))) {
-      found.push(`${[imports, ...chain].join(".")}(${stringOf(args[0]) === null ? "..." : JSON.stringify(stringOf(args[0]))}, ...)`);
-    }
+    const inBody = callee.type === "MemberExpression" && ["skip", "fail"].includes(keyOf(callee)) && (args.length === 1 || (args.length === 2 && isText(args[1])));
+    if (inBody) return;
+    found.push(`${spell(callee)}(${stringOf(args[0]) === null ? "..." : JSON.stringify(stringOf(args[0]))}, ...)`);
   });
   return found;
 }
@@ -160,16 +242,11 @@ export function problems(dir, found) {
     if (result.errors.length > 0) wrong.push({ file, why: `cannot be parsed (${result.errors[0].message}), so the check cannot tell whether it holds tests` });
     else parsed.set(file, result.program);
   }
-  const providers = new Set([...parsed].filter(([, program]) => exportsApi(program)).map(([file]) => file));
-  const local = (from) => (specifier) => {
-    if (!specifier.startsWith(".")) return false;
-    const target = posix.join(dirname(from), specifier);
-    return [target, target.replace(/\.[cm]?js$/, ".ts"), `${target}.ts`, `${target}/index.ts`].some((candidate) => providers.has(candidate));
-  };
+  const resolve = bindings(parsed);
   for (const [file, program] of parsed) {
     if (found.has(file)) continue;
     const word = testWord(file);
-    const calls = registrations(program, imported(program, (specifier) => fromE2e(specifier) || local(file)(specifier)));
+    const calls = registrations(program, resolve(file));
     if (word === null && calls.length === 0) continue;
     const reasons = [];
     if (word !== null) reasons.push(`its name says it is a test ("${word}")`);
