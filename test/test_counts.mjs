@@ -1,6 +1,6 @@
 // The gate fails when a step runs no tests, or fewer than it last did.
 //
-//   node test/test_counts.mjs run [step ...]
+//   node test/test_counts.mjs run [--no-commit-check] [step ...]
 //
 // With no step it runs every step of the gate (`test/steps.mjs`), the way
 // `.githooks/pre-push` does, and stops at the first that fails. A step's count
@@ -8,12 +8,14 @@
 // held to `test/test_counts.json`. A run with more tests than the file says
 // raises the file, which is then committed. A run with fewer fails, and the
 // count can only be lowered by editing the file by hand, so that the removal
-// shows in the diff.
+// shows in the diff. The run also fails while the file differs from HEAD,
+// because a raise or a hand edit that is not committed holds nothing for the
+// next clone; `--no-commit-check` is for a run kept on one machine.
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { constants, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gateSteps, heldNames, root, strayNodeTests } from "./steps.mjs";
 
@@ -270,6 +272,30 @@ export async function runStep(step, { countsFile: file = countsFile, log = conso
   return { ok: failures.length === 0, id: step.id, failures, raised: raise, lowered };
 }
 
+const withoutGitEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"].includes(name)));
+
+/**
+ * What to say when `file` is not what HEAD of the repository at `base` has:
+ * new, changed, or staged and not committed. Null when it is committed as it
+ * is, and a failure of its own when git cannot say.
+ */
+export function uncommitted(base = root, file = countsFile) {
+  const shown = relative(base, file).split("\\").join("/");
+  const name = shown.startsWith("..") || isAbsolute(shown) ? file : shown;
+  let status;
+  try {
+    status = execFileSync("git", ["status", "--porcelain", "--", file], { cwd: base, env: withoutGitEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (error) {
+    const said = `${error.stderr ?? error.message}`.trim().split("\n")[0];
+    return `${name}: cannot tell whether it is committed (${said}). Commit ${name}, or run with --no-commit-check for a deliberate local run.`;
+  }
+  if (status === "") return null;
+  return (
+    `commit ${name}: it ${status.startsWith("??") ? "is not in HEAD" : "differs from HEAD"}, and a count that only this working tree has holds nothing for the next clone. ` +
+    "Commit it, or run with --no-commit-check for a deliberate local run."
+  );
+}
+
 /** What to say when `git push` in `base` would run no gate: its `core.hooksPath` is not `.githooks`. Null when it is. */
 export function hooksWarning(base = root) {
   let value = "";
@@ -290,7 +316,7 @@ export function hooksWarning(base = root) {
  * no step runs. Then too, a known count with no step to run it fails, so a
  * step cannot be dropped from the gate and leave its count behind.
  */
-export async function gate({ steps, countsFile: file = countsFile, partial = false, base, ...io }) {
+export async function gate({ steps, countsFile: file = countsFile, partial = false, base, commitCheck = false, ...io }) {
   loadCounts(file);
   const warnings = base === undefined ? [] : [hooksWarning(base)].filter((warning) => warning !== null);
   const ran = [];
@@ -305,7 +331,9 @@ export async function gate({ steps, countsFile: file = countsFile, partial = fal
   }
   const orphans = partial ? [] : Object.entries(loadCounts(file)).filter(([key]) => !ran.includes(stepOf(key)));
   const removed = " If the step was removed on purpose, remove its line from " + `${COUNTS} by hand.`;
+  const unsaved = commitCheck ? uncommitted(base ?? root, file) : null;
   const failures = [
+    ...(unsaved === null ? [] : [unsaved]),
     ...orphans.map(([key, count]) =>
       key === stepOf(key)
         ? `${key}: ${COUNTS} knows ${tests(count)} for it, and no step of the gate runs it.${removed}`
@@ -318,10 +346,22 @@ export async function gate({ steps, countsFile: file = countsFile, partial = fal
   return { ok: failures.length === 0, ran, raised, lowered, warnings, failures };
 }
 
+const usage = "usage: node test/test_counts.mjs run [--no-commit-check] [step ...]";
+
+/** What the command line asks for: `{ selected, commitCheck }`, or an `error` to print. */
+export function parseArgs(args) {
+  const [command, ...rest] = args;
+  const flags = rest.filter((arg) => arg.startsWith("--"));
+  const unknown = flags.filter((flag) => flag !== "--no-commit-check");
+  if (command !== "run") return { error: usage };
+  if (unknown.length > 0) return { error: `unknown option ${unknown.join(", ")}. ${usage}` };
+  return { selected: rest.filter((arg) => !arg.startsWith("--")), commitCheck: !flags.includes("--no-commit-check") };
+}
+
 async function main(args) {
-  const [command, ...selected] = args;
-  if (command !== "run") {
-    console.error("usage: node test/test_counts.mjs run [step ...]");
+  const { selected, commitCheck, error } = parseArgs(args);
+  if (error !== undefined) {
+    console.error(error);
     return 2;
   }
   const every = gateSteps();
@@ -333,8 +373,9 @@ async function main(args) {
     return 2;
   }
   const stop = stopOnSignals((signal) => console.error(`\n${signal}: the steps are stopped and the folders they wrote in are removed`));
-  const verdict = await gate({ steps, partial: selected.length > 0, base: root });
+  const verdict = await gate({ steps, partial: selected.length > 0, base: root, commitCheck });
   stop();
+  if (!commitCheck) console.error(`\n!!! WARNING: ${COUNTS} is not checked against HEAD (--no-commit-check). Commit it before a push.\n`);
   for (const warning of verdict.warnings) console.error(`\n!!! WARNING: ${warning}\n`);
   for (const failure of verdict.failures) console.error(`FAIL ${failure}`);
   const rose = Object.entries(verdict.raised);
