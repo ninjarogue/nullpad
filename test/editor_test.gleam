@@ -1704,35 +1704,37 @@ pub fn the_marks_of_a_heading_in_an_item_or_a_quote_removed_frame_the_row_at_onc
   assert editor.frame(removed) == Some(live.Body)
 }
 
-pub fn a_heading_with_no_text_is_set_and_framed_as_body_text_test() {
+pub fn a_heading_with_no_text_is_set_and_framed_as_a_heading_test() {
   let ed = live("top\n\n\n\nbelow") |> point(2)
   let marks = show(ed, caret("#", 0, 1))
-  assert editor.kind(marks) == Some(live.Body)
-  assert editor.frame(marks) == Some(live.Body)
+  assert editor.kind(marks) == Some(live.Title(markdown.H1))
+  assert editor.frame(marks) == Some(live.Title(markdown.H1))
 
   let spaced = show(ed, caret("# ", 0, 2))
-  assert editor.kind(spaced) == Some(live.Body)
-  assert editor.frame(spaced) == Some(live.Body)
+  assert editor.kind(spaced) == Some(live.Title(markdown.H1))
+  assert editor.frame(spaced) == Some(live.Title(markdown.H1))
 
   let item = show(ed, caret("- #", 0, 3))
-  assert editor.kind(item) == Some(live.ListItem(task: False, marker: "- "))
-  assert editor.frame(item) == Some(live.Body)
+  assert editor.kind(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+  assert editor.frame(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
 
   let quote = show(ed, caret("> ## ", 0, 5))
-  assert editor.kind(quote) == Some(live.Body)
-  assert editor.frame(quote) == Some(live.Body)
+  assert editor.kind(quote)
+    == Some(live.QuoteTitle(markdown.H2, in_item: False))
+  assert editor.frame(quote)
+    == Some(live.QuoteTitle(markdown.H2, in_item: False))
 
   let laid_out = live("# \n\nbelow")
-  assert editor.kind(laid_out) == Some(live.Body)
-  assert editor.frame(laid_out) == Some(live.Body)
+  assert editor.kind(laid_out) == Some(live.Title(markdown.H1))
+  assert editor.frame(laid_out) == Some(live.Title(markdown.H1))
 }
 
-pub fn a_heading_whose_text_is_removed_is_framed_as_body_text_at_once_test() {
+pub fn a_heading_whose_text_is_removed_stays_a_heading_test() {
   let ed = live("# T\n\nbelow")
   assert editor.frame(ed) == Some(live.Title(markdown.H1))
   let emptied = show(ed, caret("# ", 0, 2))
-  assert editor.kind(emptied) == Some(live.Body)
-  assert editor.frame(emptied) == Some(live.Body)
+  assert editor.kind(emptied) == Some(live.Title(markdown.H1))
+  assert editor.frame(emptied) == Some(live.Title(markdown.H1))
 }
 
 pub fn a_setext_heading_in_an_item_or_a_quote_is_set_as_that_item_or_quote_test() {

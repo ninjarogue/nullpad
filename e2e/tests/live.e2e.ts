@@ -1574,11 +1574,8 @@ test('a right-click on the drawn page leaves the caret and the focus where they 
 for (const [what, typed, below] of [
   ['a dash', '- x', 'below words'],
   ['indented code', '    c', 'below words'],
-  ['a heading with no text', '# ', 'below words'],
   ['seven heading marks', '#######', 'below words'],
   ['a heading mark before a word', '#tag', 'below words'],
-  ['a heading with no text in an item', '- #', 'below words'],
-  ['a heading with no text in a quote', '> ## ', 'below words'],
   ['a task', '- [ ] t', 'below words'],
   ['a number above a list', '1. n', '3. alpha\n4. beta'],
 ] as const) {
@@ -1673,54 +1670,69 @@ for (const level of [1, 2, 3, 4, 5, 6]) {
   });
 }
 
-test('a heading typed on an empty row moves nothing until its first letter, then grows once, and leaving it moves nothing', async ({
-  app,
-  browser,
-  disk,
-  page,
-}) => {
-  await openLive({ app, disk, page }, 'top line\n\n\n\nbelow words');
-  await browser.keyboard.press('ArrowDown');
-  await browser.keyboard.press('ArrowDown');
-  await expect(page.text).toHaveValue('');
-  await page.nextFrame();
-  const belowAt = async () => (await page.placeOf('below'))!.top;
-  const bodySize = await page.sizesOf(field);
-  const before = await belowAt();
+for (const [prefix, marks] of [
+  ['', '#'],
+  ['', '##'],
+  ['', '######'],
+  ['- ', '#'],
+  ['- ', '##'],
+  ['1. ', '#'],
+  ['> ', '#'],
+  ['> ', '##'],
+  ['> - ', '#'],
+  ['- > ', '#'],
+] as const) {
+  test(`${prefix}${marks} typed on an empty row is set at its drawn heading size at each key, the rows below move only as its marks are typed, and leaving it moves nothing`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    const steps = [...[...marks].map((_, at) => marks.slice(0, at + 1)), `${marks} `, `${marks} H`];
+    const belowAt = async () => (await page.placeOf('below'))!.top;
+    const reopen = async (body: string) => {
+      await disk.seed([stored(body)]);
+      await browser.evaluate(() => {
+        localStorage.setItem('nullpad.markdown', 'on');
+        return null;
+      });
+      await openLive({ app, disk, page }, body);
+    };
+    const drawn: { step: string; sizes: { size: string; line: string }; below: number }[] = [];
+    for (const step of steps) {
+      await reopen(`top\n\n${prefix}${step}\n\nbelow words`);
+      await page.stopEditing();
+      const heading = `[data-test-id="preview"] h${step.split('#').length - 1}`;
+      await expect(browser.locator(heading)).toHaveCount(1);
+      await page.nextFrame();
+      drawn.push({ step, sizes: await page.sizesOf(heading), below: await belowAt() });
+    }
 
-  for (const typed of ['#', '# ']) {
-    await browser.keyboard.type(typed.slice(-1));
-    await expect(page.text).toHaveValue(typed);
-    await page.nextFrame();
-    expect({ typed, size: await page.sizesOf(field), below: await belowAt() }).toEqual({
-      typed,
-      size: bodySize,
-      below: before,
-    });
-  }
-
-  await browser.keyboard.type('T');
-  await expect(page.text).toHaveValue('# T');
-  await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
-  const after = await belowAt();
-  expect(after).toBeGreaterThan(before);
-  for (const key of 'itle') {
-    await browser.keyboard.type(key);
-    await page.nextFrame();
-    expect(await belowAt()).toBe(after);
-  }
-
-  const typed = { marks: (await page.placeOf('#'))!, title: (await page.placeOf('Title'))! };
-  await browser.keyboard.press('ArrowDown');
-  await expect(page.text).toHaveValue('');
-  await page.nextFrame();
-  const drawn = (await page.placeOf('Title'))!;
-  expect({ below: await belowAt(), top: drawn.top, left: drawn.left }).toEqual({
-    below: after,
-    top: typed.title.top,
-    left: typed.marks.left,
+    await reopen('top\n\n\n\nbelow words');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    await browser.keyboard.type(prefix);
+    await expect(page.text).toHaveValue(prefix);
+    for (const { step, sizes, below } of drawn.slice(0, marks.length)) {
+      await browser.keyboard.type(step.slice(-1));
+      await expect(page.text).toHaveValue(`${prefix}${step}`);
+      await expect.poll(async () => ({ step, sizes: await page.sizesOf(field) })).toEqual({ step, sizes });
+      await expect.poll(async () => ({ step, below: await belowAt() })).toEqual({ step, below });
+    }
+    for (const { step, sizes, below } of drawn.slice(marks.length)) {
+      await browser.keyboard.type(step.slice(-1));
+      await expect(page.text).toHaveValue(`${prefix}${step}`);
+      await page.nextFrame();
+      expect({ step, sizes: await page.sizesOf(field), below: await belowAt() }).toEqual({
+        step,
+        sizes,
+        below: drawn[marks.length - 1].below,
+      });
+      expect(below).toBe(drawn[marks.length - 1].below);
+    }
   });
-});
+}
 
 test('taking the # off a heading returns its line to body size at once and moves the rows below once', async ({
   app,

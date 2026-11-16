@@ -129,19 +129,21 @@ for (const block of [
   '> - > #',
   '1. > ### ',
 ]) {
-  test(`a heading with no text, ${JSON.stringify(block)}, is one line of body text in the field and drawn, and leaving it moves nothing`, async ({
+  test(`a heading with no text, ${JSON.stringify(block)}, is set at its heading size in the field and drawn, and leaving it moves nothing`, async ({
     app,
     browser,
     disk,
     page,
   }) => {
+    const level = block.match(/#+/)![0].length;
     await open({ app, disk, page }, block);
     for (const setting of settings) {
       await set(browser, setting);
       const { field, drawn } = await arriveAndLeave(page, browser, block, null, '#');
+      const drawnSize = (await page.sizesOf(`[data-test-id^="live-"] h${level}`)).size;
       expect({ setting, size: field.size, below: field.below }).toEqual({
         setting,
-        size: setting.root,
+        size: drawnSize,
         below: drawn.below,
       });
     }
