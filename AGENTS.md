@@ -10,7 +10,7 @@ A markdown note editor in Gleam with Lustre. Read this before changing code.
 | A core module imports only `gleam/*` and other core modules. | `gleam test` |
 | A core module's JavaScript touches no browser. | review |
 | Every function says what it takes and returns. | `gleam test` |
-| Every test function in `test/*.gleam` is one gleeunit runs: public, no arguments, a name that ends in `_test`, no `@target(erlang)`. A private `*_test`, or a public function with no arguments and another name that asserts, panics, calls `gleeunit/should` or calls a function of its module that does, is a test that never runs. A `*_test` that takes arguments, or whose body is just `Nil`, runs and checks nothing. | `gleam test` |
+| Every test function in `test/*.gleam` is one gleeunit runs: public, no arguments, a name that ends in `_test`, no `@target(erlang)`. A private `*_test`, or a public function with no arguments and another name that asserts, panics, calls `gleeunit/should` or calls a function of its module that does, is a test that never runs. A `*_test` in a module whose name does not end in `_test` is never run either. A `*_test` that takes arguments, whose body is just `Nil`, or that reaches no `assert`, `let assert`, `panic`, `todo` or `gleeunit/should` call (through helpers of any module of `test/`), runs and checks nothing. | `gleam test` |
 | Only a function that returns an `Effect` or `Nil` may change the page. Drawing and decoding code may measure it. | `gleam test` |
 | A decoder takes callbacks and plain values, never app state from the last drawn frame. The editor decides what a key does. | `gleam test`, and review for the second half |
 | `surface` is the only module that draws the text field. | `gleam test` |

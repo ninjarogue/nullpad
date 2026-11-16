@@ -817,6 +817,63 @@ fn test_breaks() -> List(Break) {
   [
     Break(
       Caught(rules.TestRuns),
+      "a module of test/ whose name does not end in _test has a public _test function",
+      "test/zz_attack2.gleam",
+      last("pub fn d1_test() -> Nil {\n  assert 1 == 1\n}"),
+    ),
+    Break(
+      Clean,
+      "a helper module of test/ with no _test function",
+      "test/zz_helper.gleam",
+      last("pub fn check(a: Int) -> Nil {\n  assert a == 1\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that is only a comparison",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_0_test() -> Nil {\n  1 + 1 == 2\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that is only a call and a comparison",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_1_test() -> Nil {\n  string.length(\"a\") == 1\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that binds a value and gives Nil",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_2_test() -> Nil {\n  { let _ = 1\n  Nil }\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that calls list.each with a closure that checks nothing",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_3_test() -> Nil {\n  list.each([1], fn(_) { Nil })\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that binds a call",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_4_test() -> Nil {\n  { let _ = string.length(\"abc\") }\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
       "a public function with no arguments asserts, and is not named _test",
       file,
       last("pub fn forgotten() -> Nil {\n  assert 1 == 2\n}"),

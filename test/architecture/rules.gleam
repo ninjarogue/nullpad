@@ -177,6 +177,7 @@ pub fn path(file: File) -> String {
 
 pub fn judge(files: List(File)) -> Report {
   let changers = changers(files)
+  let checking = checking_tests(files)
   let found =
     list.flat_map(files, fn(file) {
       case file {
@@ -193,7 +194,7 @@ pub fn judge(files: List(File)) -> Report {
             forbidden_calls(path, name, module),
           ])
         JavaScript(path:, name:) -> javascript(path, name)
-        GleamTest(path:, module:) -> tests_run(path, module)
+        GleamTest(path:, module:) -> tests_run(path, module, checking)
         Other(path) -> [
           Found(Broken(JavaScriptFile, path, "not a .gleam or .ffi.mjs file")),
         ]
@@ -959,22 +960,15 @@ fn pattern(subject: glance.Pattern) -> List(Seen) {
 /// is a `main` that only reaches an assert through other functions, which
 /// `gleam run -m` calls. A `_test` that takes arguments gets none, and one
 /// whose body is just `Nil` checks nothing.
-fn tests_run(path: String, module: glance.Module) -> List(Finding) {
-  let resolve = resolver(path, module)
-  let functions =
-    list.map(module.functions, fn(definition) {
-      let function = definition.definition
-      let used = uses(function, resolve)
-      let checks =
-        list.contains(statements(function.body), Stops)
-        || list.any(used, string.starts_with(_, "gleeunit/should."))
-      #(path <> "." <> function.name, used, checks)
-    })
-  let asserting =
-    list.filter(functions, fn(function) { function.2 })
-    |> list.map(fn(function) { function.0 })
-    |> set.from_list
-    |> grow(functions)
+fn tests_run(
+  path: String,
+  module: glance.Module,
+  checking: Set(String),
+) -> List(Finding) {
+  let name = test_module_name(path)
+  let functions = test_functions(path, module)
+  let asserting = reach(functions)
+  let misnamed_module = !string.ends_with(name, "_test")
   let found =
     list.flat_map(module.functions, fn(definition) {
       let function = definition.definition
@@ -990,11 +984,39 @@ fn tests_run(path: String, module: glance.Module) -> List(Finding) {
           stops
           || {
             function.name != "main"
-            && set.contains(asserting, path <> "." <> function.name)
+            && set.contains(asserting, name <> "." <> function.name)
           }
         }
       let ahead = forgotten && list.contains(written_ahead, key)
       list.flatten([
+        when(misnamed_module && named_test && public, fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " is in a module whose name does not end in _test, and gleeunit only runs modules that do",
+            )),
+          ]
+        }),
+        when(
+          named_test
+            && public
+            && function.parameters == []
+            && option.is_none(external(definition))
+            && !just_nil(function.body)
+            && !set.contains(checking, name <> "." <> function.name),
+          fn() {
+            [
+              Found(Broken(
+                TestRuns,
+                path,
+                function.name
+                  <> " reaches no assert, let assert, panic, todo or gleeunit/should call, so it checks nothing",
+              )),
+            ]
+          },
+        ),
         when(targets_erlang(definition), fn() {
           [
             Found(Broken(
@@ -1053,6 +1075,48 @@ fn tests_run(path: String, module: glance.Module) -> List(Finding) {
       ])
     })
   [Looked(TestRuns, path), ..found]
+}
+
+/// "commonmark/helper" for "test/commonmark/helper.gleam": the name other test
+/// modules import it by.
+fn test_module_name(path: String) -> String {
+  path |> strip_prefix("test/") |> string.replace(".gleam", "")
+}
+
+/// Every function of a test module, as its key, what it uses, and whether it
+/// asserts, panics or calls `gleeunit/should` itself.
+fn test_functions(
+  path: String,
+  module: glance.Module,
+) -> List(#(String, List(String), Bool)) {
+  let name = test_module_name(path)
+  let resolve = resolver(name, module)
+  list.map(module.functions, fn(definition) {
+    let function = definition.definition
+    let used = uses(function, resolve)
+    let checks =
+      list.contains(statements(function.body), Stops)
+      || list.any(used, string.starts_with(_, "gleeunit/should."))
+    #(name <> "." <> function.name, used, checks)
+  })
+}
+
+fn reach(functions: List(#(String, List(String), Bool))) -> Set(String) {
+  list.filter(functions, fn(function) { function.2 })
+  |> list.map(fn(function) { function.0 })
+  |> set.from_list
+  |> grow(functions)
+}
+
+/// The test functions that reach a check, across every module of `test/`.
+fn checking_tests(files: List(File)) -> Set(String) {
+  list.flat_map(files, fn(file) {
+    case file {
+      GleamTest(path:, module:) -> test_functions(path, module)
+      Gleam(..) | JavaScript(..) | Other(_) | Unreadable(_) -> []
+    }
+  })
+  |> reach
 }
 
 fn just_nil(body: List(glance.Statement)) -> Bool {
