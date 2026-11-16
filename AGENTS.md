@@ -10,6 +10,7 @@ A markdown note editor in Gleam with Lustre. Read this before changing code.
 | A core module imports only `gleam/*` and other core modules. | `gleam test` |
 | A core module's JavaScript touches no browser. | review |
 | Every function says what it takes and returns. | `gleam test` |
+| Every test function in `test/*.gleam` is one gleeunit runs: public, no arguments, a name that ends in `_test`, no `@target(erlang)`. A private `*_test`, or a public function with a test's body and another name, is a test that never runs. | `gleam test` |
 | Only a function that returns an `Effect` or `Nil` may change the page. Drawing and decoding code may measure it. | `gleam test` |
 | A decoder takes callbacks and plain values, never app state from the last drawn frame. The editor decides what a key does. | `gleam test`, and review for the second half |
 | `surface` is the only module that draws the text field. | `gleam test` |
@@ -47,7 +48,13 @@ cd e2e && npx tsc && npm test
 
 - A step that runs no tests, or fewer than `test/test_counts.json` knows, fails. The count is read from what the runner prints or writes (the e2e `report.json`), never from the source.
 - A run with more tests raises the file. Commit it. Only a hand edit lowers a count, so a removal shows in the diff.
+- Tests that are not checks are held apart, each as its own line: `"<step> expected-fail"` (e2e `test.fail`) and `"<step> todo"` (node `test.todo`, `{ todo: true }`). They still count as run, so hiding a failing test behind either does not lower the count of passes. A rise in a held count fails the gate and needs a hand edit of the file, so it shows in the diff. A fall lowers the line, and it is removed at 0.
 - Every config in `e2e/` is a step. A known count whose step is gone fails.
+- Every file under `e2e/` that looks like a test (a test's name, or calls to `test` or `describe` imported from the e2e API) is one a config discovers. `node test/e2e_discovery.mjs` reads the files with oxc-parser and what each config selects from `e2e list`, and fails on a file no config loads. Its break cases are `node --test test/e2e_discovery.test.mjs`.
+- Every `*.test.mjs` in the repository outside `node_modules` is a step of the gate, or the gate fails and names it.
+- `node --test test/serve.test.mjs` sends the e2e server (`e2e/serve.mjs`) the requests that killed it, and checks it still answers.
+- `git push` runs the gate only in a clone where `core.hooksPath` is `.githooks`. When it is not, a gate run by hand prints a `!!! WARNING` line saying so, pass or fail. Run `git config core.hooksPath .githooks` once per clone.
+- The gate stops what it started when it gets SIGINT, SIGTERM or SIGHUP: the commands, their process groups and the `.e2e/step-*` folders go, and it exits 128 plus the signal.
 - `node --test test/test_counts.test.mjs` plants each of these with a fake runner.
 - A node test makes its temp directories with `useScratch` (`test/scratch.mjs`), which removes them when the file ends. `node --test test/scratch.test.mjs` runs every node test file with a private `TMPDIR` and fails on what is left. Every `*.test.mjs` under `test/` and `tools/` is a step of the gate.
 - `tools/mutants` plants a bug at a time and runs these checks on it, to find the test that is missing. Its README says how. `node --test tools/mutants/mutants.test.mjs` is a step of the gate.
@@ -57,6 +64,10 @@ cd e2e && npx tsc && npm test
 `e2e/tests/browser-facts-table.ts` lists what the app assumes about Chromium that no spec promises, one fact each, and `e2e/tests/browser-facts.e2e.ts` looks at each on a plain page, not in the app. When Chromium changes one, that test fails first and says which Chromium, which fact, what it did instead and which line relies on it.
 
 - Add a fact when code starts to rely on browser behavior, and when a comment says "Chromium" or "the browser" to explain why code is as it is. Each fact names the text of the code that relies on it (`relied`), which must be in the file exactly once, so a fact whose code is gone fails and says to update or remove it.
+- `relied` must be code. The file is read with oxc-parser (`.mjs`, `.ts`), a Gleam scanner or a CSS scanner, and text that is only in a comment, only inside a string, or in CSS outside a rule is not counted. Name the code that does the relying, not the comment above it.
+- A `pending` fact fails as soon as any of its `relied` text is code in the source: `pending fact now holds in source: un-pend it`.
+- `holds` must name what it expects, and reject what no look at a page gives (`undefined`, `{}`, `[]`, `0`, `''`, and the rest of `nothingSeen`). `problemsWithTable` fails on a `holds` that takes one. So `observe` returns an object with a positive control, such as a typed key that does fire the event, and `holds` fails on a control that did not show.
+- A fact that needs a secure context (the clipboard) sets `url`, and is served at that https address.
 - Each fact has `breaks`, a change planted on the page that it must notice: the second test of every fact fails when the fact still holds with its sabotage planted. A fact no page can be made to break says why in `unbreakable`.
 - A fact for code that is not merged yet is `pending`, with the reason.
 - `e2e/tests/browser-facts-framework.e2e.ts` has the break cases for the machinery in `browser-facts.ts`.

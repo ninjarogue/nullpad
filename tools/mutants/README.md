@@ -19,9 +19,11 @@ A mutants file is a list of exact string replacements:
 ## What it does
 
 - Every `old` must match its file exactly once. Any that matches 0 or 2 or more times, changes nothing, or names a file that is not there stops the run before anything is planted.
-- The git tree must be clean, at the start and after every mutant. A mutant is written back byte for byte after each run, and when the tool is stopped with Ctrl+C or killed with SIGTERM. A tool killed with SIGKILL leaves its bug planted, and the next run refuses to start: look at `git diff` and `git checkout -- <file>`.
+- The git tree must be clean, at the start and after every mutant. A mutant is written back byte for byte after each run, and when the tool is stopped with Ctrl+C (SIGINT), SIGTERM or SIGHUP. It then also kills the checks it started and removes their `.e2e/step-*` folders, and exits 128 plus the signal. A tool killed with SIGKILL leaves its bug planted, and the next run refuses to start: look at `git diff` and `git checkout -- <file>`.
 - The checks run in the order `gleam build`, `gleam test`, `keystroke_cost`, then each e2e config (`npm test` with `--max-failures 1`). They are the gate's own steps (`test/steps.mjs`), so a runner is called and read one way. A mutant stops at the first check that fails.
-- The full output of every check goes to `.mutants/<time>/<id>.<check>.txt`, with `results.jsonl` and `summary.md` beside them. The folder is ignored by git.
+- A check that fails a test is read for the titles of the tests that failed. They are in `results.jsonl` and in the last column of `summary.md` (`tests that failed`), so a CAUGHT says which test caught the bug, not only that something did.
+- Every CAUGHT is checked once more on the tree with the bug out: the build, then the same check, narrowed to the tests that failed where the runner can be (`--grep` for e2e). A check that fails there too was not caught by the bug, and the result is ERROR.
+- The full output of every check goes to `.mutants/<time>/<id>.<check>.txt` (`<id>.<check>.clean.txt` for the rerun), with `results.jsonl` and `summary.md` beside them. The folder is ignored by git.
 
 ## Attacking another repository
 
@@ -38,8 +40,9 @@ A mutants file is a list of exact string replacements:
 | --- | --- |
 | CAUGHT | A check ran tests, reported a failed test, and exited non-zero. |
 | MISSED | Every check passed. Write the test that fails on this bug. |
-| INVALID | The bug does not build (`gleam build`, or `gleam test` failing to compile). It says nothing about the tests. |
-| ERROR | The tool cannot say. A check printed "No tests found", ran 0 tests, crashed, printed no summary, was killed, timed out, or exited 0 with failures or non-zero without any. The run stops. It is never counted as CAUGHT. |
+| CAUGHT-BY-COMPILE | The bug builds, and the tests do not compile with it (a test names what the bug changed). The compiler caught it, which a test file written for the bug would not. |
+| INVALID | The bug does not build (`gleam build`). It says nothing about the tests. |
+| ERROR | The tool cannot say. A check printed "No tests found", ran 0 tests, crashed, printed no summary, was killed, timed out, or exited 0 with failures or non-zero without any. So does a failure that is the infrastructure and not a test (`ERR_CONNECTION_REFUSED`, `APP_UNREACHABLE`, a browser or worker that died), and a CAUGHT that the check also fails on the clean tree. The run stops. It is never counted as CAUGHT. |
 
 Exit codes: 0 when nothing was MISSED, 1 when something was, 2 when the run stopped (ERROR, a dirty tree, a bad mutant, a failed calibration).
 
