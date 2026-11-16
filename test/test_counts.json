@@ -1,10 +1,10 @@
 {
   "e2e-discovery-tool": 6,
   "e2e-server": 6,
-  "e2e:e2e.config.ts": 420,
+  "e2e:e2e.config.ts": 460,
   "gleam-test": 465,
   "keystroke-cost": 119,
   "mutants-tool": 66,
-  "test-cleanup": 9,
+  "test-cleanup": 10,
   "test-counts": 65
 }
