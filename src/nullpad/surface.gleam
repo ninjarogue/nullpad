@@ -38,6 +38,11 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
     use shown <- decode.map(shown_decoder())
     on_event(editor.ControlChanged(shown:, at:))
   }
+  let composed = {
+    use at <- decode.then(time_decoder())
+    use shown <- decode.map(shown_decoder())
+    on_event(editor.Composed(shown:, at:))
+  }
   // Chromium sends no `beforeinput` for an undo from a menu: it undoes the
   // field itself, and the editor writes its own undo over that.
   let typed = {
@@ -107,7 +112,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         attribute.aria_label("Note text"),
         attribute.readonly(editor.mode(editor) == editor.Normal),
         event.on("input", typed),
-        event.on("compositionend", changed),
+        event.on("compositionend", composed),
         event.on("select", changed),
         event.on("pointerup", changed),
         // A touch sends `pointerup` before the mouse press that moves the

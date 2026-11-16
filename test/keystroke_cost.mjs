@@ -7,7 +7,8 @@
 //
 // Exits 1 when a typed character parses the note more than once, or a caret
 // move parses it at all, and then the same for every variant of
-// `editor.Event`. The times are printed, never checked: they are too noisy
+// `editor.Event`. `Composed`, which ends an IME composition, may do the one
+// parse the composing keys skipped. The times are printed, never checked: they are too noisy
 // for a gate.
 
 import { register } from "node:module";
@@ -218,6 +219,10 @@ const events = {
   Composing: [
     ["typed", (field) => new editor.Composing(typed(field))],
     ["moved", (field) => new editor.Composing(moved(field, 0))],
+  ],
+  Composed: [
+    ["typed", (field) => new editor.Composed(typed(field), 0)],
+    ["after composing", (field) => [new editor.Composing(typed(field)), (now) => new editor.Composed(now, 0)]],
   ],
   KeyPressed: [
     ["x", (field) => new editor.KeyPressed(new vim.Char("x"), field)],
@@ -434,7 +439,7 @@ for (const withVim of [false, true]) {
       }
       const parses = globalThis.parses - count;
       const changed = editor.text(next.editor) !== text;
-      const budget = changed ? 1 : 0;
+      const budget = changed || variant === "Composed" ? 1 : 0;
       failed ||= parses > budget;
       every.push({
         vim: withVim ? "on" : "off",

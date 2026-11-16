@@ -145,6 +145,8 @@ pub type Event {
   /// In the middle of an IME composition: the control must not be written
   /// to until it ends.
   Composing(shown: Buffer)
+  /// The IME ended its composition, and left the field as `shown`.
+  Composed(shown: Buffer, at: Int)
   KeyPressed(key: vim.Key, shown: Buffer)
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
   EscapePressed(shown: Buffer)
@@ -510,6 +512,7 @@ pub fn direction(editor: Editor) -> order.Order {
 fn steers(event: Event) -> Bool {
   case event {
     ControlChanged(..)
+    | Composed(..)
     | KeyPressed(..)
     | EdgePressed(..)
     | Stepped(..)
@@ -577,6 +580,7 @@ fn in_run(event: Event) -> InRun {
     | RedoAsked -> Ends
     ControlChanged(..)
     | Composing(..)
+    | Composed(..)
     | KeyPressed(..)
     | FocusChanged(..)
     | KeyHeld(..)
@@ -613,6 +617,8 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     ControlChanged(shown:, at:) ->
       typed(Editor(..editor, clock: at), shown, None, realign)
     Composing(shown:) -> compose(editor, shown)
+    Composed(shown:, at:) ->
+      typed(Editor(..editor, clock: at), shown, None, realign)
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge: Widen, shown:, ..) -> spread(editor, shown)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
