@@ -11,7 +11,7 @@ declare const process: { env: Record<string, string | undefined> };
 export const fast = process.env['NULLPAD_FAST'] === '1';
 
 /** The properties that decide where a character of a text field is drawn. */
-const placing = [
+export const placing = [
   'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant-ligatures', 'font-kerning', 'font-feature-settings',
   'line-height', 'letter-spacing', 'word-spacing', 'tab-size', 'text-indent', 'text-transform', 'text-align', 'direction',
   'white-space', 'overflow-wrap', 'word-break', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
@@ -87,9 +87,15 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     ruler.setAttribute('aria-hidden', 'true');
     ruler.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;visibility:hidden;pointer-events:none;overflow:hidden;box-sizing:border-box`;
     for (const name of use.placing) ruler.style.setProperty(name, style.getPropertyValue(name));
+    // Where a row wraps, the end of a line and the start of the next share an
+    // offset. A caret the keys put there is drawn at the start of the next
+    // line, where the letter after it is, and a marker of no width would sit
+    // at the end of the line before.
     const marker = document.createElement('span');
-    marker.textContent = '​';
-    ruler.append(field.value.slice(0, head), marker, field.value.slice(head));
+    const letter = field.value[head];
+    const after = letter === undefined || letter === '\n' ? '' : letter;
+    marker.textContent = after === '' ? '​' : after;
+    ruler.append(field.value.slice(0, head), marker, field.value.slice(head + after.length));
     document.body.append(ruler);
     const found = marker.getBoundingClientRect();
     ruler.remove();
@@ -243,6 +249,49 @@ export async function cursorProblem(browser: Browser, after: string) {
 }
 
 /** Where the cursor is in the window, or null when there is none. */
+/**
+ * Whether the cursor starts a line as the page or the text field draws it,
+ * where it cannot go further left: the letter before it is on another line.
+ */
+export async function cursorStartsLine(browser: Browser) {
+  return (await browser.evaluate(startsLineInPage, placing)) as boolean;
+}
+
+function startsLineInPage(placing: string[]) {
+  const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
+  const top = (box: DOMRect | undefined) => Math.round(box?.top ?? NaN);
+  const [painted] = [...((globalThis.CSS?.highlights?.get('nullpad-head') as Iterable<AbstractRange> | undefined) ?? [])];
+  if (painted && !field?.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
+    const node = painted.startContainer;
+    const offset = painted.startOffset;
+    if (!(node instanceof Text) || offset === 0 || offset >= node.data.length) return offset === 0;
+    const letter = (from: number) => {
+      const range = document.createRange();
+      range.setStart(node, from);
+      range.setEnd(node, from + 1);
+      return range.getClientRects()[0];
+    };
+    return top(letter(offset - 1)) !== top(letter(offset));
+  }
+  if (!field) return false;
+  const head = field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd;
+  if (head === 0 || field.value[head - 1] === '\n') return true;
+  const rect = field.getBoundingClientRect();
+  const style = getComputedStyle(field);
+  const ruler = document.createElement('div');
+  ruler.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;visibility:hidden;box-sizing:border-box`;
+  for (const name of placing) ruler.style.setProperty(name, style.getPropertyValue(name));
+  const before = document.createElement('span');
+  before.textContent = field.value[head - 1]!;
+  const after = document.createElement('span');
+  after.textContent = field.value[head] === undefined || field.value[head] === '\n' ? '​' : field.value[head]!;
+  ruler.append(field.value.slice(0, head - 1), before, after, field.value.slice(head + 1));
+  document.body.append(ruler);
+  const starts = top(before.getClientRects()[0]) !== top(after.getClientRects()[0]);
+  ruler.remove();
+  return starts;
+}
+
 export async function cursorAt(browser: Browser) {
   return ((await browser.evaluate(lookInPage, { want: 'cursor', placing, lines: [], focus: true })) as Cursor).at;
 }

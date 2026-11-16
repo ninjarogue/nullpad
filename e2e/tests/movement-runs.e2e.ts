@@ -1,7 +1,7 @@
 import { expect } from 'e2e';
 import { chromium } from 'playwright-core';
 import { ctrl, Editing } from './editing.ts';
-import { cursorAt, selectionOf } from './guards.ts';
+import { cursorAt, cursorStartsLine, selectionOf } from './guards.ts';
 import { pause, test } from './nullpad.ts';
 
 /**
@@ -118,7 +118,8 @@ function paintedNow() {
   };
 }
 
-type Look = { anchor: Cell; head: Cell; x: number; y: number };
+/** `lineStart` is whether the caret starts a line as it is drawn, so that it cannot go further left. */
+type Look = { anchor: Cell; head: Cell; x: number; y: number; lineStart?: boolean };
 
 /** Waits for the page to draw what was pressed, then reads the selection and where the caret is drawn. */
 async function look(editor: Editing, lines: string[]): Promise<Look | { problem: string }> {
@@ -127,7 +128,7 @@ async function look(editor: Editing, lines: string[]): Promise<Look | { problem:
   const got = await selectionOf(browser, lines);
   if ('problem' in got) return { problem: got.problem };
   const at = await cursorAt(browser);
-  return { anchor: got.anchor, head: got.head, x: at?.x ?? NaN, y: at?.top ?? NaN };
+  return { anchor: got.anchor, head: got.head, x: at?.x ?? NaN, y: at?.top ?? NaN, lineStart: await cursorStartsLine(browser) };
 }
 
 type Follow = 'plain field' | 'row and pixel' | 'row' | 'wrapped';
@@ -284,6 +285,7 @@ const fenced = ['para text here to start', '', '```', 'code line one is longer',
 const setext = ['Head one', '========', '', 'text under it', '', 'Head two', '--------', '', 'last'].join('\n');
 const rules = ['a', '', '---', '', 'b', '', '***', 'c', '---', 'd'].join('\n');
 const wrapped = `${'word '.repeat(40)}end\n\nnext paragraph`;
+const wrappedBlocks = [`${'word '.repeat(40)}end`, '', `## ${'head '.repeat(30)}end`, '', `> ${'quote '.repeat(30)}end`, '', `- ${'item '.repeat(36)}end`, '', 'last'].join('\n');
 
 const rightBy = (count: number): Step[] => times(count, 'ArrowRight');
 const downBy = (count: number, step = 'ArrowDown'): Step[] => times(count, step);
@@ -351,6 +353,10 @@ const runs: Run[] = [
   { name: 'Shift+Down through rules', body: rules, start: [], steps: downBy(9, 'Shift+ArrowDown'), follow: 'plain field' },
   { name: 'Down and Up over a row the page wraps', body: wrapped, start: rightBy(10), steps: [...downBy(4), ...downBy(4, 'ArrowUp')], follow: 'wrapped' },
   { name: 'Shift+Down and Shift+Up over a row the page wraps', body: wrapped, start: rightBy(10), steps: [...downBy(4, 'Shift+ArrowDown'), ...downBy(4, 'Shift+ArrowUp')], follow: 'wrapped' },
+  { name: 'Shift+Down from the start of each row of the page in a wrapped paragraph', body: wrapped, start: [], steps: downBy(4, 'Shift+ArrowDown'), follow: 'wrapped' },
+  { name: 'Down, then Shift+Down, from the start of a row of the page in a wrapped paragraph', body: wrapped, start: [], steps: ['ArrowDown', ...downBy(3, 'Shift+ArrowDown')], follow: 'wrapped' },
+  { name: 'Shift+Down from the start of rows of the page through a wrapped paragraph, heading, quote and list item', body: wrappedBlocks, start: [], steps: downBy(16, 'Shift+ArrowDown'), follow: 'wrapped' },
+  { name: 'Down through a wrapped paragraph, heading, quote and list item, from the start of a row', body: wrappedBlocks, start: [], steps: downBy(16), follow: 'wrapped' },
   {
     name: 'Shift+Down then Shift+Up over a row whose marks are hidden returns to where it began',
     body: 'some **bold** words here\n\nplain second paragraph text',
@@ -543,7 +549,7 @@ const runs: Run[] = [
   },
 ];
 
-const cache = new Map<string, Promise<{ from: { anchor: Cell; head: Cell; x: number }; states: Plain[] }>>();
+const cache = new Map<string, Promise<{ from: { anchor: Cell; head: Cell; x: number; y: number }; states: Plain[] }>>();
 
 async function runPlan(editor: Editing, run: Run) {
   let found = cache.get(run.name);
@@ -555,7 +561,7 @@ async function runPlan(editor: Editing, run: Run) {
       if ('problem' in start) throw new Error(`${run.name}: before the run, ${start.problem}`);
       await editor.fixtures.app.open('/blank');
       const done = await plainPresses(editor, run.body, start.anchor, start.head, run.steps.map(key));
-      return { from: { anchor: start.anchor, head: start.head, x: start.x }, states: done };
+      return { from: { anchor: start.anchor, head: start.head, x: start.x, y: start.y }, states: done };
     })();
     cache.set(run.name, found);
   }
@@ -589,16 +595,24 @@ async function begin(editor: Editing, run: Run) {
   await editor.fixtures.page.nextFrame();
 }
 
-/** The wrapped rows have no plain field to follow: the caret goes down a row of the page at a time, keeping its pixel. */
-function judgeWrapped(step: string, before: Look, after: Look, first: Look) {
+/**
+ * The wrapped rows have no plain field to follow: the caret goes down a row of
+ * the page at a time, keeping its pixel, or to the end of the row it is on, or
+ * its start going up, when no row of the page is past it. `rowLength` is the
+ * length of the row the head is on.
+ */
+function judgeWrapped(step: string, before: Look, after: Look, first: Look, rowLength: number) {
   const down = /Down/.test(step);
   const problems: string[] = [];
-  if (Math.abs(after.x - first.x) > pixelSlack && !(after.head[1] === 0 || after.head[0] !== before.head[0])) {
-    problems.push(`the caret is ${Math.round(after.x)}px across, where the run began at ${Math.round(first.x)}px`);
-  }
   const moved = down ? after.y > before.y + 1 || after.head[0] > before.head[0] : after.y < before.y - 1 || after.head[0] < before.head[0];
-  const atEnd = down ? before.head[0] === after.head[0] && after.head[1] >= before.head[1] : before.head[0] === after.head[0] && after.head[1] <= before.head[1];
-  if (!moved && !atEnd) problems.push(`the caret did not go ${down ? 'down' : 'up'} a row of the page`);
+  const atEnd = !moved && before.head[0] === after.head[0] && after.head[1] === (down ? rowLength : 0);
+  const leftmost = after.lineStart === true && after.x > first.x;
+  if (Math.abs(after.x - first.x) > pixelSlack && !(after.head[1] === 0 || after.head[0] !== before.head[0] || leftmost || atEnd)) {
+    problems.push(`the caret is ${Math.round(after.x)}px across at ${after.head}, where the run began at ${Math.round(first.x)}px`);
+  }
+  if (!moved && !atEnd) {
+    problems.push(`the caret did not go ${down ? 'down' : 'up'} a row of the page: it went from ${before.head} at ${Math.round(before.y)}px down to ${after.head} at ${Math.round(after.y)}px`);
+  }
   return problems;
 }
 
@@ -738,7 +752,7 @@ for (const run of runs) {
     await begin(editor, run);
     const problems: string[] = [];
     let goalX = plan.from.x;
-    let before: Look = { anchor: plan.from.anchor, head: plan.from.head, x: plan.from.x, y: NaN };
+    let before: Look = { ...plan.from };
     let first = before;
     for (const [index, step] of run.steps.entries()) {
       const name = key(step);
@@ -751,7 +765,7 @@ for (const run of runs) {
         break;
       }
       if (run.follow === 'wrapped') {
-        const found = judgeWrapped(name, before, got, first);
+        const found = judgeWrapped(name, before, got, first, (lines(want.value)[got.head[0]] ?? '').length);
         for (const problem of found) problems.push(`step ${index + 1} (${name}): ${problem}`);
       } else {
         const follow: Follow = typeof step === 'string' ? (isVertical(name) ? run.follow : 'plain field') : step.follow;
