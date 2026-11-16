@@ -332,9 +332,9 @@ async function main(args) {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === "--calibrate") options.calibrate = true;
-    else if (arg === "--only") options.only = args[++index]?.split(",");
-    else if (arg === "--checks") options.checks = args[++index]?.split(",");
-    else if (arg === "--out") options.out = args[++index];
+    else if (arg === "--only") options.only = value(++index, "--only", "a list of mutant ids").split(",");
+    else if (arg === "--checks") options.checks = value(++index, "--checks", "a list of checks").split(",");
+    else if (arg === "--out") options.out = value(++index, "--out", "a folder");
     else if (arg === "--repo") options.repo = value(++index, "--repo", "a path");
     else if (arg === "--calibration") options.calibration = value(++index, "--calibration", "a file");
     else if (arg.startsWith("--")) throw new HarnessError(`unknown option ${arg}`);

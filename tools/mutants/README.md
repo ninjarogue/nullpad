@@ -32,6 +32,7 @@ A mutants file is a list of exact string replacements:
 - The checks come from the repository's own `test/steps.mjs`, so the build and the runners are called the way that branch calls them. A repository without one is refused, and so is one whose `steps.mjs` runs its checks in some other directory, because a bug planted in one tree and tested in the other would come out MISSED every time.
 - `<path>` must be the top of a git work tree, and its tree must be clean.
 - The calibration is this tool's own unless `--calibration <file>` says otherwise. Its mutants name exact text in this source, so on another branch they may not match once, and the run stops before planting anything. Give a file of the same shape, written for that source.
+- Every option that takes a value (`--only`, `--checks`, `--out`, `--repo`, `--calibration`) stops the tool when it has none, instead of going on without it.
 - Output goes to `.mutants/<time>` of the repository the tool lives in, so the tree under attack stays clean. With `--out`, a folder inside the repository under attack must be one its `.gitignore` lists, or the run stops before planting anything. A relative `--out` is from the current directory.
 
 ## What a result means
