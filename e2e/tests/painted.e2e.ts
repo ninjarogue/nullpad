@@ -257,6 +257,31 @@ test('a click takes the paint off and puts the block clicked in the field', asyn
   await expect.poll(() => page.paintedBlanks()).toEqual([]);
 });
 
+test('a click on a painted blank line, which is drawn over the field, puts the caret on that line', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, body);
+  await browser.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.paintedBlanks()).toEqual([1, 3, 6]);
+
+  for (const row of [3, 1]) {
+    if (row === 1) await browser.keyboard.press('ControlOrMeta+a');
+    await expect.poll(() => page.paintedBlanks()).toEqual([1, 3, 6]);
+    const at = await browser.evaluate((row: number) => {
+      const box = document.querySelector(`.blank.selected[data-row="${row}"]`)!.getBoundingClientRect();
+      return { x: box.left + 40, y: box.top + box.height / 2 };
+    }, row);
+    await browser.mouse.move(at.x, at.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect.poll(() => page.paintedBlanks()).toEqual([]);
+    await expect.poll(() => browser.evaluate(() => document.querySelector('textarea')!.dataset['anchor'] ?? null)).toBe(`${row}:0`);
+  }
+});
+
 test('a selection across blocks is painted at phone width too, and the page stays as wide as the window', async ({
   app,
   browser,
