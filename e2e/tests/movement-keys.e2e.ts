@@ -456,7 +456,7 @@ for (const row of keys) {
           }
         }
         let twin: Awaited<ReturnType<typeof fieldKey>> | null = null;
-        if (sheet.wrapped && !fast) {
+        if (sheet.wrapped) {
           const held = await looked(editor, sheet.note);
           twin = await fieldKey(editor, row.key);
           if ('problem' in held) twin = null;
