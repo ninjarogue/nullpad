@@ -860,7 +860,9 @@ fn test_breaks() -> List(Break) {
       file,
       both(
         first("import gleam/list\nimport gleam/string\n"),
-        last("pub fn nothing_3_test() -> Nil {\n  list.each([1], fn(_) { Nil })\n}"),
+        last(
+          "pub fn nothing_3_test() -> Nil {\n  list.each([1], fn(_) { Nil })\n}",
+        ),
       ),
     ),
     Break(
@@ -869,7 +871,9 @@ fn test_breaks() -> List(Break) {
       file,
       both(
         first("import gleam/list\nimport gleam/string\n"),
-        last("pub fn nothing_4_test() -> Nil {\n  { let _ = string.length(\"abc\") }\n}"),
+        last(
+          "pub fn nothing_4_test() -> Nil {\n  { let _ = string.length(\"abc\") }\n}",
+        ),
       ),
     ),
     Break(

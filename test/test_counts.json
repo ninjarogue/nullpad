@@ -1,7 +1,7 @@
 {
-  "e2e-discovery-tool": 35,
+  "e2e-discovery-tool": 44,
   "e2e-server": 6,
-  "e2e:e2e.config.ts": 467,
+  "e2e:e2e.config.ts": 470,
   "gleam-test": 465,
   "keystroke-cost": 119,
   "mutants-tool": 75,

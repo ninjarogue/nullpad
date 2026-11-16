@@ -460,6 +460,54 @@ test('locate: known limit: CSS in a block that never applies counts as a rule, b
   );
 });
 
+test('locate: text inside a longer name is not the code that relies on it', async () => {
+  await inSource(
+    {
+      'src/longer.mjs': 'if (mypress.detail > 2) run();\n',
+      'src/both.mjs': 'if (mypress.detail > 2) run();\nif (press.detail > 2) run();\n',
+      'src/after.mjs': 'if (press.detail > 20) run();\n',
+      'src/dash.mjs': 'const a = b-press.detail > 2;\n',
+      'assets/custom.css': 'ul {\n  --margin-top: calc(1lh);\n}\n',
+      'assets/both.css': 'ul {\n  --margin-top: calc(1lh);\n  margin-top: calc(1lh);\n}\n',
+    },
+    (root) => {
+      expect(missed({ file: 'src/longer.mjs', text: 'press.detail > 2' }, root)).toMatch(/only inside a longer name/);
+      expect(missed({ file: 'src/after.mjs', text: 'press.detail > 2' }, root)).toMatch(/only inside a longer name/);
+      expect(missed({ file: 'src/dash.mjs', text: 'press.detail > 2' }, root)).toMatch(/only inside a longer name/);
+      expect(missed({ file: 'assets/custom.css', text: 'margin-top: calc(1lh);' }, root)).toMatch(/only inside a longer name/);
+      expect(locate({ file: 'src/both.mjs', text: 'press.detail > 2' }, root).line).toBe(2);
+      expect(locate({ file: 'assets/both.css', text: 'margin-top: calc(1lh);' }, root).line).toBe(3);
+    },
+  );
+});
+
+test('locate: text that does not start or end with a name character needs no boundary', async () => {
+  await inSource(
+    {
+      'src/edges.mjs': 'a=(run());\n',
+      'src/edges.gleam': 'pub fn a() { x |> run }\n',
+    },
+    (root) => {
+      expect(locate({ file: 'src/edges.mjs', text: '(run())' }, root).line).toBe(1);
+      expect(locate({ file: 'src/edges.gleam', text: '|> run }' }, root).line).toBe(1);
+    },
+  );
+});
+
+test('locate: known limit: dead code, a rule that CSS overrides and @media print are still code that relies on a fact', async () => {
+  await inSource(
+    {
+      'src/dead.mjs': 'if (false) press.detail > 2;\nexport {};\n',
+      'assets/overridden.css': 'ul { margin-top: 1lh; }\nul { margin-top: 0; }\n@media print {\n  ul { margin-top: 2lh; }\n}\n',
+    },
+    (root) => {
+      expect(locate({ file: 'src/dead.mjs', text: 'press.detail > 2' }, root).line).toBe(1);
+      expect(locate({ file: 'assets/overridden.css', text: 'margin-top: 1lh' }, root).line).toBe(1);
+      expect(locate({ file: 'assets/overridden.css', text: 'margin-top: 2lh' }, root).line).toBe(4);
+    },
+  );
+});
+
 test('sources: a pending fact whose code has landed fails, and says to un-pend it', async () => {
   await inSource(toySource, async (root) => {
     const landed = toy({ pending: 'the branch that adds it is not merged', relied: [{ file: 'src/toy.mjs', text: 'const two = 1 + 1;' }] });

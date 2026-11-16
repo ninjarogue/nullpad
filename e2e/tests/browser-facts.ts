@@ -163,6 +163,13 @@ const overlaps = (spans: Span[], start: number, end: number) => spans.some(([fro
 
 type Found = { source: string; code: number[]; elsewhere: string[] };
 
+const nameChar = /[\w$-]/;
+
+/** Whether the match is part of a longer name: text that starts (or ends) with a name character is not preceded (or followed) by one, so `press.detail > 2` is not in `mypress.detail > 2`, nor `margin-top: 0` in `--margin-top: 0`. */
+function startsInName(source: string, start: number, end: number, text: string): boolean {
+  return (nameChar.test(text[0]!) && start > 0 && nameChar.test(source[start - 1]!)) || (nameChar.test(text[text.length - 1]!) && end < source.length && nameChar.test(source[end]!));
+}
+
 /** Where `text` is in `file`: the offsets where it is code, and for each place it is not, why not. */
 function find({ file, text }: Reliance, root: string): Found {
   const reading = reader(file);
@@ -181,7 +188,8 @@ function find({ file, text }: Reliance, root: string): Found {
   const elsewhere = new Set<string>();
   for (const start of at) {
     const end = start + text.length;
-    if (overlaps(reads.comments, start, end)) elsewhere.add('in a comment');
+    if (startsInName(source, start, end, text)) elsewhere.add('inside a longer name');
+    else if (overlaps(reads.comments, start, end)) elsewhere.add('in a comment');
     else if (reads.rules && !within(reads.rules, start, end)) elsewhere.add('where it is not in a rule');
     else if (within(reads.strings, start, end)) elsewhere.add('in a string');
     else if (reads.regexes && within(reads.regexes, start, end)) elsewhere.add('in a regular expression');
@@ -198,6 +206,9 @@ const lineOf = (source: string, offset: number) => source.slice(0, offset).split
  * CSS outside a rule, is not code that relies on anything, and is not counted.
  * CSS counts as a rule wherever braces make one, so a rule in `@media not all`
  * or in an `@supports` that never matches is counted as one that applies.
+ * Text must stand on name boundaries (see `startsInName`). Still counted as
+ * code that relies on a fact, and known limits: code that never runs, a CSS
+ * declaration that a later rule overrides, and one inside `@media print`.
  */
 export function locate(reliance: Reliance, root = repoRoot): { file: string; line: number } {
   const { file, text } = reliance;
