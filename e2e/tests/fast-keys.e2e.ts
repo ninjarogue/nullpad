@@ -282,6 +282,29 @@ for (const { name, note: body, keys: pressed, typed: letters } of afterTyping) {
   });
 }
 
+/**
+ * Letters typed at the start of a heading make it a paragraph, which the
+ * page sets in smaller type once it draws it. An arrow pressed before then
+ * still aims at the column the letters left, as it does once the page has
+ * drawn the paragraph.
+ */
+test('letters that make a heading a paragraph, and ArrowDown, in one frame, aim at the column the letters left', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  const body = '# Title\n\npara one\npara two';
+  await editor.open(body);
+  await page.pressBeforeRedraw('d', 'e', 'f', 'ArrowDown');
+  for (const key of ['ArrowDown', 'ArrowDown']) {
+    await browser.keyboard.press(key);
+    await page.nextFrame();
+  }
+  await browser.keyboard.type('x');
+  await page.nextFrame();
+  await page.markdown.tap();
+
+  await expect(page.text).toHaveValue('def# Title\n\npara one\nparxa two');
+});
+
 test('an undo after steps that wait for the page, in the frame of a click, takes the steps back with the typing', async (fixtures) => {
   const { browser, page } = fixtures;
   const editor = new Editing(fixtures);
