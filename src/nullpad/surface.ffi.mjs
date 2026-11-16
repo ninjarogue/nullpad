@@ -553,10 +553,13 @@ function aimIn(control, liveClass, paintedClass, x, line, select) {
       best = offset;
     }
   }
+  // The run's column from the start of a row starts the line, before the
+  // marks a heading hangs left of its text.
+  if (x <= 0) best = from;
   // The end of a line that wraps shares its offset with the start of the
   // next, and only a move to the line's end puts the caret there.
   const lastOnLine = offset - 1;
-  const wraps = offset <= text.length && text[lastOnLine] !== "\n" && document.activeElement === control;
+  const wraps = x > 0 && offset <= text.length && text[lastOnLine] !== "\n" && document.activeElement === control;
   const atEnd = wraps && Math.abs(left + place(lastOnLine).right - x) < gap;
   if (atEnd) best = lastOnLine;
   const anchor = select ? (backward ? end : start) : best;
