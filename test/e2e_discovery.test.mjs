@@ -29,6 +29,7 @@ const okTest = registers("import { test } from '@e2e-dev/web';", `test('fine', $
 const notTests = {
   "tests/ok.e2e.ts": okTest,
   "tests/helper.ts": "import { test as base } from '@e2e-dev/web';\nexport const test = base.extend({});\n",
+  "tests/reexport.ts": "export * from './helper.ts';\n",
   "tests/uses-helper.e2e.ts": registers("import { test } from './helper.ts';", `test('through the helper', ${body});`),
   "tests/only-types.ts": "import type { Page } from 'e2e';\nimport { expect } from 'e2e';\nexport const same = (page: Page) => expect(page).toBeDefined();\n",
   "tests/in-a-comment.ts": "import { expect } from 'e2e';\n// test('not a test', async () => {});\nexport const text = \"test('not a test either', async () => {})\";\nexport const same = expect;\n",
@@ -49,6 +50,7 @@ const strays = {
   "tests/u.e2e.test.ts": okTest,
   "tests/t.e2e-spec.ts": okTest,
   "scripts/through-helper.ts": registers("import { test } from '../tests/helper.ts';", `test('x', ${body});`),
+  "scripts/through-reexport.ts": registers("import { test } from '../tests/reexport.ts';", `test('x', ${body});`),
   "scripts/direct.mjs": "import { test as t } from '@e2e-dev/web';\nt.fail('x', async () => {});\n",
   "scripts/namespace.ts": "import * as e2e from 'e2e';\ne2e.test('x', async () => {});\n",
   "scripts/dynamic.ts": "const { test } = await import('@e2e-dev/web');\ntest('x', async () => {});\n",
@@ -87,7 +89,7 @@ describe("a file under e2e/ that looks like a test", () => {
   test("none of the files that are not tests are named, whatever they import or say", () => {
     const dir = toy({ ...notTests, ...strays });
     const { out } = check(dir);
-    for (const name of ["tests/helper.ts", "tests/only-types.ts", "tests/in-a-comment.ts", "tests/declarations.d.ts", "serve.mjs", "tests/ok.e2e.ts", "tests/uses-helper.e2e.ts", "node_modules", ".e2e/out", "e2e.config.ts"]) {
+    for (const name of ["tests/helper.ts", "tests/reexport.ts", "tests/only-types.ts", "tests/in-a-comment.ts", "tests/declarations.d.ts", "serve.mjs", "tests/ok.e2e.ts", "tests/uses-helper.e2e.ts", "node_modules", ".e2e/out", "e2e.config.ts"]) {
       assert.doesNotMatch(out, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${name} is named:\n${out}`);
     }
   });

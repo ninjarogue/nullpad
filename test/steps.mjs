@@ -223,6 +223,9 @@ const needsE2e = { outIn: join(e2eDir, ".e2e"), needs: join(e2eDir, "node_module
 
 export const e2eTypes = { id: "e2e-types", cwd: e2eDir, counted: false, command: () => ["npx", "tsc"], ...needsE2e };
 
+/** Every file under e2e/ that looks like a test is one a config discovers, so that none sits there unrun. */
+export const e2eDiscovery = { id: "e2e-discovery", cwd: root, counted: false, command: () => ["node", "test/e2e_discovery.mjs"], ...needsE2e };
+
 /** The e2e configs in `dir`: `e2e.config.ts` and any `e2e.<name>.config.<ext>` beside it. */
 export function e2eConfigs(dir = e2eDir) {
   return readdirSync(dir, { withFileTypes: true })
@@ -251,5 +254,5 @@ export const e2e = (config, args = []) => ({
 
 /** Every step of the gate after the format check, in the order it runs. */
 export function gateSteps() {
-  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), nodeTest("e2e-server", "test/serve.test.mjs"), nodeTest("e2e-discovery-tool", "test/e2e_discovery.test.mjs"), e2eTypes, ...e2eConfigs().map((config) => e2e(config))];
+  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), nodeTest("e2e-server", "test/serve.test.mjs"), nodeTest("e2e-discovery-tool", "test/e2e_discovery.test.mjs"), e2eTypes, e2eDiscovery, ...e2eConfigs().map((config) => e2e(config))];
 }
