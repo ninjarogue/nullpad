@@ -41,8 +41,9 @@ const sign = (s) => JSON.stringify([s.v, s.s, s.e, s.d]);
 const anchorOf = `document.querySelector('textarea')?.dataset.anchor ?? null`;
 /**
  * A Shift key moves the head of the selection and never its anchor, in any text field. Checked
- * in nullpad alone, around each Shift key of a paced script, two frames after it: the page may
- * answer a painted selection a frame late.
+ * in nullpad alone, around each Shift key of a paced script: an extra frame after the key before
+ * it, as the page draws a key's anchor in a frame callback that a paced wait can run ahead of,
+ * and two frames after it, as the page may answer a painted selection a frame late.
  */
 const movesAnchor = (k) => typeof k === 'string' && k.includes('Shift+');
 /**
@@ -180,7 +181,7 @@ async function open(browser, url, kind, errors) {
         continue;
       }
       const watched = kind === 'nullpad' && pace !== 'burst' && movesAnchor(k);
-      const before = watched ? (await drain(), await ev(anchorOf)) : null;
+      const before = watched ? (await drain(), await settle(), await ev(anchorOf)) : null;
       pending.push(send(k));
       if (kind === 'nullpad' && pace !== 'burst') {
         await drain();
