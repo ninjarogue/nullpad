@@ -509,6 +509,25 @@ describe("--repo", () => {
     assert.match(result.err, /--repo needs a path/);
   });
 
+  test("stops before planting anything when the output folder is inside the repository and git does not ignore it", () => {
+    const other = otherRepo();
+    const result = cli([other.mutantsFile, "--repo", other.dir, "--calibration", other.calibrationFile, "--out", join(other.dir, "out")]);
+    assert.equal(result.status, 2, result.out + result.err);
+    assert.match(result.err, /output folder .* inside .*not ignore/);
+    assert.deepEqual(other.ran(), []);
+    assert.equal(other.status(), "");
+  });
+
+  test("lets the output folder be inside the repository when git ignores it", () => {
+    const other = otherRepo();
+    writeFileSync(join(other.dir, ".gitignore"), "/out\n");
+    gitIn(other.dir, "add", "-A");
+    gitIn(other.dir, "commit", "-q", "-m", "ignore out");
+    const result = cli([other.mutantsFile, "--repo", other.dir, "--calibration", other.calibrationFile, "--out", join(other.dir, "out"), "--only", "M-unit"]);
+    assert.equal(result.status, 0, result.out + result.err);
+    assert.equal(other.status(), "");
+  });
+
   test("without --calibration, uses this repository's, and says to give one when it does not match the other source", () => {
     const other = otherRepo();
     const result = cli([other.mutantsFile, "--repo", other.dir, "--out", other.outDir]);
