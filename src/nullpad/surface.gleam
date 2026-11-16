@@ -411,8 +411,7 @@ pub fn sync(
   // Lustre runs a batch's effects backwards or forwards by how deep the
   // batch is nested, so effects whose order matters run as one.
   let kind = editor.kind(editor)
-  let write_now = fn(buffer) {
-    let #(text, start, end, backward) = to_control(buffer)
+  let hold_now = fn() {
     case kind, editor.is_idle(editor) || editor.is_painted(editor) {
       Some(rows), False ->
         hold_control(
@@ -423,6 +422,10 @@ pub fn sync(
         )
       Some(_), True | None, _ -> Nil
     }
+  }
+  let write_now = fn(buffer) {
+    let #(text, start, end, backward) = to_control(buffer)
+    hold_now()
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
@@ -462,13 +465,17 @@ pub fn sync(
     })
   let synced = case sync {
     // The field only grows once the page is drawn, so the browser does not
-    // scroll the page to a caret that typing takes onto a new line.
+    // scroll the page to a caret that typing takes onto a new line. Typing
+    // that makes its rows another kind of block sets their type at once.
     editor.InSync ->
-      effect.before_paint(fn(dispatch, _) {
-        let quiet = draw(dispatch)
-        reveal_caret(control_id, live_class, painted_class)
-        replay(dispatch, quiet)
-      })
+      effect.batch([
+        effect.from(fn(_) { hold_now() }),
+        effect.before_paint(fn(dispatch, _) {
+          let quiet = draw(dispatch)
+          reveal_caret(control_id, live_class, painted_class)
+          replay(dispatch, quiet)
+        }),
+      ])
     // Painted before the page is scrolled to the head, which may be painted.
     editor.Write(buffer) ->
       effect.batch([

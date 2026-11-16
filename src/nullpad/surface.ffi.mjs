@@ -12,7 +12,8 @@ export function writeControl(id, text, start, end, backward) {
 }
 
 // A key pressed before the next render acts on the field as it is laid out.
-// Written with other rows, it takes their type at once, and keeps the line
+// Written with other rows, or typed into as another kind of block, it takes
+// their type at once, and keeps the line
 // height and margins of the rows it was drawn with, as a row typed as another
 // kind of block does, so nothing around it moves until the render. The
 // render sets the classes only when they changed since the last one, so
