@@ -530,6 +530,29 @@ function cli(args) {
   return { status: run.status, out: `${run.stdout}`, err: `${run.stderr}` };
 }
 
+describe("--only, --checks and --out", () => {
+  const stops = (args, option, what) => {
+    const result = cli(args);
+    assert.equal(result.status, 2, `${args.join(" ")}: ${result.out}${result.err}`);
+    assert.match(result.err, new RegExp(`${option} needs ${what}`));
+    assert.equal(existsSync(join(dirname(root), "no-such.json")), false);
+  };
+
+  for (const [option, what] of [["--only", "a list of mutant ids"], ["--checks", "a list of checks"], ["--out", "a folder"]]) {
+    test(`stop when ${option} has nothing after it`, () => {
+      stops(["no-such.json", option], option, what);
+    });
+
+    test(`stop when ${option} is followed by another option, which is not its value`, () => {
+      stops(["no-such.json", option, "--calibration", "x.json"], option, what);
+    });
+
+    test(`stop when ${option} comes before the mutants file and has no value`, () => {
+      stops([option, "--calibrate"], option, what);
+    });
+  }
+});
+
 describe("--repo", () => {
   test("runs the checks of the repository it is given, on that repository's source", () => {
     const other = otherRepo();
