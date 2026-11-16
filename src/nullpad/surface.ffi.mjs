@@ -445,7 +445,8 @@ function headCaret(control, place) {
 function atLineEnd(control, head, place) {
   const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = control;
   if (head === 0 || control.value[head - 1] === "\n" || document.activeElement !== control) return false;
-  if (aimedHere(control)) return false;
+  const last = aimedHere(control);
+  if (last) return last.atEnd;
   if (place(head - 1).top === place(head).top) return false;
   const anchor = direction === "backward" ? end : start;
   getSelection().modify("extend", "backward", "lineboundary");
@@ -462,15 +463,15 @@ function atLineEnd(control, head, place) {
 // can tell whether a key, or a later aim, has moved the caret since.
 const aimed = new WeakMap();
 
-// Whether the field is as the last aim left it. An aim puts the head on the
-// line it aims at, at its start where a row wraps, as a text field's line
-// moves do, though the browser draws the end of a selection there at the end
-// of the line before and says so.
+// The last aim, while the field is as it left it. An aim puts the head on
+// the line it aims at, where a row wraps at its start or its end as it
+// chose, as a text field's line moves do, though the browser draws the end
+// of a selection there at the end of the line before and says so.
 function aimedHere(control) {
   const last = aimed.get(control);
-  if (!last) return false;
+  if (!last) return null;
   const now = [control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
-  return last.shown.join("\u0000") === now.join("\u0000");
+  return last.shown.join("\u0000") === now.join("\u0000") ? last : null;
 }
 
 // `line` is 0 for the first drawn line of the head's row, 1 for its last, 2
@@ -504,14 +505,15 @@ export function aimControl(id, liveClass, paintedClass, text, start, end, backwa
       return [false, ...shown()];
     }
   }
-  if (aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select)) aimed.set(control, { by, shown: shown() });
-  else aimed.delete(control);
+  const atEnd = aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select);
+  if (atEnd === null) aimed.delete(control);
+  else aimed.set(control, { by, shown: shown(), atEnd });
   return [true, ...shown()];
 }
 
 // Moves the head of the field's selection to the place nearest `x` on a
-// line of the field, numbered as for `aimControl`, and answers whether
-// there was such a line.
+// line of the field, numbered as for `aimControl`, and answers whether it
+// is at the end of a line that wraps, or null when there was no such line.
 function aimIn(control, liveClass, paintedClass, x, line, select) {
   const text = control.value;
   const { selectionStart: start, selectionEnd: end } = control;
@@ -534,30 +536,38 @@ function aimIn(control, liveClass, paintedClass, x, line, select) {
   else if (line === 4) from = headStart;
   else if (line === 2) {
     from = headStart - 1;
-    if (from < 0) return false;
+    if (from < 0) return null;
     from = lineFrom(from, -1);
   } else {
     from = wrapEnd ? head : lineFrom(head, 1) + 1;
-    if (from > text.length) return false;
+    if (from > text.length) return null;
   }
   const top = place(from).top;
   let best = from;
   let gap = Infinity;
-  for (let offset = from; offset <= text.length && place(offset).top === top; offset++) {
+  let offset = from;
+  for (; offset <= text.length && place(offset).top === top; offset++) {
     const away = Math.abs(left + place(offset).x - x);
     if (away < gap) {
       gap = away;
       best = offset;
     }
   }
+  // The end of a line that wraps shares its offset with the start of the
+  // next, and only a move to the line's end puts the caret there.
+  const lastOnLine = offset - 1;
+  const wraps = offset <= text.length && text[lastOnLine] !== "\n" && document.activeElement === control;
+  const atEnd = wraps && Math.abs(left + place(lastOnLine).right - x) < gap;
+  if (atEnd) best = lastOnLine;
   const anchor = select ? (backward ? end : start) : best;
   control.setSelectionRange(
     Math.min(anchor, best),
     Math.max(anchor, best),
     best < anchor ? "backward" : "forward",
   );
+  if (atEnd) getSelection().modify(select ? "extend" : "move", "forward", "lineboundary");
   control.scrollTop = 0;
-  return true;
+  return atEnd;
 }
 
 // How far from the left of the text the field draws its head, `caretX`
