@@ -502,8 +502,12 @@ function letterAfter(holder, node, offset) {
   return null;
 }
 
+const graphemes = new Intl.Segmenter();
+
+// The editor counts characters in graphemes, so a letter made of several
+// code points, such as a flag or e and a combining accent, is named whole.
 function characterAt(text, offset) {
-  return offset < text.length ? String.fromCodePoint(text.codePointAt(offset)) : "\n";
+  return offset < text.length ? graphemes.segment(text.slice(offset)).containing(0).segment : "\n";
 }
 
 // A point level with a line of the field, even beside it, is on that line.

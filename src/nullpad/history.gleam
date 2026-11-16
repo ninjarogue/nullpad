@@ -309,8 +309,31 @@ fn on_row(old: String, new: String, from: Position, to: Position) -> Change {
   case to.col - from.col {
     1 if new == left <> typed <> right && typed != "" -> Typed(typed)
     -1 -> erased(new, string.drop_end(left, 1) <> right, Back)
-    0 -> erased(new, left <> buffer.rest_of(right, from: 1), Forward)
+    0 ->
+      case new == left <> buffer.rest_of(right, from: 1) {
+        True -> Erased(Forward)
+        False -> reshaped(old, new, from.col)
+      }
     _ -> Replaced
+  }
+}
+
+/// A code point typed onto the grapheme before the caret makes it longer,
+/// as a combining accent, a flag or a family emoji typed one code point at
+/// a time does, and Backspace can take one off it. Either leaves the caret
+/// where it was.
+fn reshaped(old: String, new: String, col: Int) -> Change {
+  let before = string.slice(old, 0, col - 1)
+  let was = string.slice(old, col - 1, 1)
+  let now = string.slice(new, col - 1, 1)
+  case col > 0 && new == before <> now <> buffer.rest_of(old, from: col) {
+    False -> Replaced
+    True ->
+      case string.starts_with(now, was), string.starts_with(was, now) {
+        True, _ -> Typed(now)
+        False, True -> Erased(Back)
+        False, False -> Replaced
+      }
   }
 }
 
