@@ -913,7 +913,9 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
         False -> parse(buffer)
       }
       let drawn = case editor.focus, typed_on(editor.buffer, buffer) {
-        Focused, Ok(#(from, to)) if from == to -> drawn
+        Focused, Ok(#(from, to)) if from == to && before == after -> drawn
+        Focused, Ok(#(from, to)) if from == to ->
+          split(drawn, parsed, rows, buffer)
         Focused, Ok(#(from, to)) -> live.shift(drawn, from:, to:)
         Focused, Error(Nil) | Away, _ -> parsed
       }
@@ -966,6 +968,28 @@ fn typed_on(old: Buffer, new: Buffer) -> Result(#(Region, Region), Nil) {
   {
     True -> Ok(#(from, to))
     False -> Error(Nil)
+  }
+}
+
+/// A row typed so that it no longer belongs to the block of the rows the
+/// field holds, such as a heading typed on a row of a paragraph, takes the
+/// field's rows out of that block: they are laid out as typed, and the field
+/// then holds the caret's block alone.
+fn split(
+  drawn: List(Block),
+  parsed: List(Block),
+  rows: Region,
+  typed: Buffer,
+) -> List(Block) {
+  let row = buffer.cursor(typed).row
+  let typed_block = live.reveal(parsed, from: row, to: row)
+  case
+    typed_block != rows
+    && typed_block.first_row >= rows.first_row
+    && typed_block.last_row <= rows.last_row
+  {
+    True -> live.lay(drawn, typed: parsed, rows:)
+    False -> drawn
   }
 }
 
@@ -1128,9 +1152,21 @@ pub fn blocks(editor: Editor) -> List(Block) {
   }
 }
 
-/// The page drawn around the field.
+/// The page drawn around the field: as laid out, with the field's rows laid
+/// out as typed while it is framed as typed, so that the page lends the
+/// field the margins of the block typed there.
 pub fn page(editor: Editor) -> List(Block) {
-  blocks(editor)
+  case editor.field, setting(editor) {
+    Part(rows:, drawn:, parsed:, ..), Some(Setting(kind:, frame:))
+      if kind == frame
+    ->
+      case live.kind(drawn, field: rows, lines: buffer.lines(editor.buffer)) {
+        laid_out if laid_out == kind -> drawn
+        _ -> live.lay(drawn, typed: parsed, rows:)
+      }
+    Part(drawn:, ..), _ -> drawn
+    Whole, _ -> []
+  }
 }
 
 /// A selection that reaches past the block it ends in is painted over the

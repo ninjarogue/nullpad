@@ -573,13 +573,18 @@ pub fn the_rows_of_a_table_in_a_list_item_are_marked_with_their_rows_in_the_note
 }
 
 /// Rows `first_row` up to `first_row + rows` of `note`, drawn the way live
-/// view draws the note beside the text field.
-fn beside_field(note: String, first_row: Int, rows: Int) -> String {
+/// view draws the note beside the text field that holds `field`.
+fn beside_field(
+  note: String,
+  first_row: Int,
+  rows: Int,
+  field: live.Region,
+) -> String {
   markdown.parse(note)
   |> preview.part(
     rows:,
     first_row:,
-    field: None,
+    field: Some(field),
     test_id: "live-below",
     on_task: fn(task, _) { task },
   )
@@ -595,134 +600,142 @@ fn drawn_part(inner: String) -> String {
 pub fn a_list_split_by_the_field_draws_its_items_on_each_side_test() {
   let note = "- one\n- two\n- three\n- four"
 
-  assert beside_field(note, 0, 1)
-    == drawn_part("<ul data-row=\"0\"><li data-row=\"0\">one</li></ul>")
-  assert beside_field(note, 2, 2)
+  assert beside_field(note, 0, 1, live.Region(1, 1))
     == drawn_part(
-      "<ul data-row=\"2\"><li data-row=\"2\">three</li><li data-row=\"3\">four</li></ul>",
+      "<ul class=\"cut above\" data-row=\"0\"><li data-row=\"0\">one</li><li class=\"bare cut above\"></li></ul>",
+    )
+  assert beside_field(note, 2, 2, live.Region(1, 1))
+    == drawn_part(
+      "<ul class=\"cut below\" data-row=\"2\"><li class=\"bare cut below\"></li><li data-row=\"2\">three</li><li data-row=\"3\">four</li></ul>",
     )
 }
 
 pub fn a_loose_list_split_by_the_field_keeps_its_blank_rows_test() {
   let note = "- one\n\n- two\n\n- three"
 
-  assert beside_field(note, 0, 4)
+  assert beside_field(note, 0, 4, live.Region(4, 4))
     == drawn_part(
-      "<ul data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">one</p></li><li aria-hidden=\"true\" class=\"blank\" data-row=\"1\"></li><li data-row=\"2\"><p data-row=\"2\">two</p></li></ul><div class=\"blank\" data-row=\"3\"></div>",
+      "<ul class=\"cut above\" data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">one</p></li><li aria-hidden=\"true\" class=\"blank\" data-row=\"1\"></li><li data-row=\"2\"><p data-row=\"2\">two</p></li><li aria-hidden=\"true\" class=\"blank\" data-row=\"3\"></li><li class=\"bare cut above\"><p class=\"held above\"></p></li></ul>",
     )
 }
 
 pub fn an_ordered_list_split_by_the_field_keeps_its_numbers_test() {
-  assert beside_field("3. a\n4. b\n5. c", 0, 1)
+  assert beside_field("3. a\n4. b\n5. c", 0, 1, live.Region(1, 1))
     == drawn_part(
-      "<ol data-row=\"0\" start=\"3\"><li data-row=\"0\">a</li></ol>",
+      "<ol class=\"cut above\" data-row=\"0\" start=\"3\"><li data-row=\"0\">a</li><li class=\"bare cut above\"></li></ol>",
     )
-  assert beside_field("3. a\n4. b\n5. c", 2, 1)
+  assert beside_field("3. a\n4. b\n5. c", 2, 1, live.Region(1, 1))
     == drawn_part(
-      "<ol data-row=\"2\" start=\"5\"><li data-row=\"2\">c</li></ol>",
+      "<ol class=\"cut below\" data-row=\"2\" start=\"4\"><li class=\"bare cut below\"></li><li data-row=\"2\">c</li></ol>",
     )
 }
 
 pub fn the_items_of_a_split_list_are_spaced_like_the_whole_list_test() {
   let note = "- one\n\n- two\n\n- three"
 
-  assert beside_field(note, 0, 2)
+  assert beside_field(note, 0, 2, live.Region(2, 2))
     == drawn_part(
-      "<ul data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">one</p></li></ul><div class=\"blank\" data-row=\"1\"></div>",
+      "<ul class=\"cut above\" data-row=\"0\"><li data-row=\"0\"><p data-row=\"0\">one</p></li><li aria-hidden=\"true\" class=\"blank\" data-row=\"1\"></li><li class=\"bare cut above\"><p class=\"held above\"></p></li></ul>",
     )
-  assert beside_field(note, 3, 2)
+  assert beside_field(note, 3, 2, live.Region(2, 2))
     == drawn_part(
-      "<div class=\"blank\" data-row=\"3\"></div><ul data-row=\"4\"><li data-row=\"4\"><p data-row=\"4\">three</p></li></ul>",
+      "<ul class=\"cut below\" data-row=\"3\"><li class=\"bare cut below\"><p class=\"held below\"></p></li><li aria-hidden=\"true\" class=\"blank\" data-row=\"3\"></li><li data-row=\"4\"><p data-row=\"4\">three</p></li></ul>",
     )
 }
 
 pub fn the_items_of_a_split_list_are_numbered_like_the_whole_list_test() {
-  assert beside_field("1. a\n1. b\n1. c", 2, 1)
+  assert beside_field("1. a\n1. b\n1. c", 2, 1, live.Region(1, 1))
     == drawn_part(
-      "<ol data-row=\"2\" start=\"3\"><li data-row=\"2\">c</li></ol>",
+      "<ol class=\"cut below\" data-row=\"2\" start=\"2\"><li class=\"bare cut below\"></li><li data-row=\"2\">c</li></ol>",
     )
-  assert beside_field("7. a\n1. b\n1. c\n1. d", 2, 2)
+  assert beside_field("7. a\n1. b\n1. c\n1. d", 2, 2, live.Region(1, 1))
     == drawn_part(
-      "<ol data-row=\"2\" start=\"9\"><li data-row=\"2\">c</li><li data-row=\"3\">d</li></ol>",
+      "<ol class=\"cut below\" data-row=\"2\" start=\"8\"><li class=\"bare cut below\"></li><li data-row=\"2\">c</li><li data-row=\"3\">d</li></ol>",
     )
 }
 
 pub fn an_item_beside_the_field_is_drawn_with_what_it_holds_test() {
-  assert beside_field("- a\n  - a1\n- b\n- c", 0, 2)
+  assert beside_field("- a\n  - a1\n- b\n- c", 0, 2, live.Region(2, 2))
     == drawn_part(
-      "<ul data-row=\"0\"><li data-row=\"0\">a<ul data-row=\"1\"><li data-row=\"1\">a1</li></ul></li></ul>",
+      "<ul class=\"cut above\" data-row=\"0\"><li data-row=\"0\">a<ul data-row=\"1\"><li data-row=\"1\">a1</li></ul></li><li class=\"bare cut above\"></li></ul>",
     )
-  assert beside_field("- [ ] a\n- [x] b\n- [ ] c", 2, 1)
+  assert beside_field("- [ ] a\n- [x] b\n- [ ] c", 2, 1, live.Region(1, 1))
     == drawn_part(
-      "<ul data-row=\"2\"><li class=\"task\" data-row=\"2\"><input aria-label=\"c\" type=\"checkbox\">c</li></ul>",
+      "<ul class=\"cut below\" data-row=\"2\"><li class=\"task bare cut below\"></li><li class=\"task\" data-row=\"2\"><input aria-label=\"c\" type=\"checkbox\">c</li></ul>",
     )
 }
 
 pub fn a_quote_a_table_and_code_beside_the_field_are_drawn_whole_test() {
-  assert beside_field("p\n\n> a\n> b\n\nq", 1, 5)
+  assert beside_field("p\n\n> a\n> b\n\nq", 1, 5, live.Region(0, 0))
     == drawn_part(
-      "<div class=\"blank\" data-row=\"1\"></div><blockquote class=\"rows\" data-row=\"2\"><p data-row=\"2\">a\nb</p></blockquote><div class=\"blank\" data-row=\"4\"></div><p data-row=\"5\">q</p>",
+      "<p class=\"held below\"></p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">a\nb</p></blockquote><div class=\"blank\" data-row=\"4\"></div><p data-row=\"5\">q</p>",
     )
-  assert beside_field("# T\n\n| a | b |\n|---|---|\n| 1 | 2 |", 1, 4)
-    == drawn_part(
-      "<div class=\"blank\" data-row=\"1\"></div><div aria-label=\"Table\" class=\"table-scroll\" role=\"region\" tabindex=\"0\"><table><thead><tr data-row=\"2\"><th scope=\"col\">a</th><th scope=\"col\">b</th></tr></thead><tbody><tr data-row=\"4\"><td>1</td><td>2</td></tr></tbody></table></div>",
+  assert beside_field(
+      "# T\n\n| a | b |\n|---|---|\n| 1 | 2 |",
+      1,
+      4,
+      live.Region(0, 0),
     )
-  assert beside_field("```\ncode\n\nmore\n```\n\np", 0, 6)
     == drawn_part(
-      "<pre data-row=\"1\"><code>code\n\nmore\n</code></pre><div class=\"blank\" data-row=\"5\"></div>",
+      "<h1 class=\"held below\"></h1><div class=\"blank\" data-row=\"1\"></div><div aria-label=\"Table\" class=\"table-scroll\" role=\"region\" tabindex=\"0\"><table><thead><tr data-row=\"2\"><th scope=\"col\">a</th><th scope=\"col\">b</th></tr></thead><tbody><tr data-row=\"4\"><td>1</td><td>2</td></tr></tbody></table></div>",
+    )
+  assert beside_field("```\ncode\n\nmore\n```\n\np", 0, 6, live.Region(6, 6))
+    == drawn_part(
+      "<pre data-row=\"1\"><code>code\n\nmore\n</code></pre><div class=\"blank\" data-row=\"5\"></div><p class=\"held above\"></p>",
     )
 }
 
 pub fn a_blank_row_in_a_quote_beside_the_field_is_drawn_as_a_blank_row_test() {
-  assert beside_field("> a\n>\n> > b\n>", 0, 4)
+  assert marked("> a\n>\n> > b\n>")
     == drawn_part(
-      "<blockquote class=\"rows\" data-row=\"0\"><p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">b</p></blockquote><div class=\"blank\" data-row=\"3\"></div></blockquote>",
+      "<blockquote data-row=\"0\"><p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">b</p></blockquote><div class=\"blank\" data-row=\"3\"></div></blockquote>",
     )
 }
 
 pub fn a_heading_set_over_several_rows_beside_the_field_says_how_many_test() {
-  assert beside_field("> a\n> b\n> ---\n\nc", 0, 4)
+  assert beside_field("> a\n> b\n> ---\n\nc", 0, 4, live.Region(4, 4))
     == drawn_part(
-      "<blockquote class=\"rows\" data-row=\"0\"><h2 data-row=\"0\" style=\"--rows:3;\">a\nb</h2></blockquote><div class=\"blank\" data-row=\"3\"></div>",
+      "<blockquote data-row=\"0\"><h2 data-row=\"0\" style=\"--rows:3;\">a\nb</h2></blockquote><div class=\"blank\" data-row=\"3\"></div><p class=\"held above\"></p>",
     )
-  assert beside_field("# a\n\nc", 0, 2)
+  assert beside_field("# a\n\nc", 0, 2, live.Region(2, 2))
     == drawn_part(
-      "<h1 data-row=\"0\">a</h1><div class=\"blank\" data-row=\"1\"></div>",
+      "<h1 data-row=\"0\">a</h1><div class=\"blank\" data-row=\"1\"></div><p class=\"held above\"></p>",
     )
 }
 
-pub fn a_code_block_of_several_rows_beside_the_field_says_how_many_test() {
-  assert beside_field("> ```\n> x\n> ```\n\nc", 0, 4)
+pub fn a_code_block_in_a_quote_beside_the_field_is_drawn_as_at_the_top_test() {
+  assert beside_field("> ```\n> x\n> ```\n\nc", 0, 4, live.Region(4, 4))
     == drawn_part(
-      "<blockquote class=\"rows\" data-row=\"0\"><pre data-row=\"1\" style=\"--rows:3;\"><code>x\n</code></pre></blockquote><div class=\"blank\" data-row=\"3\"></div>",
+      "<blockquote data-row=\"0\"><pre data-row=\"1\"><code>x\n</code></pre></blockquote><div class=\"blank\" data-row=\"3\"></div><p class=\"held above\"></p>",
     )
-  assert beside_field(">     x\n>     y\n\nc", 0, 3)
+  assert beside_field(">     x\n>     y\n\nc", 0, 3, live.Region(3, 3))
     == drawn_part(
-      "<blockquote class=\"rows\" data-row=\"0\"><pre data-row=\"0\" style=\"--rows:2;\"><code>x\ny\n</code></pre></blockquote><div class=\"blank\" data-row=\"2\"></div>",
+      "<blockquote data-row=\"0\"><pre data-row=\"0\"><code>x\ny\n</code></pre></blockquote><div class=\"blank\" data-row=\"2\"></div><p class=\"held above\"></p>",
     )
 }
 
 pub fn the_blank_rows_beside_the_field_are_drawn_test() {
-  assert beside_field("a\n\n\n\nb", 0, 2)
+  assert beside_field("a\n\n\n\nb", 0, 2, live.Region(2, 2))
     == drawn_part(
       "<p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div>",
     )
-  assert beside_field("a\n\n\n\nb", 3, 2)
+  assert beside_field("a\n\n\n\nb", 3, 2, live.Region(2, 2))
     == drawn_part(
       "<div class=\"blank\" data-row=\"3\"></div><p data-row=\"4\">b</p>",
     )
-  assert beside_field("a\n\n\n\nb", 5, 0) == drawn_part("")
+  assert beside_field("a\n\n\n\nb", 5, 0, live.Region(4, 4))
+    == drawn_part("<p class=\"held below\"></p>")
 }
 
 /// Only a composition holds the field on rows that cut a block in two.
 pub fn the_rows_of_a_block_the_field_cuts_are_blank_test() {
-  assert beside_field("```\na\nb", 1, 2)
+  assert beside_field("```\na\nb", 1, 2, live.Region(0, 0))
     == drawn_part(
       "<div class=\"blank\" data-row=\"1\"></div><div class=\"blank\" data-row=\"2\"></div>",
     )
-  assert beside_field("- a\n  b\n- c", 1, 2)
+  assert beside_field("- a\n  b\n- c", 1, 2, live.Region(0, 0))
     == drawn_part(
-      "<div class=\"blank\" data-row=\"1\"></div><ul data-row=\"2\"><li data-row=\"2\">c</li></ul>",
+      "<ul class=\"cut below\" data-row=\"1\"><li class=\"bare cut below\"></li><li aria-hidden=\"true\" class=\"blank\" data-row=\"1\"></li><li data-row=\"2\">c</li></ul>",
     )
 }
 
@@ -732,8 +745,13 @@ pub fn twenty_thousand_blank_rows_are_drawn_test() {
   }
 
   let note = "a" <> string.repeat("\n", 20_000) <> "b"
-  assert blanks(beside_field(note, 1, 20_000)) == 19_999
-  assert blanks(beside_field("```\n" <> string.repeat("a\n", 20_000), 1, 20_000))
+  assert blanks(beside_field(note, 1, 20_000, live.Region(0, 0))) == 19_999
+  assert blanks(beside_field(
+      "```\n" <> string.repeat("a\n", 20_000),
+      1,
+      20_000,
+      live.Region(0, 0),
+    ))
     == 20_000
 }
 
@@ -742,7 +760,8 @@ pub fn a_list_of_twenty_thousand_items_is_drawn_test() {
   let note = string.repeat("- a\n\n", 20_000)
 
   assert items(render_blocks(markdown.parse(note))) == 20_000
-  assert items(beside_field(note, 0, 40_000)) == 39_999
+  assert items(beside_field(note, 0, 40_000, live.Region(40_000, 40_000)))
+    == 39_999
 }
 
 fn beside(

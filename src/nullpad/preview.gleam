@@ -26,13 +26,17 @@ pub fn view(
 ) -> Element(msg) {
   html.div(
     [attribute.class("preview"), attribute.data("test-id", "preview")],
-    list.map(blocks, block(_, Unmarked, False, on_task)),
+    list.map(blocks, block(_, Unmarked, on_task)),
   )
 }
 
-/// A list the run cuts shows the items inside the run, spaced and numbered
-/// as in the whole list. Any other block the run cuts is left out and its
-/// rows are blank.
+/// The rows `first_row` up to `first_row + rows`, beside the field that holds
+/// the rows `field`, as `live.cut` gives them. A quote, list or item the run
+/// cuts has no margin, padding or marker where it is cut (`cut above` when
+/// it goes on below the run, `cut below` when it began above), and an item
+/// whose own line the run does not draw has no marker and no box (`bare`).
+/// A leaf the field holds is drawn empty (`held`), for the margins it keeps
+/// on the run's side of the field.
 ///
 /// A row outside every block, or between the blocks of an item or a quote,
 /// is blank, and is drawn as one empty line (`div.blank`), so every row of
@@ -46,49 +50,14 @@ pub fn part(
   on_task on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let to = first_row + rows
-  let _ = field
+  let run = Marked(from: first_row, to:, field:)
   html.div(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
-    inside(blocks, from: first_row, to:)
-      |> spaced(from: first_row, to:, rows: Marked, draw: fn(shown) {
-        [block(shown, Marked, False, on_task)]
+    live.cut(blocks, from: first_row, to:, field:)
+      |> spaced(from: first_row, to:, rows: run, draw: fn(shown) {
+        [block(shown, run, on_task)]
       }),
   )
-}
-
-/// The blocks that `part` draws for the rows `from` up to `to`: the blocks
-/// wholly inside, and the items of a list inside.
-pub fn inside(blocks: List(Block), from from: Int, to to: Int) -> List(Block) {
-  let within = fn(first_row, last_row) { first_row >= from && last_row < to }
-  use shown <- list.filter_map(blocks)
-  let cut = fn(items: List(Item), content: fn(Int, List(Item)) -> Content) {
-    let is_inside = fn(item: Item) { within(item.row, last_row(item)) }
-    let #(before, rest) = list.split_while(items, fn(item) { !is_inside(item) })
-    case list.take_while(rest, is_inside) {
-      [] -> Error(Nil)
-      [first, ..] as kept -> {
-        let last = list.last(kept) |> result.unwrap(first)
-        let content = content(list.length(before), kept)
-        Ok(Block(first_row: first.row, last_row: last_row(last), content:))
-      }
-    }
-  }
-  case within(shown.first_row, shown.last_row), shown.content {
-    True, _ -> Ok(shown)
-    False, BulletList(spacing, items) ->
-      cut(items, fn(_, kept) { BulletList(spacing, kept) })
-    False, OrderedList(start, spacing, items) ->
-      cut(items, fn(skipped, kept) {
-        OrderedList(start + skipped, spacing, kept)
-      })
-    False, Heading(..)
-    | False, Paragraph(..)
-    | False, Quote(..)
-    | False, CodeBlock(..)
-    | False, Rule
-    | False, Table(..)
-    -> Error(Nil)
-  }
 }
 
 fn last_row(item: Item) -> Int {
@@ -122,12 +91,20 @@ fn blanks(
 ) -> List(Element(msg)) {
   case rows {
     Unmarked -> []
-    Marked -> blank_rows(tag, from:, row: to - 1, drawn: [])
+    Marked(from: first, to: end, ..) ->
+      blank_rows(
+        tag,
+        rows,
+        from: int.max(from, first),
+        row: int.min(to, end) - 1,
+        drawn: [],
+      )
   }
 }
 
 fn blank_rows(
   tag: fn(List(attribute.Attribute(msg)), List(Element(msg))) -> Element(msg),
+  rows: Rows,
   from from: Int,
   row row: Int,
   drawn drawn: List(Element(msg)),
@@ -135,91 +112,123 @@ fn blank_rows(
   case row < from {
     True -> drawn
     False -> {
-      let blank = tag([attribute.class("blank"), ..at(Marked, row)], [])
-      blank_rows(tag, from:, row: row - 1, drawn: [blank, ..drawn])
+      let blank = tag([attribute.class("blank"), ..at(rows, row)], [])
+      blank_rows(tag, rows, from:, row: row - 1, drawn: [blank, ..drawn])
     }
   }
 }
 
+/// `Marked`: the rows `from` up to `to` of the note, beside the field that
+/// holds the rows `field`, each element marked with its first row.
 type Rows {
   Unmarked
-  Marked
+  Marked(from: Int, to: Int, field: Option(live.Region))
 }
 
-/// The text field sets a block of several rows as body text, and the page
-/// is told which blocks those are.
-fn several_rows(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
-  case rows, shown.first_row < shown.last_row {
-    Marked, True -> [attribute.class("rows")]
-    Marked, False | Unmarked, _ -> []
-  }
-}
-
-/// The text field sets a heading over several rows as body text, a line to
-/// a row, and the page is told how many rows.
+/// The field sets a heading over several rows a line to a row, at its size,
+/// and the page is told how many rows.
 fn rows_of(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   case rows, shown.last_row - shown.first_row + 1 {
-    Unmarked, _ | Marked, 1 -> []
-    Marked, count -> [attribute.style("--rows", int.to_string(count))]
+    Unmarked, _ | Marked(..), 1 -> []
+    Marked(..), count -> [attribute.style("--rows", int.to_string(count))]
   }
 }
 
 fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
-    Marked -> [attribute.data(live.row_mark, int.to_string(row))]
+    Marked(..) -> [attribute.data(live.row_mark, int.to_string(row))]
   }
 }
 
-/// A code block in a quote is set as body text in the field, a line to a
-/// row, and the page is told how many rows.
+/// Whether the field holds these rows, and on which side of it the run is.
+fn held(rows: Rows, first_row: Int, last_row: Int) -> Option(String) {
+  case rows {
+    Marked(to:, field: Some(live.Region(held_first, held_last)), ..)
+      if first_row >= held_first && last_row <= held_last
+    ->
+      case to <= held_first {
+        True -> Some("held above")
+        False -> Some("held below")
+      }
+    Marked(..) | Unmarked -> None
+  }
+}
+
+/// The class and row mark of a quote, list or item from `first_row` to
+/// `last_row`, which the run may cut. A cut one is marked with the first row
+/// it draws, and one that draws none of the run's rows is not marked.
+fn cut(
+  rows: Rows,
+  first_row: Int,
+  last_row: Int,
+) -> List(attribute.Attribute(msg)) {
+  case rows {
+    Unmarked -> []
+    Marked(from:, to:, ..) -> {
+      let drawn_from = int.max(first_row, from)
+      let mark = case drawn_from <= int.min(last_row, to - 1) {
+        True -> at(rows, drawn_from)
+        False -> []
+      }
+      case first_row < from, last_row >= to {
+        False, False -> mark
+        True, _ -> [attribute.class("cut below"), ..mark]
+        False, True -> [attribute.class("cut above"), ..mark]
+      }
+    }
+  }
+}
+
 fn block(
   shown: Block,
   rows: Rows,
-  in_quote: Bool,
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let here = at(rows, shown.first_row)
   let list_items = fn(listed: List(Item), spacing) {
-    items(listed, spacing, shown.last_row + 1, rows, on_task)
+    items(listed, spacing, shown.first_row, shown.last_row + 1, rows, on_task)
   }
-  case shown.content {
-    Heading(level, text) ->
+  let around = cut(rows, shown.first_row, shown.last_row)
+  case held(rows, shown.first_row, shown.last_row), shown.content {
+    Some(_), Heading(_, []) -> element.none()
+    Some(side), Heading(level, _) -> heading(level, [attribute.class(side)], [])
+    Some(side), Paragraph(_) -> html.p([attribute.class(side)], [])
+    Some(side), Rule -> html.hr([attribute.class(side)])
+    Some(side), CodeBlock(..) -> html.pre([attribute.class(side)], [])
+    Some(side), Table(..) ->
+      html.div([attribute.class("table-scroll " <> side)], [])
+    _, Heading(level, text) ->
       heading(level, list.append(here, rows_of(shown, rows)), inlines(text))
-    Paragraph(text) -> html.p(here, inlines(text))
-    Rule -> html.hr(here)
-    Quote(blocks) ->
+    _, Paragraph(text) -> html.p(here, inlines(text))
+    _, Rule -> html.hr(here)
+    _, Quote(blocks) ->
       html.blockquote(
-        list.append(several_rows(shown, rows), here),
+        around,
         spaced(
           blocks,
           from: shown.first_row,
           to: shown.last_row + 1,
           rows:,
-          draw: fn(child) { [block(child, rows, True, on_task)] },
+          draw: fn(child) { [block(child, rows, on_task)] },
         ),
       )
-    BulletList(spacing, items) -> html.ul(here, list_items(items, spacing))
-    OrderedList(1, spacing, items) -> html.ol(here, list_items(items, spacing))
-    OrderedList(start, spacing, items) ->
+    _, BulletList(spacing, items) -> html.ul(around, list_items(items, spacing))
+    _, OrderedList(1, spacing, items) ->
+      html.ol(around, list_items(items, spacing))
+    _, OrderedList(start, spacing, items) ->
       html.ol(
-        [attribute.attribute("start", int.to_string(start)), ..here],
+        [attribute.attribute("start", int.to_string(start)), ..around],
         list_items(items, spacing),
       )
-    CodeBlock(language, code, code_row) -> {
+    _, CodeBlock(language, code, code_row) -> {
       let class = case language {
         Some(word) -> [attribute.class("language-" <> word)]
         None -> []
       }
-      let count = case in_quote {
-        True -> rows_of(shown, rows)
-        False -> []
-      }
-      html.pre(list.append(at(rows, code_row), count), [
-        html.code(class, [element.text(code)]),
-      ])
+      html.pre(at(rows, code_row), [html.code(class, [element.text(code)])])
     }
-    Table(columns, table_rows) ->
+    _, Table(columns, table_rows) ->
       table(shown.first_row, rows, columns, table_rows)
   }
 }
@@ -296,26 +305,37 @@ fn aligned(
 fn items(
   listed: List(Item),
   spacing: Spacing,
+  start: Int,
   end: Int,
   rows: Rows,
   on_task: fn(Task, Bool) -> msg,
 ) -> List(Element(msg)) {
-  let nexts =
-    list.map(listed, fn(next: Item) { next.row })
-    |> list.drop(1)
-    |> list.append([end])
-  use #(shown, next) <- list.flat_map(list.zip(listed, nexts))
-  let last = last_row(shown) + 1
-  let gap =
+  let gap = fn(from, to) {
     blanks(
       fn(attributes, children) {
         html.li([attribute.aria_hidden(True), ..attributes], children)
       },
       rows,
-      from: last,
-      to: next,
+      from:,
+      to:,
     )
-  [item(shown, spacing, last, rows, on_task), ..gap]
+  }
+  let nexts =
+    list.map(listed, fn(next: Item) { next.row })
+    |> list.drop(1)
+    |> list.append([end])
+  let lead = case listed {
+    [first, ..] -> gap(start, first.row)
+    [] -> gap(start, end)
+  }
+  list.append(
+    lead,
+    list.flat_map(list.zip(listed, nexts), fn(pair) {
+      let #(shown, next) = pair
+      let last = last_row(shown) + 1
+      [item(shown, spacing, last, rows, on_task), ..gap(last, next)]
+    }),
+  )
 }
 
 fn item(
@@ -325,18 +345,27 @@ fn item(
   rows: Rows,
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
-  let here = at(rows, shown.row)
+  let bare = case rows {
+    Marked(from:, to:, ..) -> shown.row < from || shown.row >= to
+    Unmarked -> False
+  }
+  let around = case bare {
+    True -> [attribute.class("bare"), ..cut(rows, shown.row, last_row(shown))]
+    False -> cut(rows, shown.row, last_row(shown))
+  }
   let children =
     spaced(shown.blocks, from: shown.row, to: end, rows:, draw: fn(child) {
-      case child.content, spacing {
-        Paragraph(text), Tight -> inlines(text)
-        _, _ -> [block(child, rows, False, on_task)]
+      case held(rows, child.first_row, child.last_row), child.content, spacing {
+        Some(_), Paragraph(_), Tight -> []
+        None, Paragraph(text), Tight -> inlines(text)
+        _, _, _ -> [block(child, rows, on_task)]
       }
     })
-  case shown.task {
-    None -> html.li(here, children)
-    Some(task) ->
-      html.li([attribute.class("task"), ..here], [
+  case shown.task, bare {
+    None, _ -> html.li(around, children)
+    Some(_), True -> html.li([attribute.class("task"), ..around], children)
+    Some(task), False ->
+      html.li([attribute.class("task"), ..around], [
         html.input([
           attribute.type_("checkbox"),
           attribute.checked(task.checked),

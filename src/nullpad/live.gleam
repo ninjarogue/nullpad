@@ -19,28 +19,57 @@ pub type Region {
 }
 
 /// The rows to put in the text field for a selection that runs from row
-/// `from` to row `to`: those rows, widened to every unit they touch. A unit
-/// is a top-level block, or one item of a top-level list. A row outside every
-/// unit (a blank line between blocks) stands alone.
+/// `from` to row `to`: those rows, widened to every leaf they touch. A leaf
+/// is a block that holds no blocks, at any depth: a heading, a paragraph, a
+/// code block, a table or a rule. A row in no leaf, such as a blank row or
+/// a quote's empty row, stands alone.
 pub fn reveal(blocks: List(Block), from from: Int, to to: Int) -> Region {
   let #(from, to) = #(int.min(from, to), int.max(from, to))
-  use region, unit <- list.fold(units(blocks), Region(from, to))
-  case unit.last_row < from || unit.first_row > to {
+  use region, Placed(leaf:, ..) <- list.fold(
+    placed(blocks, []),
+    Region(from, to),
+  )
+  case leaf.last_row < from || leaf.first_row > to {
     True -> region
     False ->
       Region(
-        first_row: int.min(region.first_row, unit.first_row),
-        last_row: int.max(region.last_row, unit.last_row),
+        first_row: int.min(region.first_row, leaf.first_row),
+        last_row: int.max(region.last_row, leaf.last_row),
       )
   }
 }
 
-fn units(blocks: List(Block)) -> List(Region) {
+/// A leaf, and the quotes and items around it, the innermost first.
+type Placed {
+  Placed(leaf: Block, around: List(Around))
+}
+
+type Around {
+  InQuote
+  InItem(Item)
+}
+
+fn placed(blocks: List(Block), around: List(Around)) -> List(Placed) {
   use block <- list.flat_map(blocks)
   case block.content {
+    Quote(blocks:) -> placed(blocks, [InQuote, ..around])
     BulletList(items:, ..) | OrderedList(items:, ..) ->
-      list.map(items, fn(item) { Region(item.row, item_last_row(item)) })
-    _ -> [Region(block.first_row, block.last_row)]
+      list.flat_map(items, fn(item) {
+        placed(item.blocks, [InItem(item), ..around])
+      })
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule | Table(..) -> [
+      Placed(block, around),
+    ]
+  }
+}
+
+fn items_in(blocks: List(Block)) -> List(Item) {
+  use block <- list.flat_map(blocks)
+  case block.content {
+    Quote(blocks:) -> items_in(blocks)
+    BulletList(items:, ..) | OrderedList(items:, ..) ->
+      list.flat_map(items, fn(item) { [item, ..items_in(item.blocks)] })
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule | Table(..) -> []
   }
 }
 
@@ -49,24 +78,166 @@ fn item_last_row(item: Item) -> Int {
   int.max(last, block.last_row)
 }
 
-/// What the page draws of `blocks` for the rows `from` up to `to`, beside the
-/// field that holds `field`.
+/// What the page draws of `blocks` for the rows `from` up to `to`, beside
+/// the field that holds the rows `field`: every block wholly inside the run,
+/// the leaves the field holds, and every quote, list and item that runs past
+/// the run or holds the field, with only those of its blocks and items. An
+/// ordered list keeps the number of the first item it keeps.
 pub fn cut(
   blocks: List(Block),
   from from: Int,
   to to: Int,
   field field: Option(Region),
 ) -> List(Block) {
-  todo
+  let within = fn(first_row, last_row) {
+    first_row >= from
+    && last_row < to
+    || case field {
+      Some(Region(held_first, held_last)) ->
+        first_row >= held_first && last_row <= held_last
+      None -> False
+    }
+  }
+  let touches = fn(first_row, last_row) {
+    first_row < to
+    && last_row >= from
+    || case field {
+      Some(Region(held_first, held_last)) ->
+        first_row <= held_last && last_row >= held_first
+      None -> False
+    }
+  }
+  prune(blocks, within, touches)
 }
 
-/// `drawn`, with the rows `rows` laid out as `typed` has them.
+fn prune(
+  blocks: List(Block),
+  within: fn(Int, Int) -> Bool,
+  touches: fn(Int, Int) -> Bool,
+) -> List(Block) {
+  use block <- list.filter_map(blocks)
+  let items = fn(items: List(Item)) {
+    let kept =
+      list.map(items, fn(item) {
+        let last_row = item_last_row(item)
+        case within(item.row, last_row), touches(item.row, last_row) {
+          True, _ -> Ok(item)
+          False, True ->
+            Ok(Item(..item, blocks: prune(item.blocks, within, touches)))
+          False, False -> Error(Nil)
+        }
+      })
+    let skipped = list.length(list.take_while(kept, result.is_error))
+    #(skipped, result.values(kept))
+  }
+  case
+    within(block.first_row, block.last_row),
+    touches(block.first_row, block.last_row),
+    block.content
+  {
+    True, _, _ -> Ok(block)
+    False, False, _ -> Error(Nil)
+    False, True, Quote(blocks:) ->
+      Ok(Block(..block, content: Quote(prune(blocks, within, touches))))
+    False, True, BulletList(spacing:, items: listed) ->
+      Ok(Block(..block, content: BulletList(spacing:, items: items(listed).1)))
+    False, True, OrderedList(start:, spacing:, items: listed) -> {
+      let #(skipped, kept) = items(listed)
+      Ok(Block(..block, content: OrderedList(start + skipped, spacing, kept)))
+    }
+    False, True, Heading(..)
+    | False, True, Paragraph(..)
+    | False, True, CodeBlock(..)
+    | False, True, Rule
+    | False, True, Table(..)
+    -> Error(Nil)
+  }
+}
+
+/// `drawn`, with the rows `rows` laid out as `typed` lays them out: the
+/// blocks `typed` has wholly inside them, in the quote or item of `drawn`
+/// that holds them. `drawn` stays as it is where `typed` runs a block or a
+/// different quote or list across the edge of those rows.
 pub fn lay(
   drawn: List(Block),
   typed typed: List(Block),
   rows rows: Region,
 ) -> List(Block) {
-  todo
+  result.unwrap(lay_in(drawn, typed, rows), drawn)
+}
+
+fn lay_in(
+  drawn: List(Block),
+  typed: List(Block),
+  rows: Region,
+) -> Result(List(Block), Nil) {
+  let inside = fn(block: Block) {
+    block.first_row >= rows.first_row && block.last_row <= rows.last_row
+  }
+  let crosses = fn(block: Block) {
+    !inside(block)
+    && block.first_row <= rows.last_row
+    && block.last_row >= rows.first_row
+  }
+  case list.find(drawn, crosses), list.find(typed, crosses) {
+    Error(Nil), Error(Nil) -> {
+      let #(before, rest) =
+        list.split_while(drawn, fn(block) { block.last_row < rows.first_row })
+      let after = list.filter(rest, fn(block) { !inside(block) })
+      Ok(list.flatten([before, list.filter(typed, inside), after]))
+    }
+    Ok(outer), Ok(typed_outer) -> {
+      use content <- result.map(lay_content(outer, typed_outer, rows))
+      list.map(drawn, fn(block) {
+        case block == outer {
+          True -> Block(..block, content:)
+          False -> block
+        }
+      })
+    }
+    Ok(_), Error(Nil) | Error(Nil), Ok(_) -> Error(Nil)
+  }
+}
+
+fn lay_content(
+  drawn: Block,
+  typed: Block,
+  rows: Region,
+) -> Result(markdown.Content, Nil) {
+  let holds = fn(item: Item) {
+    item.row <= rows.first_row && item_last_row(item) >= rows.last_row
+  }
+  let lay_items = fn(items: List(Item), typed_items: List(Item)) {
+    case list.find(items, holds), list.find(typed_items, holds) {
+      Ok(item), Ok(typed_item) -> {
+        use blocks <- result.map(lay_in(item.blocks, typed_item.blocks, rows))
+        list.map(items, fn(each) {
+          case each == item {
+            True -> Item(..item, blocks:)
+            False -> each
+          }
+        })
+      }
+      _, _ -> Error(Nil)
+    }
+  }
+  case drawn.content, typed.content {
+    Quote(blocks), Quote(typed_blocks) ->
+      result.map(lay_in(blocks, typed_blocks, rows), Quote)
+    BulletList(spacing, items), BulletList(_, typed_items) ->
+      result.map(lay_items(items, typed_items), BulletList(spacing, _))
+    OrderedList(start, spacing, items), OrderedList(_, _, typed_items) ->
+      result.map(lay_items(items, typed_items), OrderedList(start, spacing, _))
+    Quote(..), _
+    | BulletList(..), _
+    | OrderedList(..), _
+    | Heading(..), _
+    | Paragraph(..), _
+    | CodeBlock(..), _
+    | Rule, _
+    | Table(..), _
+    -> Error(Nil)
+  }
 }
 
 pub type Kind {
@@ -75,17 +246,21 @@ pub type Kind {
   Mono
   ListItem(task: Bool, marker: String)
   ItemTitle(Level, marker: String)
-  QuoteTitle(Level, in_item: Bool)
 }
 
 /// Whether a row of this kind is drawn at a heading's size.
 pub fn is_title(kind: Kind) -> Bool {
   case kind {
-    Title(_) | ItemTitle(..) | QuoteTitle(..) -> True
+    Title(_) | ItemTitle(..) -> True
     Body | Mono | ListItem(..) -> False
   }
 }
 
+/// How the field is set while it holds the rows `field`: like the one leaf
+/// it holds. A leaf on the row of the item it starts, at any depth, is set
+/// as that item's line, with that item's marker. A field with leaves of one
+/// list is set like the first, and one with other leaves as body text. A
+/// field with no leaf is body text, or the line of the item whose row it is.
 pub fn kind(
   blocks: List(Block),
   field field: Region,
@@ -94,73 +269,54 @@ pub fn kind(
   let held = fn(first_row, last_row) {
     first_row <= field.last_row && last_row >= field.first_row
   }
-  case
+  let leaves =
+    list.filter(placed(blocks, []), fn(placed) {
+      held(placed.leaf.first_row, placed.leaf.last_row)
+    })
+  let tops =
     list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
-  {
-    [Block(content: Heading(text: [], ..), ..)] -> Body
-    [Block(content: Heading(level:, ..), ..)] -> Title(level)
-    [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
-      Mono
-    [Block(content: BulletList(items:, ..), ..)]
-    | [Block(content: OrderedList(items:, ..), ..)] ->
-      case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
-        Ok(first) ->
-          case first.task, heading_in(first.blocks, field, False) {
-            None, Ok(#(level, _)) ->
-              ItemTitle(level, marker: marker(lines, first))
-            Some(_), _ | None, Error(Nil) ->
-              ListItem(
-                task: option.is_some(first.task),
-                marker: marker(lines, first),
-              )
-          }
-        Error(Nil) -> Body
+  case leaves, tops {
+    [one], _ -> leaf_kind(one, lines)
+    [first, _, ..], [Block(content: BulletList(..), ..)]
+    | [first, _, ..], [Block(content: OrderedList(..), ..)]
+    -> leaf_kind(first, lines)
+    [_, _, ..], _ -> Body
+    [], _ ->
+      case
+        field.first_row == field.last_row,
+        list.filter(items_in(blocks), fn(item) { item.row == field.first_row })
+        |> list.last
+      {
+        True, Ok(item) -> item_kind(item, lines)
+        True, Error(Nil) | False, _ -> Body
       }
-    [Block(content: Quote(blocks:), ..)] ->
-      case heading_in(blocks, field, False) {
-        Ok(#(level, in_item)) -> QuoteTitle(level, in_item:)
-        Error(Nil) -> Body
-      }
-    [Block(content: Paragraph(..), ..)] | [Block(content: Rule, ..)] | [] ->
-      Body
-    [_, _, ..] -> Body
   }
 }
 
-/// The level of the heading with text that is the field's one row, inside a
-/// quote or an item, and whether an item holds it. A field of several rows is
-/// set as one block in one size, so a heading over two rows is not set as one.
-fn heading_in(
-  blocks: List(Block),
-  field: Region,
-  in_item: Bool,
-) -> Result(#(Level, Bool), Nil) {
-  let held = fn(first_row, last_row) {
-    first_row <= field.last_row && last_row >= field.first_row
+fn leaf_kind(placed: Placed, lines: List(String)) -> Kind {
+  let Placed(leaf:, around:) = placed
+  let own = case around {
+    [InItem(item), ..] if item.row == leaf.first_row -> Ok(item)
+    [InItem(_), ..] | [InQuote, ..] | [] -> Error(Nil)
   }
-  case
-    list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
-  {
-    [Block(content: Heading(text: [], ..), ..)] -> Error(Nil)
-    [Block(content: Heading(level:, ..), first_row:, last_row:)] ->
-      case first_row == last_row && field == Region(first_row, last_row) {
-        True -> Ok(#(level, in_item))
-        False -> Error(Nil)
-      }
-    [Block(content: Quote(blocks:), ..)] -> heading_in(blocks, field, in_item)
-    [Block(content: BulletList(items:, ..), ..)]
-    | [Block(content: OrderedList(items:, ..), ..)] ->
-      case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
-        Ok(item) -> heading_in(item.blocks, field, True)
-        Error(Nil) -> Error(Nil)
-      }
-    [Block(content: Paragraph(..), ..)]
-    | [Block(content: CodeBlock(..), ..)]
-    | [Block(content: Table(..), ..)]
-    | [Block(content: Rule, ..)]
-    | []
-    | [_, _, ..] -> Error(Nil)
+  case leaf.content, own {
+    Heading(level:, text: [_, ..]), Ok(Item(task: None, ..) as item) ->
+      ItemTitle(level, marker: marker(lines, item))
+    _, Ok(item) -> item_kind(item, lines)
+    Heading(level:, text: [_, ..]), Error(Nil) -> Title(level)
+    CodeBlock(..), Error(Nil) | Table(..), Error(Nil) -> Mono
+    Heading(..), Error(Nil)
+    | Paragraph(..), Error(Nil)
+    | Rule, Error(Nil)
+    | BulletList(..), Error(Nil)
+    | OrderedList(..), Error(Nil)
+    | Quote(..), Error(Nil)
+    -> Body
   }
+}
+
+fn item_kind(item: Item, lines: List(String)) -> Kind {
+  ListItem(task: option.is_some(item.task), marker: marker(lines, item))
 }
 
 fn marker(lines: List(String), item: Item) -> String {

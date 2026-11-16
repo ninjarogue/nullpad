@@ -1678,17 +1678,16 @@ pub fn a_heading_typed_in_an_item_or_a_quote_is_framed_as_that_heading_at_once_t
   assert editor.frame(bare) == Some(live.Body)
 
   let quote = show(item, caret("> ## Hello", 0, 5))
-  assert editor.kind(quote)
-    == Some(live.QuoteTitle(markdown.H2, in_item: False))
-  assert editor.frame(quote)
-    == Some(live.QuoteTitle(markdown.H2, in_item: False))
+  assert editor.kind(quote) == Some(live.Title(markdown.H2))
+  assert editor.frame(quote) == Some(live.Title(markdown.H2))
 
   let nested = show(item, caret("- - # Hello", 0, 6))
-  assert editor.frame(nested) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+  assert editor.frame(nested)
+    == Some(live.ItemTitle(markdown.H1, marker: "- - "))
 
   let quoted = show(item, caret("> - # Hello", 0, 6))
   assert editor.frame(quoted)
-    == Some(live.QuoteTitle(markdown.H1, in_item: True))
+    == Some(live.ItemTitle(markdown.H1, marker: "> - "))
 }
 
 pub fn the_marks_of_a_heading_in_an_item_or_a_quote_removed_frame_the_row_at_once_test() {
@@ -1698,8 +1697,7 @@ pub fn the_marks_of_a_heading_in_an_item_or_a_quote_removed_frame_the_row_at_onc
   assert editor.frame(removed) == Some(live.ListItem(task: False, marker: "- "))
 
   let quote = live("> # Hello\n\nbelow")
-  assert editor.frame(quote)
-    == Some(live.QuoteTitle(markdown.H1, in_item: False))
+  assert editor.frame(quote) == Some(live.Title(markdown.H1))
   let removed = show(quote, caret("> Hello", 0, 2))
   assert editor.frame(removed) == Some(live.Body)
 }
@@ -1735,16 +1733,16 @@ pub fn a_heading_whose_text_is_removed_is_framed_as_body_text_at_once_test() {
   assert editor.frame(emptied) == Some(live.Body)
 }
 
-pub fn a_setext_heading_in_an_item_or_a_quote_is_set_as_that_item_or_quote_test() {
+pub fn a_setext_heading_in_an_item_or_a_quote_is_set_as_a_heading_test() {
   let item = live("- Hello\n  ===\n\nbelow")
   assert editor.region(item) == Some(Region(0, 1))
-  assert editor.kind(item) == Some(live.ListItem(task: False, marker: "- "))
-  assert editor.frame(item) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.kind(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+  assert editor.frame(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
 
   let quote = live("> Hello\n> ---\n\nbelow")
   assert editor.region(quote) == Some(Region(0, 1))
-  assert editor.kind(quote) == Some(live.Body)
-  assert editor.frame(quote) == Some(live.Body)
+  assert editor.kind(quote) == Some(live.Title(markdown.H2))
+  assert editor.frame(quote) == Some(live.Title(markdown.H2))
 }
 
 pub fn the_marks_of_a_heading_removed_frame_the_row_as_body_text_at_once_test() {

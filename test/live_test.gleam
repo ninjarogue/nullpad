@@ -330,7 +330,7 @@ pub fn a_blank_row_between_two_items_is_set_as_body_text_test() {
 fn marker(field_text: String) -> String {
   case kind_of(field_text) {
     live.ListItem(marker:, ..) | live.ItemTitle(marker:, ..) -> marker
-    live.Body | live.Mono | live.Title(_) | live.QuoteTitle(..) -> "not an item"
+    live.Body | live.Mono | live.Title(_) -> "not an item"
   }
 }
 

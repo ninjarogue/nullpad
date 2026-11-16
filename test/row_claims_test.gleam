@@ -2,10 +2,11 @@
 //// row once. Notes are generated from realistic pieces by a seeded generator,
 //// so a failure repeats, and a failing case is shrunk before it is shown.
 ////
-//// The rule: a row is claimed by the span of one top-level block, or it lies
-//// outside every block and the page draws it as one empty line (`div.blank`),
-//// and then its text must be blank. A row the page draws by two blocks, or
-//// as an empty line while it holds text, would jump or vanish.
+//// The rule: a row is drawn once, by the leaf that holds it, by the item
+//// whose marker it holds, or as one empty line (`div.blank`) between blocks,
+//// and the empty line of a row outside every block holds no text. A row the
+//// page draws twice, or as an empty line while it holds text, would jump or
+//// vanish.
 
 import gleam/int
 import gleam/list
@@ -333,15 +334,20 @@ fn row_range(first: Int, last: Int) -> List(Int) {
   }
 }
 
-/// The rows of the `div.blank` the page draws, each with how deep it sits:
+/// The rows of the `div.blank` and `li.blank` the page draws, each with how deep it sits:
 /// 1 for a child of the part itself, more for one a block draws inside.
-fn blank_rows(blocks: List(Block), from: Int, to: Int) -> List(#(Int, Int)) {
+fn blank_rows(
+  blocks: List(Block),
+  from: Int,
+  to: Int,
+  field: Option(Region),
+) -> List(#(Int, Int)) {
   let html =
     preview.part(
       blocks,
       rows: to - from,
       first_row: from,
-      field: None,
+      field:,
       test_id: "part",
       on_task: fn(_, _) { Nil },
     )
@@ -362,15 +368,23 @@ fn blank_rows(blocks: List(Block), from: Int, to: Int) -> List(#(Int, Int)) {
           }
           let found = case
             string.starts_with(tag, "div class=\"blank\" data-row=\"")
+            || string.starts_with(
+              tag,
+              "li aria-hidden=\"true\" class=\"blank\" data-row=\"",
+            )
           {
             True ->
-              case string.split(tag, "\"") {
-                [_, _, _, row, ..] ->
-                  case int.parse(row) {
-                    Ok(row) -> [#(row, depth), ..found]
+              case string.split_once(tag, "data-row=\"") {
+                Ok(#(_, rest)) ->
+                  case string.split_once(rest, "\"") {
+                    Ok(#(row, _)) ->
+                      case int.parse(row) {
+                        Ok(row) -> [#(row, depth), ..found]
+                        Error(Nil) -> found
+                      }
                     Error(Nil) -> found
                   }
-                _ -> found
+                Error(Nil) -> found
               }
             False -> found
           }
@@ -388,13 +402,16 @@ type Claims {
   Claims(by_blocks: List(Int), as_blank: List(Int), inner_blank: List(Int))
 }
 
-fn part_claims(blocks: List(Block), from: Int, to: Int) -> Claims {
-  let shown = preview.inside(blocks, from:, to:)
-  let drawn = blank_rows(blocks, from, to)
+fn part_claims(
+  blocks: List(Block),
+  from: Int,
+  to: Int,
+  field: Option(Region),
+) -> Claims {
+  let shown = live.cut(blocks, from:, to:, field:)
+  let drawn = blank_rows(blocks, from, to, field)
   Claims(
-    by_blocks: list.flat_map(shown, fn(block) {
-      row_range(block.first_row, block.last_row)
-    }),
+    by_blocks: list.flat_map(shown, drawn_rows(_, from, to)),
     as_blank: list.filter_map(drawn, fn(blank) {
       case blank.1 {
         1 -> Ok(blank.0)
@@ -410,6 +427,24 @@ fn part_claims(blocks: List(Block), from: Int, to: Int) -> Claims {
   )
 }
 
+/// The rows a block a part keeps draws as text: every row of a leaf inside
+/// the part. A leaf the field holds draws none, and the other rows of a quote
+/// or an item, its marker's row among them, are drawn as blanks.
+fn drawn_rows(block: Block, from: Int, to: Int) -> List(Int) {
+  case block.content {
+    Quote(blocks) -> list.flat_map(blocks, drawn_rows(_, from, to))
+    BulletList(_, items) | OrderedList(_, _, items) ->
+      list.flat_map(items, fn(item: Item) {
+        list.flat_map(item.blocks, drawn_rows(_, from, to))
+      })
+    _ ->
+      case block.first_row >= from && block.last_row < to {
+        True -> row_range(block.first_row, block.last_row)
+        False -> []
+      }
+  }
+}
+
 /// Rows 0 to n - 1 as the app draws them: the part above the field, the field,
 /// the part below. With no field the whole note is one part.
 fn check_page(
@@ -419,19 +454,23 @@ fn check_page(
 ) -> Result(Nil, String) {
   let count = list.length(rows)
   let #(above, held, under) = case field {
-    None -> #(part_claims(blocks, 0, count), [], Claims([], [], []))
+    None -> #(part_claims(blocks, 0, count, None), [], Claims([], [], []))
     Some(Region(first_row:, last_row:)) -> #(
-      part_claims(blocks, 0, first_row),
+      part_claims(blocks, 0, first_row, field),
       row_range(first_row, last_row),
-      part_claims(blocks, last_row + 1, count),
+      part_claims(blocks, last_row + 1, count, field),
     )
   }
-  let inner_kept =
-    list.all(above.inner_blank, list.contains(above.by_blocks, _))
-    && list.all(under.inner_blank, list.contains(under.by_blocks, _))
   let blanks = list.append(above.as_blank, under.as_blank)
   let claimed =
-    list.flatten([above.by_blocks, held, under.by_blocks, blanks])
+    list.flatten([
+      above.by_blocks,
+      above.inner_blank,
+      held,
+      under.by_blocks,
+      under.inner_blank,
+      blanks,
+    ])
     |> list.sort(int.compare)
   let wanted = row_range(0, count - 1)
   let texts_blank =
@@ -441,7 +480,7 @@ fn check_page(
         [] -> False
       }
     })
-  case claimed == wanted && inner_kept, texts_blank {
+  case claimed == wanted, texts_blank {
     True, True -> Ok(Nil)
     False, _ ->
       Error(

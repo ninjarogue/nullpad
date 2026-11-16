@@ -177,7 +177,6 @@ fn marker(setting: Option(editor.Setting)) -> attribute.Attribute(msg) {
     Some(editor.Setting(kind: live.Body, ..))
     | Some(editor.Setting(kind: live.Mono, ..))
     | Some(editor.Setting(kind: live.Title(_), ..))
-    | Some(editor.Setting(kind: live.QuoteTitle(..), ..))
     | None -> attribute.none()
   }
 }
@@ -195,17 +194,13 @@ fn classes(editor: Editor, setting: Option(editor.Setting)) -> String {
   }
 }
 
-/// What sets the height and margins of rows of a kind.
+/// What sets the height of the lines of a kind. The page around the field
+/// keeps its margins.
 fn rows_of(kind: live.Kind) -> String {
   case kind {
-    live.Body -> "body"
+    live.Body | live.ListItem(..) -> "body"
     live.Mono -> "mono"
-    live.ListItem(task: False, ..) -> "item"
-    live.ListItem(task: True, ..) -> "task"
-    live.Title(level) -> heading_class(level)
-    live.ItemTitle(level, ..) -> "item-" <> heading_class(level)
-    live.QuoteTitle(level, in_item:) ->
-      "quote-" <> heading_class(level) <> bool.to_string(in_item)
+    live.Title(level) | live.ItemTitle(level, ..) -> heading_class(level)
   }
 }
 
@@ -217,10 +212,6 @@ fn set_as(kind: live.Kind) -> String {
     live.ListItem(task: True, ..) -> "editor part item task"
     live.Title(level) -> "editor part " <> heading_class(level)
     live.ItemTitle(level, ..) -> "editor part item " <> heading_class(level)
-    live.QuoteTitle(level, in_item: False) ->
-      "editor part quote " <> heading_class(level)
-    live.QuoteTitle(level, in_item: True) ->
-      "editor part quote quoted-item " <> heading_class(level)
   }
 }
 
