@@ -363,6 +363,103 @@ test('locate: CSS in a real rule is found, in a media block, after a comment, an
   );
 });
 
+test('locate: a file outside src/ and assets/ is not code of the app, whatever it holds', async () => {
+  await inSource(
+    {
+      'src/toy.mjs': 'const two = 1 + 1;\n',
+      'e2e/tests/own.ts': 'export const two = 1 + 1;\n',
+      'test/toy.mjs': 'export const two = 1 + 1;\n',
+      'build/dev/javascript/nullpad/toy.mjs': 'export const two = 1 + 1;\n',
+      'srcs/toy.mjs': 'export const two = 1 + 1;\n',
+      'assets-old/toy.css': '.a { color: red }\n',
+    },
+    (root) => {
+      for (const [file, text] of [
+        ['e2e/tests/own.ts', 'export const two = 1 + 1;'],
+        ['test/toy.mjs', 'export const two = 1 + 1;'],
+        ['build/dev/javascript/nullpad/toy.mjs', 'export const two = 1 + 1;'],
+        ['src/../e2e/tests/own.ts', 'export const two = 1 + 1;'],
+        ['src/../../e2e/tests/own.ts', 'export const two = 1 + 1;'],
+        ['srcs/toy.mjs', 'export const two = 1 + 1;'],
+        ['assets-old/toy.css', 'color: red'],
+        ['/src/toy.mjs', 'const two = 1 + 1;'],
+      ]) {
+        const message = missed({ file: file!, text: text! }, root);
+        expect(message, `${file}: ${message}`).toMatch(/not under src\/ or assets\//);
+      }
+    },
+  );
+});
+
+test('locate: a file under src/ or assets/ is code of the app, however its path is written', async () => {
+  await inSource({ 'src/toy.mjs': 'const two = 1 + 1;\n', 'src/deep/toy.mjs': 'const three = 3;\n', 'assets/toy.css': '.a { color: red }\n' }, (root) => {
+    expect(locate({ file: './src/toy.mjs', text: 'const two = 1 + 1;' }, root).line).toBe(1);
+    expect(locate({ file: 'src/deep/../toy.mjs', text: 'const two = 1 + 1;' }, root).line).toBe(1);
+    expect(locate({ file: 'src/deep/toy.mjs', text: 'const three = 3;' }, root).line).toBe(1);
+    expect(locate({ file: 'assets/toy.css', text: 'color: red' }, root).line).toBe(1);
+  });
+});
+
+test('sources: a pending fact that relies on a file outside src/ and assets/ is not named by sources, and the table says so', async () => {
+  await inSource({ 'src/toy.mjs': 'const two = 1 + 1;\n', 'e2e/tests/own.ts': 'export const two = 1 + 1;\n' }, (root) => {
+    const outside = { file: 'e2e/tests/own.ts', text: 'export const two = 1 + 1;' };
+    const pending = toy({ id: 'toy-pending-outside', pending: 'not merged yet', relied: [outside] });
+    expect(sources(pending, root)).toEqual([]);
+    expect(problemsWithTable([pending]).join('\n')).toMatch(/toy-pending-outside.*e2e\/tests\/own\.ts.*src\/ or assets\//s);
+  });
+});
+
+test('problemsWithTable: names a fact that relies on a file outside src/ and assets/, and one that does not', () => {
+  const problems = problemsWithTable([
+    toy(),
+    toy({ id: 'toy-test-file', relied: [{ file: 'e2e/tests/nullpad.ts', text: 'export const autosaveMs = 800;' }] }),
+    toy({ id: 'toy-built', relied: [{ file: 'src/toy.mjs', text: 'x' }, { file: 'build/dev/javascript/nullpad/surface.mjs', text: 'x' }] }),
+    toy({ id: 'toy-escape', relied: [{ file: 'src/../test/keystroke_cost.mjs', text: 'x' }] }),
+  ]);
+  const all = problems.join('\n');
+  expect(all).toMatch(/toy-test-file.*e2e\/tests\/nullpad\.ts.*src\/ or assets\//s);
+  expect(all).toMatch(/toy-built.*build\/dev\/javascript\/nullpad\/surface\.mjs.*src\/ or assets\//s);
+  expect(all).toMatch(/toy-escape.*keystroke_cost\.mjs.*src\/ or assets\//s);
+  expect(all).not.toMatch(/toy-addition/);
+  expect(problems).toHaveLength(3);
+});
+
+test('locate: text that is only inside a regular expression is a pattern and not code that relies on anything', async () => {
+  await inSource(
+    {
+      'src/pattern.mjs': 'const found = /requestAnimationFrame\\(keep\\)/;\nrun();\n',
+      'src/flags.ts': 'const found = /getSelection/gi;\nrun();\n',
+      'src/both.mjs': 'const found = /getSelection/;\nwindow.getSelection();\n',
+      'src/division.mjs': 'const half = total / 2 / parts;\n',
+    },
+    (root) => {
+      expect(missed({ file: 'src/pattern.mjs', text: 'requestAnimationFrame\\(keep\\)' }, root)).toMatch(/only in a regular expression/);
+      expect(missed({ file: 'src/flags.ts', text: 'getSelection' }, root)).toMatch(/only in a regular expression/);
+      expect(locate({ file: 'src/both.mjs', text: 'getSelection' }, root).line).toBe(2);
+      expect(locate({ file: 'src/division.mjs', text: 'total / 2 / parts' }, root).line).toBe(1);
+    },
+  );
+});
+
+test('locate: text with a regular expression in it is code when more than the pattern is named', async () => {
+  await inSource({ 'src/apple.mjs': 'const apple = /Mac|iPhone/.test(navigator.platform);\n' }, (root) => {
+    expect(locate({ file: 'src/apple.mjs', text: 'const apple = /Mac|iPhone/.test(navigator.platform);' }, root).line).toBe(1);
+    expect(locate({ file: 'src/apple.mjs', text: '.test(navigator.platform)' }, root).line).toBe(1);
+  });
+});
+
+test('locate: known limit: CSS in a block that never applies counts as a rule, because only braces are read', async () => {
+  await inSource(
+    {
+      'assets/never.css': '@media not all {\n  li::marker { line-height: 0 }\n}\n@supports (not (display: block)) and (display: block) {\n  li::marker { line-height: 1 }\n}\n',
+    },
+    (root) => {
+      expect(locate({ file: 'assets/never.css', text: 'line-height: 0' }, root).line).toBe(2);
+      expect(locate({ file: 'assets/never.css', text: 'line-height: 1' }, root).line).toBe(5);
+    },
+  );
+});
+
 test('sources: a pending fact whose code has landed fails, and says to un-pend it', async () => {
   await inSource(toySource, async (root) => {
     const landed = toy({ pending: 'the branch that adds it is not merged', relied: [{ file: 'src/toy.mjs', text: 'const two = 1 + 1;' }] });
