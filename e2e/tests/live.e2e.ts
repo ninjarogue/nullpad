@@ -1571,13 +1571,13 @@ test('a right-click on the drawn page leaves the caret and the focus where they 
   await expect(page.text).toHaveValue('firstX');
 });
 
-for (const [what, typed, below] of [
-  ['a dash', '- x', 'below words'],
-  ['indented code', '    c', 'below words'],
-  ['seven heading marks', '#######', 'below words'],
-  ['a heading mark before a word', '#tag', 'below words'],
-  ['a task', '- [ ] t', 'below words'],
-  ['a number above a list', '1. n', '3. alpha\n4. beta'],
+for (const [what, heading, typed, below] of [
+  ['a dash', '', '- x', 'below words'],
+  ['indented code', '', '    c', 'below words'],
+  ['a seventh heading mark', '######', '#', 'below words'],
+  ['a word after a heading mark', '#', 'tag', 'below words'],
+  ['a task', '', '- [ ] t', 'below words'],
+  ['a number above a list', '', '1. n', '3. alpha\n4. beta'],
 ] as const) {
   test(`${what} typed on an empty row moves nothing around it and keeps the row's height`, async ({
     app,
@@ -1598,7 +1598,9 @@ for (const [what, typed, below] of [
     await page.nextFrame();
     const still = await measure();
 
-    let sofar = '';
+    for (const key of heading) await browser.keyboard.type(key);
+    await expect(page.text).toHaveValue(heading);
+    let sofar = heading;
     for (const key of typed) {
       await browser.keyboard.type(key);
       sofar += key;
