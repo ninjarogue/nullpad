@@ -5,6 +5,7 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fact, locate, noticed, problemsWithTable, sources, verify } from './browser-facts.ts';
 import type { Fact, Reliance } from './browser-facts.ts';
+import { facts } from './browser-facts-table.ts';
 
 /**
  * Break cases for the machinery under `browser-facts.e2e.ts`: how a fact
@@ -403,3 +404,44 @@ test('sources: a pending fact fails when only one of the things it relies on has
     expect(thrown(() => sources(half, root))).toContain('un-pend it');
   });
 });
+
+/** What a look at a page never gives. A `holds` that takes one of these for a fact that holds passes without looking at anything. */
+const nothingSeen: unknown[] = [undefined, null, {}, [], 0, NaN, '', 'x', false, true, 1, [0], [null], { a: 1 }, { a: [] }, { platform: '', agent: '' }, { platform: 'Linux', agent: 'x' }];
+
+const accepted = (entry: Fact) =>
+  nothingSeen.filter((value) => {
+    try {
+      return entry.holds(value) === null;
+    } catch {
+      return false;
+    }
+  });
+
+test('problemsWithTable: names a fact whose holds takes what no look at a page gives', () => {
+  const lax = toy({ id: 'toy-lax', holds: (seen: any) => (seen > 2 ? `it added up to ${seen}` : null) });
+  const quiet = toy({ id: 'toy-quiet', holds: (seen: any) => (seen?.sum === 2 ? null : 'it did not add up') });
+  const problems = problemsWithTable([toy(), lax, quiet]);
+  expect(problems.join('\n')).toMatch(/toy-lax.*(takes|accepts)/s);
+  expect(problems).toHaveLength(1);
+});
+
+test('problemsWithTable: a holds that throws on what no look gives is not lax, and one that takes a list of nothing is', () => {
+  const throwing = toy({ id: 'toy-throws', holds: (seen: any) => (seen.sum === 2 ? null : 'it did not add up') });
+  expect(problemsWithTable([throwing])).toEqual([]);
+  const empty = toy({ id: 'toy-empty', holds: (seen: any) => (Array.isArray(seen) && seen.length === 0 ? null : 'it fired events') });
+  expect(problemsWithTable([empty]).join('\n')).toContain('toy-empty');
+});
+
+for (const id of [
+  'platform-names-apple-devices',
+  'marker-line-height-zero',
+  'script-writes-fire-no-input',
+  'collapsed-range-in-an-empty-element',
+  'desktop-has-hover',
+  'touch-device-has-no-hover',
+]) {
+  test(`${id}: holds takes nothing that no look at a page gives`, () => {
+    const entry = facts.find((candidate) => candidate.id === id)!;
+    expect(accepted(entry).map((value) => JSON.stringify(value) ?? 'undefined')).toEqual([]);
+  });
+}
