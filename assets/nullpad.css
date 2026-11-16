@@ -400,6 +400,32 @@ button[aria-pressed="true"] {
   line-height: 0;
 }
 
+/* A marker is set in the size of the heading that starts its item, as the
+   field sets the item's line, so it is centred on the heading's letters. */
+.preview li:has(> h1:first-child)::marker {
+  font-size: var(--h1);
+}
+
+.preview li:has(> h2:first-child)::marker {
+  font-size: var(--h2);
+}
+
+.preview li:has(> h3:first-child)::marker {
+  font-size: var(--h3);
+}
+
+.preview li:has(> h4:first-child)::marker {
+  font-size: var(--h4);
+}
+
+.preview li:has(> h5:first-child)::marker {
+  font-size: var(--h5);
+}
+
+.preview li:has(> h6:first-child)::marker {
+  font-size: var(--h6);
+}
+
 /* The two fence rows of a code block are its top and bottom padding. Its
    lines are set as in the field, with no strut of body text among them. */
 .page.live .preview pre,
