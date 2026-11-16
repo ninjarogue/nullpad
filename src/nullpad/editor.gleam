@@ -1083,8 +1083,8 @@ pub type Setting {
 /// joins a block outside the field.
 ///
 /// `frame`: the kind of the field's rows as the page was laid out, so the
-/// page around a row typed as another kind does not move. A heading with text
-/// is the exception: a row typed as one, or a heading's row typed as
+/// page around a row typed as another kind does not move. A heading, even
+/// one with no text yet, is the exception: a row typed as one, or a heading's row typed as
 /// something else, is framed as typed at once, and the rows below move once.
 ///
 /// None while the field holds the whole note.

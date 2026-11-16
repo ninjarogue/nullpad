@@ -77,7 +77,6 @@ pub fn kind(
   case
     list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
   {
-    [Block(content: Heading(text: [], ..), ..)] -> Body
     [Block(content: Heading(level:, ..), ..)] -> Title(level)
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
@@ -107,7 +106,7 @@ pub fn kind(
   }
 }
 
-/// The level of the heading with text that is the field's one row, inside a
+/// The level of the heading that is the field's one row, inside a
 /// quote or an item, and whether an item holds it. A field of several rows is
 /// set as one block in one size, so a heading over two rows is not set as one.
 fn heading_in(
@@ -121,7 +120,6 @@ fn heading_in(
   case
     list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
   {
-    [Block(content: Heading(text: [], ..), ..)] -> Error(Nil)
     [Block(content: Heading(level:, ..), first_row:, last_row:)] ->
       case first_row == last_row && field == Region(first_row, last_row) {
         True -> Ok(#(level, in_item))

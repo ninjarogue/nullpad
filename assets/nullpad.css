@@ -372,13 +372,6 @@ button[aria-pressed="true"] {
   margin-top: 0;
 }
 
-/* A heading with no text is set as body text in the field, so on the page
-   it is one empty line too. */
-.page.live .preview :is(h1, h2, h3, h4, h5, h6):empty {
-  height: 1.7rem;
-  margin-block: 0;
-}
-
 /* The field sets every row of an item or a quote in one line height, so
    nothing but the field's own margins sets its rows apart on the page. */
 .page.live .preview :is(li, blockquote) :is(li, ul, ol, blockquote) {
@@ -395,38 +388,38 @@ button[aria-pressed="true"] {
    There a heading takes at least the lines of its rows (`--rows`, set where
    it is more than one), and a heading taller than its row gives what it
    takes over back to a blank row next to it, where nothing is drawn. */
-.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6):not(:empty) {
+.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6) {
   --over: min(0px, var(--rows, 1) * 1.7rem - 1lh);
   margin-block: 0;
   min-height: calc(var(--rows, 1) * 1.7rem);
 }
 
-.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6):not(:empty):has(+ .blank),
-.page.live .preview blockquote.rows :has(+ .blank) > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child,
-.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child,
-.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :last-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child {
+.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6):has(+ .blank),
+.page.live .preview blockquote.rows :has(+ .blank) > :is(h1, h2, h3, h4, h5, h6):last-child,
+.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child,
+.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child {
   margin-bottom: var(--over);
 }
 
-.page.live .preview blockquote.rows .blank + :is(h1, h2, h3, h4, h5, h6):not(:empty):not(:has(+ .blank)),
-.page.live .preview blockquote.rows .blank + * > :is(h1, h2, h3, h4, h5, h6):not(:empty):first-child:not(:last-child):not(:has(+ .blank)),
-.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child,
-.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):not(:empty):only-child {
+.page.live .preview blockquote.rows .blank + :is(h1, h2, h3, h4, h5, h6):not(:has(+ .blank)),
+.page.live .preview blockquote.rows .blank + * > :is(h1, h2, h3, h4, h5, h6):first-child:not(:last-child):not(:has(+ .blank)),
+.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):only-child,
+.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):only-child {
   margin-top: var(--over);
 }
 
-/* A heading with text keeps its line, even where its text draws nothing. */
-.page.live .preview :is(h1, h2, h3, h4, h5, h6):not(:empty) {
+/* A heading keeps its line, even with no text or text that draws nothing. */
+.page.live .preview :is(h1, h2, h3, h4, h5, h6) {
   min-height: 1lh;
 }
 
 /* The field sets a setext heading on its own a line to a row. */
-.page.live .preview > :is(h1, h2, h3, h4, h5, h6):not(:empty) {
+.page.live .preview > :is(h1, h2, h3, h4, h5, h6) {
   min-height: calc(var(--rows, 1) * 1lh);
 }
 
 /* The field sets a heading in a quote in an item as a heading in an item. */
-.page.live .preview li blockquote:not(.rows) > :is(h1, h2, h3, h4, h5, h6):not(:empty):last-child {
+.page.live .preview li blockquote:not(.rows) > :is(h1, h2, h3, h4, h5, h6):last-child {
   margin-bottom: 0.5em;
 }
 
