@@ -796,7 +796,8 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       let #(placed, undrawn) = case line, placed.row - head.row {
         True, apart if apart > 1 -> #(undrawn_row(editor, head, 1), True)
         True, apart if apart < -1 -> #(undrawn_row(editor, head, -1), True)
-        _, _ -> #(placed, False)
+        True, _ -> #(among_marks(editor, head, placed, visible:, next:), False)
+        False, _ -> #(placed, False)
       }
       let placed = in_row(editor, row:, visible:, from: head, to: placed)
       let anchor = case select {
@@ -1305,11 +1306,49 @@ fn line_at(editor: Editor, row: Int) -> #(Position, Position) {
 /// as it does in a text field, at the run's column.
 fn undrawn_row(editor: Editor, head: Position, by: Int) -> Position {
   let row = head.row + by
-  let col = case editor.goal {
+  Position(
+    row:,
+    col: int.min(run_col(editor, head), line_end(editor.buffer, row).col),
+  )
+}
+
+/// A line step the page lands before the marks it hides at the start of a
+/// list item's row, beside the text where it draws the item's marker, takes
+/// the run's column among those marks, as a text field of the markdown does.
+/// `visible` and `next` are where the page's step reached, as for
+/// `live.position`, which names no drawn character next there.
+fn among_marks(
+  editor: Editor,
+  head: Position,
+  placed: Position,
+  visible visible: String,
+  next next: String,
+) -> Position {
+  let row_start = list.last(string.split(visible, "\n")) == Ok("")
+  let blocks = case editor.field {
+    Part(parsed:, ..) -> parsed
+    Whole -> []
+  }
+  case row_start && next == "" && placed.col == 0 {
+    False -> placed
+    True ->
+      case live.text_col(blocks, placed.row) {
+        None -> placed
+        Some(text) -> {
+          let marks = int.min(text, line_end(editor.buffer, placed.row).col)
+          Position(..placed, col: int.min(run_col(editor, head), marks))
+        }
+      }
+  }
+}
+
+/// The column a run of moves up and down keeps, or the head's before it has
+/// one.
+fn run_col(editor: Editor, head: Position) -> Int {
+  case editor.goal {
     Some(Goal(col:, ..)) -> col
     None -> head.col
   }
-  Position(row:, col: int.min(col, line_end(editor.buffer, row).col))
 }
 
 fn line_end(in: Buffer, row: Int) -> Position {

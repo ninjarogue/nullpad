@@ -85,6 +85,38 @@ pub fn kind(
   }
 }
 
+/// The column where the text of the innermost list item holding `row`
+/// starts, past its indentation and marker, or `None` outside every item.
+pub fn text_col(blocks: List(Block), row: Int) -> Option(Int) {
+  let holding =
+    list.find(blocks, fn(block) {
+      block.first_row <= row && row <= block.last_row
+    })
+  case holding {
+    Ok(Block(content: Quote(blocks:), ..)) -> text_col(blocks, row)
+    Ok(Block(content: BulletList(items:, ..), ..))
+    | Ok(Block(content: OrderedList(items:, ..), ..)) ->
+      case
+        list.find(items, fn(item) {
+          item.row <= row && row <= item_last_row(item)
+        })
+      {
+        Ok(item) ->
+          case text_col(item.blocks, row) {
+            Some(col) -> Some(col)
+            None -> Some(item.content_col)
+          }
+        Error(Nil) -> None
+      }
+    Ok(Block(content: Heading(..), ..))
+    | Ok(Block(content: Paragraph(..), ..))
+    | Ok(Block(content: CodeBlock(..), ..))
+    | Ok(Block(content: Rule, ..))
+    | Ok(Block(content: Table(..), ..))
+    | Error(Nil) -> None
+  }
+}
+
 fn marker(lines: List(String), item: Item) -> String {
   lines
   |> list.drop(item.row)

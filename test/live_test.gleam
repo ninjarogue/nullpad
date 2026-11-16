@@ -3,6 +3,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/order
 import gleam/string
 import nullpad/buffer.{Position}
@@ -547,4 +548,14 @@ pub fn a_place_inside_a_pair_settles_the_way_the_head_went_test() {
   assert settle_toward(line, visible, 11, order.Gt) == 13
   assert settle_toward(line, visible, 13, order.Lt) == 13
   assert settle_toward(line, visible, 16, order.Gt) == 16
+}
+
+pub fn the_text_of_a_list_item_starts_past_its_marks_test() {
+  let blocks = markdown.parse("> a\n> - b\n>   - c\n\nd\n\n- x\n\n  y")
+  assert live.text_col(blocks, 0) == None
+  assert live.text_col(blocks, 1) == Some(4)
+  assert live.text_col(blocks, 2) == Some(6)
+  assert live.text_col(blocks, 4) == None
+  assert live.text_col(blocks, 6) == Some(2)
+  assert live.text_col(blocks, 8) == Some(2)
 }
