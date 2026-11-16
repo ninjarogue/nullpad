@@ -39,11 +39,33 @@ async function file(path) {
   }
 }
 
-createServer(async (request, response) => {
-  const path = normalize(new URL(request.url, "http://localhost").pathname);
+async function answer(request) {
+  let path;
+  try {
+    path = normalize(new URL(request.url, "http://localhost").pathname);
+  } catch {
+    return { status: 400 };
+  }
   const page = { "/": app, "/blank": blank }[path];
   const body = page ?? (await file(path));
-  const type = page ? "text/html" : types[extname(path)];
-  if (body === undefined) return response.writeHead(404).end();
-  response.writeHead(200, { "content-type": type }).end(body);
+  if (body === undefined) return { status: 404 };
+  return { status: 200, body, type: page ? "text/html" : (types[extname(path)] ?? "application/octet-stream") };
+}
+
+// A request that throws must not stop the server: every test after a dead one
+// is refused its connection and says nothing of why.
+const complain = (what, error) => console.error(`serve: ${what}: ${error?.stack ?? error}`);
+process.on("uncaughtException", (error) => complain("uncaught exception", error));
+process.on("unhandledRejection", (error) => complain("unhandled rejection", error));
+
+createServer(async (request, response) => {
+  try {
+    const { status, body, type } = await answer(request);
+    if (body === undefined) response.writeHead(status).end();
+    else response.writeHead(status, { "content-type": type }).end(body);
+  } catch (error) {
+    complain(`${request.method} ${request.url}`, error);
+    if (!response.headersSent) response.writeHead(500);
+    response.end();
+  }
 }).listen(Number(process.argv[2]), "127.0.0.1");

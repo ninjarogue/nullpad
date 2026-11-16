@@ -87,7 +87,7 @@ describe("a request the server cannot answer", () => {
     });
   });
 
-  test("a percent escape that is not text gets a 400, and the server goes on", slow, async () => {
+  test("a percent escape that is not text gets an error status, and the server goes on", slow, async () => {
     await serving(async (port, alive) => {
       const answer = await get(port, "/%E0%A4%A").catch((error) => ({ status: error.code }));
       assert.ok([400, 404].includes(answer.status), `GET /%E0%A4%A got ${answer.status}`);
