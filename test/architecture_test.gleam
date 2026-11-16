@@ -34,20 +34,30 @@ pub fn every_break_is_judged_as_listed_test() {
   let files = source()
   let wrong =
     list.filter_map(all_breaks(), fn(break) {
-      let before = read_text(break.path)
-      let after = break.change(before)
-      let changed = rules.read(Source(break.path, after))
+      let edits = case break {
+        Break(path:, change:, ..) -> [#(path, change)]
+        Breaks(edits:, ..) -> edits
+      }
+      let paths = list.map(edits, fn(edit) { edit.0 })
+      let texts =
+        list.map(edits, fn(edit) {
+          let before = read_text(edit.0)
+          #(edit.0, before, edit.1(before))
+        })
+      let idle = list.any(texts, fn(text) { text.1 == text.2 })
       let report =
-        rules.judge([
-          changed,
-          ..list.filter(files, fn(file) { rules.path(file) != break.path })
-        ])
+        rules.judge(list.append(
+          list.map(texts, fn(text) { rules.read(Source(text.0, text.2)) }),
+          list.filter(files, fn(file) {
+            !list.contains(paths, rules.path(file))
+          }),
+        ))
       let fails = report.broken != [] || report.faults != []
       let breaks = fn(rule) {
         report.faults == []
         && list.any(report.broken, fn(one) { one.rule == rule })
       }
-      case after == before, break.kind {
+      case idle, break.kind {
         True, _ -> Error("the edit did nothing: " <> break.name)
         False, Caught(rule) ->
           case breaks(rule) {
@@ -111,7 +121,13 @@ pub fn every_rule_has_a_break_that_proves_it_test() {
 }
 
 fn all_breaks() -> List(Break) {
-  list.flatten([breaks(), outside_breaks(), second_round(), third_round()])
+  list.flatten([
+    breaks(),
+    outside_breaks(),
+    second_round(),
+    third_round(),
+    fourth_round(),
+  ])
 }
 
 fn swap(result: Result(a, b)) -> Result(b, a) {
@@ -170,6 +186,8 @@ type Kind {
 
 type Break {
   Break(kind: Kind, name: String, path: String, change: fn(String) -> String)
+  /// A break that edits more than one file.
+  Breaks(kind: Kind, name: String, edits: List(#(String, fn(String) -> String)))
 }
 
 fn first(text: String) -> fn(String) -> String {
@@ -191,6 +209,10 @@ fn after(anchor: String, text: String) -> fn(String) -> String {
   fn(rest) { string.replace(rest, anchor, anchor <> text) }
 }
 
+fn instead(old: String, new: String) -> fn(String) -> String {
+  fn(rest) { string.replace(rest, old, new) }
+}
+
 const edge_decoder =
   "fn edge_decoder(
   paints: fn() -> Bool,
@@ -201,6 +223,13 @@ const edge_decoder =
 const view =
   "pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
 "
+
+/// An attribute of the text field, in the view, where the editor is drawn.
+const view_attribute = "        attribute.aria_label(\"Note text\"),\n"
+
+/// Where the view hands the field's handlers the editor the last message
+/// left.
+const field_events = "..field_events(fn() { current_editor(editor) }, on_event)"
 
 fn breaks() -> List(Break) {
   let surface = "nullpad/surface.gleam"
@@ -659,9 +688,9 @@ fn second_round() -> List(Break) {
     ),
     Break(
       Caught(rules.DecoderState),
-      "the allowed decoder takes more state",
+      "a decoder takes the notes",
       surface,
-      after("fn key_decoder(\n", "  last: Buffer,\n"),
+      after("fn key_decoder(\n", "  notes: Library,\n"),
     ),
     Break(
       Caught(rules.SkipsOutcome),
@@ -800,13 +829,7 @@ fn third_round() -> List(Break) {
       Caught(rules.DecoderState),
       "the view hands a decoder a callback over the editor it draws",
       surface,
-      fn(rest) {
-        string.replace(
-          rest,
-          "let claims = fn(key) { editor.claims(now(), key) }",
-          "let claims = fn(key) { editor.claims(editor, key) }",
-        )
-      },
+      instead(field_events, "..field_events(fn() { editor }, on_event)"),
     ),
     Break(
       Caught(rules.DecoderState),
@@ -836,17 +859,14 @@ fn third_round() -> List(Break) {
       Caught(rules.DecoderState),
       "the view makes a decoder inline from the editor it draws",
       surface,
-      after(
-        "        event.on(\"input\", typed),\n",
-        "        " <> inline_decoder,
-      ),
+      after(view_attribute, "        " <> inline_decoder),
     ),
     Break(
       Caught(rules.DecoderState),
       "the view makes a decoder from the editor in the body of a use",
       surface,
       after(
-        "        event.on(\"input\", typed),\n",
+        view_attribute,
         "        event.on(\"dblclick\", {\n          use _ <- decode.map(decode.dynamic)\n          on_event(editor.FocusChanged(editor.is_idle(editor)))\n        }),\n",
       ),
     ),
@@ -885,23 +905,23 @@ fn third_round() -> List(Break) {
     ),
     Break(
       Clean,
-      "a decoder is handed a callback that reads the editor through the record",
+      "the view hands the field's handlers a callback that reads the record through a helper",
       surface,
-      fn(rest) {
-        string.replace(
-          rest,
-          "hold_decoder(waits, on_event)",
-          "hold_decoder(fn() { editor.is_waiting(current_editor(editor)) }, on_event)",
-        )
-      },
+      both(
+        instead(
+          field_events,
+          "..field_events(fn() { latest(editor) }, on_event)",
+        ),
+        last("fn latest(drawn: Editor) -> Editor {\n  current_editor(drawn)\n}"),
+      ),
     ),
     Break(
       Clean,
       "a decoder made from a message and a constructor of the editor module",
       surface,
       after(
-        "        event.on(\"input\", typed),\n",
-        "        event.on(\"dblclick\", decode.success(on_event(editor.Released))),\n",
+        "    event.on(\"input\", typed),\n",
+        "    event.on(\"dblclick\", decode.success(on_event(editor.Released))),\n",
       ),
     ),
     Break(
@@ -913,9 +933,461 @@ fn third_round() -> List(Break) {
           "fn on_double_click(idle: Bool, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"dblclick\", decode.success(on_event(editor.FocusChanged(idle))))\n}",
         ),
         after(
-          "        event.on(\"input\", typed),\n",
+          view_attribute,
           "        on_double_click(editor.is_idle(editor), on_event),\n",
         ),
+      ),
+    ),
+  ]
+}
+
+/// From a fourth attacker, who had not read the breaks above, ported to the
+/// code as it now stands: the field's handlers are made in `field_events`
+/// and `page_events`, and app's in small functions that take no model. The
+/// rule that let most of these through followed app state from name to
+/// name. The rule now only looks where a handler is made and what a
+/// callback written there names, so a value or a callback that leaves
+/// app state through a `let` or a helper is review's to catch.
+fn fourth_round() -> List(Break) {
+  let app = "nullpad/app.gleam"
+  let surface = "nullpad/surface.gleam"
+  let moved =
+    "  let moved = {\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n"
+  let page_some =
+    "Some(_) -> [attribute.class(\"page \" <> live_class), ..page_events(on_event)]"
+  let page_head = "pub fn page(\n  editor: Editor,\n"
+  let app_field =
+    "  let field = #(\"field\", surface.view(model.editor, EditorSent))"
+  let note_row_end = "  note_button(summary.id, title:, current:)\n}"
+  let dblclick_painted =
+    "event.on(\"dblclick\", case editor.is_painted(editor) {\n        True -> decode.success(on_event(editor.Released))\n        False -> decode.failure(on_event(editor.Released), expected: \"painted\")\n      }), "
+  [
+    Break(
+      Escapes,
+      "a01: the view reads the record while it draws and hands on a callback over the value",
+      surface,
+      both(
+        after(view, "  let latest = current_editor(editor)\n"),
+        instead(field_events, "..field_events(fn() { latest }, on_event)"),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a01b: a handler's maker calls the editor callback before its decoder",
+      surface,
+      instead(
+        moved,
+        "  let moved = {\n    let latest = now()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(latest)\n",
+      ),
+    ),
+    Break(
+      Clean,
+      "a01c: a decoder calls the editor callback when the event comes",
+      surface,
+      after(
+        moved,
+        "    let composing = composing || editor.is_waiting(now())\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a02: the view shadows the editor with the record and hands on a callback over it",
+      surface,
+      both(
+        after(view, "  let editor = current_editor(editor)\n"),
+        instead(field_events, "..field_events(fn() { editor }, on_event)"),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a02b: a handler's maker shadows the editor with the callback before its decoder",
+      surface,
+      instead(
+        moved,
+        "  let moved = {\n    let editor = now()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(editor)\n",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a03: the page hands the press handler a value read from the drawn editor",
+      surface,
+      both(
+        instead(
+          "..page_events(on_event)]",
+          "..page_events(editor.is_painted(editor), on_event)]",
+        ),
+        both(
+          instead("fn page_events(\n", "fn page_events(\n  painted: Bool,\n"),
+          instead(
+            "    on_point(on_event),\n",
+            "    on_point(on_event),\n    on_shift_click(fn(event) { case painted { True -> on_event(editor.Released) False -> on_event(event) } }),\n",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a04: app hands the field a message callback over the model",
+      app,
+      instead(
+        app_field,
+        "  let field = #(\n    \"field\",\n    surface.view(model.editor, fn(event) {\n      case model.menu {\n        Some(_) -> UserClosedMenu\n        None -> EditorSent(event)\n      }\n    }),\n  )",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a05: the page hands its handlers a message callback over the drawn editor",
+      surface,
+      instead(
+        "..page_events(on_event)]",
+        "..page_events(fn(event) {\n      case editor.is_painted(editor) {\n        True -> on_event(editor.Released)\n        False -> on_event(event)\n      }\n    })]",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a06: the view makes a handler for the kind of block it draws",
+      surface,
+      after(
+        view_attribute,
+        "        case kind {\n          Some(live.ListItem(task: True, ..)) ->\n            event.on(\"keydown\", {\n              use name <- decode.field(\"key\", decode.string)\n              case name {\n                \"Tab\" -> decode.success(on_event(editor.Released))\n                _ -> decode.failure(on_event(editor.Released), expected: \"Tab\")\n              }\n            })\n          Some(_) | None -> attribute.none()\n        },\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a06b: the view makes a handler from a value a case takes from the editor",
+      surface,
+      after(
+        view_attribute,
+        "        case editor.kind(editor) {\n          Some(live.ListItem(task:, ..)) ->\n            event.on(\"keydown\", {\n              use name <- decode.field(\"key\", decode.string)\n              case name == \"Tab\" && task {\n                True -> decode.success(on_event(editor.Released))\n                False -> decode.failure(on_event(editor.Released), expected: \"Tab\")\n              }\n            })\n          Some(_) | None -> attribute.none()\n        },\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a06c: the view makes a handler from a value a let takes from the editor",
+      surface,
+      after(
+        view_attribute,
+        "        {\n          let task = editor.kind(editor) == Some(live.ListItem(marker: \"- [ ] \", task: True))\n          event.on(\"keydown\", {\n            use name <- decode.field(\"key\", decode.string)\n            case name == \"Tab\" && task {\n              True -> decode.success(on_event(editor.Released))\n              False -> decode.failure(on_event(editor.Released), expected: \"Tab\")\n            }\n          })\n        },\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a07: the view makes a handler inside an option.map over the region",
+      surface,
+      after(
+        view_attribute,
+        "        editor.region(editor)\n          |> option.map(fn(region) {\n            event.on(\"dblclick\", {\n              use y <- decode.field(\"clientY\", decode.float)\n              case y <. int.to_float(region.first_row) {\n                True -> decode.success(on_event(editor.Released))\n                False -> decode.failure(on_event(editor.Released), expected: \"above\")\n              }\n            })\n          })\n          |> option.unwrap(attribute.none()),\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a08: app maps the field's messages through a closure over the model",
+      app,
+      instead(
+        app_field,
+        "  let field = #(\n    \"field\",\n    surface.view(model.editor, fn(event) { event })\n      |> element.map(fn(event) {\n        case model.menu {\n          Some(_) -> UserClosedMenu\n          None -> EditorSent(event)\n        }\n      }),\n  )",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a09: a handler's maker takes the notes",
+      app,
+      last(
+        "fn delete_key(library: Library, id: NoteId) -> attribute.Attribute(Msg) {\n  event.on(\"keydown\", {\n    use key <- decode.field(\"key\", decode.string)\n    case key, library.deleting(library) {\n      \"Delete\", None | \"Backspace\", None -> decode.success(UserDeletedNote(id))\n      _, _ -> decode.failure(UserClosedMenu, expected: \"the Delete key\")\n    }\n  })\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a10: the page makes a handler from a value a use takes from the editor",
+      surface,
+      both(
+        after(
+          page_head
+            <> "  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          "  use <- bool.guard(editor.region(editor) == None, [attribute.class(\"page\")])\n  use #(_, head) <- list.flat_map([buffer.selection(editor.buffer(editor))])\n",
+        ),
+        instead(
+          page_some,
+          "Some(_) -> [attribute.class(\"page \" <> live_class), event.on(\"dblclick\", {\n      use y <- decode.field(\"clientY\", decode.float)\n      case y >. int.to_float(head.row) {\n        True -> decode.success(on_event(editor.Released))\n        False -> decode.failure(on_event(editor.Released), expected: \"below\")\n      }\n    }), ..page_events(on_event)]",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a11: sync hands a drag listener a callback over the editor",
+      surface,
+      instead(
+        "            fn(row, visible, at_end, next) {\n              dispatch(on_event(editor.Dragged(row:, visible:, at_end:, next:)))\n            },\n",
+        "            fn(row, visible, at_end, next) {\n              let #(_, head) = buffer.selection(editor.buffer(editor))\n              case row == head.row && !at_end {\n                True -> Nil\n                False -> dispatch(on_event(editor.Dragged(row:, visible:, at_end:, next:)))\n              }\n            },\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a12: the view makes a handler through a local name for event.on",
+      surface,
+      both(
+        after(view, "  let on = event.on\n"),
+        after(view_attribute, "        on(\"keyup\", key_up),\n"),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a13: a note row takes the editor out of the model for a handler",
+      app,
+      instead(
+        note_row_end,
+        "  let Model(editor: drawn, ..) = model\n  html.div(\n    [\n      event.on(\"keydown\", {\n        use key <- decode.field(\"key\", decode.string)\n        case key {\n          \"Delete\" if drawn == drawn -> decode.success(UserDeletedNote(summary.id))\n          _ -> decode.failure(UserClosedMenu, expected: \"the Delete key\")\n        }\n      }),\n    ],\n    [note_button(summary.id, title:, current:)],\n  )\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a13b: a note row's handler calls a closure a case made over the model",
+      app,
+      instead(
+        note_row_end,
+        "  let empty = case model {\n    Model(editor:, ..) -> fn() { editor.text(editor) == \"\" }\n  }\n  html.div(\n    [\n      event.on(\"keydown\", {\n        use key <- decode.field(\"key\", decode.string)\n        case key == \"Delete\" && empty() {\n          True -> decode.failure(UserClosedMenu, expected: \"a note with text\")\n          False -> decode.success(UserDeletedNote(summary.id))\n        }\n      }),\n    ],\n    [note_button(summary.id, title:, current:)],\n  )\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a13b: a note row hands its button a callback a case made over the model",
+      app,
+      instead(
+        note_row_end,
+        "  let empty = case model {\n    Model(editor:, ..) -> fn() { editor.text(editor) == \"\" }\n  }\n  note_button(summary.id, title:, current:, empty:)\n}",
+      ),
+    ),
+    Breaks(
+      Caught(rules.DecoderState),
+      "a14: the page takes the editor under an alias from the editor module",
+      [
+        #(
+          "nullpad/editor.gleam",
+          instead(
+            "pub opaque type Editor {",
+            "pub type Drawn =\n  Editor\n\npub opaque type Editor {",
+          ),
+        ),
+        #(
+          surface,
+          both(
+            instead(page_head, "pub fn page(\n  editor: editor.Drawn,\n"),
+            instead(
+              page_some,
+              "Some(_) -> [" <> dblclick_painted <> "..page_events(on_event)]",
+            ),
+          ),
+        ),
+      ],
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a14c: the page makes a handler from the editor it draws",
+      surface,
+      instead(
+        page_some,
+        "Some(_) -> [" <> dblclick_painted <> "..page_events(on_event)]",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c01: the view hands the field's handlers a capture over the editor it draws",
+      surface,
+      instead(field_events, "..field_events(drawn(editor, _), on_event)"),
+    ),
+    Break(
+      Escapes,
+      "c02: the view hands the field's handlers a callback a helper made over the editor",
+      surface,
+      both(
+        instead(field_events, "..field_events(drawn_of(editor), on_event)"),
+        last(
+          "fn drawn_of(editor: Editor) -> fn() -> Editor {\n  fn() { editor }\n}",
+        ),
+      ),
+    ),
+    Break(
+      Escapes,
+      "c03: the view hands on a callback over a tuple that holds the editor",
+      surface,
+      both(
+        after(view, "  let drawn = #(editor, 0)\n"),
+        instead(field_events, "..field_events(fn() { drawn.0 }, on_event)"),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c04: the view hands on a callback over a list that holds the editor",
+      surface,
+      instead(
+        field_events,
+        "..field_events(fn() { list.fold([editor], editor, fn(_, one) { one }) }, on_event)",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c05: the field's handlers take the drawn editor as well",
+      surface,
+      both(
+        instead(
+          "fn field_events(\n  now: fn() -> Editor,\n",
+          "fn field_events(\n  drawn: Editor,\n  now: fn() -> Editor,\n",
+        ),
+        after(
+          moved,
+          "    let composing = composing || editor.is_waiting(drawn)\n",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c06: the view maps the field's decoder over the editor it draws",
+      surface,
+      after(
+        view_attribute,
+        "        event.on(\"select\", shown_decoder() |> decode.map(fn(shown) {\n          case shown == editor.field_buffer(editor) {\n            True -> on_event(editor.Released)\n            False -> on_event(editor.ControlChanged(shown:, at: 0))\n          }\n        })),\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c07: app makes a key handler from the mode of the editor in the model",
+      app,
+      after(
+        "    markdown_button(model.showing),\n",
+        "    html.span(\n      [\n        event.on_keydown(fn(key) {\n          case key, editor.mode(model.editor) {\n            \"Escape\", editor.Insert -> UserToggledMarkdown\n            _, _ -> UserClosedMenu\n          }\n        }),\n      ],\n      [],\n    ),\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c08: the page takes the editor under a local alias",
+      surface,
+      both(
+        first("type Drawn =\n  Editor\n\n"),
+        both(
+          instead(page_head, "pub fn page(\n  editor: Drawn,\n"),
+          instead(
+            page_some,
+            "Some(_) -> [" <> dblclick_painted <> "..page_events(on_event)]",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c09: the page takes the editor under an import alias",
+      surface,
+      both(
+        instead(
+          "import nullpad/editor.{type Editor}",
+          "import nullpad/editor.{type Editor, type Editor as Note}",
+        ),
+        both(
+          instead(page_head, "pub fn page(\n  editor: Note,\n"),
+          instead(
+            page_some,
+            "Some(_) -> [" <> dblclick_painted <> "..page_events(on_event)]",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c10: a note row makes a handler from the menu in the model",
+      app,
+      instead(
+        note_row_end,
+        "  html.div(\n    [\n      event.on(\"keydown\", {\n        use key <- decode.field(\"key\", decode.string)\n        case key {\n          \"Delete\" if model.menu == None -> decode.success(UserDeletedNote(summary.id))\n          _ -> decode.failure(UserClosedMenu, expected: \"the Delete key\")\n        }\n      }),\n    ],\n    [note_button(summary.id, title:, current:)],\n  )\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "c12: a decoder reads the record through the callback it is handed",
+      surface,
+      both(
+        instead(
+          "fn hold_decoder(\n  waits: fn() -> Bool,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
+          "fn hold_decoder(\n  drawn: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let waits = fn() { editor.is_waiting(current_editor(drawn())) }\n",
+        ),
+        instead(
+          "decode.one_of(hold_decoder(waits, on_event), [",
+          "decode.one_of(hold_decoder(now, on_event), [",
+        ),
+      ),
+    ),
+    Break(
+      Escapes,
+      "c13: the view hands on a callback over a let that holds the editor",
+      surface,
+      both(
+        after(view, "  let drawn = editor\n"),
+        instead(field_events, "..field_events(fn() { drawn }, on_event)"),
+      ),
+    ),
+    Break(
+      Escapes,
+      "c14: the view hands on a callback over the editor that a let holds",
+      surface,
+      both(
+        after(view, "  let now = fn() { editor }\n"),
+        instead(field_events, "..field_events(now:, on_event:)"),
+      ),
+    ),
+    Break(
+      Clean,
+      "f02: a key handler's maker takes a callback for the editor",
+      surface,
+      last(
+        "fn on_keydown(\n  now: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> attribute.Attribute(msg) {\n  event.advanced(\n    \"keydown\",\n    decode.one_of(hold_decoder(fn() { editor.is_waiting(now()) }, on_event), [\n      key_decoder(fn(key) { editor.claims(now(), key) }, on_event),\n      undo_key_decoder(on_event),\n      edge_decoder(fn() { editor.is_painted(now()) }, on_event),\n      escape_decoder(on_event),\n    ]),\n  )\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "f03a: a decoder takes an editor event decoded from the event",
+      surface,
+      last(
+        "fn asked_decoder(\n  asked: Result(editor.Event, Nil),\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(msg) {\n  case asked {\n    Ok(asked) -> decode.success(on_event(asked))\n    Error(Nil) -> decode.failure(on_event(editor.Released), expected: \"an undo\")\n  }\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "f03b: a decoder takes a key decoded from the event",
+      surface,
+      last(
+        "fn pressed_decoder(\n  key: vim.Key,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  use shown <- decode.map(shown_decoder())\n  on_event(editor.KeyPressed(key:, shown:))\n  |> event.handler(prevent_default: True, stop_propagation: False)\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "f03c: a decoder takes the buffer the field reported",
+      surface,
+      last(
+        "fn escaped(\n  pressed: Bool,\n  shown: Buffer,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let handler =\n    on_event(editor.EscapePressed(shown:))\n    |> event.handler(prevent_default: False, stop_propagation: False)\n  case pressed {\n    True -> decode.success(handler)\n    False -> decode.failure(handler, expected: \"Escape\")\n  }\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "f04: app runs a decoder it makes from the model at once",
+      app,
+      last(
+        "pub fn restored(model: Model, saved: Dynamic) -> Model {\n  let settings = {\n    use vim <- decode.optional_field(\"vim\", model.vim, decode.bool)\n    decode.success(vim)\n  }\n  case decode.run(saved, settings) {\n    Ok(vim) -> Model(..model, vim:)\n    Error(_) -> model\n  }\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "f05: app makes a handler inline with a message from the model",
+      app,
+      after(
+        "    markdown_button(model.showing),\n",
+        "    html.span(\n      [event.on(\"dblclick\", decode.success(UserToggledVim(on: !model.vim)))],\n      [],\n    ),\n",
+      ),
+    ),
+    Break(
+      Clean,
+      "f07: sync runs a decoder that falls back on the editor at once",
+      surface,
+      instead(
+        "          #(-4, _, _, _, x) -> {\n            case decode.run(find_control(control_id), control_decoder()) {",
+        "          #(-4, _, _, _, x) -> {\n            let shown =\n              decode.one_of(control_decoder(), [\n                decode.success(editor.field_buffer(editor)),\n              ])\n            case decode.run(find_control(control_id), shown) {",
       ),
     ),
   ]

@@ -13,7 +13,6 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/order
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
@@ -46,18 +45,16 @@ const measures = [
   "focusStayed", "currentEditor", "pastedText", "heldKeyEvent",
 ]
 
-/// How many state parameters each of these decoders still takes.
-const decoders_that_still_read_state: List(#(String, Int)) = []
-
 /// JavaScript that hands back app state an effect noted there, such as the
-/// editor the last message left. A decoder is given a callback for it
-/// instead of reading it, so what it decides on is in its parameters.
+/// editor the last message left. A callback reads the latest editor through
+/// one when a handler runs.
 const records = ["currentEditor"]
 
-const plain_types = ["String", "Int", "Bool", "Float"]
-
-/// App state, which no decoder is handed and no measure hands back.
-const state_types = ["Editor", "Model", "Buffer", "History"]
+/// The types that hold app state from one message to the next: the editor,
+/// its undo history, the notes and vim's modes. A type in `src` that holds
+/// one is app state too, which makes the model app state. A buffer is not:
+/// the field reports one with each event, for a decoder to hand on.
+const state_roots = ["Editor", "History", "Library", "State"]
 
 pub type Source {
   /// `path` is relative to `src`: "nullpad/editor.gleam".
@@ -106,7 +103,7 @@ pub fn says(rule: Rule) -> String {
     ChangesPage ->
       "only a function that returns an Effect or Nil may change the page"
     DecoderState ->
-      "a decoder takes callbacks and plain values, never app state from the last drawn frame"
+      "a handler is made only where no app state is in scope, from callbacks that read app state when it runs"
     SkipsOutcome ->
       "a public editor function that changes the editor returns an Outcome"
     RawHtml -> "nothing draws raw HTML"
@@ -164,8 +161,7 @@ pub fn path(file: File) -> String {
 
 pub fn judge(files: List(File)) -> Report {
   let changers = changers(files)
-  let readers = readers(files)
-  let recorders = recorders(files)
+  let context = context(files)
   let found =
     list.flat_map(files, fn(file) {
       case file {
@@ -177,7 +173,7 @@ pub fn judge(files: List(File)) -> Report {
             calls_javascript(path, name, module),
             backend_import(path, name, module),
             changes_page(path, name, module, changers),
-            decoder_state(path, name, module, readers, recorders),
+            decoder_state(path, name, module, context),
             skips_outcome(path, name, module),
             forbidden_calls(path, name, module),
           ])
@@ -202,6 +198,10 @@ pub fn judge(files: List(File)) -> Report {
         Found(_) -> Error(Nil)
       }
     })
+  let looked = [
+    #(DecoderState, "app state is " <> string.join(context.state, ", ")),
+    ..looked
+  ]
   Report(broken:, looked:, faults: faults(files, looked))
 }
 
@@ -490,29 +490,41 @@ fn mentions(type_: glance.Type, names: List(String)) -> Bool {
   }
 }
 
+/// Where a handler or decoder is made. A function that makes one may not
+/// have app state in scope: what a handler decides on is what the event
+/// brings and what its callbacks read when it runs, never the frame the
+/// page last drew. A function with app state in scope draws, and calls a
+/// function that makes the handlers.
 fn decoder_state(
   path: String,
   name: String,
   module: glance.Module,
-  readers: Set(String),
-  recorders: Set(String),
+  context: Context,
 ) -> List(Finding) {
   use <- when(!is_core(name) && !is_backend(name))
   let aliases = aliases_of(module)
-  let key = module_key(path)
-  let resolve = resolver(key, module)
-  let is_decoder = fn(function: glance.Function) {
-    string.ends_with(function.name, "_decoder")
-    || case function.return {
-      Some(returned) -> mentions(expand(returned, aliases), ["Decoder"])
-      None -> False
+  let resolve = resolver(module_key(path), module)
+  let in_module = fn(callee: glance.Expression, among: Set(String)) {
+    case seen_callee(callee) {
+      Some(seen) ->
+        case resolve(seen) {
+          Ok(called) ->
+            case set.contains(among, called) {
+              True -> Some(called)
+              False -> None
+            }
+          Error(Nil) -> None
+        }
+      None -> None
     }
   }
-  let decoders =
-    list.filter_map(module.functions, fn(definition) {
-      case is_decoder(definition.definition) {
-        True -> Ok(key <> "." <> definition.definition.name)
-        False -> Error(Nil)
+  let modules =
+    list.filter_map(module.imports, fn(definition) {
+      let imported = definition.definition
+      case imported.alias {
+        Some(glance.Named(alias)) -> Ok(alias)
+        Some(glance.Discarded(_)) -> Error(Nil)
+        None -> string.split(imported.module, "/") |> list.last
       }
     })
     |> set.from_list
@@ -524,7 +536,7 @@ fn decoder_state(
           case
             list.contains(measures, javascript)
             && !list.contains(records, javascript)
-            && mentions(expand(returned, aliases), state_types)
+            && mentions(expand(returned, aliases), context.state)
           {
             True ->
               Ok(
@@ -540,150 +552,339 @@ fn decoder_state(
         _, _ -> Error(Nil)
       }
     })
-  let made = decoder_sites(path, module, aliases, decoders, recorders)
-  use <- with(list.append(measured, made))
-  list.flat_map(module.functions, fn(definition) {
-    let function = definition.definition
-    use <- when(is_decoder(function))
-    let full = name <> "." <> function.name
-    let state =
-      list.count(function.parameters, fn(parameter) {
-        case parameter.type_ {
-          Some(type_) -> !is_plain(expand(type_, aliases))
-          None -> True
-        }
-      })
-    let allowed =
-      list.key_find(decoders_that_still_read_state, full) |> result.unwrap(0)
-    let read =
-      uses(function, resolve)
-      |> list.filter(set.contains(readers, _))
-      |> list.map(fn(reader) {
-        Found(Broken(
-          DecoderState,
-          path,
-          function.name <> " reads app state from JavaScript through " <> reader,
-        ))
-      })
-    let found = case int.compare(state, allowed) {
-      order.Gt -> [Found(Broken(DecoderState, path, function.name)), ..read]
-      order.Lt -> [
-        Found(Broken(
-          DecoderState,
-          path,
-          function.name <> " takes less state than its allowance",
-        )),
-        ..read
-      ]
-      order.Eq -> read
-    }
-    [Looked(DecoderState, full), ..found]
-  })
+  let judged =
+    list.map(module.functions, fn(definition) {
+      let function = definition.definition
+      let state = state_parameters(function, aliases, context.state)
+      let callbacks = state_callbacks(function, aliases, context.state)
+      let used = uses(function, resolve)
+      let runs =
+        list.contains(used, "gleam/dynamic/decode.run")
+        && !is_decoder(function, aliases)
+      let made = list.filter(used, builds(_, context.decoders, runs))
+      let read = list.filter(used, set.contains(context.readers, _))
+      let scope =
+        Scope(
+          state: set.from_list(state),
+          modules:,
+          shell: in_module(_, context.shell),
+          record: fn(callee) { in_module(callee, context.latest) != None },
+        )
+      let broken =
+        list.flatten([
+          case state, made {
+            [held, ..], [called, ..] -> [
+              function.name
+              <> " makes a handler with "
+              <> held
+              <> " in scope, through "
+              <> called,
+            ]
+            _, _ -> []
+          },
+          case read, made {
+            [reader, ..], [called, ..] -> [
+              function.name
+              <> " makes a handler through "
+              <> called
+              <> " and reads app state from JavaScript through "
+              <> reader,
+            ]
+            _, _ -> []
+          },
+          handed_in(function.body, scope)
+            |> list.unique
+            |> list.map(fn(called) {
+              function.name
+              <> " hands "
+              <> called
+              <> " a callback over app state"
+            }),
+          case made {
+            [] -> []
+            [_, ..] ->
+              early_in(function.body, scope, callbacks, in_module(
+                _,
+                set.from_list(decodes),
+              ))
+              |> list.unique
+              |> list.map(fn(callback) {
+                function.name
+                <> " calls "
+                <> callback
+                <> " while it makes the handler, not when it runs"
+              })
+          },
+        ])
+      #(state != [], made != [], broken)
+    })
+  let count = fn(picks: fn(#(Bool, Bool, List(String))) -> Bool) {
+    int.to_string(list.count(judged, picks))
+  }
+  [
+    Looked(
+      DecoderState,
+      name
+        <> " ("
+        <> count(fn(one) { one.1 })
+        <> " make handlers or decoders, "
+        <> count(fn(one) { one.0 })
+        <> " hold app state)",
+    ),
+    ..list.append(
+      measured,
+      list.flat_map(judged, fn(one) {
+        list.map(one.2, fn(detail) { Found(Broken(DecoderState, path, detail)) })
+      }),
+    )
+  ]
 }
 
-fn with(found: List(Finding), rest: fn() -> List(Finding)) -> List(Finding) {
-  list.append(found, rest())
-}
-
-/// A value a decoder may take: text and numbers, lists of them, a type
-/// variable such as `msg`, and a callback that returns one of those.
-fn is_plain(type_: glance.Type) -> Bool {
-  case type_ {
-    glance.VariableType(..) -> True
-    glance.NamedType(name:, parameters: [], ..) ->
-      list.contains(plain_types, name)
-    glance.NamedType(name:, parameters:, ..) ->
-      list.contains(["List", "Option"], name) && list.all(parameters, is_plain)
-    glance.TupleType(elements:, ..) -> list.all(elements, is_plain)
-    glance.FunctionType(return:, ..) -> is_plain(return)
-    glance.HoleType(..) -> False
+/// A call that makes a handler or a decoder. A function that runs a decoder
+/// itself, with `decode.run`, and hands none back makes no handler with it.
+fn builds(called: String, decoders: Set(String), runs: Bool) -> Bool {
+  string.starts_with(called, "lustre/event.")
+  || called == "lustre/element.map"
+  || !runs
+  && {
+    string.starts_with(called, "gleam/dynamic/decode.")
+    && called != "gleam/dynamic/decode.run"
+    || set.contains(decoders, called)
   }
 }
 
-/// Where a decoder is made, and what it is handed there: no value of these
-/// types, and nothing that reads one, such as a closure over the editor the
-/// page last drew. A record is how a callback reads the editor the last
-/// message left, so the editor handed to one does not count.
-fn decoder_sites(
-  path: String,
-  module: glance.Module,
+fn is_decoder(
+  function: glance.Function,
   aliases: Dict(String, glance.Type),
-  decoders: Set(String),
-  records: Set(String),
-) -> List(Finding) {
-  let resolve = resolver(module_key(path), module)
-  let modules =
-    list.filter_map(module.imports, fn(definition) {
-      let imported = definition.definition
-      case imported.alias {
-        Some(glance.Named(alias)) -> Ok(alias)
-        Some(glance.Discarded(_)) -> Error(Nil)
-        None -> string.split(imported.module, "/") |> list.last
+) -> Bool {
+  string.ends_with(function.name, "_decoder")
+  || case function.return {
+    Some(returned) -> mentions(expand(returned, aliases), ["Decoder"])
+    None -> False
+  }
+}
+
+/// The parameters that hold app state. A callback does not, even one that
+/// hands back the editor: it reads the editor when it is called.
+fn state_parameters(
+  function: glance.Function,
+  aliases: Dict(String, glance.Type),
+  state: List(String),
+) -> List(String) {
+  list.filter_map(function.parameters, fn(parameter) {
+    case parameter.name, option.map(parameter.type_, expand(_, aliases)) {
+      glance.Named(_), Some(glance.FunctionType(..)) -> Error(Nil)
+      glance.Named(name), Some(type_) ->
+        case mentions(type_, state) {
+          True -> Ok(name)
+          False -> Error(Nil)
+        }
+      _, _ -> Error(Nil)
+    }
+  })
+}
+
+/// The callbacks that hand back app state.
+fn state_callbacks(
+  function: glance.Function,
+  aliases: Dict(String, glance.Type),
+  state: List(String),
+) -> Set(String) {
+  list.filter_map(function.parameters, fn(parameter) {
+    case parameter.name, option.map(parameter.type_, expand(_, aliases)) {
+      glance.Named(name), Some(glance.FunctionType(return:, ..)) ->
+        case mentions(return, state) {
+          True -> Ok(name)
+          False -> Error(Nil)
+        }
+      _, _ -> Error(Nil)
+    }
+  })
+  |> set.from_list
+}
+
+/// The callbacks in `callbacks` that `body` calls as it runs: outside any
+/// closure, and before any `use` of a decoder, whose rest runs when the
+/// event comes.
+fn early_in(
+  body: List(glance.Statement),
+  scope: Scope,
+  callbacks: Set(String),
+  decodes: fn(glance.Expression) -> Option(String),
+) -> List(String) {
+  let early = early(_, scope, callbacks, decodes)
+  case body {
+    [] -> []
+    [glance.Use(function:, ..), ..rest] -> {
+      let later = case function {
+        glance.Call(function: callee, ..) -> decodes(callee) != None
+        _ -> False
+      }
+      case later {
+        True -> early(function)
+        False ->
+          list.append(
+            early(function),
+            early_in(rest, scope, callbacks, decodes),
+          )
+      }
+    }
+    [glance.Assignment(value: inner, ..), ..rest]
+    | [glance.Expression(inner), ..rest]
+    | [glance.Assert(expression: inner, ..), ..rest] ->
+      list.append(early(inner), early_in(rest, scope, callbacks, decodes))
+  }
+}
+
+fn early(
+  subject: glance.Expression,
+  scope: Scope,
+  callbacks: Set(String),
+  decodes: fn(glance.Expression) -> Option(String),
+) -> List(String) {
+  let called = case subject {
+    glance.Call(function: glance.Variable(name:, ..), ..) ->
+      case set.contains(callbacks, name) {
+        True -> [name]
+        False -> []
+      }
+    _ -> []
+  }
+  let inside = case subject {
+    glance.Fn(..) -> []
+    glance.Block(statements:, ..) ->
+      early_in(statements, scope, callbacks, decodes)
+    _ ->
+      list.flat_map(parts(subject, scope), fn(part) {
+        early(part.0, part.1, callbacks, decodes)
+      })
+  }
+  list.append(called, inside)
+}
+
+type Context {
+  Context(
+    /// The names of the types that hold app state.
+    state: List(String),
+    /// The shell's functions, which a callback is handed to.
+    shell: Set(String),
+    /// The shell's decoder functions.
+    decoders: Set(String),
+    /// Functions that reach a JavaScript record.
+    readers: Set(String),
+    /// Readers that hand back app state, such as `current_editor`: a
+    /// callback reads the editor the last message left through one.
+    latest: Set(String),
+  )
+}
+
+/// The functions of `gleam/dynamic/decode` whose callback runs when the event
+/// comes.
+const decodes = [
+  "gleam/dynamic/decode.then", "gleam/dynamic/decode.field",
+  "gleam/dynamic/decode.optional_field", "gleam/dynamic/decode.subfield",
+  "gleam/dynamic/decode.map",
+]
+
+fn context(files: List(File)) -> Context {
+  let state = state_types(files)
+  let readers = readers(files)
+  let functions =
+    list.flat_map(files, fn(file) {
+      case file {
+        Gleam(path:, name:, module:) ->
+          list.map(module.functions, fn(definition) {
+            let function = definition.definition
+            #(
+              module_key(path) <> "." <> function.name,
+              !is_core(name) && !is_backend(name),
+              function,
+              aliases_of(module),
+            )
+          })
+        JavaScript(..) | Other(_) | Unreadable(_) -> []
+      }
+    })
+  let keys = fn(picks) {
+    list.filter_map(functions, fn(one) {
+      case picks(one) {
+        True -> Ok(one.0)
+        False -> Error(Nil)
       }
     })
     |> set.from_list
-  let site = fn(callee: glance.Expression) {
-    case seen_callee(callee) {
-      Some(seen) ->
-        case resolve(seen) {
-          Ok(called) ->
-            case
-              string.starts_with(called, "lustre/event.")
-              || string.starts_with(called, "gleam/dynamic/decode.")
-              || set.contains(decoders, called)
-            {
-              True -> Some(called)
-              False -> None
-            }
-          Error(Nil) -> None
-        }
-      None -> None
-    }
   }
-  let record = fn(callee: glance.Expression) {
-    case seen_callee(callee) {
-      Some(seen) ->
-        resolve(seen)
-        |> result.map(set.contains(records, _))
-        |> result.unwrap(False)
-      None -> False
-    }
-  }
-  list.flat_map(module.functions, fn(definition) {
-    let function = definition.definition
-    let state =
-      list.filter_map(function.parameters, fn(parameter) {
-        case parameter.name, parameter.type_ {
-          glance.Named(name), Some(type_) ->
-            case mentions(expand(type_, aliases), state_types) {
-              True -> Ok(name)
-              False -> Error(Nil)
-            }
-          _, _ -> Error(Nil)
-        }
-      })
-      |> set.from_list
-    let scope = Scope(state:, modules:, site:, record:)
-    sites_in(function.body, scope)
-    |> list.unique
-    |> list.map(fn(called) {
-      Found(Broken(
-        DecoderState,
-        path,
-        function.name <> " hands app state to " <> called,
-      ))
+  Context(
+    state:,
+    shell: keys(fn(one) { one.1 }),
+    decoders: keys(fn(one) { one.1 && is_decoder(one.2, one.3) }),
+    readers:,
+    latest: keys(fn(one) {
+      set.contains(readers, one.0)
+      && case one.2.return {
+        Some(returned) -> mentions(expand(returned, one.3), state)
+        None -> False
+      }
+    }),
+  )
+}
+
+fn state_types(files: List(File)) -> List(String) {
+  let types =
+    list.flat_map(files, fn(file) {
+      case file {
+        Gleam(module:, ..) ->
+          list.append(
+            list.map(module.custom_types, fn(definition) {
+              let custom = definition.definition
+              #(
+                custom.name,
+                list.flat_map(custom.variants, fn(variant) {
+                  list.map(variant.fields, fn(field) {
+                    case field {
+                      glance.LabelledVariantField(item:, ..)
+                      | glance.UnlabelledVariantField(item:) -> item
+                    }
+                  })
+                }),
+              )
+            }),
+            list.map(module.type_aliases, fn(definition) {
+              #(definition.definition.name, [definition.definition.aliased])
+            }),
+          )
+        JavaScript(..) | Other(_) | Unreadable(_) -> []
+      }
     })
-  })
+  holding(state_roots, types)
+}
+
+fn holding(
+  state: List(String),
+  types: List(#(String, List(glance.Type))),
+) -> List(String) {
+  let grown =
+    list.fold(types, state, fn(state, one) {
+      case !list.contains(state, one.0) && list.any(one.1, mentions(_, state)) {
+        True -> list.append(state, [one.0])
+        False -> state
+      }
+    })
+  case list.length(grown) == list.length(state) {
+    True -> grown
+    False -> holding(grown, types)
+  }
 }
 
 type Scope {
   Scope(
-    /// Names that hold app state, or read it.
+    /// The parameters that hold app state.
     state: Set(String),
     /// Import aliases: `editor.claims` names a function, not a field.
     modules: Set(String),
-    /// The function a decoder is made with, when this names one.
-    site: fn(glance.Expression) -> Option(String),
+    /// The shell function this names, if it names one.
+    shell: fn(glance.Expression) -> Option(String),
+    /// Whether this names a reader that hands back app state.
     record: fn(glance.Expression) -> Bool,
   )
 }
@@ -832,62 +1033,66 @@ fn use_names(patterns: List(glance.UsePattern)) -> List(String) {
   bound(list.map(patterns, fn(use_pattern) { use_pattern.pattern }))
 }
 
-/// The decoders made in `body` with app state, by what they are made with.
-fn sites_in(body: List(glance.Statement), scope: Scope) -> List(String) {
+/// The shell functions that `body` hands a callback naming app state. A
+/// `use` hands on the rest of its block. A `let` that takes the name of a
+/// parameter that holds app state still holds it, as far as this goes.
+fn handed_in(body: List(glance.Statement), scope: Scope) -> List(String) {
   case body {
     [] -> []
-    [glance.Assignment(pattern: assigned, value:, ..), ..rest] ->
-      list.append(
-        sites(value, scope),
-        sites_in(rest, binding(scope, bound([assigned]), refers(value, scope))),
-      )
+    [glance.Assignment(value: inner, ..), ..rest]
+    | [glance.Expression(inner), ..rest]
+    | [glance.Assert(expression: inner, ..), ..rest] ->
+      list.append(handed(inner, scope), handed_in(rest, scope))
     [glance.Use(function:, patterns:, ..), ..rest] -> {
       let inner = binding(scope, use_names(patterns), False)
       let made = case function {
         glance.Call(function: callee, ..) ->
-          case scope.site(callee), refers_in(rest, inner) {
+          case scope.shell(callee), refers_in(rest, inner) {
             Some(called), True -> [called]
             _, _ -> []
           }
         _ -> []
       }
-      list.flatten([made, sites(function, scope), sites_in(rest, inner)])
+      list.flatten([made, handed(function, scope), handed_in(rest, inner)])
     }
-    [glance.Expression(inner), ..rest] ->
-      list.append(sites(inner, scope), sites_in(rest, scope))
-    [glance.Assert(expression: asserted, ..), ..rest] ->
-      list.append(sites(asserted, scope), sites_in(rest, scope))
   }
 }
 
-fn sites(subject: glance.Expression, scope: Scope) -> List(String) {
-  let handed = fn(callee, given) {
-    case scope.site(callee), list.any(given, refers(_, scope)) {
+fn handed(subject: glance.Expression, scope: Scope) -> List(String) {
+  let given = fn(callee, arguments) {
+    let over =
+      list.any(arguments, fn(argument) {
+        case argument {
+          glance.Fn(..) | glance.FnCapture(..) -> refers(argument, scope)
+          _ -> False
+        }
+      })
+    case scope.shell(callee), over {
       Some(called), True -> [called]
       _, _ -> []
     }
   }
   let made = case subject {
-    glance.Call(function:, arguments:, ..) -> handed(function, items(arguments))
+    glance.Call(function:, arguments:, ..) -> given(function, items(arguments))
     glance.FnCapture(function:, arguments_before:, arguments_after:, ..) ->
-      handed(
+      given(
         function,
         list.append(items(arguments_before), items(arguments_after)),
       )
     glance.BinaryOperator(name: glance.Pipe, left:, right:, ..) ->
       case right {
         glance.Call(function: callee, ..)
-        | glance.FnCapture(function: callee, ..) -> handed(callee, [left])
-        callee -> handed(callee, [left])
+        | glance.FnCapture(function: callee, ..) -> given(callee, [left])
+        callee -> given(callee, [left])
       }
     _ -> []
   }
   let inside = case subject {
     glance.Fn(arguments:, body:, ..) ->
-      sites_in(body, binding(scope, parameter_names(arguments), False))
-    glance.Block(statements:, ..) -> sites_in(statements, scope)
+      handed_in(body, binding(scope, parameter_names(arguments), False))
+    glance.Block(statements:, ..) -> handed_in(statements, scope)
     _ ->
-      list.flat_map(parts(subject, scope), fn(part) { sites(part.0, part.1) })
+      list.flat_map(parts(subject, scope), fn(part) { handed(part.0, part.1) })
   }
   list.append(made, inside)
 }
@@ -1002,28 +1207,6 @@ fn changers(files: List(File)) -> Set(String) {
 /// through others.
 fn readers(files: List(File)) -> Set(String) {
   reaching(files, fn(_, javascript) { list.contains(records, javascript) })
-}
-
-/// The functions that are JavaScript records themselves.
-fn recorders(files: List(File)) -> Set(String) {
-  list.flat_map(files, fn(file) {
-    case file {
-      Gleam(path:, module:, ..) ->
-        list.filter_map(module.functions, fn(definition) {
-          case external(definition) {
-            Some(External(function: javascript, ..)) ->
-              case list.contains(records, javascript) {
-                True ->
-                  Ok(module_key(path) <> "." <> definition.definition.name)
-                False -> Error(Nil)
-              }
-            None -> Error(Nil)
-          }
-        })
-      JavaScript(..) | Other(_) | Unreadable(_) -> []
-    }
-  })
-  |> set.from_list
 }
 
 /// Every function and constant that reaches a JavaScript function `picks`
@@ -1386,7 +1569,6 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
         JavaScript(..) | Other(_) | Unreadable(_) -> []
       }
     })
-  let decoders = list.map(looked, fn(one) { one.1 })
   let unused = fn(allowed: List(String), used: List(String), what: String) {
     list.filter(allowed, fn(one) { !list.contains(used, one) })
     |> list.map(fn(one) {
@@ -1399,10 +1581,5 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
     idle,
     unused(measures, externals, "measure"),
     unused(records, externals, "record"),
-    unused(
-      list.map(decoders_that_still_read_state, fn(one) { one.0 }),
-      decoders,
-      "decoder allowance",
-    ),
   ])
 }

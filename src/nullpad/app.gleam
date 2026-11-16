@@ -31,7 +31,9 @@ import nullpad/library.{type Library}
 import nullpad/markdown
 import nullpad/platform
 import nullpad/preview
-import nullpad/storage.{type Failure, type NoteId, type Storage, type Summary}
+import nullpad/storage.{
+  type Failure, type Note, type NoteId, type Storage, type Summary,
+}
 import nullpad/surface
 import nullpad/vim
 
@@ -262,8 +264,8 @@ pub fn view(model: Model) -> Element(Msg) {
       },
       page(model),
     ]),
-    note_menu(model),
-    undo_toast(model),
+    note_menu(model.menu),
+    undo_toast(library.undoable(model.library)),
   ])
 }
 
@@ -314,20 +316,20 @@ fn page(model: Model) -> Element(Msg) {
 
 fn sidebar(model: Model) -> Element(Msg) {
   html.nav([attribute.class("sidebar"), attribute.aria_label("Notes")], [
-    html.button(
-      [
-        attribute.class("new-note"),
-        attribute.data("test-id", "new-note"),
-        event.on_click(ToLibrary(library.UserAskedForNewNote)),
-      ],
-      [element.text("New note")],
-    ),
+    new_note_button(),
     keyed.ul(
       [attribute.class("note-list"), attribute.data("test-id", "note-list")],
       list.map(library.notes(model.library), fn(summary) {
         let key = storage.id_text(summary.id)
         let row = case library.is_open(model.library, summary.id) {
-          True -> [note_row(model, summary), more_button(model, summary.id)]
+          True -> [
+            note_row(model, summary),
+            more_button(
+              expanded: model.menu != None,
+              deleting: library.deleting(model.library) == Some(summary.id),
+              id: summary.id,
+            ),
+          ]
           False -> [note_row(model, summary)]
         }
         #(key, html.li([], row))
@@ -344,11 +346,30 @@ fn note_row(model: Model, summary: Summary) -> Element(Msg) {
     )
     _ -> #(summary.title, "false")
   }
+  note_button(summary.id, title:, current:)
+}
+
+fn new_note_button() -> Element(Msg) {
   html.button(
     [
-      attribute.data("test-id", "note-" <> storage.id_text(summary.id)),
+      attribute.class("new-note"),
+      attribute.data("test-id", "new-note"),
+      event.on_click(ToLibrary(library.UserAskedForNewNote)),
+    ],
+    [element.text("New note")],
+  )
+}
+
+fn note_button(
+  id: NoteId,
+  title title: String,
+  current current: String,
+) -> Element(Msg) {
+  html.button(
+    [
+      attribute.data("test-id", "note-" <> storage.id_text(id)),
       attribute.aria_current(current),
-      event.on_click(ToLibrary(library.UserPickedNote(summary.id))),
+      event.on_click(ToLibrary(library.UserPickedNote(id))),
       // The text field keeps the focus, so that keys typed while the note
       // loads are typed into a note and not lost on the button. Lustre
       // prevents the default before it decodes, and a decoder that fails
@@ -362,14 +383,14 @@ fn note_row(model: Model, summary: Summary) -> Element(Msg) {
       event.advanced("contextmenu", {
         use x <- decode.field("clientX", decode.float)
         use y <- decode.field("clientY", decode.float)
-        UserOpenedMenu(Menu(id: summary.id, x:, y:))
+        UserOpenedMenu(Menu(id:, x:, y:))
         |> event.handler(prevent_default: True, stop_propagation: False)
         |> decode.success
       }),
       event.on("keydown", {
         use key <- decode.field("key", decode.string)
         case key {
-          "Delete" | "Backspace" -> decode.success(UserDeletedNote(summary.id))
+          "Delete" | "Backspace" -> decode.success(UserDeletedNote(id))
           _ -> decode.failure(UserClosedMenu, expected: "the Delete key")
         }
       }),
@@ -382,19 +403,10 @@ fn toolbar(model: Model) -> Element(Msg) {
   html.header([attribute.class("toolbar")], case library.open(model.library) {
     None -> [toggles(model)]
     Some(open) -> [
-      html.input([
-        attribute.class("title"),
-        attribute.data("test-id", "title"),
-        attribute.type_("text"),
-        attribute.aria_label("Title"),
-        attribute.autocomplete("off"),
-        attribute.placeholder(storage.display_title(
-          None,
-          editor.text(model.editor),
-        )),
-        attribute.value(option.unwrap(open.title, "")),
-        event.on_input(fn(title) { ToLibrary(library.UserRenamedNote(title)) }),
-      ]),
+      title_field(
+        open.title,
+        placeholder: storage.display_title(None, editor.text(model.editor)),
+      ),
       html.span(
         [
           attribute.class("save-state"),
@@ -406,6 +418,22 @@ fn toolbar(model: Model) -> Element(Msg) {
       toggles(model),
     ]
   })
+}
+
+fn title_field(
+  title: Option(String),
+  placeholder placeholder: String,
+) -> Element(Msg) {
+  html.input([
+    attribute.class("title"),
+    attribute.data("test-id", "title"),
+    attribute.type_("text"),
+    attribute.aria_label("Title"),
+    attribute.autocomplete("off"),
+    attribute.placeholder(placeholder),
+    attribute.value(option.unwrap(title, "")),
+    event.on_input(fn(title) { ToLibrary(library.UserRenamedNote(title)) }),
+  ])
 }
 
 fn save_state_label(save_state: library.SaveState) -> String {
@@ -423,31 +451,38 @@ fn toggles(model: Model) -> Element(Msg) {
       editor.Normal -> mode_label("NORMAL")
       editor.Insert -> mode_label("INSERT")
     },
-    html.button(
-      [
-        attribute.data("test-id", "toggle-markdown"),
-        attribute.title("Show the note as markdown (Ctrl+E)"),
-        attribute.aria_pressed(case model.showing {
-          Page -> "false"
-          Markdown -> "true"
-        }),
-        event.on_click(UserToggledMarkdown),
-      ],
-      [element.text("Markdown")],
-    ),
+    markdown_button(model.showing),
     case model.can_vim {
-      True ->
-        html.label([attribute.class("vim-switch")], [
-          html.input([
-            attribute.data("test-id", "toggle-vim"),
-            attribute.type_("checkbox"),
-            attribute.checked(model.vim),
-            event.on_check(UserToggledVim),
-          ]),
-          element.text("Vim"),
-        ])
+      True -> vim_switch(model.vim)
       False -> element.none()
     },
+  ])
+}
+
+fn markdown_button(showing: Showing) -> Element(Msg) {
+  html.button(
+    [
+      attribute.data("test-id", "toggle-markdown"),
+      attribute.title("Show the note as markdown (Ctrl+E)"),
+      attribute.aria_pressed(case showing {
+        Page -> "false"
+        Markdown -> "true"
+      }),
+      event.on_click(UserToggledMarkdown),
+    ],
+    [element.text("Markdown")],
+  )
+}
+
+fn vim_switch(on: Bool) -> Element(Msg) {
+  html.label([attribute.class("vim-switch")], [
+    html.input([
+      attribute.data("test-id", "toggle-vim"),
+      attribute.type_("checkbox"),
+      attribute.checked(on),
+      event.on_check(UserToggledVim),
+    ]),
+    element.text("Vim"),
   ])
 }
 
@@ -457,15 +492,19 @@ fn mode_label(mode: String) -> Element(Msg) {
   ])
 }
 
-fn more_button(model: Model, id: NoteId) -> Element(Msg) {
+fn more_button(
+  expanded expanded: Bool,
+  deleting deleting: Bool,
+  id id: NoteId,
+) -> Element(Msg) {
   html.button(
     [
       attribute.class("more"),
       attribute.data("test-id", "row-actions"),
       attribute.aria_label("Note actions"),
       attribute.aria_haspopup("menu"),
-      attribute.aria_expanded(model.menu != None),
-      attribute.disabled(library.deleting(model.library) == Some(id)),
+      attribute.aria_expanded(expanded),
+      attribute.disabled(deleting),
       event.on("click", {
         use press <- decode.then(decode.dynamic)
         let #(x, y) = platform.below(press)
@@ -476,8 +515,8 @@ fn more_button(model: Model, id: NoteId) -> Element(Msg) {
   )
 }
 
-fn note_menu(model: Model) -> Element(Msg) {
-  case model.menu {
+fn note_menu(menu: Option(Menu)) -> Element(Msg) {
+  case menu {
     None -> element.none()
     Some(Menu(id:, x:, y:)) ->
       html.div(
@@ -525,8 +564,8 @@ fn note_menu(model: Model) -> Element(Msg) {
   }
 }
 
-fn undo_toast(model: Model) -> Element(Msg) {
-  case library.undoable(model.library) {
+fn undo_toast(deleted: Option(Note)) -> Element(Msg) {
+  case deleted {
     None -> element.none()
     Some(note) ->
       html.div(

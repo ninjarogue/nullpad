@@ -33,6 +33,47 @@ const painted_class = "painted"
 /// frame after any event from the element. With "" it wipes what was typed.
 /// With the model's text it is a second writer beside `sync`.
 pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
+  let kind = editor.kind(editor)
+  let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
+  let first_row = case editor.region(editor), drawn_whole {
+    Some(live.Region(first_row:, ..)), False ->
+      attribute.data(live.row_mark, int.to_string(first_row))
+    Some(_), True | None, _ -> attribute.none()
+  }
+  // Where the editor holds the anchor in the note, for the robot typist,
+  // which reads it around each Shift key: the field holds only some rows.
+  let #(anchor, _) = buffer.selection(editor.buffer(editor))
+  let anchor =
+    attribute.data(
+      "anchor",
+      int.to_string(anchor.row) <> ":" <> int.to_string(anchor.col),
+    )
+  html.div([attribute.class(classes(editor, kind)), marker(kind)], [
+    mirror(editor),
+    element.element(
+      "textarea",
+      [
+        attribute.id(control_id),
+        attribute.data("test-id", "editor"),
+        first_row,
+        anchor,
+        attribute.aria_label("Note text"),
+        attribute.readonly(editor.mode(editor) == editor.Normal),
+        // A key is decided by the editor the last message left, which the
+        // page may not have drawn yet.
+        ..field_events(fn() { current_editor(editor) }, on_event)
+      ],
+      // Child text is only the *default* value: a brand-new DOM node starts
+      // with the model's text. The browser ignores it after the first edit.
+      [element.text(buffer.text(editor.field_buffer(editor)))],
+    ),
+  ])
+}
+
+fn field_events(
+  now: fn() -> Editor,
+  on_event: fn(editor.Event) -> msg,
+) -> List(attribute.Attribute(msg)) {
   let changed = {
     use at <- decode.then(time_decoder())
     use shown <- decode.map(shown_decoder())
@@ -79,74 +120,41 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
-  // A key is decided by the editor the last message left, which the page
-  // may not have drawn yet.
-  let now = fn() { current_editor(editor) }
   let waits = fn() { editor.is_waiting(now()) }
   let paints = fn() { editor.is_painted(now()) }
   let claims = fn(key) { editor.claims(now(), key) }
-  let kind = editor.kind(editor)
-  let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
-  let first_row = case editor.region(editor), drawn_whole {
-    Some(live.Region(first_row:, ..)), False ->
-      attribute.data(live.row_mark, int.to_string(first_row))
-    Some(_), True | None, _ -> attribute.none()
-  }
-  // Where the editor holds the anchor in the note, for the robot typist,
-  // which reads it around each Shift key: the field holds only some rows.
-  let #(anchor, _) = buffer.selection(editor.buffer(editor))
-  let anchor =
-    attribute.data(
-      "anchor",
-      int.to_string(anchor.row) <> ":" <> int.to_string(anchor.col),
-    )
-  html.div([attribute.class(classes(editor, kind)), marker(kind)], [
-    mirror(editor),
-    element.element(
-      "textarea",
-      [
-        attribute.id(control_id),
-        attribute.data("test-id", "editor"),
-        first_row,
-        anchor,
-        attribute.aria_label("Note text"),
-        attribute.readonly(editor.mode(editor) == editor.Normal),
-        event.on("input", typed),
-        event.on("compositionend", composed),
-        event.on("select", changed),
-        event.on("pointerup", changed),
-        // A touch sends `pointerup` before the mouse press that moves the
-        // caret.
-        event.advanced("mouseup", released_decoder(on_event)),
-        event.on("keyup", moved),
-        event.on("dragstart", decode.success(on_event(editor.DragStarted))),
-        event.on("dragend", decode.success(on_event(editor.Released))),
-        // The page cancels `dragover` to take drops beside the field, and a
-        // cancelled one would stop the browser dropping on the field.
-        event.advanced("dragover", refuse_file(on_event))
-          |> event.stop_propagation,
-        event.on("focus", focus_changed(True)),
-        // Another window taking the focus blurs the field but leaves it
-        // the page's active element, and the browser gives it the focus
-        // back: the editor does not hear of it.
-        event.on("blur", leave_decoder(on_event)),
-        event.advanced("beforeinput", history_decoder(on_event)),
-        event.advanced("paste", paste_decoder(waits, on_event)),
-        event.advanced(
-          "keydown",
-          decode.one_of(hold_decoder(waits, on_event), [
-            key_decoder(claims, on_event),
-            undo_key_decoder(on_event),
-            edge_decoder(paints, on_event),
-            escape_decoder(on_event),
-          ]),
-        ),
-      ],
-      // Child text is only the *default* value: a brand-new DOM node starts
-      // with the model's text. The browser ignores it after the first edit.
-      [element.text(buffer.text(editor.field_buffer(editor)))],
+  [
+    event.on("input", typed),
+    event.on("compositionend", composed),
+    event.on("select", changed),
+    event.on("pointerup", changed),
+    // A touch sends `pointerup` before the mouse press that moves the
+    // caret.
+    event.advanced("mouseup", released_decoder(on_event)),
+    event.on("keyup", moved),
+    event.on("dragstart", decode.success(on_event(editor.DragStarted))),
+    event.on("dragend", decode.success(on_event(editor.Released))),
+    // The page cancels `dragover` to take drops beside the field, and a
+    // cancelled one would stop the browser dropping on the field.
+    event.advanced("dragover", refuse_file(on_event))
+      |> event.stop_propagation,
+    event.on("focus", focus_changed(True)),
+    // Another window taking the focus blurs the field but leaves it
+    // the page's active element, and the browser gives it the focus
+    // back: the editor does not hear of it.
+    event.on("blur", leave_decoder(on_event)),
+    event.advanced("beforeinput", history_decoder(on_event)),
+    event.advanced("paste", paste_decoder(waits, on_event)),
+    event.advanced(
+      "keydown",
+      decode.one_of(hold_decoder(waits, on_event), [
+        key_decoder(claims, on_event),
+        undo_key_decoder(on_event),
+        edge_decoder(paints, on_event),
+        escape_decoder(on_event),
+      ]),
     ),
-  ])
+  ]
 }
 
 /// The browser keeps a press on text the field has selected, so that a drag
@@ -254,16 +262,21 @@ pub fn page(
 ) -> List(attribute.Attribute(msg)) {
   case editor.region(editor) {
     None -> [attribute.class("page")]
-    Some(_) -> [
-      attribute.class("page " <> live_class),
-      on_point(on_event),
-      on_shift_click(on_event),
-      // A drop is only allowed where `dragover` is cancelled.
-      event.on("dragover", decode.failure(on_event(editor.Released), "none"))
-        |> event.prevent_default,
-      on_drop(on_event),
-    ]
+    Some(_) -> [attribute.class("page " <> live_class), ..page_events(on_event)]
   }
+}
+
+fn page_events(
+  on_event: fn(editor.Event) -> msg,
+) -> List(attribute.Attribute(msg)) {
+  [
+    on_point(on_event),
+    on_shift_click(on_event),
+    // A drop is only allowed where `dragover` is cancelled.
+    event.on("dragover", decode.failure(on_event(editor.Released), "none"))
+      |> event.prevent_default,
+    on_drop(on_event),
+  ]
 }
 
 /// Shift and a press on a link or a box select to it, so its click neither
