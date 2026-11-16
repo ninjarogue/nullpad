@@ -6,10 +6,11 @@
 //   node --test tools/mutants/mutants.test.mjs
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { useScratch } from "../../test/scratch.mjs";
 import { readers, root } from "../../test/steps.mjs";
 import { HarnessError, classify, defaultChecks, runMutants, validate } from "./mutants.mjs";
@@ -65,14 +66,16 @@ const calibration = {
   noop: mutant("CAL-noop", "# note", "# notes"),
 };
 
+const gitIn = (dir, ...args) =>
+  execFileSync("git", ["-c", "user.name=toy", "-c", "user.email=toy@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: dir, encoding: "utf8" });
+
 function toy({ mode = "", timeoutMs = 20_000 } = {}) {
   const dir = scratch.make("toy-");
   const logDir = scratch.make("toy-log-");
   const log = join(logDir, "ran.log");
   const outDir = join(logDir, "out");
   for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
-  const git = (...args) =>
-    execFileSync("git", ["-c", "user.name=toy", "-c", "user.email=toy@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: dir, encoding: "utf8" });
+  const git = (...args) => gitIn(dir, ...args);
   git("init", "-q");
   git("add", "-A");
   git("commit", "-q", "-m", "toy");
@@ -385,5 +388,133 @@ describe("the checks the project's own mutants run through", () => {
       assert.ok(committed.caught.some((entry) => entry.by === check.id), `${check.id} has a known-caught mutant`);
     }
     assert.doesNotThrow(() => validate(root, [committed.noop, ...committed.caught]));
+  });
+});
+
+// The command line, pointed at a git repository that is not the one the tool
+// lives in. The repository has its own test/steps.mjs, which says how its
+// checks are run, and checks that print what the real ones print.
+const stepsUrl = new URL("../../test/steps.mjs", import.meta.url).href;
+
+function otherRepo({ steps = true, root: declared = "new URL('..', import.meta.url)", git = true } = {}) {
+  const dir = scratch.make("other-");
+  const logDir = scratch.make("other-log-");
+  const log = join(logDir, "ran.log");
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+  if (steps) {
+    mkdirSync(join(dir, "test"));
+    writeFileSync(
+      join(dir, "test/steps.mjs"),
+      `import { fileURLToPath } from "node:url";
+import { readers } from ${JSON.stringify(stepsUrl)};
+export const root = fileURLToPath(${declared});
+const env = { TOY_LOG: ${JSON.stringify(log)}, TOY_MODE: "" };
+const counted = (id, file) => ({ id, cwd: root, counted: true, command: () => ["node", file], read: readers.gleeunit, env });
+export const gleamBuild = { id: "build", cwd: root, counted: false, build: true, command: () => ["node", "build.mjs"], env };
+export const gleamTest = counted("gleam-test", "unit.mjs");
+export const keystrokeCost = counted("keystroke-cost", "second.mjs");
+export const e2eConfigs = () => [];
+export const e2e = () => { throw new Error("the other repository has no e2e"); };
+`,
+    );
+  }
+  if (git) {
+    gitIn(dir, "init", "-q");
+    gitIn(dir, "add", "-A");
+    gitIn(dir, "commit", "-q", "-m", "other");
+  }
+  const calibrationFile = join(logDir, "calibration.json");
+  const mutantsFile = join(logDir, "mutants.json");
+  writeFileSync(calibrationFile, JSON.stringify({ caught: [{ by: "gleam-test", ...mutant("CAL-unit", "beta", "bexa") }, { by: "keystroke-cost", ...mutant("CAL-second", "gamma", "gamxa") }], noop: mutant("CAL-noop", "# note", "# notes") }));
+  writeFileSync(mutantsFile, JSON.stringify([mutant("M-unit", "alpha", "alpxa"), mutant("M-missed", "delta", "deltb")]));
+  return {
+    dir,
+    log,
+    outDir: join(logDir, "out"),
+    calibrationFile,
+    mutantsFile,
+    status: () => gitIn(dir, "status", "--porcelain", "--untracked-files=all"),
+    ran: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => line.split(" ")[0]) : []),
+  };
+}
+
+function cli(args) {
+  const run = spawnSync(process.execPath, [join(root, "tools/mutants/mutants.mjs"), ...args], { cwd: dirname(root), encoding: "utf8", timeout: 120_000 });
+  return { status: run.status, out: `${run.stdout}`, err: `${run.stderr}` };
+}
+
+describe("--repo", () => {
+  test("runs the checks of the repository it is given, on that repository's source", () => {
+    const other = otherRepo();
+    const before = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root, encoding: "utf8" });
+    const result = cli([other.mutantsFile, "--repo", other.dir, "--calibration", other.calibrationFile, "--out", other.outDir]);
+    assert.equal(result.status, 1, result.out + result.err);
+    assert.match(result.out, /mutant M-unit CAUGHT by gleam-test/);
+    assert.match(result.out, /mutant M-missed MISSED/);
+    assert.ok(other.ran().includes("unit") && other.ran().includes("second"), "the checks of the other repository did not run");
+    assert.equal(other.status(), "", "the other repository was left changed");
+    assert.equal(execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root, encoding: "utf8" }), before, "this repository was changed");
+  });
+
+  test("puts its output in this repository's .mutants by default, so the tree under attack stays clean", (t) => {
+    const other = otherRepo();
+    const result = cli([other.mutantsFile, "--repo", other.dir, "--calibration", other.calibrationFile, "--only", "M-unit"]);
+    assert.equal(result.status, 0, result.out + result.err);
+    const where = result.out.match(/Output of every check: (.+)$/m)?.[1];
+    assert.ok(where, result.out);
+    t.after(() => rmSync(where, { recursive: true, force: true }));
+    assert.ok(where.startsWith(join(root, ".mutants")), where);
+    assert.equal(other.status(), "");
+  });
+
+  test("with --calibrate, proves the checks of that repository and plants nothing else", () => {
+    const other = otherRepo();
+    const result = cli(["--calibrate", "--repo", other.dir, "--calibration", other.calibrationFile, "--out", other.outDir]);
+    assert.equal(result.status, 0, result.out + result.err);
+    assert.match(result.out, /Calibration passed: CAL-unit CAUGHT, CAL-second CAUGHT, CAL-noop MISSED/);
+    assert.equal(other.status(), "");
+  });
+
+  test("stops when the repository has no test/steps.mjs, and says which file it looked for", () => {
+    const other = otherRepo({ steps: false });
+    const result = cli([other.mutantsFile, "--repo", other.dir, "--calibration", other.calibrationFile, "--out", other.outDir]);
+    assert.equal(result.status, 2, result.out + result.err);
+    assert.match(result.err, /test\/steps\.mjs/);
+    assert.deepEqual(other.ran(), []);
+    assert.equal(other.status(), "");
+  });
+
+  test("stops when its steps.mjs runs the checks in some other directory, which would test code that has no bug in it", () => {
+    const elsewhere = scratch.make("elsewhere-");
+    const other = otherRepo({ root: `${JSON.stringify(pathToFileURL(elsewhere).href)}` });
+    const result = cli([other.mutantsFile, "--repo", other.dir, "--calibration", other.calibrationFile, "--out", other.outDir]);
+    assert.equal(result.status, 2, result.out + result.err);
+    assert.match(result.err, /runs its checks in/);
+    assert.deepEqual(other.ran(), []);
+  });
+
+  test("stops when the path is not there, or is not a git repository", () => {
+    const missing = cli(["--calibrate", "--repo", join(scratch.make("gone-"), "nothing")]);
+    assert.equal(missing.status, 2, missing.out + missing.err);
+    assert.match(missing.err, /--repo .*no such directory/);
+    const plain = scratch.make("plain-");
+    const notGit = cli(["--calibrate", "--repo", plain]);
+    assert.equal(notGit.status, 2, notGit.out + notGit.err);
+    assert.match(notGit.err, /--repo .*not a git repository/);
+  });
+
+  test("stops when --repo has no path after it", () => {
+    const result = cli(["--calibrate", "--repo"]);
+    assert.equal(result.status, 2, result.out + result.err);
+    assert.match(result.err, /--repo needs a path/);
+  });
+
+  test("without --calibration, uses this repository's, and says to give one when it does not match the other source", () => {
+    const other = otherRepo();
+    const result = cli([other.mutantsFile, "--repo", other.dir, "--out", other.outDir]);
+    assert.equal(result.status, 2, result.out + result.err);
+    assert.match(result.err, /--calibration/);
+    assert.deepEqual(other.ran(), []);
+    assert.equal(other.status(), "");
   });
 });
