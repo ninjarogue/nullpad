@@ -12,7 +12,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gateSteps, heldNames, root, strayNodeTests } from "./steps.mjs";
@@ -113,6 +113,7 @@ export function judgeHeld({ id, known = {}, held = {} }) {
 }
 
 const live = new Set();
+const liveDirs = new Set();
 
 /** Kills what `spawnCapture` has started that is still running, with everything it started. */
 export function killAll() {
@@ -125,11 +126,39 @@ export function killAll() {
   }
 }
 
+/** Removes the results folders of the runs that are still going, as `runCheck` would when they ended. */
+export function removeLiveDirs() {
+  for (const dir of liveDirs) rmSync(dir, { recursive: true, force: true });
+  liveDirs.clear();
+}
+
+/**
+ * Stops everything that was started when the process is told to stop (Ctrl+C,
+ * `kill`, a terminal that is closed): the commands it runs and the folders
+ * they write in go, `cleanup(signal)` runs, and the process ends with 128 and
+ * the number of the signal. Gives a function that takes the handlers off.
+ */
+export function stopOnSignals(cleanup = () => {}) {
+  const handlers = ["SIGINT", "SIGTERM", "SIGHUP"].map((signal) => {
+    const handler = () => {
+      killAll();
+      removeLiveDirs();
+      cleanup(signal);
+      process.exit(128 + constants.signals[signal]);
+    };
+    process.on(signal, handler);
+    return [signal, handler];
+  });
+  return () => {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  };
+}
+
 /**
  * Runs `argv` and gives back its exit code, the signal that ended it, and
- * everything it printed, which `write` also gets as it comes. With a
- * `timeoutMs` the command and what it started are killed when it runs over,
- * and the caller is told so: it is then run in a group of its own.
+ * everything it printed, which `write` also gets as it comes. It is run in a
+ * group of its own, so that `killAll` ends what it started too. With a
+ * `timeoutMs` the command is killed when it runs over, and the caller is told so.
  */
 export function spawnCapture(argv, { cwd, env, timeoutMs }, write) {
   return new Promise((done) => {
@@ -144,7 +173,7 @@ export function spawnCapture(argv, { cwd, env, timeoutMs }, write) {
       cwd,
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
-      detached: timeoutMs !== undefined,
+      detached: true,
     });
     live.add(child);
     const timer =
@@ -173,15 +202,18 @@ export function spawnCapture(argv, { cwd, env, timeoutMs }, write) {
  * Runs one step in a new results directory, which is removed after, and reads
  * its count and what it held back. Gives the exit code, the signal, whether it
  * timed out, the output, `counts` (null with a `problem` when the runner said
- * nothing readable) and `held`, `{ name: count }`.
+ * nothing readable), `held`, `{ name: count }`, and `failing`, the names of
+ * the tests that failed as far as the runner says.
  */
 export async function runCheck(step, { write = () => {}, timeoutMs } = {}) {
   if (step.outIn) mkdirSync(step.outIn, { recursive: true });
   const outDir = mkdtempSync(join(step.outIn ?? tmpdir(), "step-"));
+  liveDirs.add(outDir);
   try {
     const run = await spawnCapture(step.command(outDir), { cwd: step.cwd, env: step.env, timeoutMs }, write);
     let counts = null;
     let held = {};
+    let failing = [];
     let problem;
     if (step.counted) {
       try {
@@ -191,9 +223,13 @@ export async function runCheck(step, { write = () => {}, timeoutMs } = {}) {
         counts = null;
         problem = error.message;
       }
+      try {
+        failing = step.failing ? step.failing({ output: run.output, outDir }) : [];
+      } catch {}
     }
-    return { ...run, counts, held, problem };
+    return { ...run, counts, held, failing, problem };
   } finally {
+    liveDirs.delete(outDir);
     rmSync(outDir, { recursive: true, force: true });
   }
 }
@@ -296,7 +332,9 @@ async function main(args) {
     console.error(`unknown step ${unknown.join(", ")}. Steps: ${[...names].join(", ")}, e2e`);
     return 2;
   }
+  const stop = stopOnSignals((signal) => console.error(`\n${signal}: the steps are stopped and the folders they wrote in are removed`));
   const verdict = await gate({ steps, partial: selected.length > 0, base: root });
+  stop();
   for (const warning of verdict.warnings) console.error(`\n!!! WARNING: ${warning}\n`);
   for (const failure of verdict.failures) console.error(`FAIL ${failure}`);
   const rose = Object.entries(verdict.raised);

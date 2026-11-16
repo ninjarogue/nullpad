@@ -94,6 +94,43 @@ export const heldBack = {
 /** The names a step can hold something back under, as they end a key of `test/test_counts.json`. */
 export const heldNames = ["expected-fail", "todo"];
 
+const collapse = (text) => text.replace(/[│┌┐└┘├┤┬┴┼─']/g, " ").replace(/\s+/g, " ").trim();
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Which tests failed, as the runner says: names to show a person and to run
+ * again. A reader takes what a reader takes and gives a list of names. It is
+ * a best effort, so a run that failed in some way it does not know gives [].
+ */
+export const failedTests = {
+  gleeunit({ output }) {
+    const text = plain(output);
+    return [...text.matchAll(/^ test: (.+)$|^(\S+\.\S+)\nAn unexpected error occurred:/gm)].map((found) => found[1] ?? found[2]);
+  },
+
+  keystroke({ output }) {
+    return plain(output)
+      .split("\n")
+      .filter((line) => /OVER BUDGET|has no entry|^undo history: .*(?:could be undone|, over )/.test(line))
+      .map(collapse);
+  },
+
+  nodeTest({ output }) {
+    const failed = [];
+    for (const [, body] of plain(output).matchAll(/^\s*not ok \d+ - (.*)$/gm)) {
+      const [title, ...directive] = body.split(" # ");
+      if (!/^(?:TODO|SKIP)/i.test(directive.join(" # "))) failed.push(title.trim());
+    }
+    return failed;
+  },
+
+  e2e({ outDir }) {
+    return readReport(outDir)
+      .results.filter((result) => result.status !== "passed" && result.status !== "skipped")
+      .map((result) => [result.file, ...result.titlePath].join(" > "));
+  },
+};
+
 /**
  * A step is `{ id, cwd, command(outDir) -> argv, counted, read, held?, env?, needs?, hint?, outIn? }`.
  * `outDir` is a new directory for the run's results, inside `outIn` when the
@@ -107,6 +144,7 @@ export const gleamTest = {
   counted: true,
   command: () => ["gleam", "test"],
   read: readers.gleeunit,
+  failing: failedTests.gleeunit,
   // `gleam test` compiles the tests too, and prints "Running" once they start.
   compileFailed: (output) => /^error:/m.test(plain(output)) && !/Running .*\.main/.test(plain(output)),
 };
@@ -120,6 +158,7 @@ export const keystrokeCost = {
   counted: true,
   command: () => ["node", "test/keystroke_cost.mjs"],
   read: readers.keystroke,
+  failing: failedTests.keystroke,
 };
 
 export const nodeTest = (id, file) => ({
@@ -129,6 +168,7 @@ export const nodeTest = (id, file) => ({
   command: () => ["node", "--test", "--test-reporter=tap", file],
   read: readers.nodeTest,
   held: heldBack.nodeTest,
+  failing: failedTests.nodeTest,
 });
 
 /** Every `*.test.mjs` under `test/` and `tools/` of `base`, as paths from it, sorted. */
@@ -191,7 +231,11 @@ export function e2eConfigs(dir = e2eDir) {
     .sort();
 }
 
-/** One e2e config, run the way `npm test` runs it, with its results written in the directory it is given. */
+/**
+ * One e2e config, run the way `npm test` runs it, with its results written in
+ * the directory it is given. `narrow` is the same step for only the tests
+ * named, as `failing` gives them, so that they can be run again alone.
+ */
 export const e2e = (config, args = []) => ({
   id: `e2e:${config}`,
   cwd: e2eDir,
@@ -199,6 +243,8 @@ export const e2e = (config, args = []) => ({
   command: (outDir) => ["npm", "test", "--", "--config", config, "--output", outDir, ...args],
   read: readers.e2e,
   held: heldBack.e2e,
+  failing: failedTests.e2e,
+  narrow: (names) => e2e(config, [...args, ...[...new Set(names)].map((name) => name.split(" > ").slice(1).join(" ")).filter((title) => title !== "").flatMap((title) => ["--grep", escapeRegExp(title)])]),
   env: { E2E_TELEMETRY_DISABLED: "1" },
   ...needsE2e,
 });

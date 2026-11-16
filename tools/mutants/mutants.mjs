@@ -10,7 +10,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, stat
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as ownSteps from "../../test/steps.mjs";
-import { killAll, runCheck } from "../../test/test_counts.mjs";
+import { runCheck, stopOnSignals } from "../../test/test_counts.mjs";
 
 /** The tool cannot say what a result means, or the tree is not fit to run in. No result is trusted after one. */
 export class HarnessError extends Error {
@@ -24,7 +24,13 @@ export class HarnessError extends Error {
 const plain = (text) => text.replace(/\u001b\[[0-9;]*m/g, "");
 const firstLine = (text) => plain(text).split("\n").find((line) => line.trim() !== "")?.trim().slice(0, 160) ?? "";
 
-/** What a check's result means for the mutant that was planted: pass, caught, invalid, or error. */
+// What a runner says when it, and not a test, is what broke: the app did not
+// answer, the browser went away, a worker died. A test that failed this way
+// says nothing about the planted bug, and it fails on the clean tree as well.
+const infrastructure =
+  /APP_UNREACHABLE|APP_NOT_OPEN|APP_ALREADY_RUNNING|ENGINE_FAILURE|ENGINE_IN_USE|RUN_TIMEOUT|WORKER_(?:CRASH|EXIT|INIT_FAILED|PROTOCOL)|ERR_(?:CONNECTION_\w+|EMPTY_RESPONSE|ADDRESS_UNREACHABLE|NAME_NOT_RESOLVED|NETWORK_CHANGED|INTERNET_DISCONNECTED|TIMED_OUT)|E(?:CONNREFUSED|CONNRESET|ADDRINUSE|HOSTUNREACH)|browser has been closed|Target (?:page, context or browser|closed)|Page crashed|Browser closed/;
+
+/** What a check's result means for the mutant that was planted: pass, caught, caught-by-compile, invalid, or error. */
 export function classify(check, run) {
   const { exitCode, signal, timedOut, output, counts, problem } = run;
   const say = (verdict, reason) => ({ verdict, reason });
@@ -35,12 +41,15 @@ export function classify(check, run) {
   if (!check.counted) return exitCode === 0 ? say("pass", "") : say("caught", firstLine(output));
   if (/No tests found/i.test(plain(output))) return say("error", 'the output says "No tests found"');
   if (counts === null) {
-    if (check.compileFailed?.(output)) return say("invalid", firstLine(output));
+    if (check.compileFailed?.(output)) return say("caught-by-compile", firstLine(output));
     return say("error", `crashed, or reported nothing readable (${problem}), exit ${exitCode}`);
   }
   if (counts.passed + counts.failed === 0) return say("error", "ran 0 tests");
   if (counts.failed > 0) {
-    return exitCode === 0 ? say("error", "exited 0 but reported failures") : say("caught", `${counts.failed} failed`);
+    if (exitCode === 0) return say("error", "exited 0 but reported failures");
+    const broke = plain(output).match(infrastructure);
+    if (broke) return say("error", `failed on the infrastructure and not on a test (${broke[0]}), so it says nothing about the bug`);
+    return say("caught", `${counts.failed} failed`);
   }
   if (exitCode !== 0) return say("error", `exited ${exitCode} without a failed test`);
   return say("pass", "");
@@ -199,25 +208,50 @@ export async function runMutants({
     if (planted) writeFileSync(planted.path, planted.original);
     planted = null;
   };
-  const interrupted = (signal) => {
-    killAll();
+  const stop = stopOnSignals((signal) => {
     putBack();
     console.error(`${signal}: the planted bug is taken out`);
-    process.exit(130);
-  };
-  process.on("SIGINT", interrupted);
-  process.on("SIGTERM", interrupted);
+  });
+
+  // The check that caught a bug, again on the tree with the bug out: the build
+  // first, since the build folder still holds the bug, and then the check, for
+  // only the tests that failed when it can be told which. Gives what is wrong
+  // with the clean tree, or null when the check passes on it.
+  async function cleanTreeProblem(mutant, check, failing) {
+    const again = check.narrow && failing.length > 0 ? check.narrow(failing) : check;
+    const build = checks.find((candidate) => candidate.build);
+    for (const step of build ? [build, again] : [again]) {
+      const saved = join(outDir, `${mutant.id}.${step.id}.clean.txt`);
+      writeFileSync(saved, "");
+      const run = await runCheck(step, { write: (text) => appendFileSync(saved, text), timeoutMs });
+      const { verdict, reason } = classify(step, { ...run, timeoutMs });
+      if (verdict !== "pass") return `${step.id} ${verdict === "error" ? reason : `came out ${verdict.toUpperCase()}${reason ? ` (${reason})` : ""}`}. Its output is in ${saved}`;
+    }
+    return null;
+  }
+
+  const statuses = { caught: "CAUGHT", "caught-by-compile": "CAUGHT-BY-COMPILE", invalid: "INVALID" };
 
   async function plant(mutant, kind) {
     const path = join(dir, mutant.file);
     const original = readFileSync(path);
     planted = { path, original };
     const started = Date.now();
-    const finish = (status, check, reason) => {
-      const record = { kind, id: mutant.id, file: mutant.file, desc: mutant.desc, status, check, reason, seconds: Math.round((Date.now() - started) / 1000) };
+    const finish = (status, check, reason, failing = []) => {
+      const record = {
+        kind,
+        id: mutant.id,
+        file: mutant.file,
+        desc: mutant.desc,
+        status,
+        check,
+        reason,
+        ...(failing.length > 0 ? { failing } : {}),
+        seconds: Math.round((Date.now() - started) / 1000),
+      };
       records.push(record);
       appendFileSync(join(outDir, "results.jsonl"), JSON.stringify(record) + "\n");
-      log(`${kind} ${mutant.id} ${status}${check ? ` by ${check}` : ""}${reason ? `: ${reason}` : ""}`);
+      log(`${kind} ${mutant.id} ${status}${check ? ` by ${check}` : ""}${reason ? `: ${reason}` : ""}${failing.length > 0 ? ` [${failing.slice(0, 3).join("; ")}${failing.length > 3 ? "; ..." : ""}]` : ""}`);
       return record;
     };
     try {
@@ -233,7 +267,15 @@ export async function runMutants({
           finish("ERROR", check.id, reason);
           throw new HarnessError(`${mutant.id}: ${check.id} ${reason}. Its output is in ${saved}`, records);
         }
-        return finish(verdict === "caught" ? "CAUGHT" : "INVALID", check.id, reason);
+        if (verdict === "invalid") return finish("INVALID", check.id, reason);
+        putBack();
+        const problem = await cleanTreeProblem(mutant, check, run.failing);
+        if (problem !== null) {
+          const why = `${check.id} caught it, and then ${problem.replace(/\. Its output is in .*$/, "")} on the clean tree, so the catch is not the planted bug's`;
+          finish("ERROR", check.id, why, run.failing);
+          throw new HarnessError(`${mutant.id}: ${why}. ${problem.match(/Its output is in .*$/)?.[0] ?? ""}`, records);
+        }
+        return finish(statuses[verdict], check.id, reason, run.failing);
       }
       return finish("MISSED", null, "");
     } finally {
@@ -269,14 +311,13 @@ export async function runMutants({
     if (build) await runCheck(build, { write: (text) => appendFileSync(join(outDir, "final-build.txt"), text), timeoutMs });
     return { calibration: proven.map(({ id, status, check }) => ({ id, status, check })), results };
   } finally {
-    process.off("SIGINT", interrupted);
-    process.off("SIGTERM", interrupted);
+    stop();
   }
 }
 
 function table(records) {
-  const rows = records.map((record) => `| ${record.id} | ${record.status} | ${record.check ?? ""} | ${record.file} | ${record.desc ?? ""} | ${record.reason} |`);
-  return ["| id | result | caught by | file | what was planted | first failure |", "| --- | --- | --- | --- | --- | --- |", ...rows].join("\n");
+  const rows = records.map((record) => `| ${record.id} | ${record.status} | ${record.check ?? ""} | ${record.file} | ${record.desc ?? ""} | ${record.reason} | ${(record.failing ?? []).join("; ")} |`);
+  return ["| id | result | caught by | file | what was planted | first failure | tests that failed |", "| --- | --- | --- | --- | --- | --- | --- |", ...rows].join("\n");
 }
 
 const toolRoot = fileURLToPath(new URL("../..", import.meta.url));
