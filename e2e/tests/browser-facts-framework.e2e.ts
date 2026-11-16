@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fact, locate, noticed, problemsWithTable, sources, verify } from './browser-facts.ts';
-import type { Fact } from './browser-facts.ts';
+import type { Fact, Reliance } from './browser-facts.ts';
 
 /**
  * Break cases for the machinery under `browser-facts.e2e.ts`: how a fact
@@ -200,4 +200,206 @@ test('problemsWithTable: names a repeated id, a fact that cannot be shown to fai
   expect(all).toMatch(/toy-both.*(both|sabotage)/s);
   expect(all).toMatch(/toy-no-source.*(relied|source)/s);
   expect(problems).toHaveLength(4);
+});
+
+/** What `locate` said when it could not name a line. A snippet that is found is itself the failure. */
+function missed(reliance: Reliance, root: string): string {
+  try {
+    locate(reliance, root);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error(`${reliance.file} was found to contain ${reliance.text}`);
+}
+
+/** What a call that must throw said. */
+function thrown(run: () => unknown): string {
+  try {
+    run();
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error('it did not throw');
+}
+
+test('locate: text that is only in a comment is not code that relies on anything', async () => {
+  await inSource(
+    {
+      'src/line.mjs': '// requestAnimationFrame(keep);\nrun();\n',
+      'src/block.mjs': '/* requestAnimationFrame(keep); */\nrun();\n',
+      'src/tail.mjs': 'run(); // then requestAnimationFrame(keep)\n',
+      'src/inside.ts': 'const a: number = /* requestAnimationFrame(keep) */ 1;\n',
+      'src/line.gleam': '// list.map(rows)\npub fn a() { 1 }\n',
+      'src/doc.gleam': '/// a doc comment that says list.map(rows)\npub fn a() { 1 }\n',
+      'src/tail.gleam': 'pub fn a() { 1 } // list.map(rows)\n',
+    },
+    (root) => {
+      for (const [file, text] of [
+        ['src/line.mjs', 'requestAnimationFrame(keep);'],
+        ['src/block.mjs', 'requestAnimationFrame(keep);'],
+        ['src/tail.mjs', 'requestAnimationFrame(keep)'],
+        ['src/inside.ts', 'requestAnimationFrame(keep)'],
+        ['src/line.gleam', 'list.map(rows)'],
+        ['src/doc.gleam', 'list.map(rows)'],
+        ['src/tail.gleam', 'list.map(rows)'],
+      ]) {
+        const message = missed({ file, text }, root);
+        expect(message, `${file}: ${message}`).toMatch(/only in a comment/);
+        expect(message).toContain(file);
+      }
+    },
+  );
+});
+
+test('locate: a snippet that is in a comment and once in code names the code', async () => {
+  await inSource(
+    {
+      'src/both.mjs': '// keep();\nrun();\nkeep();\n/* keep(); */\n',
+      'src/both.gleam': '// list.map(rows)\npub fn a() {\n  list.map(rows)\n}\n',
+    },
+    (root) => {
+      expect(locate({ file: 'src/both.mjs', text: 'keep();' }, root)).toEqual({ file: 'src/both.mjs', line: 3 });
+      expect(locate({ file: 'src/both.gleam', text: 'list.map(rows)' }, root)).toEqual({ file: 'src/both.gleam', line: 3 });
+    },
+  );
+});
+
+test('locate: text that is in code twice is still twice when a comment also has it', async () => {
+  await inSource({ 'src/twice.mjs': 'keep();\n// keep();\nkeep();\n' }, (root) => {
+    expect(missed({ file: 'src/twice.mjs', text: 'keep();' }, root)).toMatch(/2 times/);
+  });
+});
+
+test('locate: a comment marker inside a string does not start a comment, and a string inside a comment does not start one', async () => {
+  await inSource(
+    {
+      'src/url.mjs': 'const url = "http://example.test"; run();\n',
+      'src/quote.mjs': '// it\'s a "quote\nrun();\n',
+      'src/url.gleam': 'pub fn a() { "http://example.test" |> run }\n',
+      'src/quote.gleam': '// a "quote\npub fn a() { run }\n',
+    },
+    (root) => {
+      expect(locate({ file: 'src/url.mjs', text: 'run();' }, root).line).toBe(1);
+      expect(locate({ file: 'src/quote.mjs', text: 'run();' }, root).line).toBe(2);
+      expect(locate({ file: 'src/url.gleam', text: '|> run' }, root).line).toBe(1);
+      expect(locate({ file: 'src/quote.gleam', text: 'pub fn a() { run }' }, root).line).toBe(2);
+    },
+  );
+});
+
+test('locate: text that is only inside a string is a message and not code that relies on anything', async () => {
+  await inSource(
+    {
+      'src/message.mjs': 'const hint = "call requestAnimationFrame(keep) first";\nrun();\n',
+      'src/template.mjs': 'const hint = `call requestAnimationFrame(keep) ${1} first`;\n',
+      'src/message.gleam': 'pub fn a() { "list.map(rows) is slow" }\n',
+    },
+    (root) => {
+      for (const [file, text] of [
+        ['src/message.mjs', 'requestAnimationFrame(keep)'],
+        ['src/template.mjs', 'requestAnimationFrame(keep)'],
+        ['src/message.gleam', 'list.map(rows)'],
+      ]) {
+        const message = missed({ file, text }, root);
+        expect(message, `${file}: ${message}`).toMatch(/only in a string/);
+      }
+    },
+  );
+});
+
+test('locate: code is found where it sits next to strings, and in the code of a template', async () => {
+  await inSource(
+    {
+      'src/call.mjs': 'on("input", () => run());\n',
+      'src/template.mjs': 'const a = `x ${ run() } y`;\n',
+      'src/arm.gleam': 'case key {\n  "historyUndo", _ -> on_event(editor.UndoAsked)\n}\n',
+    },
+    (root) => {
+      expect(locate({ file: 'src/call.mjs', text: 'on("input", () => run());' }, root).line).toBe(1);
+      expect(locate({ file: 'src/template.mjs', text: 'run()' }, root).line).toBe(1);
+      expect(locate({ file: 'src/arm.gleam', text: '"historyUndo", _ -> on_event(editor.UndoAsked)' }, root).line).toBe(2);
+    },
+  );
+});
+
+test('locate: a script that cannot be parsed, and a file it cannot tell code from comment in, are named', async () => {
+  await inSource({ 'src/broken.mjs': 'const = ;\n', 'notes.md': 'requestAnimationFrame(keep)\n' }, (root) => {
+    expect(missed({ file: 'src/broken.mjs', text: 'const' }, root)).toMatch(/cannot be parsed/);
+    expect(missed({ file: 'notes.md', text: 'requestAnimationFrame(keep)' }, root)).toMatch(/cannot tell code from comments/);
+  });
+});
+
+test('locate: CSS that is only in a comment, or in no rule, is not a rule', async () => {
+  await inSource(
+    {
+      'assets/comment.css': '/* li::marker { line-height: 0 } */\nul { margin: 0 }\n',
+      'assets/stray.css': 'ul { margin: 0 }\nli::marker\n',
+      'assets/import.css': '@import "li::marker";\nul { margin: 0 }\n',
+      'assets/within.css': 'ul { margin: 0 /* li::marker */ }\n',
+    },
+    (root) => {
+      expect(missed({ file: 'assets/comment.css', text: 'li::marker' }, root)).toMatch(/only in a comment/);
+      expect(missed({ file: 'assets/within.css', text: 'li::marker' }, root)).toMatch(/only in a comment/);
+      expect(missed({ file: 'assets/stray.css', text: 'li::marker' }, root)).toMatch(/not in a rule/);
+      expect(missed({ file: 'assets/import.css', text: 'li::marker' }, root)).toMatch(/not in a rule/);
+    },
+  );
+});
+
+test('locate: CSS in a real rule is found, in a media block, after a comment, and past braces in strings and comments', async () => {
+  await inSource(
+    {
+      'assets/media.css': '@media (min-width: 600px) {\n  li::marker { line-height: 0 }\n}\n',
+      'assets/after.css': '/* li::marker */\nli::marker { line-height: 0 }\n',
+      'assets/braces.css': '.a { /* } */ color: red }\n.b::before { content: "}" }\n.c { color: blue }\n',
+    },
+    (root) => {
+      expect(locate({ file: 'assets/media.css', text: 'li::marker' }, root).line).toBe(2);
+      expect(locate({ file: 'assets/after.css', text: 'li::marker' }, root).line).toBe(2);
+      expect(locate({ file: 'assets/braces.css', text: 'color: red' }, root).line).toBe(1);
+      expect(locate({ file: 'assets/braces.css', text: 'color: blue' }, root).line).toBe(3);
+    },
+  );
+});
+
+test('sources: a pending fact whose code has landed fails, and says to un-pend it', async () => {
+  await inSource(toySource, async (root) => {
+    const landed = toy({ pending: 'the branch that adds it is not merged', relied: [{ file: 'src/toy.mjs', text: 'const two = 1 + 1;' }] });
+    const message = thrown(() => sources(landed, root));
+    expect(message).toContain('pending fact now holds in source: un-pend it');
+    expect(message).toContain('toy-addition');
+    expect(message).toContain('src/toy.mjs:2');
+    let asked = false;
+    const message2 = await failure(
+      verify(
+        {
+          ...landed,
+          observe: async () => {
+            asked = true;
+            return 2;
+          },
+        },
+        root,
+      ),
+    );
+    expect(message2).toContain('un-pend it');
+    expect(asked).toBe(false);
+  });
+});
+
+test('sources: a pending fact stays pending while its text is only in a comment, and when it is not there at all', async () => {
+  await inSource({ 'src/toy.mjs': '// const two = 1 + 1;\nexport {};\n' }, async (root) => {
+    const inComment = toy({ pending: 'not merged', relied: [{ file: 'src/toy.mjs', text: 'const two = 1 + 1;' }] });
+    expect(sources(inComment, root)).toEqual([]);
+    await verify(inComment, root);
+    const absent = toy({ pending: 'not merged', relied: [{ file: 'src/toy.mjs', text: 'const three = 3;' }] });
+    expect(sources(absent, root)).toEqual([]);
+  });
+});
+
+test('sources: a pending fact fails when only one of the things it relies on has landed', async () => {
+  await inSource(toySource, (root) => {
+    const half = toy({ pending: 'not merged', relied: [{ file: 'src/toy.mjs', text: 'const three = 3;' }, { file: 'src/toy.mjs', text: 'let one = 1;' }] });
+    expect(thrown(() => sources(half, root))).toContain('un-pend it');
+  });
 });
