@@ -7,12 +7,14 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { useScratch } from "../../test/scratch.mjs";
 import { readers, root } from "../../test/steps.mjs";
 import { HarnessError, classify, defaultChecks, runMutants, validate } from "./mutants.mjs";
+
+const scratch = useScratch();
 
 const SRC = "alpha\nbeta\ngamma\ndelta\n# note\n";
 
@@ -64,8 +66,8 @@ const calibration = {
 };
 
 function toy({ mode = "", timeoutMs = 20_000 } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "toy-"));
-  const logDir = mkdtempSync(join(tmpdir(), "toy-log-"));
+  const dir = scratch.make("toy-");
+  const logDir = scratch.make("toy-log-");
   const log = join(logDir, "ran.log");
   const outDir = join(logDir, "out");
   for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);

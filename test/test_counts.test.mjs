@@ -6,12 +6,14 @@
 //   node --test test/test_counts.test.mjs
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { useScratch } from "./scratch.mjs";
 import { e2eConfigs, readers } from "./steps.mjs";
 import { gate, judge, loadCounts, runStep } from "./test_counts.mjs";
+
+const scratch = useScratch();
 
 const green = (text) => `\u001b[32m${text}\u001b[39m`;
 const gleeunit = (passed) => `Running tests\n${".".repeat(5)}\n${green(`${passed} passed, no failures`)}\n`;
@@ -36,7 +38,7 @@ const report = ({ passed, failed = 0, skipped = 0, interrupted = 0, flaky = 0, r
   });
 
 function workspace() {
-  const dir = mkdtempSync(join(tmpdir(), "counts-"));
+  const dir = scratch.make("counts-");
   const countsFile = join(dir, "test_counts.json");
   const runner = (name, source) => {
     const file = join(dir, name);
@@ -161,7 +163,7 @@ describe("what each runner says about itself", () => {
   });
 
   test("e2e: the passed count of the report the run wrote", () => {
-    const dir = mkdtempSync(join(tmpdir(), "report-"));
+    const dir = scratch.make("report-");
     writeFileSync(join(dir, "report.json"), report({ passed: 332 }));
     assert.deepEqual(readers.e2e({ outDir: dir }), { passed: 332, failed: 0, skipped: 0 });
     writeFileSync(join(dir, "report.json"), report({ passed: 330, failed: 2, skipped: 3 }));
@@ -169,13 +171,13 @@ describe("what each runner says about itself", () => {
   });
 
   test("e2e: a test that was interrupted, or passed only on a retry, is not a pass that counts", () => {
-    const dir = mkdtempSync(join(tmpdir(), "report-"));
+    const dir = scratch.make("report-");
     writeFileSync(join(dir, "report.json"), report({ passed: 10, interrupted: 2, flaky: 1 }));
     assert.deepEqual(readers.e2e({ outDir: dir }), { passed: 10, failed: 3, skipped: 0 });
   });
 
   test("e2e: no report, a report that disagrees with itself, or a new schema is an error", () => {
-    const dir = mkdtempSync(join(tmpdir(), "report-"));
+    const dir = scratch.make("report-");
     assert.throws(() => readers.e2e({ outDir: dir }), /report\.json/);
     writeFileSync(join(dir, "report.json"), report({ passed: 10, results: 9 }));
     assert.throws(() => readers.e2e({ outDir: dir }), /disagrees/);
@@ -372,7 +374,7 @@ describe("the gate", () => {
 
 describe("the e2e configs", () => {
   test("every config in the e2e folder is a step, so a new one cannot go unchecked", () => {
-    const dir = mkdtempSync(join(tmpdir(), "e2e-"));
+    const dir = scratch.make("e2e-");
     for (const name of ["e2e.config.ts", "e2e.dpr2.config.mjs", "package.json", "serve.mjs", "tsconfig.json"]) {
       writeFileSync(join(dir, name), "");
     }
