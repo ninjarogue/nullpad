@@ -22,6 +22,28 @@ const css = 'assets/nullpad.css';
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const instead = (what: string, expected: unknown, seen: unknown) => `${what} was ${JSON.stringify(seen)}, and the app expects ${JSON.stringify(expected)}`;
 
+/** The operating systems a user agent names, the way navigator.platform names each. The first that the user agent has is its system, so Android and the iPhone come before the Linux and the Mac they say they are. */
+const systems: [agent: RegExp, platform: RegExp, system: string][] = [
+  [/iPhone/, /^iPhone/, 'an iPhone'],
+  [/iPad/, /^iPad/, 'an iPad'],
+  [/Macintosh/, /^Mac/, 'a Mac'],
+  [/Android/, /^Linux/, 'Android'],
+  [/CrOS/, /^Linux/, 'ChromeOS'],
+  [/Windows/, /^Win/, 'Windows'],
+  [/Linux/, /^Linux/, 'Linux'],
+];
+
+/** What is wrong with the answers of matchMedia that a look at the page read, or null when it answers as it should. */
+const mediaAnswers = (seen: { matches: boolean; always: boolean; never: boolean; touchPoints: number } | undefined) => {
+  if (typeof seen?.matches !== 'boolean' || typeof seen.always !== 'boolean' || typeof seen.never !== 'boolean' || !finite(seen.touchPoints)) {
+    return `matchMedia and the touch points were read as ${JSON.stringify(seen)}`;
+  }
+  if (!seen.always || seen.never) return `matchMedia answers ${seen.always} to a query that is always true and ${seen.never} to one that is never true, so this looked at nothing`;
+  return null;
+};
+
+const finite = (...values: unknown[]) => values.every((value) => typeof value === 'number' && Number.isFinite(value));
+
 // `Selection.modify` is not in the DOM typings.
 type Modifiable = Selection & { modify(alter: string, direction: string, granularity: string): void };
 
@@ -498,10 +520,11 @@ export const facts: Fact[] = [
 
   fact({
     id: 'script-writes-fire-no-input',
-    says: 'Writing the value of a text field from script fires no beforeinput or input, so what the app writes is not heard as typing.',
+    says: 'Writing the value of a text field from script fires no beforeinput or input, so what the app writes is not heard as typing. (The same field does fire both for a typed key, so a field that heard nothing would not pass.)',
     relied: [{ file: ffi, text: 'if (control.value !== text) control.value = text;' }],
     html: '<textarea id="t">hello</textarea>',
     observe: async (page) => {
+      const heard = () => page.evaluate(() => (window as unknown as { log: string[] }).log.splice(0).filter((type) => type !== 'select'));
       await page.evaluate(() => {
         const log: string[] = [];
         (window as unknown as { log: string[] }).log = log;
@@ -513,9 +536,15 @@ export const facts: Fact[] = [
       });
       // Setting the selection fires select, a moment later, and anything else would come with it.
       await page.waitForFunction(() => (window as unknown as { log: string[] }).log.includes('select'), undefined, { timeout: 1000 }).catch(() => {});
-      return page.evaluate(() => (window as unknown as { log: string[] }).log.filter((type) => type !== 'select'));
+      const scripted = await heard();
+      await page.keyboard.type('x');
+      return { scripted, typed: await heard() };
     },
-    holds: (seen) => (seen.length === 0 ? null : `writing the field fired ${JSON.stringify(seen)}`),
+    holds: (seen) => {
+      if (!Array.isArray(seen?.scripted) || !Array.isArray(seen?.typed)) return `the events of the field were read as ${JSON.stringify(seen)}`;
+      if (!seen.typed.includes('beforeinput') || !seen.typed.includes('input')) return `a typed key fired ${JSON.stringify(seen.typed)}, so this field heard nothing and looked at nothing`;
+      return seen.scripted.length === 0 ? null : `writing the field fired ${JSON.stringify(seen.scripted)}`;
+    },
     breaks: async (page) => {
       await page.evaluate(() => {
         const own = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!;
@@ -885,17 +914,24 @@ export const facts: Fact[] = [
 
   fact({
     id: 'collapsed-range-in-an-empty-element',
-    says: 'A collapsed range in an element with no text has no box, so a caret there is measured from the element. (A collapsed range at a soft wrap does have a box in Chromium, which the comment in caretBox denies.)',
+    says: 'A collapsed range in an element with no text has no box, so a caret there is measured from the element. (A collapsed range at a soft wrap does have a box in Chromium, which the comment in caretBox denies.) A range over a letter of the same page does have one, so a page that measures nothing would not pass.',
     relied: [{ file: ffi, text: 'return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));' }],
-    html: '<p id="empty" style="margin:0;font:16px monospace"></p>',
+    html: '<p id="empty" style="margin:0;font:16px monospace"></p><p id="letters" style="margin:0;font:16px monospace">abc</p>',
     observe: (page) =>
       page.evaluate(() => {
-        const range = document.createRange();
-        range.setStart(document.getElementById('empty')!, 0);
-        range.collapse(true);
-        return range.getClientRects().length;
+        const boxes = (element: HTMLElement, from: number, to: number) => {
+          const range = document.createRange();
+          range.setStart(element.firstChild ?? element, from);
+          range.setEnd(element.firstChild ?? element, to);
+          return range.getClientRects().length;
+        };
+        return { empty: boxes(document.getElementById('empty')!, 0, 0), letter: boxes(document.getElementById('letters')!, 0, 1) };
       }),
-    holds: (seen) => (seen === 0 ? null : `a collapsed range in an empty element has ${seen} boxes`),
+    holds: (seen) => {
+      if (!finite(seen?.empty, seen?.letter)) return `the boxes of the ranges were read as ${JSON.stringify(seen)}`;
+      if (seen.letter < 1) return `a range over a letter has ${seen.letter} boxes, so this looked at nothing`;
+      return seen.empty === 0 ? null : `a collapsed range in an empty element has ${seen.empty} boxes`;
+    },
     breaks: async (page) => {
       await page.evaluate(() => {
         Range.prototype.getClientRects = () => [new DOMRect(0, 0, 1, 1)] as unknown as DOMRectList;
@@ -1178,13 +1214,26 @@ export const facts: Fact[] = [
 
   fact({
     id: 'desktop-has-hover',
-    says: 'A desktop browser matches (hover: hover) and (pointer: fine).',
+    says: 'A desktop browser matches (hover: hover) and (pointer: fine), and has no touch points.',
     relied: [{ file: platform, text: 'const query = "(hover: hover) and (pointer: fine)";' }],
-    observe: (page) => page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches),
-    holds: (seen) => (seen ? null : 'a desktop browser does not match (hover: hover) and (pointer: fine)'),
+    observe: (page) =>
+      page.evaluate(() => ({
+        matches: matchMedia('(hover: hover) and (pointer: fine)').matches,
+        // Queries that a page that can ask must answer one way and the other.
+        always: matchMedia('(min-width: 1px)').matches,
+        never: matchMedia('(min-width: 100000px)').matches,
+        touchPoints: navigator.maxTouchPoints,
+      })),
+    holds: (seen) => {
+      const asked = mediaAnswers(seen);
+      if (asked) return asked;
+      if (seen.touchPoints !== 0) return `this browser has ${seen.touchPoints} touch points, so it is not a desktop one and this looked at nothing`;
+      return seen.matches ? null : 'a desktop browser does not match (hover: hover) and (pointer: fine)';
+    },
     breaks: async (page) => {
       await page.evaluate(() => {
-        window.matchMedia = (query: string) => ({ matches: false, media: query }) as MediaQueryList;
+        const ask = window.matchMedia.bind(window);
+        window.matchMedia = (query: string) => (query.includes('hover: hover') ? ({ matches: false, media: query } as MediaQueryList) : ask(query));
       });
     },
   }),
@@ -1194,18 +1243,31 @@ export const facts: Fact[] = [
     says: 'A touch device does not match (hover: hover) and (pointer: fine), so it is not taken to have a keyboard.',
     relied: [{ file: platform, text: 'const query = "(hover: hover) and (pointer: fine)";' }],
     context: { hasTouch: true, isMobile: true },
-    observe: (page) => page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches),
-    holds: (seen) => (seen ? 'a touch device matches (hover: hover) and (pointer: fine)' : null),
+    observe: (page) =>
+      page.evaluate(() => ({
+        matches: matchMedia('(hover: hover) and (pointer: fine)').matches,
+        // Queries that a page that can ask must answer one way and the other.
+        always: matchMedia('(min-width: 1px)').matches,
+        never: matchMedia('(min-width: 100000px)').matches,
+        touchPoints: navigator.maxTouchPoints,
+      })),
+    holds: (seen) => {
+      const asked = mediaAnswers(seen);
+      if (asked) return asked;
+      if (!(seen.touchPoints > 0)) return `this browser has ${seen.touchPoints} touch points, so it is not a touch device and this looked at nothing`;
+      return seen.matches ? 'a touch device matches (hover: hover) and (pointer: fine)' : null;
+    },
     breaks: async (page) => {
       await page.evaluate(() => {
-        window.matchMedia = (query: string) => ({ matches: true, media: query }) as MediaQueryList;
+        const ask = window.matchMedia.bind(window);
+        window.matchMedia = (query: string) => (query.includes('hover: hover') ? ({ matches: true, media: query } as MediaQueryList) : ask(query));
       });
     },
   }),
 
   fact({
     id: 'platform-names-apple-devices',
-    says: 'navigator.platform starts with Mac, iPhone or iPad on exactly the devices whose user agent says so, so Ctrl is not taken for Cmd anywhere else.',
+    says: 'navigator.platform names the operating system the user agent names, and starts with Mac, iPhone or iPad on exactly the Apple ones, so Ctrl is not taken for Cmd anywhere else. Only the Chromium this runs in can be looked at: an override of the user agent leaves navigator.platform as it was.',
     relied: [
       { file: platform, text: 'const apple = /Mac|iPhone|iPad/.test(navigator.platform);' },
       { file: ffi, text: 'navigator.platform.startsWith("Mac")' },
@@ -1216,9 +1278,11 @@ export const facts: Fact[] = [
         agent: navigator.userAgent,
       })),
     holds: (seen) => {
-      const byAgent = /Macintosh|iPhone|iPad/.test(seen.agent);
-      const byPlatform = /Mac|iPhone|iPad/.test(seen.platform);
-      return byAgent === byPlatform ? null : `navigator.platform is ${JSON.stringify(seen.platform)}, and the user agent ${byAgent ? 'is' : 'is not'} an Apple device's`;
+      if (typeof seen?.platform !== 'string' || typeof seen?.agent !== 'string') return `navigator.platform and the user agent were read as ${JSON.stringify(seen)}`;
+      const named = systems.find(([inAgent]) => inAgent.test(seen.agent));
+      if (!named) return `the user agent ${JSON.stringify(seen.agent)} names no operating system this knows, so this looked at nothing`;
+      const [, byPlatform, system] = named;
+      return byPlatform.test(seen.platform) ? null : `navigator.platform is ${JSON.stringify(seen.platform)}, and the user agent names ${system}`;
     },
     breaks: async (page) => {
       await page.evaluate(() => {
@@ -1275,6 +1339,7 @@ export const facts: Fact[] = [
         return { withMarker: height('#a li'), zeroMarker: height('#b li'), content: height('#a h6') };
       }),
     holds: (seen) => {
+      if (!finite(seen?.withMarker, seen?.zeroMarker, seen?.content) || !(seen.content > 0)) return `the heights of the list items were read as ${JSON.stringify(seen)}, so this looked at nothing`;
       if (seen.zeroMarker !== seen.content) return `a list item with a zero line-height marker is ${seen.zeroMarker}px tall, and its content is ${seen.content}px`;
       if (seen.withMarker <= seen.content) return `a list item with an ordinary marker is ${seen.withMarker}px tall, no taller than its content at ${seen.content}px, so this looked at nothing`;
       return null;

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { fact, locate, noticed, problemsWithTable, sources, verify } from './browser-facts.ts';
+import { fact, locate, noticed, problemsWithTable, sources, takenForNothing, verify } from './browser-facts.ts';
 import type { Fact, Reliance } from './browser-facts.ts';
 import { facts } from './browser-facts-table.ts';
 
@@ -405,18 +405,6 @@ test('sources: a pending fact fails when only one of the things it relies on has
   });
 });
 
-/** What a look at a page never gives. A `holds` that takes one of these for a fact that holds passes without looking at anything. */
-const nothingSeen: unknown[] = [undefined, null, {}, [], 0, NaN, '', 'x', false, true, 1, [0], [null], { a: 1 }, { a: [] }, { platform: '', agent: '' }, { platform: 'Linux', agent: 'x' }];
-
-const accepted = (entry: Fact) =>
-  nothingSeen.filter((value) => {
-    try {
-      return entry.holds(value) === null;
-    } catch {
-      return false;
-    }
-  });
-
 test('problemsWithTable: names a fact whose holds takes what no look at a page gives', () => {
   const lax = toy({ id: 'toy-lax', holds: (seen: any) => (seen > 2 ? `it added up to ${seen}` : null) });
   const quiet = toy({ id: 'toy-quiet', holds: (seen: any) => (seen?.sum === 2 ? null : 'it did not add up') });
@@ -442,6 +430,6 @@ for (const id of [
 ]) {
   test(`${id}: holds takes nothing that no look at a page gives`, () => {
     const entry = facts.find((candidate) => candidate.id === id)!;
-    expect(accepted(entry).map((value) => JSON.stringify(value) ?? 'undefined')).toEqual([]);
+    expect(takenForNothing(entry)).toEqual([]);
   });
 }

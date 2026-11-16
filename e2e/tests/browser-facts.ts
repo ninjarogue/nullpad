@@ -259,7 +259,23 @@ export async function noticed(fact: Fact): Promise<string> {
   return problem;
 }
 
-/** What is wrong with the table as a whole: the same id twice, a fact that cannot be shown to fail, one that has no code to name. */
+/** What a look at a page never gives. A `holds` that takes one of these for a fact that holds passes without looking at anything. */
+export const nothingSeen: unknown[] = [undefined, null, {}, [], 0, NaN, '', 'x', false, true, 1, [0], [null], { a: 1 }, { a: [] }, { platform: '', agent: '' }, { platform: 'Linux', agent: 'x' }];
+
+/** The values of `nothingSeen` that the fact's `holds` takes for a fact that holds. One that throws on them does not take them. */
+export function takenForNothing(entry: Fact): string[] {
+  return nothingSeen
+    .filter((value) => {
+      try {
+        return entry.holds(value) === null;
+      } catch {
+        return false;
+      }
+    })
+    .map((value) => (typeof value === 'number' && Number.isNaN(value) ? 'NaN' : (JSON.stringify(value) ?? 'undefined')));
+}
+
+/** What is wrong with the table as a whole: the same id twice, a fact that cannot be shown to fail, one that has no code to name, one that holds for what no look at a page gives. */
 export function problemsWithTable(facts: Fact[]): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();
@@ -273,6 +289,8 @@ export function problemsWithTable(facts: Fact[]): string[] {
     if (!entry.breaks && !entry.unbreakable) problems.push(`[${entry.id}] has no sabotage to show it can fail, and no unbreakable reason`);
     if (entry.breaks && entry.unbreakable) problems.push(`[${entry.id}] has a sabotage and says it is unbreakable: it cannot be both`);
     if (entry.relied.length === 0 && !entry.pending) problems.push(`[${entry.id}] names no code that relies on it (relied), and is not pending`);
+    const taken = takenForNothing(entry);
+    if (taken.length > 0) problems.push(`[${entry.id}] holds takes what no look at a page gives, so it would pass without looking: ${taken.slice(0, 4).join(', ')}${taken.length > 4 ? ', ...' : ''}`);
   }
   return problems;
 }
