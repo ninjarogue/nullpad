@@ -3,5 +3,6 @@
   "gleam-test": 462,
   "keystroke-cost": 119,
   "mutants-tool": 42,
-  "test-counts": 39
+  "test-cleanup": 8,
+  "test-counts": 41
 }

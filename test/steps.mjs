@@ -145,5 +145,5 @@ export const e2e = (config, args = []) => ({
 
 /** Every step of the gate after the format check, in the order it runs. */
 export function gateSteps() {
-  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), e2eTypes, ...e2eConfigs().map((config) => e2e(config))];
+  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), e2eTypes, ...e2eConfigs().map((config) => e2e(config))];
 }

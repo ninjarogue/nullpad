@@ -49,6 +49,7 @@ cd e2e && npx tsc && npm test
 - A run with more tests raises the file. Commit it. Only a hand edit lowers a count, so a removal shows in the diff.
 - Every config in `e2e/` is a step. A known count whose step is gone fails.
 - `node --test test/test_counts.test.mjs` plants each of these with a fake runner.
+- A node test makes its temp directories with `useScratch` (`test/scratch.mjs`), which removes them when the file ends. `node --test test/scratch.test.mjs` runs every node test file with a private `TMPDIR` and fails on what is left. Every `*.test.mjs` under `test/` and `tools/` is a step of the gate.
 - `tools/mutants` plants a bug at a time and runs these checks on it, to find the test that is missing. Its README says how. `node --test tools/mutants/mutants.test.mjs` is a step of the gate.
 
 ## Code
