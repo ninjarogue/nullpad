@@ -3,6 +3,7 @@ import { expect } from 'e2e';
 import type { App } from 'e2e';
 import { test } from './nullpad.ts';
 import type { Disk, Note, Page } from './nullpad.ts';
+import { Editing } from './editing.ts';
 
 const stored = (body: string): Note => ({ key: 'live', title: null, body });
 
@@ -108,4 +109,70 @@ for (const width of [1280, 412]) {
       expect(moved(rows + added - 1, left, await page.drawnWords())).toEqual([]);
     });
   }
+}
+
+/** Where `@` is in `text`, as `row:column`. */
+function markAt(text: string) {
+  const before = text.slice(0, text.indexOf('@')).split('\n');
+  return `${before.length - 1}:${before[before.length - 1]!.length}`;
+}
+
+/** Puts the caret at the start or the end of `row`, from the first row, with keys that cross leaves. */
+async function caretOnRow({ browser, page }: Fixtures, rows: number, row: number, end: 'Home' | 'End') {
+  for (let presses = 0; presses <= rows && (await page.caretRow()) > 0; presses++) {
+    await browser.keyboard.press('ArrowUp');
+    await page.nextFrame();
+  }
+  for (let presses = 0; presses < 4 * rows && (await page.caretRow()) < row; presses++) {
+    await browser.keyboard.press('ArrowDown');
+    await page.nextFrame();
+  }
+  await browser.keyboard.press(end);
+  await page.nextFrame();
+}
+
+for (const note of [
+  '- a\n- b',
+  'a\n\nb',
+  '# h\ntext',
+  '> a\n> - b\n>   - c',
+  '> abcd\n>\n> efgh',
+  '> # h\n> text',
+  '- a\n  - b\n    - c',
+  '- a\n\n  b',
+  '> ```\n> code\n> ```\n> z',
+  '1. a\n   b\n2. c',
+  '- a\n  > b\n  > c',
+  '> - > - # x\n>   >   y\n> - z',
+]) {
+  test(`ArrowLeft at the start of each row of ${JSON.stringify(note)} and ArrowRight at its end go where a plain text field puts the caret`, async (fixtures) => {
+    const { app, page } = fixtures;
+    const editor = new Editing(fixtures);
+    const lines = note.split('\n');
+    const rowStart = (row: number) => lines.slice(0, row).reduce((sum, line) => sum + line.length + 1, 0);
+    const presses = lines.slice(1).flatMap((_, at) => [
+      { row: at, end: 'End' as const, key: 'ArrowRight', from: `${at}:${lines[at]!.length}` },
+      { row: at + 1, end: 'Home' as const, key: 'ArrowLeft', from: `${at + 1}:0` },
+    ]);
+    await editor.seed(note);
+    await app.open('/blank');
+    const plain = [];
+    for (const press of presses) plain.push(markAt(await editor.plainField(note, rowStart(press.row), [press.end, press.key], '@')));
+    await editor.show(note);
+    const failures: string[] = [];
+    for (const [at, press] of presses.entries()) {
+      await caretOnRow(fixtures, lines.length, press.row, press.end);
+      const from = await page.caretAt();
+      if (from !== press.from) {
+        failures.push(`${press.end} on row ${press.row} put the caret at ${from}, not ${press.from}`);
+        continue;
+      }
+      await fixtures.browser.keyboard.press(press.key);
+      await page.nextFrame();
+      await page.nextFrame();
+      const got = await page.caretAt();
+      if (got !== plain[at]) failures.push(`${press.key} from ${press.from}: the plain field puts the caret at ${plain[at]}, the page at ${got}`);
+    }
+    expect(failures).toEqual([]);
+  });
 }

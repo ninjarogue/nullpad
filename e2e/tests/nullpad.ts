@@ -357,6 +357,21 @@ export class Page {
     });
   }
 
+  /** Where the caret is in the note, as `row:column`, or the ends of the selection when it holds some text. */
+  caretAt() {
+    return this.browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      const first = Number(field.dataset.row ?? 0);
+      const at = (offset: number) => {
+        const before = field.value.slice(0, offset).split('\n');
+        return `${first + before.length - 1}:${before[before.length - 1]!.length}`;
+      };
+      const start = at(field.selectionStart);
+      const end = at(field.selectionEnd);
+      return start === end ? start : `${start}-${end}`;
+    });
+  }
+
   /**
    * Presses `keys` one after another while the page draws nothing, as on a
    * device too busy to draw between two key presses. Then lets it draw.
