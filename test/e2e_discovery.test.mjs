@@ -96,6 +96,14 @@ const moreStrays = {
   "scripts/describe-with-names.ts": `import { describe } from '@e2e-dev/web';\nconst body = () => {};\ndescribe(name, body);\n`,
   "scripts/in-a-function.ts": `import { test } from '@e2e-dev/web';\n${run}export function register(): void {\n  test(name, run);\n}\n`,
   "scripts/for-each.ts": "import { test } from '@e2e-dev/web';\n[{ title: 'a', run: async () => {} }].forEach((c) => test(c.title, c.run));\n",
+  "scripts/param-registrar.ts": `import { test } from '@e2e-dev/web';\n${run}function reg(t: typeof test): void {\n  t(name, run);\n}\nreg(test);\n`,
+  "scripts/param-arrow.ts": `import { test } from '@e2e-dev/web';\n${run}const reg = (t: typeof test): void => {\n  t(name, run);\n};\nreg(test);\n`,
+  "scripts/conditional.ts": `import { test } from '@e2e-dev/web';\n${run}const t = process.env.X ? test : test.skip;\nt(name, run);\n`,
+  "scripts/conditional-alternate.ts": `import { test } from '@e2e-dev/web';\n${run}const t = process.env.X ? 1 : test;\nt(name, run);\n`,
+  "scripts/logical.ts": `import { test } from '@e2e-dev/web';\n${run}const t = process.env.X || test;\nt(name, run);\n`,
+  "scripts/describe-serial.ts": `import { test } from '@e2e-dev/web';\n${run}test.describe.serial(name, () => {});\n`,
+  "scripts/fixme-with-title.ts": `import { test } from '@e2e-dev/web';\n${run}test.fixme(name, run);\n`,
+  "scripts/each-style.ts": `import { test } from '@e2e-dev/web';\n${run}test.each([1, 2])(name, run);\n`,
   "tests/x.config.ts": "import { test } from '@e2e-dev/web';\ntest('x', async () => {});\n",
   "tests/nested/y.config.mjs": "import { test } from '@e2e-dev/web';\ntest('y', async () => {});\n",
 };
@@ -108,6 +116,12 @@ const moreNotTests = {
   "tests/alias-not-called.ts": "import { test } from '@e2e-dev/web';\nexport const t = test;\nexport const same = test.extend({});\n",
   "tests/hooks-only.ts": "import { afterAll, beforeEach } from 'e2e';\nbeforeEach(async () => {});\nafterAll(async () => {});\n",
   "tests/namespace-members.ts": "import e2e from 'e2e';\nimport * as all from '@e2e-dev/web';\nexport const same = e2e.expect;\nexport const other = all.web;\nconst t = e2e.expect;\nt(1);\n",
+  "tests/slow.ts": "import { test } from '@e2e-dev/web';\nexport function tune(): void {\n  test.slow();\n  test.setTimeout(60_000);\n  test.info();\n}\n",
+  "tests/describe-configure.ts": "import { test } from '@e2e-dev/web';\ntest.describe.configure({ mode: 'serial' });\n",
+  "tests/step.ts": "import { test } from '@e2e-dev/web';\nexport const stepped = async () => {\n  await test.step('a step', async () => {});\n};\n",
+  "tests/fixme-in-body.ts": "import { test } from '@e2e-dev/web';\nexport function guard(on: boolean): void {\n  test.fixme(on, 'a reason');\n  test.fixme(true);\n  test.slow(on, 'slow here');\n}\n",
+  "tests/param-unused.ts": "import { test } from '@e2e-dev/web';\nfunction reg(t: number): number {\n  return t;\n}\nreg(1);\nexport const same = test.extend({});\n",
+  "tests/conditional-other.ts": "import { expect } from 'e2e';\nconst t = process.env.X ? expect : 1;\nt(1);\n",
   "tests/uses-helper-namespace.e2e.ts": "import * as h from './helper.ts';\nh.test('through a namespace', async () => {});\n",
 };
 
@@ -201,5 +215,26 @@ describe("a registration whatever its arguments, through whatever binds the e2e 
   test("passes when only the files that use the API without registering are there", () => {
     const { status, out } = check(toy({ ...notTests, ...moreNotTests }));
     assert.equal(status, 0, out);
+  });
+});
+
+// What the check does not follow. Each file registers a test and no config discovers it, and the
+// check does not say so. The day one is named, this fails: move it to `moreStrays`.
+const escapes = {
+  "scripts/escape-destructured-default.ts": `import { test } from '@e2e-dev/web';\n${run}const { it = test } = {} as any;\nit(name, run);\n`,
+  "scripts/escape-object-property.ts": `import { test } from '@e2e-dev/web';\n${run}const api = { t: test };\napi.t(name, run);\n`,
+  "scripts/escape-for-each.ts": `import { test } from '@e2e-dev/web';\n${run}[test].forEach((t) => t(name, run));\n`,
+  "scripts/escape-import-require.ts": `import e2e = require('e2e');\n${run}e2e.test(name, run);\n`,
+  "scripts/escape-reexport-object.ts": `import { test } from '../tests/helper.ts';\nexport const api = { test };\n`,
+  "scripts/escape-param-other-file.ts": `import { reg } from '../tests/register-elsewhere.ts';\nimport { test } from '@e2e-dev/web';\nreg(test);\n`,
+  "tests/register-elsewhere.ts": `export function reg(t: any): void {\n  t('x', async () => {});\n}\n`,
+};
+
+describe("known escapes of the check", () => {
+  test("are still not named", () => {
+    const { out } = check(toy({ ...notTests, ...escapes }));
+    for (const name of names(escapes)) {
+      assert.doesNotMatch(out, new RegExp(`FAIL ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`), `${name} is now named: move it to moreStrays`);
+    }
   });
 });

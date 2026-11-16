@@ -112,6 +112,8 @@ function bindings(programs) {
     if (node === null || node === undefined) return null;
     if (wrappers.has(node.type)) return valueOf(node.expression, file);
     if (node.type === "AwaitExpression") return valueOf(node.argument, file);
+    if (node.type === "ConditionalExpression") return valueOf(node.consequent, file) ?? valueOf(node.alternate, file);
+    if (node.type === "LogicalExpression") return valueOf(node.left, file) ?? valueOf(node.right, file);
     if (node.type === "Identifier") return state.get(file).env.get(node.name) ?? null;
     if (node.type === "ImportExpression") return stringOf(node.source) === null ? null : moduleOf(file, stringOf(node.source));
     if (node.type === "MemberExpression") {
@@ -137,8 +139,22 @@ function bindings(programs) {
       if (key !== null) bind(property.value, member(value, key), file);
     }
   };
+  const functions = new Map([...programs].map(([file, program]) => {
+    const found = new Map();
+    walk(program, (node) => {
+      if (node.type === "FunctionDeclaration" && node.id) found.set(node.id.name, node.params);
+      if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && ["ArrowFunctionExpression", "FunctionExpression"].includes(node.init?.type)) found.set(node.id.name, node.init.params);
+    });
+    return [file, found];
+  }));
   const visit = (node, file) => {
     const { env, exports } = state.get(file);
+    if (node.type === "CallExpression" && node.callee.type === "Identifier" && functions.get(file).has(node.callee.name)) {
+      const params = functions.get(file).get(node.callee.name);
+      node.arguments.forEach((argument, index) => {
+        if (params[index] !== undefined && params[index].type !== "RestElement") bind(params[index], valueOf(argument, file), file);
+      });
+    }
     if (node.type === "ImportDeclaration" && untyped(node.importKind)) {
       const module = moduleOf(file, stringOf(node.source) ?? "");
       for (const specifier of module === null ? [] : node.specifiers) {
@@ -180,6 +196,11 @@ function bindings(programs) {
 }
 
 const nonRegistering = new Set(["extend", "use", ...hooks]);
+// Members of `test` and `describe` that register something. `todo` takes a title alone; the rest
+// take a title and a body, and with a condition and a reason (`test.fixme(cond, 'why')`) they are
+// the form called inside a test. `describe.configure`, `test.step`, `slow`, `setTimeout` and
+// `info` register none.
+const registeringMembers = new Set(["only", "skip", "fixme", "fail", "todo", "each", "describe", "serial", "parallel", "default"]);
 const isText = (node) => (node?.type === "Literal" && typeof node.value === "string") || node?.type === "TemplateLiteral";
 
 const spell = (node) => {
@@ -194,8 +215,9 @@ const spell = (node) => {
  * binding that is the e2e test API, whatever its arguments, as `test(name, run)`,
  * `t(...)` after `const t = test`, `e2e.test(...)`, `(await import('e2e')).test(...)`
  * or a helper's `base.extend({})`. Hooks, `extend` and `use` register none. A
- * `test.skip(condition, reason)` or `test.fail(condition)` is the form that is
- * called inside a test, and is not one either.
+ * `test.skip(condition, reason)`, `test.fixme(condition)` and the like are the form
+ * that is called inside a test, and `slow`, `setTimeout`, `info`, `step` and
+ * `describe.configure` register nothing.
  */
 function registrations(program, { valueOf }) {
   const found = [];
@@ -205,8 +227,12 @@ function registrations(program, { valueOf }) {
     if (callee.type === "MemberExpression" && nonRegistering.has(keyOf(callee))) return;
     if (valueOf(callee) !== "call") return;
     const args = node.arguments;
-    const inBody = callee.type === "MemberExpression" && ["skip", "fail"].includes(keyOf(callee)) && (args.length === 1 || (args.length === 2 && isText(args[1])));
-    if (inBody) return;
+    if (callee.type === "MemberExpression" && valueOf(callee.object) === "call") {
+      const key = keyOf(callee);
+      if (!registeringMembers.has(key)) return;
+      const inBody = key !== "todo" && key !== "each" && (args.length < 2 || (args.length === 2 && isText(args[1])));
+      if (inBody) return;
+    }
     found.push(`${spell(callee)}(${stringOf(args[0]) === null ? "..." : JSON.stringify(stringOf(args[0]))}, ...)`);
   });
   return found;
