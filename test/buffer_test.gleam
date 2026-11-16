@@ -114,3 +114,26 @@ pub fn moving_the_selection_takes_it_to_a_place_and_selects_it_there_test() {
   assert buffer.text(across) == "ad\neb\ncf"
   assert buffer.selection(across) == #(Position(1, 1), Position(2, 1))
 }
+
+/// gleam_stdlib's `string.drop_start` counts what it drops in UTF-8 bytes
+/// and drops UTF-16 units on JavaScript, so it drops too much after a
+/// letter outside ASCII.
+pub fn replace_counts_graphemes_after_letters_outside_ascii_test() {
+  let note = buffer.from_text("かな ab\n日本")
+  let typed =
+    buffer.replace(note, from: Position(0, 1), to: Position(0, 2), with: "x")
+  assert buffer.text(typed) == "かx ab\n日本"
+  assert buffer.cursor(typed) == Position(0, 2)
+
+  let joined =
+    buffer.replace(note, from: Position(0, 4), to: Position(1, 1), with: "")
+  assert buffer.text(joined) == "かな a本"
+}
+
+pub fn moving_a_selection_after_letters_outside_ascii_moves_it_whole_test() {
+  let note =
+    buffer.from_text("日本語 one")
+    |> buffer.select(anchor: Position(0, 1), head: Position(0, 3))
+  let moved = buffer.move_selection(note, to: Position(0, 8))
+  assert buffer.text(moved) == "日 one本語"
+}
