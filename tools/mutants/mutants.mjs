@@ -2,13 +2,14 @@
 // each, to see which bug no check notices. See README.md.
 //
 //   node tools/mutants/mutants.mjs <mutants.json> [--only M01,M02] [--checks gleam-test,e2e] [--out DIR]
+//                                  [--repo DIR] [--calibration FILE]
 //   node tools/mutants/mutants.mjs --calibrate
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { e2e, e2eConfigs, gleamBuild, gleamTest, keystrokeCost, root } from "../../test/steps.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import * as ownSteps from "../../test/steps.mjs";
 import { killAll, runCheck } from "../../test/test_counts.mjs";
 
 /** The tool cannot say what a result means, or the tree is not fit to run in. No result is trusted after one. */
@@ -45,9 +46,53 @@ export function classify(check, run) {
   return say("pass", "");
 }
 
-/** The checks a bug has to get past, in order. Each e2e run stops at its first failed test. */
-export function defaultChecks() {
-  return [gleamBuild, gleamTest, keystrokeCost, ...e2eConfigs().map((config) => e2e(config, ["--max-failures", "1", "--reporter", "list"]))];
+/** The checks a bug has to get past, in order, from the `steps` of a repository. Each e2e run stops at its first failed test. */
+export function defaultChecks(steps = ownSteps) {
+  return [steps.gleamBuild, steps.gleamTest, steps.keystrokeCost, ...steps.e2eConfigs().map((config) => steps.e2e(config, ["--max-failures", "1", "--reporter", "list"]))];
+}
+
+/**
+ * The repository at `repo` and its `test/steps.mjs`, which says how its checks
+ * are run. Throws a `HarnessError` when it is not the top of a git repository,
+ * has no steps, or has steps that would run the checks in another directory.
+ */
+export async function stepsOf(repo) {
+  let dir;
+  try {
+    dir = realpathSync(repo);
+    if (!statSync(dir).isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new HarnessError(`--repo ${repo}: no such directory`);
+  }
+  let top;
+  try {
+    top = realpathSync(execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim());
+  } catch {
+    throw new HarnessError(`--repo ${repo}: not a git repository`);
+  }
+  if (top !== dir) throw new HarnessError(`--repo ${repo}: not the top of a git repository (that is ${top})`);
+  const file = join(dir, "test/steps.mjs");
+  if (!existsSync(file)) {
+    throw new HarnessError(`--repo ${repo}: it has no test/steps.mjs, which says how its checks are run. Merge the branch that adds it into ${repo}, or run the tool from there`);
+  }
+  let steps;
+  try {
+    steps = await import(pathToFileURL(file).href);
+  } catch (error) {
+    throw new HarnessError(`--repo ${repo}: test/steps.mjs did not load: ${error.message}`);
+  }
+  const missing = ["root", "gleamBuild", "gleamTest", "keystrokeCost", "e2eConfigs", "e2e"].filter((name) => steps[name] === undefined);
+  if (missing.length > 0) throw new HarnessError(`--repo ${repo}: test/steps.mjs does not export ${missing.join(", ")}`);
+  let runsIn;
+  try {
+    runsIn = realpathSync(steps.root);
+  } catch {
+    runsIn = String(steps.root);
+  }
+  if (runsIn !== dir) {
+    throw new HarnessError(`--repo ${repo}: its test/steps.mjs runs its checks in ${steps.root}, not in ${dir}, so a bug planted in the one would be tested in the other`);
+  }
+  return { dir, steps };
 }
 
 function matches(text, find) {
@@ -102,6 +147,16 @@ function assertClean(dir, when) {
   }
 }
 
+function assertOutputIgnored(dir, outDir) {
+  const inside = relative(realpathSync(dir), realpathSync(outDir));
+  if (inside.startsWith("..") || isAbsolute(inside)) return;
+  try {
+    execFileSync("git", ["check-ignore", "-q", "--", join(inside, "results.jsonl")], { cwd: dir, stdio: "ignore" });
+  } catch {
+    throw new HarnessError(`the output folder ${outDir} is inside ${dir} and git does not ignore it, so the tree would be dirty after the first mutant. Put it outside, or in a folder .gitignore lists`);
+  }
+}
+
 /**
  * Plants each mutant of `mutants` in turn and runs `checks` on it, stopping at
  * the first that fails. Before any real mutant, the `calibration` has to
@@ -136,6 +191,7 @@ export async function runMutants({
     if (check.needs && !existsSync(check.needs)) throw new HarnessError(`${check.id}: ${check.hint ?? `${check.needs} is missing`}`);
   }
   mkdirSync(outDir, { recursive: true });
+  assertOutputIgnored(dir, outDir);
 
   const records = [];
   let planted = null;
@@ -223,40 +279,66 @@ function table(records) {
   return ["| id | result | caught by | file | what was planted | first failure |", "| --- | --- | --- | --- | --- | --- |", ...rows].join("\n");
 }
 
+const toolRoot = fileURLToPath(new URL("../..", import.meta.url));
+
 async function main(args) {
-  const options = { only: null, checks: null, out: null, calibrate: false, file: null };
+  const options = { only: null, checks: null, out: null, calibrate: false, file: null, repo: null, calibration: null };
+  const value = (index, name, what) => {
+    const given = args[index];
+    if (given === undefined || given.startsWith("--")) throw new HarnessError(`${name} needs ${what}`);
+    return given;
+  };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === "--calibrate") options.calibrate = true;
     else if (arg === "--only") options.only = args[++index]?.split(",");
     else if (arg === "--checks") options.checks = args[++index]?.split(",");
     else if (arg === "--out") options.out = args[++index];
+    else if (arg === "--repo") options.repo = value(++index, "--repo", "a path");
+    else if (arg === "--calibration") options.calibration = value(++index, "--calibration", "a file");
     else if (arg.startsWith("--")) throw new HarnessError(`unknown option ${arg}`);
     else options.file = arg;
   }
   if (!options.calibrate && !options.file) {
-    console.error("usage: node tools/mutants/mutants.mjs <mutants.json> [--only M01,M02] [--checks gleam-test,e2e] [--out DIR]\n       node tools/mutants/mutants.mjs --calibrate");
+    console.error(
+      "usage: node tools/mutants/mutants.mjs <mutants.json> [--only M01,M02] [--checks gleam-test,e2e] [--out DIR] [--repo DIR] [--calibration FILE]\n       node tools/mutants/mutants.mjs --calibrate [--repo DIR] [--calibration FILE]",
+    );
     return 2;
   }
-  const here = dirname(fileURLToPath(import.meta.url));
-  const calibration = JSON.parse(readFileSync(join(here, "calibration.json"), "utf8"));
+  const target = options.repo ? await stepsOf(options.repo) : { dir: ownSteps.root, steps: ownSteps };
+  const calibrationFile = options.calibration ? resolve(options.calibration) : join(dirname(fileURLToPath(import.meta.url)), "calibration.json");
+  let calibration;
+  try {
+    calibration = JSON.parse(readFileSync(calibrationFile, "utf8"));
+  } catch (error) {
+    throw new HarnessError(`the calibration ${calibrationFile} cannot be read (${error.code ?? error.message})`);
+  }
   const mutants = options.calibrate ? [] : JSON.parse(readFileSync(options.file, "utf8"));
-  const every = defaultChecks();
+  const every = defaultChecks(target.steps);
   const wanted = options.checks;
   const checks = wanted ? every.filter((check) => check.build || wanted.includes(check.id) || (wanted.includes("e2e") && check.id.startsWith("e2e:"))) : every;
   const unknown = (wanted ?? []).filter((name) => name !== "e2e" && !every.some((check) => check.id === name));
   if (unknown.length > 0) throw new HarnessError(`unknown check ${unknown.join(", ")}. Checks: ${every.map((check) => check.id).join(", ")}, e2e`);
-  const outDir = resolve(root, options.out ?? join(".mutants", new Date().toISOString().replace(/[:.]/g, "-")));
-  const { calibration: proven, results } = await runMutants({
-    root,
-    mutants,
-    calibration,
-    checks,
-    outDir,
-    only: options.only,
-    calibrationOnly: options.calibrate,
-    log: (line) => console.log(line),
-  });
+  const outDir = resolve(options.out ?? join(toolRoot, ".mutants", new Date().toISOString().replace(/[:.]/g, "-")));
+  let run;
+  try {
+    run = await runMutants({
+      root: target.dir,
+      mutants,
+      calibration,
+      checks,
+      outDir,
+      only: options.only,
+      calibrationOnly: options.calibrate,
+      log: (line) => console.log(line),
+    });
+  } catch (error) {
+    if (error instanceof HarnessError && options.repo && !options.calibration && error.message.startsWith("bad mutants")) {
+      throw new HarnessError(`${error.message}\nThe calibration is this tool's own, written for its own source. For ${options.repo}, give --calibration <file>.`, error.records);
+    }
+    throw error;
+  }
+  const { calibration: proven, results } = run;
   const summary = `Calibration passed: ${proven.map((entry) => `${entry.id} ${entry.status}`).join(", ")}.\n\n${table(results)}\n`;
   writeFileSync(join(outDir, "summary.md"), summary);
   console.log(`\n${summary}\nOutput of every check: ${outDir}`);

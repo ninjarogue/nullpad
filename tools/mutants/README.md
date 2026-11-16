@@ -7,6 +7,7 @@ node tools/mutants/mutants.mjs --calibrate                      # only prove the
 node tools/mutants/mutants.mjs mutants.json                     # calibrate, then run every mutant
 node tools/mutants/mutants.mjs mutants.json --only M03,M07      # some of them
 node tools/mutants/mutants.mjs mutants.json --checks gleam-test # only some checks (build always runs)
+node tools/mutants/mutants.mjs mutants.json --repo ../other-worktree --calibration other-calibration.json
 ```
 
 A mutants file is a list of exact string replacements:
@@ -21,6 +22,15 @@ A mutants file is a list of exact string replacements:
 - The git tree must be clean, at the start and after every mutant. A mutant is written back byte for byte after each run, and when the tool is stopped with Ctrl+C or killed with SIGTERM. A tool killed with SIGKILL leaves its bug planted, and the next run refuses to start: look at `git diff` and `git checkout -- <file>`.
 - The checks run in the order `gleam build`, `gleam test`, `keystroke_cost`, then each e2e config (`npm test` with `--max-failures 1`). They are the gate's own steps (`test/steps.mjs`), so a runner is called and read one way. A mutant stops at the first check that fails.
 - The full output of every check goes to `.mutants/<time>/<id>.<check>.txt`, with `results.jsonl` and `summary.md` beside them. The folder is ignored by git.
+
+## Attacking another repository
+
+`--repo <path>` plants in another worktree or branch checkout and runs that repository's checks, so a branch can be attacked from this one.
+
+- The checks come from the repository's own `test/steps.mjs`, so the build and the runners are called the way that branch calls them. A repository without one is refused, and so is one whose `steps.mjs` runs its checks in some other directory, because a bug planted in one tree and tested in the other would come out MISSED every time.
+- `<path>` must be the top of a git work tree, and its tree must be clean.
+- The calibration is this tool's own unless `--calibration <file>` says otherwise. Its mutants name exact text in this source, so on another branch they may not match once, and the run stops before planting anything. Give a file of the same shape, written for that source.
+- Output goes to `.mutants/<time>` of the repository the tool lives in, so the tree under attack stays clean. With `--out`, a folder inside the repository under attack must be one its `.gitignore` lists, or the run stops before planting anything. A relative `--out` is from the current directory.
 
 ## What a result means
 
