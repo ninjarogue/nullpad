@@ -42,16 +42,7 @@ export const readers = {
   },
 
   e2e({ outDir }) {
-    let report;
-    try {
-      report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf8"));
-    } catch (error) {
-      throw new Error(`no readable report.json in ${outDir} (${error.code ?? error.message}): the run crashed before it wrote one`);
-    }
-    if (report.schemaVersion !== "report-1") {
-      throw new Error(`report.json has schema ${report.schemaVersion}, and this reader knows report-1`);
-    }
-    const { summary, results } = report.run;
+    const { summary, results } = readReport(outDir);
     const passed = results.filter((result) => result.status === "passed").length;
     if (passed !== summary.passed) {
       throw new Error(`report.json disagrees with itself: its summary says ${summary.passed} passed and its results show ${passed}`);
@@ -64,8 +55,47 @@ export const readers = {
   },
 };
 
+function readReport(outDir) {
+  let report;
+  try {
+    report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf8"));
+  } catch (error) {
+    throw new Error(`no readable report.json in ${outDir} (${error.code ?? error.message}): the run crashed before it wrote one`);
+  }
+  if (report.schemaVersion !== "report-1") {
+    throw new Error(`report.json has schema ${report.schemaVersion}, and this reader knows report-1`);
+  }
+  return report.run;
+}
+
 /**
- * A step is `{ id, cwd, command(outDir) -> argv, counted, read, env?, needs?, hint?, outIn? }`.
+ * What a run held back from its count without failing: tests that are not
+ * checks of the code, or that do not say when it breaks. A held reader takes
+ * what a reader takes and gives `{ name: count }`. The gate holds each count
+ * to the one in `test/test_counts.json` under "<step id> <name>", which is 0
+ * when the file has no line for it, and only a hand edit raises it.
+ */
+export const heldBack = {
+  // A test marked `test.fail` passes by failing, so the passes do not say whether
+  // the thing it marks still fails. One that passed instead is a failed test already.
+  e2e({ outDir }) {
+    const { results } = readReport(outDir);
+    return { "expected-fail": results.filter((result) => result.status === "passed" && result.expectedFailure).length };
+  },
+
+  // Node counts a todo apart from the passes, and a todo that fails fails nothing.
+  nodeTest({ output }) {
+    const found = plain(output).match(/^# todo (\d+)$/m);
+    if (!found) throw none("node --test", "'# todo N'");
+    return { todo: Number(found[1]) };
+  },
+};
+
+/** The names a step can hold something back under, as they end a key of `test/test_counts.json`. */
+export const heldNames = ["expected-fail", "todo"];
+
+/**
+ * A step is `{ id, cwd, command(outDir) -> argv, counted, read, held?, env?, needs?, hint?, outIn? }`.
  * `outDir` is a new directory for the run's results, inside `outIn` when the
  * runner will not write anywhere else.
  * A counted step reports how many tests it ran, and the gate holds it to the
@@ -98,6 +128,7 @@ export const nodeTest = (id, file) => ({
   counted: true,
   command: () => ["node", "--test", "--test-reporter=tap", file],
   read: readers.nodeTest,
+  held: heldBack.nodeTest,
 });
 
 /** Every `*.test.mjs` under `test/` and `tools/` of `base`, as paths from it, sorted. */
@@ -139,6 +170,7 @@ export const e2e = (config, args = []) => ({
   counted: true,
   command: (outDir) => ["npm", "test", "--", "--config", config, "--output", outDir, ...args],
   read: readers.e2e,
+  held: heldBack.e2e,
   env: { E2E_TELEMETRY_DISABLED: "1" },
   ...needsE2e,
 });

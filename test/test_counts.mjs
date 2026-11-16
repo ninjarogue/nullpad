@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, w
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gateSteps } from "./steps.mjs";
+import { gateSteps, heldNames } from "./steps.mjs";
 
 export const countsFile = fileURLToPath(new URL("./test_counts.json", import.meta.url));
 const COUNTS = "test/test_counts.json";
@@ -73,6 +73,43 @@ export function judge({ id, known, exitCode, signal, counts, problem }) {
   }
   const raise = failures.length === 0 && counts.passed > (known ?? 0) ? counts.passed : null;
   return { failures, raise };
+}
+
+const heldKey = (id, name) => `${id} ${name}`;
+
+const heldReasons = {
+  "expected-fail": "marked test.fail, and a test marked to fail passes by failing, so a real failure can hide behind the mark",
+  todo: "marked todo, and a todo test that fails fails nothing",
+};
+
+/** The step a key of the counts file belongs to: its id, with the name of what it holds back taken off. */
+export function stepOf(key) {
+  const name = heldNames.find((held) => key.endsWith(` ${held}`));
+  return name ? key.slice(0, -(name.length + 1)) : key;
+}
+
+/**
+ * What a run says about the tests the step held back from its count. `known`
+ * is `{ name: count }` as the counts file has it, and `held` what the run
+ * reported. More than known fails: only a hand edit allows one more. Fewer is
+ * `lower`, the new numbers to record, so that the room that is left cannot be
+ * spent on a new one.
+ */
+export function judgeHeld({ id, known = {}, held = {} }) {
+  const failures = [];
+  const lower = {};
+  for (const [name, count] of Object.entries(held)) {
+    const allowed = known[name] ?? 0;
+    if (count > allowed) {
+      failures.push(
+        `${id}: ${tests(count)} ${heldReasons[name] ?? `held back as ${name}`}, and ${COUNTS} allows ${allowed}. ` +
+          `If that is intended, set "${heldKey(id, name)}": ${count} in ${COUNTS} by hand, so it shows in the diff.`,
+      );
+    } else if (count < allowed) {
+      lower[name] = count;
+    }
+  }
+  return { failures, lower };
 }
 
 const live = new Set();
@@ -134,8 +171,9 @@ export function spawnCapture(argv, { cwd, env, timeoutMs }, write) {
 
 /**
  * Runs one step in a new results directory, which is removed after, and reads
- * its count. Gives the exit code, the signal, whether it timed out, the output,
- * and `counts` (null with a `problem` when the runner said nothing readable).
+ * its count and what it held back. Gives the exit code, the signal, whether it
+ * timed out, the output, `counts` (null with a `problem` when the runner said
+ * nothing readable) and `held`, `{ name: count }`.
  */
 export async function runCheck(step, { write = () => {}, timeoutMs } = {}) {
   if (step.outIn) mkdirSync(step.outIn, { recursive: true });
@@ -143,15 +181,18 @@ export async function runCheck(step, { write = () => {}, timeoutMs } = {}) {
   try {
     const run = await spawnCapture(step.command(outDir), { cwd: step.cwd, env: step.env, timeoutMs }, write);
     let counts = null;
+    let held = {};
     let problem;
     if (step.counted) {
       try {
         counts = step.read({ output: run.output, outDir });
+        held = step.held ? step.held({ output: run.output, outDir }) : {};
       } catch (error) {
+        counts = null;
         problem = error.message;
       }
     }
-    return { ...run, counts, problem };
+    return { ...run, counts, held, problem };
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }
@@ -164,20 +205,33 @@ export async function runStep(step, { countsFile: file = countsFile, log = conso
     return { ok: false, id: step.id, failures: [`${step.id}: ${step.hint ?? `${step.needs} is missing`}`], raised: null };
   }
   log(`==> ${step.id}`);
-  const { exitCode, signal, counts, problem } = await runCheck(step, { write });
+  const { exitCode, signal, counts, held, problem } = await runCheck(step, { write });
   if (!step.counted) {
     const failures = exitCode === 0 && !signal ? [] : [`${step.id}: the command ${signal ? `was killed by ${signal}` : `exited ${exitCode}`}`];
-    return { ok: failures.length === 0, id: step.id, failures, raised: null };
+    return { ok: failures.length === 0, id: step.id, failures, raised: null, lowered: {} };
   }
   const known = all[step.id];
   const verdict = judge({ id: step.id, known, exitCode, signal, counts, problem });
-  if (verdict.raise !== null) {
-    saveCounts(file, { ...loadCounts(file), [step.id]: verdict.raise });
-    log(`${step.id}: ${tests(verdict.raise)}, up from ${known ?? "none"}. ${COUNTS} is raised: commit it.`);
-  } else if (verdict.failures.length === 0) {
-    log(`${step.id}: ${tests(counts.passed)}, as known`);
+  const knownHeld = Object.fromEntries(Object.keys(held).map((name) => [name, all[heldKey(step.id, name)] ?? 0]));
+  const heldVerdict = judgeHeld({ id: step.id, known: knownHeld, held });
+  const failures = [...verdict.failures, ...heldVerdict.failures];
+  const lowered = failures.length === 0 ? heldVerdict.lower : {};
+  const raise = failures.length === 0 ? verdict.raise : null;
+  if (raise !== null || Object.keys(lowered).length > 0) {
+    const next = { ...loadCounts(file) };
+    if (raise !== null) next[step.id] = raise;
+    for (const [name, count] of Object.entries(lowered)) {
+      if (count === 0) delete next[heldKey(step.id, name)];
+      else next[heldKey(step.id, name)] = count;
+    }
+    saveCounts(file, next);
   }
-  return { ok: verdict.failures.length === 0, id: step.id, failures: verdict.failures, raised: verdict.raise };
+  if (raise !== null) log(`${step.id}: ${tests(raise)}, up from ${known ?? "none"}. ${COUNTS} is raised: commit it.`);
+  for (const [name, count] of Object.entries(lowered)) {
+    log(`${step.id}: ${count} ${name}, down from ${knownHeld[name]}. ${COUNTS} is lowered: commit it.`);
+  }
+  if (failures.length === 0 && raise === null) log(`${step.id}: ${tests(counts.passed)}, as known`);
+  return { ok: failures.length === 0, id: step.id, failures, raised: raise, lowered };
 }
 
 /**
@@ -189,19 +243,21 @@ export async function gate({ steps, countsFile: file = countsFile, partial = fal
   loadCounts(file);
   const ran = [];
   const raised = {};
+  const lowered = {};
   for (const step of steps) {
     const verdict = await runStep(step, { countsFile: file, ...io });
     ran.push(step.id);
     if (verdict.raised !== null) raised[step.id] = verdict.raised;
-    if (!verdict.ok) return { ok: false, ran, raised, failures: verdict.failures };
+    for (const [name, count] of Object.entries(verdict.lowered ?? {})) lowered[heldKey(step.id, name)] = count;
+    if (!verdict.ok) return { ok: false, ran, raised, lowered, failures: verdict.failures };
   }
-  const orphans = partial ? [] : Object.entries(loadCounts(file)).filter(([id]) => !ran.includes(id));
-  const failures = orphans.map(
-    ([id, count]) =>
-      `${id}: ${COUNTS} knows ${tests(count)} for it, and no step of the gate runs it. ` +
-      `If the step was removed on purpose, remove its line from ${COUNTS} by hand.`,
+  const orphans = partial ? [] : Object.entries(loadCounts(file)).filter(([key]) => !ran.includes(stepOf(key)));
+  const failures = orphans.map(([key, count]) =>
+    key === stepOf(key)
+      ? `${key}: ${COUNTS} knows ${tests(count)} for it, and no step of the gate runs it. ` + `If the step was removed on purpose, remove its line from ${COUNTS} by hand.`
+      : `${key}: ${COUNTS} allows ${count} for ${stepOf(key)}, and no step of the gate runs it. ` + `If the step was removed on purpose, remove its line from ${COUNTS} by hand.`,
   );
-  return { ok: failures.length === 0, ran, raised, failures };
+  return { ok: failures.length === 0, ran, raised, lowered, failures };
 }
 
 async function main(args) {
@@ -222,6 +278,8 @@ async function main(args) {
   for (const failure of verdict.failures) console.error(`FAIL ${failure}`);
   const rose = Object.entries(verdict.raised);
   if (rose.length > 0) console.log(`${COUNTS} was raised for ${rose.map(([id, count]) => `${id} (${count})`).join(", ")}. Commit it.`);
+  const fell = Object.entries(verdict.lowered);
+  if (fell.length > 0) console.log(`${COUNTS} was lowered for ${fell.map(([key, count]) => `${key} (${count})`).join(", ")}. Commit it.`);
   return verdict.ok ? 0 : 1;
 }
 
