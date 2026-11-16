@@ -569,12 +569,13 @@ function fieldAcross(control, liveClass, paintedClass, caretX) {
 }
 
 // How far right of the left of the page's text the field is, by the margin
-// the page sets it with, as a field written since the last render may not
-// yet be where its rows are drawn. A field painted over, out of the page's
-// flow, is measured from its own left.
+// the page sets it with and how far its marks hang, as a field written since
+// the last render may not yet be where its rows are drawn. A field painted
+// over, out of the page's flow, is measured from its own left.
 function fieldLeft(control, liveClass, paintedClass) {
   if (!control.closest("." + liveClass) || control.closest("." + paintedClass)) return 0;
-  return parseFloat(getComputedStyle(control.parentElement).marginLeft) || 0;
+  const margin = parseFloat(getComputedStyle(control.parentElement).marginLeft) || 0;
+  return margin + (parseFloat(getComputedStyle(control).left) || 0);
 }
 
 // A middle press puts the caret where it is pressed, where Linux pastes on
@@ -804,6 +805,13 @@ export function textWidth(text) {
   pen ??= document.createElement("canvas").getContext("2d");
   pen.font = `${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
   return pen.measureText(text).width;
+}
+
+export function boldWidth(text) {
+  const root = getComputedStyle(document.documentElement);
+  pen ??= document.createElement("canvas").getContext("2d");
+  pen.font = `bold ${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
+  return pen.measureText(text).width / parseFloat(root.fontSize);
 }
 
 // A selection across blocks is painted over the drawn page with the CSS

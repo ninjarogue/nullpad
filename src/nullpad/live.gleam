@@ -52,7 +52,8 @@ fn item_last_row(item: Item) -> Int {
 
 pub type Kind {
   Body
-  Title(Level)
+  /// `marks` are the typed marks before the words of a heading of one row.
+  Title(level: Level, marks: String)
   Mono
   ListItem(task: Bool, marker: String)
 }
@@ -68,7 +69,15 @@ pub fn kind(
   case
     list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
   {
-    [Block(content: Heading(level:, ..), ..)] -> Title(level)
+    [Block(content: Heading(level:, ..), first_row:, ..)] ->
+      Title(
+        level:,
+        marks: lines
+          |> list.drop(first_row)
+          |> list.first
+          |> result.unwrap("")
+          |> markdown.heading_marks,
+      )
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
     [Block(content: BulletList(items:, ..), ..)]

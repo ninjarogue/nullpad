@@ -1601,19 +1601,19 @@ pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_t
     )
   assert editor.region(ed) == Some(Region(0, 1))
   assert editor.blocks(ed) == markdown.parse("~~wow~~\n-")
-  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
 }
 
 pub fn moving_inside_a_block_never_changes_how_the_field_is_set_test() {
   let heading = "Hello\n-"
   let ed = live(heading)
-  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
 
   let ed = show(ed, caret(heading, 1, 1))
   assert editor.region(ed) == Some(Region(0, 1))
-  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
   let ed = show(ed, caret(heading, 0, 2))
-  assert editor.kind(ed) == Some(live.Title(markdown.H2))
+  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
 
   let table = "| a | b |\n|-|-|\n| 1 | 2 |"
   let ed = live(table)
@@ -1641,7 +1641,7 @@ pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
   let ed = live("top\n\n") |> point(2)
 
   assert editor.kind(show(ed, caret("# T", 0, 3)))
-    == Some(live.Title(markdown.H1))
+    == Some(live.Title(level: markdown.H1, marks: "# "))
   assert editor.kind(show(ed, caret("- item", 0, 6)))
     == Some(live.ListItem(task: False, marker: "- "))
   assert editor.kind(show(ed, caret("```", 0, 3))) == Some(live.Mono)
@@ -1649,7 +1649,7 @@ pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
 
 pub fn a_row_that_joins_a_block_beyond_the_field_is_set_as_body_text_test() {
   let ed = live("# Title\ntext")
-  assert editor.kind(ed) == Some(live.Title(markdown.H1))
+  assert editor.kind(ed) == Some(live.Title(level: markdown.H1, marks: "# "))
 
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret("Title", 0, 0), at: 0))
@@ -1695,7 +1695,7 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
     editor.update(blurred, editor.FocusChanged(True))
   assert sync == editor.Write(caret("Hello\n-", 1, 1))
   assert editor.region(back) == Some(Region(0, 1))
-  assert editor.kind(back) == Some(live.Title(markdown.H2))
+  assert editor.kind(back) == Some(live.Title(level: markdown.H2, marks: ""))
 
   let Outcome(editor: escaped, sync:, ..) =
     editor.update(ed, editor.EscapePressed(shown: caret("-", 0, 1)))

@@ -203,7 +203,18 @@ fn marker_width(kind: Option(live.Kind)) -> String {
   case kind {
     Some(live.ListItem(marker:, ..)) ->
       float.to_string(text_width(marker)) <> "px"
-    Some(live.Body) | Some(live.Mono) | Some(live.Title(_)) | None -> ""
+    Some(live.Title(marks: "", ..)) -> ""
+    Some(live.Title(level:, marks:)) ->
+      float.to_string(bold_width(marks) +. spacing(level, marks)) <> "em"
+    Some(live.Body) | Some(live.Mono) | None -> ""
+  }
+}
+
+/// A sixth-level heading is spaced out, as the page draws it.
+fn spacing(level: markdown.Level, marks: String) -> Float {
+  case level {
+    markdown.H6 -> 0.05 *. int.to_float(string.length(marks))
+    markdown.H1 | markdown.H2 | markdown.H3 | markdown.H4 | markdown.H5 -> 0.0
   }
 }
 
@@ -232,12 +243,12 @@ fn rows_of(kind: live.Kind) -> String {
     live.Mono -> "mono"
     live.ListItem(task: False, ..) -> "item"
     live.ListItem(task: True, ..) -> "task"
-    live.Title(markdown.H1) -> "h1"
-    live.Title(markdown.H2) -> "h2"
-    live.Title(markdown.H3) -> "h3"
-    live.Title(markdown.H4) -> "h4"
-    live.Title(markdown.H5) -> "h5"
-    live.Title(markdown.H6) -> "h6"
+    live.Title(level: markdown.H1, ..) -> "h1"
+    live.Title(level: markdown.H2, ..) -> "h2"
+    live.Title(level: markdown.H3, ..) -> "h3"
+    live.Title(level: markdown.H4, ..) -> "h4"
+    live.Title(level: markdown.H5, ..) -> "h5"
+    live.Title(level: markdown.H6, ..) -> "h6"
   }
 }
 
@@ -247,12 +258,12 @@ fn set_as(kind: live.Kind) -> String {
     live.Mono -> "editor part mono"
     live.ListItem(task: False, ..) -> "editor part item"
     live.ListItem(task: True, ..) -> "editor part item task"
-    live.Title(markdown.H1) -> "editor part h1"
-    live.Title(markdown.H2) -> "editor part h2"
-    live.Title(markdown.H3) -> "editor part h3"
-    live.Title(markdown.H4) -> "editor part h4"
-    live.Title(markdown.H5) -> "editor part h5"
-    live.Title(markdown.H6) -> "editor part h6"
+    live.Title(level: markdown.H1, ..) -> "editor part h1"
+    live.Title(level: markdown.H2, ..) -> "editor part h2"
+    live.Title(level: markdown.H3, ..) -> "editor part h3"
+    live.Title(level: markdown.H4, ..) -> "editor part h4"
+    live.Title(level: markdown.H5, ..) -> "editor part h5"
+    live.Title(level: markdown.H6, ..) -> "editor part h6"
   }
 }
 
@@ -1332,6 +1343,10 @@ fn write_control(
 
 @external(javascript, "./surface.ffi.mjs", "textWidth")
 fn text_width(text: String) -> Float
+
+/// In widths of the root font's letter M.
+@external(javascript, "./surface.ffi.mjs", "boldWidth")
+fn bold_width(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "askFocus")
 fn ask_focus() -> Nil

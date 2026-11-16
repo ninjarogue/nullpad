@@ -919,6 +919,20 @@ fn heading(line: List(String)) -> Result(#(Level, List(String)), Nil) {
   }
 }
 
+/// The marks that start a heading of one row, with the spaces around them,
+/// such as "## " in "## Title", or "" when `line` starts no such heading.
+pub fn heading_marks(line: String) -> String {
+  let chars = string.to_graphemes(line)
+  let #(indent, text) = list.split_while(chars, fn(char) { char == " " })
+  let #(marks, after_marks) = list.split_while(text, fn(char) { char == "#" })
+  let #(spaces, _) =
+    list.split_while(after_marks, fn(char) { char == " " || char == "\t" })
+  case list.length(indent) < 4, heading(text) {
+    True, Ok(_) -> string.concat(list.flatten([indent, marks, spaces]))
+    False, _ | True, Error(Nil) -> ""
+  }
+}
+
 /// The optional closing run of `#` goes when a space or tab comes before it,
 /// or when it is all there is: `# foo #` is "foo", `# foo#` is "foo#".
 fn heading_content(after_marks: List(String)) -> List(String) {

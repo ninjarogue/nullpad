@@ -65,8 +65,8 @@ fn kind_of(text: String) -> live.Kind {
 }
 
 pub fn the_field_is_set_like_the_block_it_holds_test() {
-  assert kind_of("## Packing") == live.Title(markdown.H2)
-  assert kind_of("Title\n===") == live.Title(markdown.H1)
+  assert kind_of("## Packing") == live.Title(level: markdown.H2, marks: "## ")
+  assert kind_of("Title\n===") == live.Title(level: markdown.H1, marks: "")
   assert kind_of("- Shoes\n  and socks")
     == live.ListItem(task: False, marker: "- ")
   assert kind_of("2. two") == live.ListItem(task: False, marker: "2. ")
@@ -86,7 +86,7 @@ fn field_kind(first_row: Int, last_row: Int) -> live.Kind {
 }
 
 pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
-  assert field_kind(0, 0) == live.Title(markdown.H1)
+  assert field_kind(0, 0) == live.Title(level: markdown.H1, marks: "# ")
   assert field_kind(1, 1) == live.Body
   assert field_kind(2, 3) == live.Body
   assert field_kind(5, 5) == live.ListItem(task: True, marker: "- [ ] ")
@@ -96,7 +96,7 @@ pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
 }
 
 pub fn a_field_with_a_blank_row_beside_its_block_is_set_like_the_block_test() {
-  assert field_kind(0, 1) == live.Title(markdown.H1)
+  assert field_kind(0, 1) == live.Title(level: markdown.H1, marks: "# ")
   assert field_kind(4, 7) == live.ListItem(task: True, marker: "- [ ] ")
   assert field_kind(8, 10) == live.ListItem(task: False, marker: "1. ")
   assert field_kind(11, 14) == live.Mono
@@ -117,10 +117,24 @@ pub fn a_blank_row_between_two_items_is_set_as_body_text_test() {
     == live.ListItem(task: False, marker: "- ")
 }
 
+pub fn a_heading_of_one_row_holds_the_marks_before_its_words_test() {
+  let marks = fn(text) {
+    case kind_of(text) {
+      live.Title(marks:, ..) -> marks
+      live.Body | live.Mono | live.ListItem(..) -> "not a heading"
+    }
+  }
+  assert marks("# Trip") == "# "
+  assert marks("  ###   Trip ##") == "  ###   "
+  assert marks("######\tTrip") == "######\t"
+  assert marks("#") == "#"
+  assert marks("Trip\n---") == ""
+}
+
 fn marker(field_text: String) -> String {
   case kind_of(field_text) {
     live.ListItem(marker:, ..) -> marker
-    live.Body | live.Mono | live.Title(_) -> "not an item"
+    live.Body | live.Mono | live.Title(..) -> "not an item"
   }
 }
 

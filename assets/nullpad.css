@@ -211,6 +211,7 @@ button[aria-pressed="true"] {
 }
 
 .note {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -497,6 +498,25 @@ button[aria-pressed="true"] {
 .editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
   font-weight: bold;
   line-height: 1.25;
+}
+
+/* A heading is drawn without its marks. In the field they hang left of its
+   words by their own width (`--marker`, in the heading's font), as far as
+   the page's margin lets them, so the words wrap where they are drawn. */
+.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
+  --hang: min(
+    var(--held-marker, var(--marker, 0px)),
+    max(1.25rem, (100cqw - 46rem) / 2)
+  );
+  margin-left: calc(-1 * var(--hang));
+  padding-left: var(--hang);
+  text-indent: calc(-1 * var(--hang));
+}
+
+.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) textarea {
+  left: calc(-1 * var(--hang));
+  margin-left: 0;
+  width: calc(100% + var(--hang));
 }
 
 .editor.part.h1 > * {

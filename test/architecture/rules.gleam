@@ -39,10 +39,11 @@ const with_javascript = ["surface", "platform", "markdown"]
 /// function there counts as changing it.
 const measures = [
   "drawnInPage", "holdsFocus", "caretLine", "headLine", "holderText",
-  "paintedOnPage", "locate", "findControl", "textWidth", "utf16Split",
-  "utf16Length", "below", "hasHardwareKeyboard", "canPaint", "readVimSetting",
-  "readMarkdownSetting", "pressLanding", "dropped", "releasedOnSelection",
-  "focusStayed", "currentEditor", "pastedText", "heldKeyEvent",
+  "paintedOnPage", "locate", "findControl", "textWidth", "boldWidth",
+  "utf16Split", "utf16Length", "below", "hasHardwareKeyboard", "canPaint",
+  "readVimSetting", "readMarkdownSetting", "pressLanding", "dropped",
+  "releasedOnSelection", "focusStayed", "currentEditor", "pastedText",
+  "heldKeyEvent",
 ]
 
 /// JavaScript that hands back app state an effect noted there, such as the
