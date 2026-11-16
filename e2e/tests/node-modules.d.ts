@@ -16,6 +16,7 @@ declare module 'node:os' {
 declare module 'node:path' {
   export function join(...parts: string[]): string;
   export function dirname(path: string): string;
+  export const posix: { normalize(path: string): string };
 }
 
 declare module 'node:url' {

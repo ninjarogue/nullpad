@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSync } from 'oxc-parser';
 import { chromium } from 'playwright-core';
@@ -17,7 +17,7 @@ import type { BrowserContextOptions, Page } from 'playwright-core';
  * be made to break says why in `unbreakable`.
  */
 
-/** Code of the app that a fact lets it rely on: a file from the repository root, and text that is in it exactly once. */
+/** Code of the app that a fact lets it rely on: a file under `src/` or `assets/` from the repository root, and text that is in it exactly once. */
 export type Reliance = { file: string; text: string };
 
 export type Fact = {
@@ -52,8 +52,8 @@ const indented = (text: string) => text.split('\n').map((line) => `    ${line}`)
 
 type Span = [start: number, end: number];
 
-/** Where in a file the text is not code: comments and strings, and for CSS the rules that code is in. */
-type Reading = { comments: Span[]; strings: Span[]; rules?: Span[] };
+/** Where in a file the text is not code: comments, strings and regular expressions, and for CSS the rules that code is in. */
+type Reading = { comments: Span[]; strings: Span[]; rules?: Span[]; regexes?: Span[] };
 
 type Node = { type: string; start: number; end: number; value?: unknown; [key: string]: unknown };
 
@@ -70,11 +70,13 @@ function readScript(file: string, source: string): Reading {
   const { program, comments, errors } = parseSync(file, source);
   if (errors.length > 0) throw new Error(`${file} cannot be parsed (${errors[0]!.message}), so it cannot be told what is code. ${moved}`);
   const strings: Span[] = [];
+  const regexes: Span[] = [];
   visit(program as unknown as Node, (node) => {
     if (node.type === 'Literal' && typeof node.value === 'string') strings.push([node.start + 1, node.end - 1]);
+    if (node.type === 'Literal' && node.regex) regexes.push([node.start, node.end]);
     if (node.type === 'TemplateElement') strings.push([node.start, node.end]);
   });
-  return { comments: comments.map((comment) => [comment.start, comment.end]), strings };
+  return { comments: comments.map((comment) => [comment.start, comment.end]), strings, regexes };
 }
 
 /** The end of the string that starts at `at`, after its closing quote. */
@@ -139,11 +141,21 @@ function readCss(source: string): Reading {
   return { comments, strings, rules };
 }
 
-function read(file: string, source: string): Reading {
-  if (/\.[cm]?[jt]s$/.test(file)) return readScript(file, source);
-  if (file.endsWith('.gleam')) return readGleam(source);
-  if (file.endsWith('.css')) return readCss(source);
+/** How to tell code from what is not in `file`, by its kind. */
+function reader(file: string): (source: string) => Reading {
+  if (/\.[cm]?[jt]s$/.test(file)) return (source) => readScript(file, source);
+  if (file.endsWith('.gleam')) return readGleam;
+  if (file.endsWith('.css')) return readCss;
   throw new Error(`${file}: cannot tell code from comments in this kind of file. Rely on a .mjs, .ts, .gleam or .css file.`);
+}
+
+/** `file` as a path from the repository root, or an error when it is not under `src/` or `assets/`, which is where the code of the app is. */
+function inApp(file: string): string {
+  const path = posix.normalize(file);
+  if (!['src/', 'assets/'].some((folder) => path.startsWith(folder))) {
+    throw new Error(`${file} is not under src/ or assets/, so it is not code of the app. A fact about a test, a tool or a build output holds whether or not the app relies on it.`);
+  }
+  return path;
 }
 
 const within = (spans: Span[], start: number, end: number) => spans.some(([from, to]) => from <= start && end <= to);
@@ -153,23 +165,26 @@ type Found = { source: string; code: number[]; elsewhere: string[] };
 
 /** Where `text` is in `file`: the offsets where it is code, and for each place it is not, why not. */
 function find({ file, text }: Reliance, root: string): Found {
+  const reading = reader(file);
+  const path = inApp(file);
   let source: string;
   try {
-    source = readFileSync(join(root, file), 'utf8');
+    source = readFileSync(join(root, path), 'utf8');
   } catch {
     throw new Error(`${file} is not there. ${moved}`);
   }
   const at: number[] = [];
   for (let index = source.indexOf(text); index >= 0; index = source.indexOf(text, index + 1)) at.push(index);
   if (at.length === 0) return { source, code: [], elsewhere: [] };
-  const reading = read(file, source);
+  const reads = reading(source);
   const code: number[] = [];
   const elsewhere = new Set<string>();
   for (const start of at) {
     const end = start + text.length;
-    if (overlaps(reading.comments, start, end)) elsewhere.add('in a comment');
-    else if (reading.rules && !within(reading.rules, start, end)) elsewhere.add('where it is not in a rule');
-    else if (within(reading.strings, start, end)) elsewhere.add('in a string');
+    if (overlaps(reads.comments, start, end)) elsewhere.add('in a comment');
+    else if (reads.rules && !within(reads.rules, start, end)) elsewhere.add('where it is not in a rule');
+    else if (within(reads.strings, start, end)) elsewhere.add('in a string');
+    else if (reads.regexes && within(reads.regexes, start, end)) elsewhere.add('in a regular expression');
     else code.push(start);
   }
   return { source, code, elsewhere: [...elsewhere] };
@@ -179,8 +194,10 @@ const lineOf = (source: string, offset: number) => source.slice(0, offset).split
 
 /**
  * The line, counted from 1, where `text` starts in `file`. It has to be code,
- * and there once: text in a comment or a string, or in CSS outside a rule,
- * is not code that relies on anything, and is not counted.
+ * and there once: text in a comment, a string or a regular expression, or in
+ * CSS outside a rule, is not code that relies on anything, and is not counted.
+ * CSS counts as a rule wherever braces make one, so a rule in `@media not all`
+ * or in an `@supports` that never matches is counted as one that applies.
  */
 export function locate(reliance: Reliance, root = repoRoot): { file: string; line: number } {
   const { file, text } = reliance;
@@ -283,7 +300,7 @@ export function takenForNothing(entry: Fact): string[] {
     .map((value) => (typeof value === 'number' && Number.isNaN(value) ? 'NaN' : (JSON.stringify(value) ?? 'undefined')));
 }
 
-/** What is wrong with the table as a whole: the same id twice, a fact that cannot be shown to fail, one that has no code to name, one that holds for what no look at a page gives. */
+/** What is wrong with the table as a whole: the same id twice, a fact that cannot be shown to fail, one that has no code to name or names a file outside `src/` and `assets/`, one that holds for what no look at a page gives. */
 export function problemsWithTable(facts: Fact[]): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();
@@ -297,6 +314,13 @@ export function problemsWithTable(facts: Fact[]): string[] {
     if (!entry.breaks && !entry.unbreakable) problems.push(`[${entry.id}] has no sabotage to show it can fail, and no unbreakable reason`);
     if (entry.breaks && entry.unbreakable) problems.push(`[${entry.id}] has a sabotage and says it is unbreakable: it cannot be both`);
     if (entry.relied.length === 0 && !entry.pending) problems.push(`[${entry.id}] names no code that relies on it (relied), and is not pending`);
+    for (const { file } of entry.relied) {
+      try {
+        inApp(file);
+      } catch (error) {
+        problems.push(`[${entry.id}] ${(error as Error).message}`);
+      }
+    }
     const taken = takenForNothing(entry);
     if (taken.length > 0) problems.push(`[${entry.id}] holds takes what no look at a page gives, so it would pass without looking: ${taken.slice(0, 4).join(', ')}${taken.length > 4 ? ', ...' : ''}`);
   }
