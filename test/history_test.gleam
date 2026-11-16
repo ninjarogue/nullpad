@@ -526,3 +526,43 @@ pub fn a_backspace_that_takes_only_an_accent_off_joins_the_run_of_backspaces_tes
   assert history.present(undone(erased)) == at(letters, 3)
   assert history.undo(undone(erased)) == Error(Nil)
 }
+
+pub fn a_mark_added_while_the_text_after_the_caret_changes_is_a_step_of_its_own_test() {
+  let changed =
+    history.new(at("x", 0))
+    |> record_all([at("ex", 1), at("e\u{301}y", 1)])
+  assert history.present(undone(changed)) == at("ex", 1)
+  assert history.present(undone(undone(changed))) == at("x", 0)
+}
+
+pub fn a_letter_replaced_in_place_by_a_longer_one_is_a_step_of_its_own_test() {
+  let replaced =
+    history.new(at("", 0))
+    |> record_all([at("a", 1), at("\u{e9}", 1)])
+  assert history.present(undone(replaced)) == at("a", 1)
+  assert history.present(undone(undone(replaced))) == at("", 0)
+}
+
+pub fn a_word_deleted_after_a_run_of_deletes_is_a_step_of_its_own_test() {
+  let deleted =
+    history.new(at("ab cd ef gh", 3))
+    |> record_all([at("ab d ef gh", 3), at("ab  ef gh", 3), at("ab  gh", 3)])
+  assert shown(undone(deleted)) == "ab  ef gh"
+  assert shown(undone(undone(deleted))) == "ab cd ef gh"
+}
+
+pub fn a_mark_typed_onto_a_letter_after_a_multi_byte_letter_joins_the_run_test() {
+  let typed =
+    history.new(at("日x", 1))
+    |> record_all([at("日ex", 2), at("日e\u{301}x", 2)])
+  assert history.present(undone(typed)) == at("日x", 1)
+  assert history.undo(undone(typed)) == Error(Nil)
+}
+
+pub fn text_put_before_a_caret_that_stays_at_the_start_of_a_row_is_a_step_of_its_own_test() {
+  let put =
+    history.new(at("ab", 0))
+    |> record_all([at("bab", 0), at("xbab", 1)])
+  assert shown(undone(put)) == "bab"
+  assert shown(undone(undone(put))) == "ab"
+}

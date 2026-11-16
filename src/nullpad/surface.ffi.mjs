@@ -506,7 +506,7 @@ const graphemes = new Intl.Segmenter();
 
 // The editor counts characters in graphemes, so a letter made of several
 // code points, such as a flag or e and a combining accent, is named whole.
-function characterAt(text, offset) {
+export function characterAt(text, offset) {
   return offset < text.length ? graphemes.segment(text.slice(offset)).containing(0).segment : "\n";
 }
 

@@ -332,6 +332,24 @@ test('a run of Backspaces over letters with their accents typed as marks is one 
   expect(await editor.shown()).toBe(`alpha one\n\n${letters} end`);
 });
 
+for (const [what, keys] of [
+  ['a word deleted with Ctrl+Delete', ['Control+Delete']],
+  ['a cut of text selected from the caret', ['Shift+ArrowRight', 'Shift+ArrowRight', 'Shift+ArrowRight', ctrl('x')]],
+] as const) {
+  test(`${what} after a run of Deletes is undone on its own`, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.open('alpha one\n\nab cd ef gh');
+    await editor.click({ word: 'cd', at: 0 });
+    await editor.press('Delete', 'Delete');
+    await editor.expectNote('alpha one\n\nab  ef gh');
+    await editor.press(...keys);
+    await editor.expectNote('alpha one\n\nab  gh');
+
+    await editor.press(ctrl('z'));
+    await editor.expectNote('alpha one\n\nab  ef gh');
+  });
+}
+
 test('a pause while typing ends an undo step, and typing without a pause is undone a word at a time', async (fixtures) => {
   const editor = new Editing(fixtures);
   await editor.open('');

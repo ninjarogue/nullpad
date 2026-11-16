@@ -148,3 +148,10 @@ pub fn moving_a_selection_after_letters_written_in_more_than_one_byte_moves_it_w
   assert buffer.text(across) == "café  cd\nxalpha\naby"
   assert buffer.selection(across) == #(Position(1, 1), Position(2, 2))
 }
+
+pub fn the_rest_of_a_line_counts_graphemes_and_takes_any_column_test() {
+  assert buffer.rest_of("abc", from: -1) == "abc"
+  assert buffer.rest_of("abc", from: 0) == "abc"
+  assert buffer.rest_of("abc", from: 9) == ""
+  assert buffer.rest_of("e\u{301}x👍🏽y", from: 2) == "👍🏽y"
+}
