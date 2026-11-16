@@ -36,7 +36,7 @@ pub fn every_break_is_judged_as_listed_test() {
     list.filter_map(all_breaks(), fn(break) {
       let before = read_text(break.path)
       let after = break.change(before)
-      let changed = rules.read(Source(break.path, after))
+      let changed = read_again(break.path, after)
       let report =
         rules.judge([
           changed,
@@ -111,7 +111,7 @@ pub fn every_rule_has_a_break_that_proves_it_test() {
 }
 
 fn all_breaks() -> List(Break) {
-  list.flatten([breaks(), outside_breaks(), second_round()])
+  list.flatten([breaks(), outside_breaks(), second_round(), test_breaks()])
 }
 
 fn swap(result: Result(a, b)) -> Result(b, a) {
@@ -145,17 +145,41 @@ fn describe(report: Report) -> String {
 
 fn source() -> List(File) {
   let assert Ok(paths) = simplifile.get_files("src")
-  paths
-  |> list.map(fn(path) {
-    let assert Ok(text) = simplifile.read(path)
-    rules.read(Source(string.drop_start(path, 4), text))
-  })
+  let assert Ok(tests) = simplifile.get_files("test")
+  list.append(
+    list.map(paths, fn(path) {
+      let assert Ok(text) = simplifile.read(path)
+      rules.read(Source(string.drop_start(path, 4), text))
+    }),
+    list.filter(tests, string.ends_with(_, ".gleam"))
+      |> list.map(fn(path) {
+        let assert Ok(text) = simplifile.read(path)
+        rules.read_test_file(Source(path, text))
+      }),
+  )
+}
+
+/// A file of `test/` has its path from the root of the project, and one of
+/// `src/` has it from `src`.
+fn is_test_file(path: String) -> Bool {
+  string.starts_with(path, "test/")
 }
 
 fn read_text(path: String) -> String {
-  case simplifile.read("src/" <> path) {
+  let from = case is_test_file(path) {
+    True -> path
+    False -> "src/" <> path
+  }
+  case simplifile.read(from) {
     Ok(text) -> text
     Error(_) -> ""
+  }
+}
+
+fn read_again(path: String, text: String) -> File {
+  case is_test_file(path) {
+    True -> rules.read_test_file(Source(path, text))
+    False -> rules.read(Source(path, text))
   }
 }
 
@@ -743,6 +767,126 @@ fn second_round() -> List(Break) {
       "core JavaScript reads the document",
       "nullpad/markdown.ffi.mjs",
       last("export const w = () => document.title;"),
+    ),
+  ]
+}
+
+/// Tests that gleeunit would never run: it calls every public function of a
+/// module in `test/` whose name ends in `_test`, with no arguments, on
+/// JavaScript.
+fn test_breaks() -> List(Break) {
+  let file = "test/nullpad_test.gleam"
+  let buffer = "test/buffer_test.gleam"
+  [
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments asserts, and is not named _test",
+      file,
+      last("pub fn forgotten() -> Nil {\n  assert 1 == 2\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments uses let assert, and is not named _test",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  let assert Ok(_) = Error(Nil)\n  Nil\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments panics, and is not named _test",
+      file,
+      last("pub fn forgotten() -> Nil {\n  panic as \"not run\"\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments is todo, and is not named _test",
+      file,
+      last("pub fn forgotten() -> Nil {\n  todo as \"later\"\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "the assert is inside a closure",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  list.each([1], fn(x) { assert x == 2 })\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "the assert is in a branch of a case",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  case 1 {\n    1 -> {\n      assert False\n    }\n    _ -> Nil\n  }\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test for the Erlang target, which the JavaScript runner never loads",
+      buffer,
+      last(
+        "@target(erlang)\npub fn on_erlang_only_test() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "an Erlang-only helper in a project that runs on JavaScript",
+      buffer,
+      last("@target(erlang)\nfn helper() -> Nil {\n  Nil\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a private function named _test, which is never called",
+      file,
+      last("fn hidden_test() -> Nil {\n  assert 1 == 2\n}"),
+    ),
+    Break(
+      Clean,
+      "a public function with arguments that asserts, as a helper does",
+      file,
+      last("pub fn same(a: Int, b: Int) -> Nil {\n  assert a == b\n}"),
+    ),
+    Break(
+      Clean,
+      "a public function with no arguments that neither asserts nor panics",
+      file,
+      last("pub fn fixture() -> String {\n  \"text\"\n}"),
+    ),
+    Break(
+      Clean,
+      "a private helper that asserts",
+      file,
+      last("fn same(a: Int) -> Nil {\n  assert a == 1\n}"),
+    ),
+    Break(
+      Clean,
+      "a test for the JavaScript target",
+      file,
+      last(
+        "@target(javascript)\npub fn on_javascript_only_test() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "the words assert and panic in a comment and in a string",
+      file,
+      last(
+        "pub fn note() -> String {\n  // assert 1 == 2, or panic\n  \"assert 1 == 2 panic\"\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "one more test, public and named _test",
+      file,
+      last("pub fn one_more_test() -> Nil {\n  assert 1 == 1\n}"),
+    ),
+    Break(
+      Escapes,
+      "a public function with no arguments calls a private one that asserts",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  check()\n}\n\nfn check() -> Nil {\n  assert 1 == 2\n}",
+      ),
     ),
   ]
 }

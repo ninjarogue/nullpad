@@ -67,6 +67,7 @@ pub type Rule {
   DecoderState
   SkipsOutcome
   RawHtml
+  TestRuns
 }
 
 pub const rules = [
@@ -81,6 +82,7 @@ pub const rules = [
   DecoderState,
   SkipsOutcome,
   RawHtml,
+  TestRuns,
 ]
 
 pub fn says(rule: Rule) -> String {
@@ -101,6 +103,8 @@ pub fn says(rule: Rule) -> String {
     SkipsOutcome ->
       "a public editor function that changes the editor returns an Outcome"
     RawHtml -> "nothing draws raw HTML"
+    TestRuns ->
+      "every test in test/ is one gleeunit runs on JavaScript: public, named _test, and for a target we run"
   }
 }
 
@@ -122,6 +126,8 @@ pub type Report {
 pub opaque type File {
   Gleam(path: String, name: String, module: glance.Module)
   JavaScript(path: String, name: String)
+  /// A Gleam file of `test/`, which gleeunit runs.
+  GleamTest(path: String, module: glance.Module)
   Other(path: String)
   Unreadable(path: String)
 }
@@ -149,6 +155,14 @@ pub fn read(source: Source) -> File {
   }
 }
 
+/// A file of `test/`, with its path from the root of the project.
+pub fn read_test_file(source: Source) -> File {
+  case glance.module(source.text) {
+    Ok(module) -> GleamTest(source.path, module)
+    Error(_) -> Unreadable(source.path)
+  }
+}
+
 pub fn path(file: File) -> String {
   file.path
 }
@@ -171,6 +185,7 @@ pub fn judge(files: List(File)) -> Report {
             forbidden_calls(path, name, module),
           ])
         JavaScript(path:, name:) -> javascript(path, name)
+        GleamTest(path:, ..) -> [Looked(TestRuns, path)]
         Other(path) -> [
           Found(Broken(JavaScriptFile, path, "not a .gleam or .ffi.mjs file")),
         ]
@@ -634,7 +649,7 @@ fn changers(files: List(File)) -> Set(String) {
             })
           list.append(functions, constants)
         }
-        JavaScript(..) | Other(_) | Unreadable(_) -> []
+        JavaScript(..) | GleamTest(..) | Other(_) | Unreadable(_) -> []
       }
     })
   let start =
@@ -934,14 +949,14 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
     list.filter_map(files, fn(file) {
       case file {
         Gleam(name:, ..) | JavaScript(name:, ..) -> Ok(name)
-        Other(_) | Unreadable(_) -> Error(Nil)
+        GleamTest(..) | Other(_) | Unreadable(_) -> Error(Nil)
       }
     })
   let unreadable =
     list.filter_map(files, fn(file) {
       case file {
         Unreadable(path) -> Ok("glance could not parse " <> path)
-        Gleam(..) | JavaScript(..) | Other(_) -> Error(Nil)
+        Gleam(..) | JavaScript(..) | GleamTest(..) | Other(_) -> Error(Nil)
       }
     })
   let missing =
@@ -961,7 +976,7 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
             |> option.map(fn(external) { external.function })
             |> option.to_result(Nil)
           })
-        JavaScript(..) | Other(_) | Unreadable(_) -> []
+        JavaScript(..) | GleamTest(..) | Other(_) | Unreadable(_) -> []
       }
     })
   let decoders = list.map(looked, fn(one) { one.1 })
