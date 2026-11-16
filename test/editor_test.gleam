@@ -1030,6 +1030,34 @@ pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
   assert past(editor.SelectLeft) == start
 }
 
+pub fn a_line_step_with_nothing_drawn_past_the_head_stops_on_the_row_past_it_test() {
+  let ed =
+    pressed("```\ncode\n```\n\nz", 4, "z")
+    |> editor.update(editor.Released)
+  let up = fn(ed: Editor) {
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: True, select: True),
+        x: 9.0,
+        shown: editor.field_buffer(ed),
+      ),
+    ).editor
+  }
+  let ed =
+    up(ed.editor)
+    |> editor.update(editor.Stepped(
+      row: 3,
+      visible: "",
+      at_end: True,
+      next: "\n",
+      x: 9.0,
+    ))
+  let ed = up(ed.editor) |> editor.update(editor.SteppedPast)
+  assert buffer.selection(editor.buffer(ed.editor))
+    == #(Position(4, 1), Position(2, 1))
+}
+
 pub fn a_press_escape_or_a_blur_ends_the_waiting_steps_test() {
   let ed = painted_from_trip_to_one()
   let Outcome(editor: ed, sync:, ..) =
