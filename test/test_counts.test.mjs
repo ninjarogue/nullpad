@@ -6,7 +6,9 @@
 //   node --test test/test_counts.test.mjs
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { useScratch } from "./scratch.mjs";
@@ -513,5 +515,76 @@ describe("what a step holds back from its count: tests marked to fail, and todos
     w.known({ fake: 5, "fake expected-fail": 2 });
     const verdict = await gate({ steps: [w.step("fake", prints(w, ["expected-fail=2"]), readers.gleeunit, sayHeld)], countsFile: w.countsFile, ...quietly });
     assert.equal(verdict.ok, true, verdict.failures.join("\n"));
+  });
+});
+
+describe("node tests that no step runs, and a clone that runs no hook", () => {
+  const tree = (names) => {
+    const base = scratch.make("repo-");
+    for (const name of names) {
+      mkdirSync(join(base, name, ".."), { recursive: true });
+      writeFileSync(join(base, name), "");
+    }
+    return base;
+  };
+  const running = (...files) => ({ id: "node", cwd: tmpdir(), counted: false, command: () => ["node", "-e", "", ...files] });
+  const gateOf = (w, base, steps, options = {}) => gate({ steps, countsFile: w.countsFile, base, ...options, ...quietly });
+
+  test("a *.test.mjs anywhere in the repository that no step runs fails the gate, and the gate names it", async () => {
+    const w = workspace();
+    w.known({});
+    const names = ["src/b.test.mjs", "e2e/c.test.mjs", ".claude/skills/d.test.mjs", "tools/.hidden/e.test.mjs", "f.test.mjs", "e2e/tests/g.test.ts", "test/deep/h.test.cjs"];
+    const base = tree(["test/a.test.mjs", ...names]);
+    const verdict = await gateOf(w, base, [running("test/a.test.mjs")]);
+    assert.equal(verdict.ok, false, "a test file nobody runs passed the gate");
+    for (const name of names) assert.match(verdict.failures.join("\n"), new RegExp(name.replace(/[.]/g, "\\.")), `${name} is not named`);
+    assert.doesNotMatch(verdict.failures.join("\n"), /test\/a\.test\.mjs/);
+  });
+
+  test("every test file a step runs, and none in node_modules or a folder the tools make, passes", async () => {
+    const w = workspace();
+    w.known({});
+    const base = tree([
+      "test/a.test.mjs",
+      "node_modules/x.test.mjs",
+      "e2e/node_modules/y/z.test.mjs",
+      "build/dev/javascript/nullpad/a.test.mjs",
+      ".mutants/t/b.test.mjs",
+      "e2e/.e2e/step-1/c.test.mjs",
+      ".git/d.test.mjs",
+    ]);
+    const verdict = await gateOf(w, base, [running("test/a.test.mjs")]);
+    assert.equal(verdict.ok, true, verdict.failures.join("\n"));
+  });
+
+  test("a run of some steps does not look for the test files of the others", async () => {
+    const w = workspace();
+    w.known({});
+    const base = tree(["test/a.test.mjs", "src/b.test.mjs"]);
+    assert.equal((await gateOf(w, base, [running("test/a.test.mjs")], { partial: true })).ok, true);
+  });
+
+  const hooks = (base) => gate({ steps: [], countsFile: join(base, "counts.json"), base, ...quietly });
+
+  test("a clone whose core.hooksPath is not .githooks is warned, and one that is set is not", async () => {
+    const saved = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM };
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+    try {
+      const base = scratch.make("hooks-");
+      execFileSync("git", ["init", "-q"], { cwd: base });
+      writeFileSync(join(base, "counts.json"), "{}\n");
+      const unset = await hooks(base);
+      assert.ok(unset.warnings?.some((line) => line.includes("core.hooksPath") && line.includes(".githooks")), `warned with ${JSON.stringify(unset.warnings)}`);
+      execFileSync("git", ["config", "core.hooksPath", "elsewhere"], { cwd: base });
+      assert.ok((await hooks(base)).warnings?.some((line) => line.includes("elsewhere")));
+      execFileSync("git", ["config", "core.hooksPath", ".githooks"], { cwd: base });
+      assert.deepEqual((await hooks(base)).warnings, []);
+    } finally {
+      for (const [name, value] of [["GIT_CONFIG_GLOBAL", saved.global], ["GIT_CONFIG_SYSTEM", saved.system]]) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 });
