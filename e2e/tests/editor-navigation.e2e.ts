@@ -394,6 +394,12 @@ const wrapped = `xxxxxxxxxxxa\n\n${'xxxxx '.repeat(70)}xb\n\nxxxxxxxxxxxc`;
 keepsTheColumn('ArrowDown keeps the column on every line of a row the page wraps', wrapped, { word: 'xxxxxxxxxxxa', at: 7 }, repeat('ArrowDown', 7));
 keepsTheColumn('ArrowUp keeps the column on every line of a row the page wraps', wrapped, { word: 'xxxxxxxxxxxc', at: 7 }, repeat('ArrowUp', 7));
 
+const words = Array.from({ length: 60 }, (_, index) => `p${index}`).join(' ');
+const wordsBelow = `${words}\n\nbelow`;
+keepsTheColumn('End on a line the page wraps, then ArrowDown, goes to the end of the line below', wordsBelow, { word: 'p0', at: 0 }, ['End', 'ArrowDown']);
+keepsTheColumn('End on a line the page wraps, then ArrowDown twice and ArrowUp, keeps to the ends of the lines', wordsBelow, { word: 'p0', at: 0 }, ['End', 'ArrowDown', 'ArrowDown', 'ArrowUp']);
+keepsTheColumn('Shift+End on a line the page wraps, then Shift+ArrowDown, selects to the end of the line below', wordsBelow, { word: 'p0', at: 0 }, ['Shift+End', 'Shift+ArrowDown']);
+
 const marked = 'xx **xx** [xx](http://example.com) xxxxxxxxxxxxxa\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxb\n\nxx **xx** [xx](http://example.com) xxxxxxxxxxxxxc';
 keepsTheColumn('ArrowDown keeps the column of the markdown the field shows, with hidden marks to the left of the caret', marked, { word: 'xxxxxxxxxxxxxa', at: 6 }, repeat('ArrowDown', 4));
 keepsTheColumn('ArrowDown and back up with hidden marks to the left of the caret comes back to where it started', marked, { word: 'xxxxxxxxxxxxxa', at: 6 }, [...repeat('ArrowDown', 2), ...repeat('ArrowUp', 2)]);
