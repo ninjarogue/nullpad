@@ -1092,16 +1092,20 @@ fn edge_decoder(
       Ok(editor.Page(up: True, select: shift))
     "PageDown" if alone && !{ ctrl || meta } ->
       Ok(editor.Page(up: False, select: shift))
-    "Home" | "End" if command -> Ok(editor.Widen)
+    "Home" if command -> Ok(editor.ToStart)
+    "End" if command -> Ok(editor.ToEnd)
     "ArrowUp" if alone && ctrl && !meta ->
       Ok(editor.Row(up: True, select: shift))
     "ArrowDown" if alone && ctrl && !meta ->
       Ok(editor.Row(up: False, select: shift))
-    "ArrowUp" | "ArrowDown" if alone && meta -> Ok(editor.Widen)
+    "ArrowUp" if alone && meta -> Ok(editor.ToStart)
+    "ArrowDown" if alone && meta -> Ok(editor.ToEnd)
     "ArrowLeft" | "Backspace" if command && head.row == 0 && blank_before ->
       Ok(editor.Widen)
     "ArrowRight" | "Delete" if command && head.row == end.row && blank_after ->
       Ok(editor.Widen)
+    "ArrowLeft" if plain && head == start -> Ok(editor.Before)
+    "ArrowRight" if plain && head == end -> Ok(editor.After)
     "ArrowLeft" if bare && head == start -> Ok(editor.Widen)
     "ArrowRight" if bare && head == end -> Ok(editor.Widen)
     "Backspace" if alone && head == start -> Ok(editor.Widen)
@@ -1145,6 +1149,10 @@ fn edge_decoder(
       | editor.SelectToStart
       | editor.SelectToEnd
       | editor.SelectAll
+      | editor.Before
+      | editor.After
+      | editor.ToStart
+      | editor.ToEnd
       | editor.Widen -> Ok(#(edge, 0.0))
     }
   }

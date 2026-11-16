@@ -1953,6 +1953,42 @@ pub fn a_key_the_browser_acts_on_widens_the_field_to_the_note_test() {
   assert !editor.is_painted(ed)
 }
 
+pub fn an_arrow_past_the_rows_the_field_holds_moves_one_character_without_the_note_test() {
+  let note = "alpha one\n\nbravo two"
+  let edge = fn(ed, edge, shown) {
+    editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
+  }
+  let Outcome(editor: ed, sync:, ..) =
+    edge(pressed(note, 2, ""), editor.Before, caret("bravo two", 0, 0))
+  assert sync == editor.Write(caret("", 0, 0))
+  assert editor.region(ed) == Some(Region(1, 1))
+  assert !editor.is_painted(ed)
+
+  let Outcome(editor: ed, sync:, ..) = edge(ed, editor.After, caret("", 0, 0))
+  assert sync == editor.Write(caret("bravo two", 0, 0))
+  assert editor.region(ed) == Some(Region(2, 2))
+
+  let Outcome(sync:, ..) = edge(ed, editor.After, caret("bravo two", 0, 9))
+  assert sync == editor.InSync
+}
+
+pub fn ctrl_and_home_or_end_goes_to_the_ends_of_the_note_without_the_note_test() {
+  let note = "alpha one\n\nbravo two"
+  let edge = fn(ed, edge, shown) {
+    editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
+  }
+  let Outcome(editor: ed, sync:, ..) =
+    edge(pressed(note, 2, "bravo"), editor.ToStart, caret("bravo two", 0, 5))
+  assert sync == editor.Write(caret("alpha one", 0, 0))
+  assert editor.region(ed) == Some(Region(0, 0))
+  assert !editor.is_painted(ed)
+
+  let Outcome(editor: ed, sync:, ..) =
+    edge(ed, editor.ToEnd, caret("alpha one", 0, 0))
+  assert sync == editor.Write(caret("bravo two", 0, 9))
+  assert editor.region(ed) == Some(Region(2, 2))
+}
+
 pub fn ctrl_and_an_arrow_aims_at_the_runs_column_on_the_row_above_or_below_test() {
   let note = "alpha one\n\nbravo two\ncharlie"
   let ed = pressed(note, 2, "")

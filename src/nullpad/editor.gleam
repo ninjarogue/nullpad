@@ -320,6 +320,15 @@ pub type Edge {
   /// note from its first or last row. It moves from the head, with or
   /// without `select`, as Chrome's text field does.
   Row(up: Bool, select: Bool)
+  /// An arrow left or right, with no selection, from the start or the end
+  /// of the rows the field holds: the caret moves one character, onto the
+  /// row before or after them.
+  Before
+  After
+  /// Ctrl and Home or End: the caret goes to the start or the end of the
+  /// note.
+  ToStart
+  ToEnd
   /// A key the browser acts on by the text alone, which can take the head
   /// past the field: the field holds the whole note while it does.
   Widen
@@ -590,6 +599,10 @@ fn is_vertical(edge: Edge) -> Bool {
     | SelectToStart
     | SelectToEnd
     | SelectAll
+    | Before
+    | After
+    | ToStart
+    | ToEnd
     | Widen -> False
   }
 }
@@ -1372,6 +1385,7 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   {
     True, Some(goal), True -> Some(goal)
     True, _, _ if x >=. 0.0 -> Some(Goal(x:, col: cursor.col))
+    False, goal, _ if edge == Before || edge == After -> goal
     True, _, _ | False, _, _ -> None
   }
   let start = Position(row: 0, col: 0)
@@ -1462,6 +1476,16 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     }
     SelectBefore if row_above -> reach(end_of_row(cursor.row - 1))
     SelectAfter if row_below -> reach(Position(row: cursor.row + 1, col: 0))
+    Before if row_above -> #(
+      buffer.move_to(base, end_of_row(cursor.row - 1)),
+      Done,
+    )
+    After if row_below -> #(
+      buffer.move_to(base, Position(row: cursor.row + 1, col: 0)),
+      Done,
+    )
+    ToStart -> #(buffer.move_to(base, start), Done)
+    ToEnd -> #(buffer.move_to(base, end), Done)
     SelectToStart -> reach(start)
     SelectToEnd -> reach(end)
     SelectAll -> #(buffer.select(base, anchor: start, head: end), Done)
@@ -1479,7 +1503,9 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | SelectLeft
     | SelectRight
     | SelectLineStart
-    | SelectLineEnd -> #(base, Done)
+    | SelectLineEnd
+    | Before
+    | After -> #(base, Done)
   }
   let page = case then {
     StepTo(step) ->
