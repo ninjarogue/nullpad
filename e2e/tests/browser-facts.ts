@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseSync } from 'oxc-parser';
 import { chromium } from 'playwright-core';
 import type { BrowserContextOptions, Page } from 'playwright-core';
 
@@ -47,25 +48,173 @@ export function fact<Seen>(
 const moved = 'Update the fact to the code that relies on it now, or remove the fact if nothing does.';
 const indented = (text: string) => text.split('\n').map((line) => `    ${line}`).join('\n');
 
-/** The line, counted from 1, where `text` starts in `file`. It has to be there once, or no line is named. */
-export function locate({ file, text }: Reliance, root = repoRoot): { file: string; line: number } {
+type Span = [start: number, end: number];
+
+/** Where in a file the text is not code: comments and strings, and for CSS the rules that code is in. */
+type Reading = { comments: Span[]; strings: Span[]; rules?: Span[] };
+
+type Node = { type: string; start: number; end: number; value?: unknown; [key: string]: unknown };
+
+function visit(node: Node, run: (node: Node) => void) {
+  run(node);
+  for (const value of Object.values(node)) {
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child !== null && typeof child === 'object' && typeof (child as Node).type === 'string') visit(child as Node, run);
+    }
+  }
+}
+
+function readScript(file: string, source: string): Reading {
+  const { program, comments, errors } = parseSync(file, source);
+  if (errors.length > 0) throw new Error(`${file} cannot be parsed (${errors[0]!.message}), so it cannot be told what is code. ${moved}`);
+  const strings: Span[] = [];
+  visit(program as unknown as Node, (node) => {
+    if (node.type === 'Literal' && typeof node.value === 'string') strings.push([node.start + 1, node.end - 1]);
+    if (node.type === 'TemplateElement') strings.push([node.start, node.end]);
+  });
+  return { comments: comments.map((comment) => [comment.start, comment.end]), strings };
+}
+
+/** The end of the string that starts at `at`, after its closing quote. */
+function endOfString(source: string, at: number): number {
+  const quote = source[at];
+  for (let index = at + 1; index < source.length; index++) {
+    if (source[index] === '\\') index++;
+    else if (source[index] === quote) return index + 1;
+  }
+  return source.length;
+}
+
+function readGleam(source: string): Reading {
+  const comments: Span[] = [];
+  const strings: Span[] = [];
+  for (let at = 0; at < source.length; at++) {
+    if (source[at] === '"') {
+      const end = endOfString(source, at);
+      strings.push([at + 1, end - 1]);
+      at = end - 1;
+    } else if (source.startsWith('//', at)) {
+      const newline = source.indexOf('\n', at);
+      const end = newline < 0 ? source.length : newline;
+      comments.push([at, end]);
+      at = end - 1;
+    }
+  }
+  return { comments, strings };
+}
+
+function readCss(source: string): Reading {
+  const comments: Span[] = [];
+  const strings: Span[] = [];
+  const rules: Span[] = [];
+  let depth = 0;
+  let statement: number | null = null;
+  for (let at = 0; at < source.length; at++) {
+    const char = source[at]!;
+    if (source.startsWith('/*', at)) {
+      const close = source.indexOf('*/', at + 2);
+      const end = close < 0 ? source.length : close + 2;
+      comments.push([at, end]);
+      at = end - 1;
+      continue;
+    }
+    if (/\s/.test(char)) continue;
+    if (depth === 0 && statement === null) statement = at;
+    if (char === '"' || char === "'") {
+      const end = endOfString(source, at);
+      strings.push([at + 1, end - 1]);
+      at = end - 1;
+    } else if (char === '{') {
+      depth++;
+    } else if (char === '}' && depth > 0) {
+      depth--;
+      if (depth === 0 && statement !== null) rules.push([statement, at + 1]);
+      if (depth === 0) statement = null;
+    } else if (char === ';' && depth === 0) {
+      statement = null;
+    }
+  }
+  return { comments, strings, rules };
+}
+
+function read(file: string, source: string): Reading {
+  if (/\.[cm]?[jt]s$/.test(file)) return readScript(file, source);
+  if (file.endsWith('.gleam')) return readGleam(source);
+  if (file.endsWith('.css')) return readCss(source);
+  throw new Error(`${file}: cannot tell code from comments in this kind of file. Rely on a .mjs, .ts, .gleam or .css file.`);
+}
+
+const within = (spans: Span[], start: number, end: number) => spans.some(([from, to]) => from <= start && end <= to);
+const overlaps = (spans: Span[], start: number, end: number) => spans.some(([from, to]) => start < to && from < end);
+
+type Found = { source: string; code: number[]; elsewhere: string[] };
+
+/** Where `text` is in `file`: the offsets where it is code, and for each place it is not, why not. */
+function find({ file, text }: Reliance, root: string): Found {
   let source: string;
   try {
     source = readFileSync(join(root, file), 'utf8');
   } catch {
     throw new Error(`${file} is not there. ${moved}`);
   }
-  const first = source.indexOf(text);
-  if (first < 0) throw new Error(`${file} no longer contains:\n${indented(text)}\n${moved}`);
-  let count = 1;
-  for (let at = source.indexOf(text, first + 1); at >= 0; at = source.indexOf(text, at + 1)) count++;
-  if (count > 1) throw new Error(`${file} contains this ${count} times, so it names no line:\n${indented(text)}\nUse text that is in it once.`);
-  return { file, line: source.slice(0, first).split('\n').length };
+  const at: number[] = [];
+  for (let index = source.indexOf(text); index >= 0; index = source.indexOf(text, index + 1)) at.push(index);
+  if (at.length === 0) return { source, code: [], elsewhere: [] };
+  const reading = read(file, source);
+  const code: number[] = [];
+  const elsewhere = new Set<string>();
+  for (const start of at) {
+    const end = start + text.length;
+    if (overlaps(reading.comments, start, end)) elsewhere.add('in a comment');
+    else if (reading.rules && !within(reading.rules, start, end)) elsewhere.add('where it is not in a rule');
+    else if (within(reading.strings, start, end)) elsewhere.add('in a string');
+    else code.push(start);
+  }
+  return { source, code, elsewhere: [...elsewhere] };
 }
 
-/** `file:line` of each piece of code that relies on `fact`. A pending fact has none yet. */
+const lineOf = (source: string, offset: number) => source.slice(0, offset).split('\n').length;
+
+/**
+ * The line, counted from 1, where `text` starts in `file`. It has to be code,
+ * and there once: text in a comment or a string, or in CSS outside a rule,
+ * is not code that relies on anything, and is not counted.
+ */
+export function locate(reliance: Reliance, root = repoRoot): { file: string; line: number } {
+  const { file, text } = reliance;
+  const { source, code, elsewhere } = find(reliance, root);
+  if (code.length === 0 && elsewhere.length > 0) {
+    throw new Error(`${file} has this only ${elsewhere.join(' and ')}, which is not code:\n${indented(text)}\n${moved}`);
+  }
+  if (code.length === 0) throw new Error(`${file} no longer contains:\n${indented(text)}\n${moved}`);
+  if (code.length > 1) throw new Error(`${file} contains this ${code.length} times, so it names no line:\n${indented(text)}\nUse text that is in it once.`);
+  return { file, line: lineOf(source, code[0]!) };
+}
+
+/**
+ * `file:line` of each piece of code that relies on `fact`. A pending fact has
+ * none yet, and fails once any code of it is there, because then it is not
+ * pending any more.
+ */
 export function sources(fact: Fact, root = repoRoot): string[] {
-  if (fact.pending) return [];
+  if (fact.pending) {
+    const landed = fact.relied.flatMap((reliance) => {
+      try {
+        const { source, code } = find(reliance, root);
+        return code.map((offset) => `${reliance.file}:${lineOf(source, offset)}`);
+      } catch {
+        return [];
+      }
+    });
+    if (landed.length > 0) {
+      throw new Error(
+        `[${fact.id}] pending fact now holds in source: un-pend it\n` +
+          `  The code is at ${landed.join(', ')}, so the fact is no longer waiting for a branch (${fact.pending}).\n` +
+          `  Remove its pending reason, so that it names where the app relies on it.`,
+      );
+    }
+    return [];
+  }
   return fact.relied.map((reliance) => {
     const { file, line } = locate(reliance, root);
     return `${file}:${line}`;

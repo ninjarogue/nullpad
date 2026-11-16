@@ -73,7 +73,7 @@ export const facts: Fact[] = [
     says: 'Ctrl+Z in a text field sends beforeinput and then input, both of type historyUndo, and an undo from the Edit menu sends input alone.',
     relied: [
       { file: surface, text: '"historyUndo", _ -> on_event(editor.UndoAsked)' },
-      { file: surface, text: '// Chromium sends no `beforeinput` for an undo from a menu: it undoes the' },
+      { file: surface, text: 'event.on("input", typed),' },
     ],
     html: '<textarea id="t"></textarea>',
     observe: async (page) => {
@@ -169,7 +169,7 @@ export const facts: Fact[] = [
     says: 'focus() scrolls the page to a text field that is out of view, focus({ preventScroll: true }) does not, and focus() on a field that already has the focus does not.',
     relied: [
       { file: ffi, text: 'document.getElementById(id)?.focus({ preventScroll: true });' },
-      { file: ffi, text: '// the window, and a control that already has the focus is not scrolled to by' },
+      { file: ffi, text: 'control.focus({ preventScroll: true });\n  const painted' },
     ],
     html: '<div style="height:3000px"></div><textarea id="t"></textarea><div style="height:200px"></div>',
     observe: (page) =>
@@ -455,7 +455,7 @@ export const facts: Fact[] = [
     id: 'default-value-follows-text-content',
     says: 'The text inside a textarea is its default value: it is the value until the field is edited, and after that it changes the default value and leaves the value alone.',
     relied: [
-      { file: surface, text: '// Child text is only the *default* value: a brand-new DOM node starts' },
+      { file: surface, text: '[element.text(buffer.text(editor.field_buffer(editor)))],' },
       { file: ffi, text: 'field.value !== field.defaultValue' },
     ],
     html: '<textarea id="t">a</textarea>',
@@ -566,7 +566,7 @@ export const facts: Fact[] = [
     says: 'An arrow key moves the caret of a text field before keyup, with no beforeinput or input, and Shift with an arrow fires select.',
     relied: [
       { file: surface, text: 'event.on("keyup", moved),' },
-      { file: surface, text: '// The browser moves the caret for these keys and says nothing, so the' },
+      { file: surface, text: 'if !composing\n      -> changed' },
       { file: surface, text: 'event.on("select", changed),' },
     ],
     html: '<textarea id="t">hello</textarea>',
@@ -657,7 +657,7 @@ export const facts: Fact[] = [
     id: 'touch-sends-pointerup-before-the-mouse-press',
     says: 'A tap sends pointerdown, touchstart, pointerup, touchend, and only then the mouse events, which say they come from a touch, while a mouse click says it does not.',
     relied: [
-      { file: surface, text: '// A touch sends `pointerup` before the mouse press that moves the' },
+      { file: surface, text: 'event.advanced("mouseup", released_decoder(on_event)),' },
       { file: ffi, text: 'press.sourceCapabilities?.firesTouchEvents' },
     ],
     context: { hasTouch: true },
@@ -703,7 +703,7 @@ export const facts: Fact[] = [
     says: 'An element made draggable in its mousedown handler can be dragged by that press, and the press takes the focus from a text field.',
     relied: [
       { file: ffi, text: 'target.setAttribute("draggable", "true");' },
-      { file: ffi, text: '// which takes the focus from the field: the field is given it back once the' },
+      { file: ffi, text: 'if (document.activeElement !== control) control.focus({ preventScroll: true });' },
     ],
     html:
       '<textarea id="t" style="position:absolute;left:10px;top:10px;width:200px;height:50px">text</textarea>' +
@@ -803,7 +803,6 @@ export const facts: Fact[] = [
     id: 'href-schemes-after-stripping',
     says: 'A link still has the javascript: scheme with spaces or control characters before it or tabs and newlines inside it, and not with a no-break space, a zero-width space, or a control character inside the scheme.',
     relied: [
-      { file: markdown, text: '/// Browsers drop some spaces and control characters before they read the' },
       { file: markdown, text: 'code if code <= 0x20 -> True' },
     ],
     observe: (page) =>
@@ -887,7 +886,7 @@ export const facts: Fact[] = [
   fact({
     id: 'collapsed-range-in-an-empty-element',
     says: 'A collapsed range in an element with no text has no box, so a caret there is measured from the element. (A collapsed range at a soft wrap does have a box in Chromium, which the comment in caretBox denies.)',
-    relied: [{ file: ffi, text: '// A collapsed range has no box at a soft wrap or in an element with no' }],
+    relied: [{ file: ffi, text: 'return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));' }],
     html: '<p id="empty" style="margin:0;font:16px monospace"></p>',
     observe: (page) =>
       page.evaluate(() => {
@@ -1128,7 +1127,7 @@ export const facts: Fact[] = [
     says: 'The CSS Custom Highlight API paints a range with the colours of ::highlight, and draws nothing for the line break at the end of a line.',
     relied: [
       { file: platform, text: 'return typeof Highlight === "function" && globalThis.CSS?.highlights !== undefined;' },
-      { file: ffi, text: '// A selection across blocks is painted over the drawn page with the CSS' },
+      { file: ffi, text: 'CSS.highlights.set(SELECTION, new Highlight(range));' },
       { file: css, text: '::highlight(nullpad-selection) {' },
     ],
     html:
