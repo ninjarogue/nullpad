@@ -793,20 +793,9 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         | [Queued(move: LetterOn, select:), ..] -> #(False, select)
         [] -> #(False, True)
       }
-      // A line step past rows the page does not draw, such as a fence, a
-      // rule or a heading's underline, stops on the first of them, as it does
-      // in a text field, at the run's column.
-      let undrawn = fn(row) {
-        let col = case editor.goal {
-          Some(Goal(col:, ..)) -> col
-          None -> head.col
-        }
-        let col = int.min(col, line_end(editor.buffer, row).col)
-        #(Position(row:, col:), True)
-      }
       let #(placed, undrawn) = case line, placed.row - head.row {
-        True, apart if apart > 1 -> undrawn(head.row + 1)
-        True, apart if apart < -1 -> undrawn(head.row - 1)
+        True, apart if apart > 1 -> #(undrawn_row(editor, head, 1), True)
+        True, apart if apart < -1 -> #(undrawn_row(editor, head, -1), True)
         _, _ -> #(placed, False)
       }
       let placed = in_row(editor, row:, visible:, from: head, to: placed)
@@ -842,22 +831,27 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         }
       }
     Aimed(shown:) -> typed(editor, shown, None, realign)
+    // A line step with rows still past the head stops on the first, which
+    // the page does not draw.
     SteppedPast -> {
-      let #(anchor, _) = buffer.selection(editor.buffer)
-      let #(back, select) = case steps(editor) {
-        [Queued(move: LineUp, select:), ..]
-        | [Queued(move: LineStart, select:), ..]
+      let #(anchor, from) = buffer.selection(editor.buffer)
+      let #(back, line, select) = case steps(editor) {
+        [Queued(move: LineUp, select:), ..] -> #(True, True, select)
+        [Queued(move: LineStart, select:), ..]
         | [Queued(move: LetterBack, select:), ..]
-        | [Queued(move: PageUp, select:), ..] -> #(True, select)
-        [Queued(move: LineDown, select:), ..]
-        | [Queued(move: LineEnd, select:), ..]
+        | [Queued(move: PageUp, select:), ..] -> #(True, False, select)
+        [Queued(move: LineDown, select:), ..] -> #(False, True, select)
+        [Queued(move: LineEnd, select:), ..]
         | [Queued(move: LetterOn, select:), ..]
-        | [Queued(move: PageDown, select:), ..] -> #(False, select)
-        [] -> #(False, True)
+        | [Queued(move: PageDown, select:), ..] -> #(False, False, select)
+        [] -> #(False, False, True)
       }
-      let head = case back {
-        True -> Position(0, 0)
-        False -> buffer.end_of(buffer.text(editor.buffer))
+      let last = list.length(buffer.lines(editor.buffer)) - 1
+      let #(head, undrawn) = case back, line {
+        True, True if from.row > 0 -> #(undrawn_row(editor, from, -1), True)
+        False, True if from.row < last -> #(undrawn_row(editor, from, 1), True)
+        True, _ -> #(Position(0, 0), False)
+        False, _ -> #(buffer.end_of(buffer.text(editor.buffer)), False)
       }
       let anchor = case select {
         True -> anchor
@@ -869,9 +863,13 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           edit(editor, buffer.select(editor.buffer, anchor:, head:))
           |> realign
       }
+      let landed = case undrawn {
+        True -> landing(steps(editor))
+        False -> None
+      }
       moved
       |> begin_run(editor, landing(steps(editor)), -1.0)
-      |> next_step(None, False)
+      |> next_step(landed, undrawn)
     }
     Settled(from:, head:) ->
       case
@@ -1300,6 +1298,18 @@ fn line_at(editor: Editor, row: Int) -> #(Position, Position) {
     True -> #(Position(row:, col: 0), Position(row: row + 1, col: 0))
     False -> #(Position(row:, col: 0), line_end(editor.buffer, row))
   }
+}
+
+/// A line step past rows the page does not draw, such as a fence, a rule or
+/// a heading's underline, stops on the first of them, `by` rows from `head`,
+/// as it does in a text field, at the run's column.
+fn undrawn_row(editor: Editor, head: Position, by: Int) -> Position {
+  let row = head.row + by
+  let col = case editor.goal {
+    Some(Goal(col:, ..)) -> col
+    None -> head.col
+  }
+  Position(row:, col: int.min(col, line_end(editor.buffer, row).col))
 }
 
 fn line_end(in: Buffer, row: Int) -> Position {

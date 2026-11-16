@@ -1022,7 +1022,6 @@ pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
   }
   let end = #(Position(0, 3), buffer.end_of(live_note))
   let start = #(Position(0, 3), Position(0, 0))
-  assert past(editor.Line(up: False, select: True)) == end
   assert past(editor.SelectLineEnd) == end
   assert past(editor.SelectRight) == end
   assert past(editor.Line(up: True, select: True)) == start
@@ -1034,16 +1033,20 @@ pub fn a_line_step_with_nothing_drawn_past_the_head_stops_on_the_row_past_it_tes
   let ed =
     pressed("```\ncode\n```\n\nz", 4, "z")
     |> editor.update(editor.Released)
-  let up = fn(ed: Editor) {
+  let line = fn(ed: Editor, up) {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Line(up: True, select: True),
+        editor.Line(up:, select: True),
         x: 9.0,
         shown: editor.field_buffer(ed),
       ),
     ).editor
   }
+  let up = line(_, True)
+  let down = line(ed.editor, False) |> editor.update(editor.SteppedPast)
+  assert buffer.selection(editor.buffer(down.editor))
+    == #(Position(4, 1), Position(4, 1))
   let ed =
     up(ed.editor)
     |> editor.update(editor.Stepped(
