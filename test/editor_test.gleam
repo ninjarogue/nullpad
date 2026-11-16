@@ -1117,6 +1117,48 @@ pub fn a_painted_selection_settles_where_the_page_painted_it_test() {
   assert editor.text(ed) == live_note
 }
 
+pub fn the_page_never_moves_the_anchor_of_a_painted_selection_test() {
+  let ed = pressed(live_note, 2, "Flights are ")
+  let inside = caret("Flights are **booked**.", 0, 13)
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.ControlChanged(shown: inside, at: 0))
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.SelectToEnd, x: 0.0, shown: inside),
+    )
+  assert editor.is_painted(ed)
+  let from = buffer.selection(editor.buffer(ed))
+  assert from == #(Position(2, 13), Position(5, 5))
+
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.Settled(from:, to: #(Position(2, 14), Position(5, 5))),
+    )
+  assert buffer.selection(editor.buffer(ed)) == from
+}
+
+pub fn a_selection_made_in_the_markdown_keeps_its_ends_in_the_page_test() {
+  let opened =
+    editor.new(vim: False, live: False, paint: True) |> editor.open(live_note)
+  let made = selected(live_note, from: Position(4, 0), to: Position(2, 14))
+  let Outcome(editor: ed, ..) =
+    editor.update(opened.editor, editor.ControlChanged(shown: made, at: 0))
+  let Outcome(editor: ed, ..) = editor.set_live(ed, True)
+  assert editor.is_painted(ed)
+  let from = buffer.selection(editor.buffer(ed))
+  assert from == #(Position(4, 0), Position(2, 14))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(
+      ed,
+      editor.Settled(from:, to: #(Position(4, 0), Position(2, 12))),
+    )
+  assert sync == editor.InSync
+  assert buffer.selection(editor.buffer(ed)) == from
+}
+
 pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     live(live_note)

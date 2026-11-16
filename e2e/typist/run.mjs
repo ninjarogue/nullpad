@@ -37,6 +37,14 @@ const caretOf = `(() => {
   return { value: c.value, anchor: back ? c.selectionEnd : c.selectionStart, head: back ? c.selectionStart : c.selectionEnd };
 })()`;
 const sign = (s) => JSON.stringify([s.v, s.s, s.e, s.d]);
+/** Where nullpad's editor holds the anchor of the selection, as row:column of the whole note. */
+const anchorOf = `document.querySelector('textarea')?.dataset.anchor ?? null`;
+/**
+ * A Shift key moves the head of the selection and never its anchor, in any text field. Checked
+ * in nullpad alone, around each Shift key of a paced script, two frames after it: the page may
+ * answer a painted selection a frame late.
+ */
+const movesAnchor = (k) => typeof k === 'string' && k.includes('Shift+');
 /**
  * How fast nullpad is typed at. The plain textarea is always typed at in a burst.
  *   burst  every key at once, as a held key or a fast hand does
@@ -155,6 +163,7 @@ async function open(browser, url, kind, errors) {
       await Promise.all(pending);
       pending = [];
     };
+    const anchorMoves = [];
     for (const k of keys) {
       if (typeof k === 'object' && k.wait) {
         await drain();
@@ -170,11 +179,18 @@ async function open(browser, url, kind, errors) {
         }
         continue;
       }
+      const watched = kind === 'nullpad' && pace !== 'burst' && movesAnchor(k);
+      const before = watched ? (await drain(), await ev(anchorOf)) : null;
       pending.push(send(k));
       if (kind === 'nullpad' && pace !== 'burst') {
         await drain();
         await settle();
+        if (watched) await settle();
         if (pace === 'slow') await pause(slowMs);
+      }
+      if (watched) {
+        const after = await ev(anchorOf);
+        if (after !== before) anchorMoves.push(`${k} moved the anchor from ${before} to ${after}`);
       }
     }
     // Ctrl+E shows the source: the text field is only comparable there. The page gets two frames
@@ -198,12 +214,13 @@ async function open(browser, url, kind, errors) {
       undone = (await ev(read)).v;
       await send('Control+e');
     }
-    return { state, undone };
+    return { state, undone, anchorMoves };
   };
   return Object.assign(run, { prune });
 }
 
-const differ = (a, b) => (sign(a.state) !== sign(b.state) ? 'text, cursor or selection' : b.undone !== '' ? 'undo everything' : null);
+const differ = (a, b) =>
+  b.anchorMoves?.length ? 'anchor moved on a Shift key' : sign(a.state) !== sign(b.state) ? 'text, cursor or selection' : b.undone !== '' ? 'undo everything' : null;
 
 /** Remove chunks of keys, halving the chunk size, while the script still fails. */
 async function shrink(keys, fails) {
@@ -253,6 +270,7 @@ async function main() {
       for (const keys of JSON.parse(args.scripts)) {
         const { a, b, why } = await compare(pairs[0], keys, forcedPace ?? 'burst', closeAtOnce);
         console.log(`${why ? 'DIFFERS' : 'same   '} ${show(keys)}${why ? `\n    textarea ${show(a.state)}\n    nullpad  ${show(b.state)}` : ''}`);
+        for (const moved of b.anchorMoves ?? []) console.log(`    ${moved}`);
       }
       return;
     }
@@ -315,6 +333,7 @@ async function main() {
       if (sameText) console.log(`  text     ${JSON.stringify(a.state.v)}`);
       console.log(`  textarea ${brief(a)} undone ${JSON.stringify(a.undone)}`);
       console.log(`  nullpad  ${brief(b)} undone ${JSON.stringify(b.undone)}`);
+      for (const moved of b.anchorMoves ?? []) console.log(`  ${moved}`);
       console.log(`  replay   ${replayCommand(keys, pace)}`);
     }
     if (failed.length > seen.size) console.log(`\n${failed.length} scripts differ in new ways; ${seen.size} distinct shrunk scripts shown (--shrink N for more)`);

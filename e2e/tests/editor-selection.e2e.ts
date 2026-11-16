@@ -369,3 +369,79 @@ test('a double click inside the open block selects the word, and typing replaces
     expect(await raw.getByLabel('Note text').inputValue()).toBe('X one');
   });
 });
+
+/**
+ * The keys and then `typed` leave the note as they leave a plain text field
+ * holding it, as saved: the page hides marks, so it cannot be read off the
+ * page.
+ */
+function savedLikeAPlainField(name: string, body: string, at: Spot, keys: string[], typed = 'X') {
+  test(name, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.seed(body);
+    const expected = await editor.plainField(body, offsetOf(body, at), keys, typed);
+    await editor.show(body);
+    await editor.click(at);
+    await editor.press(...keys);
+    await editor.type(typed);
+    await editor.expectSaved(expected);
+  });
+}
+
+const heading = '# Title\n\nSome **bold** text and [link](http://x.y) here.\n\nend';
+const intoTheUrl = Array<string>(12).fill('ArrowLeft');
+const pair = 'a **b** [c](dd) e\n\nend';
+const betweenTheStars = ['ArrowRight', 'ArrowRight'];
+
+savedLikeAPlainField(
+  'Shift+Ctrl+End from inside the hidden marks of a link keeps the anchor there, and Backspace deletes from it',
+  heading,
+  { word: 'here', at: 0 },
+  [...intoTheUrl, ctrl('Shift+End'), 'Backspace'],
+);
+savedLikeAPlainField(
+  'Shift+Ctrl+Home from inside the hidden marks of a link keeps the anchor there, and Backspace deletes to it',
+  heading,
+  { word: 'here', at: 0 },
+  [...intoTheUrl, ctrl('Shift+Home'), 'Backspace'],
+);
+savedLikeAPlainField(
+  'ArrowLeft on a selection across blocks that starts between two hidden stars puts the caret between them',
+  pair,
+  { word: 'a ', at: 1 },
+  [...betweenTheStars, 'Shift+ArrowDown', 'ArrowLeft'],
+);
+savedLikeAPlainField(
+  'Backspace on a selection across blocks that starts between two hidden stars deletes from between them',
+  pair,
+  { word: 'a ', at: 1 },
+  [...betweenTheStars, 'Shift+ArrowDown', 'Backspace'],
+);
+savedLikeAPlainField(
+  'a letter typed over a selection across blocks that starts between two hidden stars goes between them',
+  pair,
+  { word: 'a ', at: 1 },
+  [...betweenTheStars, ctrl('Shift+End')],
+);
+
+for (const made of [
+  { name: 'ends', keys: [ctrl('End'), ...Array<string>(16).fill('Shift+ArrowLeft')], then: [] },
+  { name: 'starts', keys: [ctrl('Home'), 'ArrowRight', 'ArrowRight', 'ArrowRight', ctrl('Shift+End')], then: ['ArrowLeft'] },
+]) {
+  test(`a selection made in the markdown that ${made.name} between two hidden stars keeps that end in the page`, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.seed(pair);
+    const expected = await editor.plainField(pair, 0, [...made.keys, ...made.then], 'X');
+    await fixtures.app.open('/');
+    await expect(fixtures.page.text).toHaveValue(pair);
+    await fixtures.page.text.click();
+    await editor.press(...made.keys);
+    await fixtures.page.markdown.tap();
+    await expect(fixtures.page.text).toBeFocused();
+    await fixtures.page.nextFrame();
+    await fixtures.page.nextFrame();
+    await editor.press(...made.then);
+    await editor.type('X');
+    await editor.expectSaved(expected);
+  });
+}

@@ -81,6 +81,14 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       attribute.data(live.row_mark, int.to_string(first_row))
     Some(_), True | None, _ -> attribute.none()
   }
+  // Where the editor holds the anchor in the note, for the robot typist,
+  // which reads it around each Shift key: the field holds only some rows.
+  let #(anchor, _) = buffer.selection(editor.buffer(editor))
+  let anchor =
+    attribute.data(
+      "anchor",
+      int.to_string(anchor.row) <> ":" <> int.to_string(anchor.col),
+    )
   html.div([attribute.class(classes(editor, kind)), marker(kind)], [
     mirror(editor),
     element.element(
@@ -89,6 +97,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         attribute.id(control_id),
         attribute.data("test-id", "editor"),
         first_row,
+        anchor,
         attribute.aria_label("Note text"),
         attribute.readonly(editor.mode(editor) == editor.Normal),
         event.on("input", typed),
