@@ -475,3 +475,50 @@ test('A click where the caret already is ends a run: ArrowDown takes the column 
 
 keepsTheColumn('End where the caret already is moves nothing and keeps the run', 'xxxxxxxxxa\nxb\nxxxxxxxxxc', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'End', 'ArrowDown']);
 keepsTheColumn('ArrowRight at the end of the note moves nothing and keeps the run', 'xxxxxxxxxa\nxb', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'ArrowRight', 'ArrowUp']);
+
+/**
+ * A key that moves the caret past the rows the text field holds, by a letter
+ * or to an end of the note, moves it without the whole note being written
+ * into the field: on a long note that costs a frame and more.
+ */
+const longNote = Array.from({ length: 60 }, (_, row) => `row ${row} of the note`).join('\n\n');
+
+function movesWithoutTheWholeNote(name: string, at: Spot, keys: string[]) {
+  test(name, async (fixtures) => {
+    const { browser } = fixtures;
+    const editor = new Editing(fixtures);
+    await editor.seed(longNote);
+    const expected = await editor.plainField(longNote, offsetOf(longNote, at), keys, 'X');
+    await editor.show(longNote);
+    await editor.click(at);
+    await browser.evaluate(() => {
+      const own = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!;
+      const page = window as unknown as { mostWritten: number };
+      page.mostWritten = 0;
+      Object.defineProperty(HTMLTextAreaElement.prototype, 'value', {
+        configurable: true,
+        get() {
+          return own.get!.call(this);
+        },
+        set(text: string) {
+          page.mostWritten = Math.max(page.mostWritten, text.length);
+          own.set!.call(this, text);
+        },
+      });
+      return null;
+    });
+    await editor.press(...keys);
+    const most = await browser.evaluate(() => (window as unknown as { mostWritten: number }).mostWritten);
+    await editor.type('X');
+
+    await editor.expectSaved(expected);
+    expect(most, 'the longest text written into the field').toBeLessThan(100);
+  });
+}
+
+movesWithoutTheWholeNote('ArrowLeft at the start of a block moves to the blank row above without the whole note in the field', { word: 'row 6 ', at: 0 }, ['ArrowLeft']);
+movesWithoutTheWholeNote('ArrowLeft twice at the start of a block moves to the end of the block above without the whole note in the field', { word: 'row 6 ', at: 0 }, ['ArrowLeft', 'ArrowLeft']);
+movesWithoutTheWholeNote('ArrowRight at the end of a block moves to the blank row below without the whole note in the field', { word: 'row 6 of the note', at: 17 }, ['ArrowRight']);
+movesWithoutTheWholeNote('ArrowRight twice at the end of a block moves to the start of the next without the whole note in the field', { word: 'row 6 of the note', at: 17 }, ['ArrowRight', 'ArrowRight']);
+movesWithoutTheWholeNote('Ctrl+Home goes to the start of a long note without the whole note in the field', { word: 'row 6 ', at: 3 }, [ctrl('Home')]);
+movesWithoutTheWholeNote('Ctrl+End goes to the end of a long note without the whole note in the field', { word: 'row 6 ', at: 3 }, [ctrl('End')]);
