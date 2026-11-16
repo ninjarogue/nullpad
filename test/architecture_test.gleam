@@ -340,6 +340,37 @@ fn breaks() -> List(Break) {
       },
     ),
     Break(
+      Caught(rules.DecoderState),
+      "a decoder reads the editor the last message left from JavaScript",
+      surface,
+      after(
+        edge_decoder,
+        "  let _ = editor.is_painted(current_editor(blank))\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a decoder reads a JavaScript record through a helper",
+      surface,
+      both(
+        last(
+          "fn waiting_now() -> Bool {\n  editor.is_waiting(current_editor(blank))\n}",
+        ),
+        after(
+          "  use key_code <- decode.optional_field(\"keyCode\", 0, decode.int)\n",
+          "  let _ = waiting_now()\n",
+        ),
+      ),
+    ),
+    Break(
+      Clean,
+      "a callback made outside the decoders reads a JavaScript record",
+      surface,
+      last(
+        "fn waits_now(blank: Editor) -> fn() -> Bool {\n  fn() { editor.is_waiting(current_editor(blank)) }\n}",
+      ),
+    ),
+    Break(
       Caught(rules.ChangesPage),
       "new JavaScript is used from the view unlisted",
       surface,

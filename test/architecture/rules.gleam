@@ -47,7 +47,12 @@ const measures = [
 ]
 
 /// How many state parameters each of these decoders still takes.
-const decoders_that_still_read_state = [#("surface.key_decoder", 1)]
+const decoders_that_still_read_state: List(#(String, Int)) = []
+
+/// JavaScript that hands back app state an effect noted there, such as the
+/// editor the last message left. A decoder is given a callback for it
+/// instead of reading it, so what it decides on is in its parameters.
+const records = ["keysWait", "isPainted"]
 
 const plain_types = ["String", "Int", "Bool", "Float"]
 
@@ -156,6 +161,7 @@ pub fn path(file: File) -> String {
 
 pub fn judge(files: List(File)) -> Report {
   let changers = changers(files)
+  let readers = readers(files)
   let found =
     list.flat_map(files, fn(file) {
       case file {
@@ -167,7 +173,7 @@ pub fn judge(files: List(File)) -> Report {
             calls_javascript(path, name, module),
             backend_import(path, name, module),
             changes_page(path, name, module, changers),
-            decoder_state(path, name, module),
+            decoder_state(path, name, module, readers),
             skips_outcome(path, name, module),
             forbidden_calls(path, name, module),
           ])
@@ -458,9 +464,11 @@ fn decoder_state(
   path: String,
   name: String,
   module: glance.Module,
+  readers: Set(String),
 ) -> List(Finding) {
   use <- when(!is_core(name) && !is_backend(name))
   let aliases = aliases_of(module)
+  let resolve = resolver(module_key(path), module)
   list.flat_map(module.functions, fn(definition) {
     let function = definition.definition
     let decoder =
@@ -480,16 +488,27 @@ fn decoder_state(
       })
     let allowed =
       list.key_find(decoders_that_still_read_state, full) |> result.unwrap(0)
+    let read =
+      uses(function, resolve)
+      |> list.filter(set.contains(readers, _))
+      |> list.map(fn(reader) {
+        Found(Broken(
+          DecoderState,
+          path,
+          function.name <> " reads app state from JavaScript through " <> reader,
+        ))
+      })
     let found = case int.compare(state, allowed) {
-      order.Gt -> [Found(Broken(DecoderState, path, function.name))]
+      order.Gt -> [Found(Broken(DecoderState, path, function.name)), ..read]
       order.Lt -> [
         Found(Broken(
           DecoderState,
           path,
           function.name <> " takes less state than its allowance",
         )),
+        ..read
       ]
-      order.Eq -> []
+      order.Eq -> read
     }
     [Looked(DecoderState, full), ..found]
   })
@@ -611,6 +630,23 @@ fn module_key(path: String) -> String {
 /// Every function and constant that reaches page-changing JavaScript,
 /// directly or through others, in any module.
 fn changers(files: List(File)) -> Set(String) {
+  reaching(files, fn(name, javascript) {
+    touches_page(name) && !list.contains(measures, javascript)
+  })
+}
+
+/// Every function and constant that reaches a JavaScript record, directly or
+/// through others.
+fn readers(files: List(File)) -> Set(String) {
+  reaching(files, fn(_, javascript) { list.contains(records, javascript) })
+}
+
+/// Every function and constant that reaches a JavaScript function `picks`
+/// chooses, given its module's name and its own, directly or through others.
+fn reaching(
+  files: List(File),
+  picks: fn(String, String) -> Bool,
+) -> Set(String) {
   let functions =
     list.flat_map(files, fn(file) {
       case file {
@@ -622,7 +658,7 @@ fn changers(files: List(File)) -> Set(String) {
               let function = definition.definition
               let starts = case external(definition) {
                 Some(External(function: javascript, ..)) ->
-                  touches_page(name) && !list.contains(measures, javascript)
+                  picks(name, javascript)
                 None -> False
               }
               #(key <> "." <> function.name, uses(function, resolve), starts)
@@ -977,6 +1013,7 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
     missing,
     idle,
     unused(measures, externals, "measure"),
+    unused(records, externals, "record"),
     unused(
       list.map(decoders_that_still_read_state, fn(one) { one.0 }),
       decoders,
