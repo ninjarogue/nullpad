@@ -27,10 +27,16 @@ const tests = (n) => `${n} test${n === 1 ? "" : "s"}`;
 /** The known count of every step, by step id. */
 export function loadCounts(file = countsFile) {
   let counts;
+  let text;
   try {
-    counts = JSON.parse(readFileSync(file, "utf8"));
+    text = readFileSync(file, "utf8");
+    counts = JSON.parse(text);
   } catch (error) {
     throw new Error(`${COUNTS} cannot be read (${error.code ?? error.message}): a gate with no counts holds nothing`);
+  }
+  const doubled = keysTwice(text);
+  if (doubled.length > 0) {
+    throw new Error(`${COUNTS} has ${doubled.map((key) => JSON.stringify(key)).join(", ")} twice, and JSON.parse keeps only the last, so the other count holds nothing. Remove the one that is wrong.`);
   }
   if (counts === null || typeof counts !== "object" || Array.isArray(counts)) {
     throw new Error(`${COUNTS} must be an object of step ids and test counts`);
@@ -41,6 +47,55 @@ export function loadCounts(file = countsFile) {
     }
   }
   return counts;
+}
+
+/** The keys that an object of the JSON `text` has more than once, as the path from the top (`a.b`). `JSON.parse` keeps the last of them and says nothing. `text` is JSON that already parsed. */
+export function keysTwice(text) {
+  const found = [];
+  let at = 0;
+  const space = () => {
+    while (/\s/.test(text[at] ?? "")) at++;
+  };
+  const string = () => {
+    const from = at++;
+    while (text[at] !== '"') at += text[at] === "\\" ? 2 : 1;
+    return JSON.parse(text.slice(from, ++at));
+  };
+  const value = (path) => {
+    space();
+    if (text[at] === '"') return string();
+    if (text[at] === "{") return object(path);
+    if (text[at] === "[") return array(path);
+    while (at < text.length && !/[\s,\]}]/.test(text[at])) at++;
+  };
+  const array = (path) => {
+    at++;
+    for (let index = 0; ; space()) {
+      space();
+      if (text[at] === "]") return void at++;
+      value(`${path}[${index++}]`);
+      space();
+      if (text[at] === ",") at++;
+    }
+  };
+  const object = (path) => {
+    at++;
+    const seen = new Set();
+    for (;;) {
+      space();
+      if (text[at] === "}") return void at++;
+      const key = string();
+      if (seen.has(key)) found.push(`${path}${key}`);
+      seen.add(key);
+      space();
+      at++;
+      value(`${path}${key}.`);
+      space();
+      if (text[at] === ",") at++;
+    }
+  };
+  value("");
+  return found;
 }
 
 function saveCounts(file, counts) {
@@ -318,6 +373,11 @@ export function hooksWarning(base = root) {
  */
 export async function gate({ steps, countsFile: file = countsFile, partial = false, base, commitCheck = false, ...io }) {
   loadCounts(file);
+  const twice = [...new Set(steps.map((step) => step.id).filter((id, at, ids) => ids.indexOf(id) !== at))];
+  if (twice.length > 0) {
+    const failures = twice.map((id) => `${id}: duplicate step id, used by ${steps.filter((step) => step.id === id).length} steps. One count is kept for an id, so each step needs an id of its own in test/steps.mjs.`);
+    return { ok: false, ran: [], raised: {}, lowered: {}, warnings: [], failures };
+  }
   const warnings = base === undefined ? [] : [hooksWarning(base)].filter((warning) => warning !== null);
   const ran = [];
   const raised = {};
