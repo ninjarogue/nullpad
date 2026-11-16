@@ -1,8 +1,8 @@
 {
-  "e2e:e2e.config.ts": 332,
+  "e2e:e2e.config.ts": 420,
   "gleam-test": 462,
   "keystroke-cost": 119,
-  "mutants-tool": 42,
+  "mutants-tool": 52,
   "test-cleanup": 8,
   "test-counts": 41
 }
