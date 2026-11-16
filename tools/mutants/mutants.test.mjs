@@ -70,7 +70,7 @@ function toy({ mode = "", timeoutMs = 20_000 } = {}) {
   const outDir = join(logDir, "out");
   for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
   const git = (...args) =>
-    execFileSync("git", ["-c", "user.name=toy", "-c", "user.email=toy@example.com", ...args], { cwd: dir, encoding: "utf8" });
+    execFileSync("git", ["-c", "user.name=toy", "-c", "user.email=toy@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: dir, encoding: "utf8" });
   git("init", "-q");
   git("add", "-A");
   git("commit", "-q", "-m", "toy");

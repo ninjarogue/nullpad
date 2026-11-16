@@ -16,7 +16,7 @@ import { gate, judge, loadCounts, runStep } from "./test_counts.mjs";
 const green = (text) => `\u001b[32m${text}\u001b[39m`;
 const gleeunit = (passed) => `Running tests\n${".".repeat(5)}\n${green(`${passed} passed, no failures`)}\n`;
 
-const report = ({ passed, failed = 0, skipped = 0, results = passed }) =>
+const report = ({ passed, failed = 0, skipped = 0, interrupted = 0, flaky = 0, results = passed }) =>
   JSON.stringify({
     schemaVersion: "report-1",
     run: {
@@ -27,8 +27,8 @@ const report = ({ passed, failed = 0, skipped = 0, results = passed }) =>
         executed: passed + failed,
         passed,
         failed,
-        interrupted: 0,
-        flaky: 0,
+        interrupted,
+        flaky,
         skipped,
       },
       results: Array.from({ length: results }, () => ({ kind: "test", status: "passed" })),
@@ -112,6 +112,11 @@ describe("judge", () => {
     assert.equal(verdict.raise, null);
   });
 
+  test("a command killed by a signal fails the step and says which", () => {
+    const verdict = judge({ id: "s", known: 5, exitCode: null, signal: "SIGKILL", counts: ok.counts });
+    assert.match(verdict.failures.join("\n"), /killed by SIGKILL/);
+  });
+
   test("output with no readable count fails the step with the reason", () => {
     const verdict = judge({ id: "s", known: 5, exitCode: 0, counts: null, problem: "no summary line" });
     assert.match(verdict.failures.join("\n"), /no summary line/);
@@ -138,6 +143,7 @@ describe("what each runner says about itself", () => {
     assert.throws(() => readers.gleeunit({ output: "CommonMark 0.31.2: 458 of 652 examples pass\n" }), /summary/);
     assert.throws(() => readers.gleeunit({ output: "error: Unknown module\n" }), /summary/);
     assert.throws(() => readers.gleeunit({ output: "" }), /summary/);
+    assert.throws(() => readers.gleeunit({ output: "see 7 passed, no failures above\n" }), /summary/);
   });
 
   test("keystroke_cost: its own summary line", () => {
@@ -160,6 +166,12 @@ describe("what each runner says about itself", () => {
     assert.deepEqual(readers.e2e({ outDir: dir }), { passed: 332, failed: 0, skipped: 0 });
     writeFileSync(join(dir, "report.json"), report({ passed: 330, failed: 2, skipped: 3 }));
     assert.deepEqual(readers.e2e({ outDir: dir }), { passed: 330, failed: 2, skipped: 3 });
+  });
+
+  test("e2e: a test that was interrupted, or passed only on a retry, is not a pass that counts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "report-"));
+    writeFileSync(join(dir, "report.json"), report({ passed: 10, interrupted: 2, flaky: 1 }));
+    assert.deepEqual(readers.e2e({ outDir: dir }), { passed: 10, failed: 3, skipped: 0 });
   });
 
   test("e2e: no report, a report that disagrees with itself, or a new schema is an error", () => {
@@ -212,6 +224,25 @@ describe("a step run through the gate", () => {
     assert.equal(verdict.ok, true);
     assert.equal(verdict.raised, 11);
     assert.deepEqual(w.stored(), { fake: 11, other: 3 });
+  });
+
+  test("the file is written sorted, two spaces in, with a newline at the end, so a raise is one line in a diff", async () => {
+    const w = workspace();
+    w.known({ zeta: 2, alpha: 1 });
+    const file = w.runner("eleven.mjs", `console.log("\\n11 passed, no failures");`);
+    await runStep(w.step("mid", file), { countsFile: w.countsFile, ...quietly });
+    assert.equal(readFileSync(w.countsFile, "utf8"), '{\n  "alpha": 1,\n  "mid": 11,\n  "zeta": 2\n}\n');
+  });
+
+  test("a step whose runner is not installed fails with how to install it, and runs nothing", async () => {
+    const w = workspace();
+    w.known({ fake: 10 });
+    const file = w.runner("never.mjs", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(join(w.dir, "ran"))}, "yes");`);
+    const step = { ...w.step("fake", file), needs: join(w.dir, "node_modules"), hint: "run npm install once" };
+    const verdict = await runStep(step, { countsFile: w.countsFile, ...quietly });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.failures.join("\n"), /run npm install once/);
+    assert.throws(() => readFileSync(join(w.dir, "ran")), /ENOENT/);
   });
 
   test("a count lowered by hand lets the smaller run pass", async () => {
@@ -309,6 +340,14 @@ describe("the gate", () => {
     assert.deepEqual(w.stored(), { a: 5, b: 6 });
   });
 
+  test("a run of some steps does not need the steps it left out", async () => {
+    const w = workspace();
+    w.known({ a: 5, b: 5 });
+    const five = w.runner("five.mjs", `console.log("\\n5 passed, no failures");`);
+    const verdict = await gate({ steps: [w.step("a", five)], countsFile: w.countsFile, partial: true, ...quietly });
+    assert.equal(verdict.ok, true);
+  });
+
   test("a step that is not counted only has to exit 0", async () => {
     const w = workspace();
     w.known({});
@@ -337,6 +376,7 @@ describe("the e2e configs", () => {
     for (const name of ["e2e.config.ts", "e2e.dpr2.config.mjs", "package.json", "serve.mjs", "tsconfig.json"]) {
       writeFileSync(join(dir, name), "");
     }
+    mkdirSync(join(dir, "old.config.mjs"));
     mkdirSync(join(dir, "tests"));
     writeFileSync(join(dir, "tests", "x.config.ts"), "");
     assert.deepEqual(e2eConfigs(dir), ["e2e.config.ts", "e2e.dpr2.config.mjs"]);
