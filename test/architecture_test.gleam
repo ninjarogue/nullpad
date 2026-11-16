@@ -918,11 +918,192 @@ fn test_breaks() -> List(Break) {
       last("pub fn one_more_test() -> Nil {\n  assert 1 == 1\n}"),
     ),
     Break(
-      Escapes,
+      Caught(rules.TestRuns),
       "a public function with no arguments calls a private one that asserts",
       file,
       last(
         "pub fn forgotten() -> Nil {\n  check()\n}\n\nfn check() -> Nil {\n  assert 1 == 2\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function pipes into should.equal",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn x() -> Nil {\n  1 |> should.equal(2)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls should.be_true",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn forgotten() -> Nil {\n  should.be_true(False)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls a should function imported by name",
+      file,
+      both(
+        first("import gleeunit/should.{equal}\n"),
+        last("pub fn forgotten() -> Nil {\n  equal(1, 2)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls should under another name",
+      file,
+      both(
+        first("import gleeunit/should as expect\n"),
+        last("pub fn forgotten() -> Nil {\n  expect.be_true(False)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls a public helper of the module that asserts",
+      file,
+      last(
+        "pub fn parses_headings() -> Nil {\n  check(1, 2)\n}\n\npub fn check(a: Int, b: Int) -> Nil {\n  assert a == b\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls a helper that checks with should",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last(
+          "pub fn parses_headings() -> Nil {\n  check(1, 2)\n}\n\nfn check(a: Int, b: Int) -> Nil {\n  a |> should.equal(b)\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function reaches an assert through two helpers",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  outer()\n}\n\nfn outer() -> Nil {\n  inner(1)\n}\n\nfn inner(a: Int) -> Nil {\n  assert a == 2\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function named _test takes an argument, and gleeunit calls it with none",
+      file,
+      last("pub fn takes_one_test(a: Int) -> Nil {\n  assert a == 1\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function named _test whose body is just Nil",
+      file,
+      last("pub fn checks_nothing_test() -> Nil {\n  Nil\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function named _test with an empty body",
+      file,
+      last("pub fn empty_test() -> Nil {\n}"),
+    ),
+    Break(
+      Clean,
+      "a test that checks with should",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn one_more_test() -> Nil {\n  1 |> should.equal(1)\n}"),
+      ),
+    ),
+    Break(
+      Clean,
+      "a public function with arguments that checks with should, as a helper does",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn same(a: Int, b: Int) -> Nil {\n  a |> should.equal(b)\n}"),
+      ),
+    ),
+    Break(
+      Clean,
+      "a public function with no arguments that calls a helper that checks nothing",
+      file,
+      last(
+        "pub fn fixture() -> Int {\n  double(2)\n}\n\nfn double(a: Int) -> Int {\n  a * 2\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "a private function that calls a helper that asserts",
+      file,
+      last(
+        "fn again() -> Nil {\n  check()\n}\n\nfn check() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "a public function with no arguments that binds a name a helper that asserts also has",
+      file,
+      last(
+        "pub fn fixture() -> Int {\n  let check = 2\n  check\n}\n\nfn check() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "a test that asserts and then gives Nil",
+      file,
+      last("pub fn asserts_then_nil_test() -> Nil {\n  assert 1 == 1\n  Nil\n}"),
+    ),
+    Break(
+      Clean,
+      "a test that calls a helper of the module that asserts",
+      file,
+      last(
+        "pub fn through_a_helper_test() -> Nil {\n  check(1)\n}\n\nfn check(a: Int) -> Nil {\n  assert a == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "should in a comment and in a string",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last(
+          "pub fn note() -> String {\n  // should.equal(1, 2)\n  \"should.equal(1, 2)\"\n}",
+        ),
+      ),
+    ),
+    Break(
+      Escapes,
+      "a test that asserts only inside a closure nobody calls",
+      file,
+      last(
+        "pub fn closed_over_test() -> Nil {\n  let _check = fn() { assert 1 == 2 }\n  Nil\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a test that returns before its assert",
+      file,
+      last(
+        "pub fn returns_first_test() -> Nil {\n  use <- bool.guard(True, Nil)\n  assert 1 == 2\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a test that is an @external function whose JavaScript checks nothing",
+      file,
+      last(
+        "@external(javascript, \"./nullpad_test_ffi.mjs\", \"nothing\")\npub fn outside_test() -> Nil",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a misnamed public function calls a helper of another test module that asserts",
+      file,
+      both(
+        first("import support\n"),
+        last("pub fn forgotten() -> Nil {\n  support.check(1, 2)\n}"),
       ),
     ),
   ]
