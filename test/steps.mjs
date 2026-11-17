@@ -18,9 +18,10 @@ export const readers = {
   },
 
   keystroke({ output }) {
-    const found = output.match(/^keystroke_cost: (\d+) ok, (\d+) failed, (\d+) not built yet$/m);
+    const found = output.match(/^keystroke_cost: (?<ok>\d+) ok, (?<failed>\d+) failed, (?<notBuilt>\d+) not built yet$/m);
     if (!found) throw none("test/keystroke_cost.mjs", "'keystroke_cost: N ok, N failed, N not built yet'");
-    return { passed: Number(found[1]), failed: Number(found[2]), skipped: 0 };
+    const { ok, failed } = found.groups;
+    return { passed: Number(ok), failed: Number(failed), skipped: 0 };
   },
 
   nodeTest({ output }) {
@@ -107,7 +108,21 @@ export const failedTests = {
   },
 };
 
-export const gleamTest = {
+const stepRequired = ["id", "cwd", "counted", "command"];
+const stepOptional = ["read", "failing", "held", "compileFailed", "build", "narrow", "env", "needs", "hint", "outIn"];
+
+export function step(fields) {
+  const unknown = Object.keys(fields).filter((name) => !stepRequired.includes(name) && !stepOptional.includes(name));
+  const missing = stepRequired.filter((name) => fields[name] === undefined);
+  if (fields.counted === true && fields.read === undefined) missing.push("read");
+  if (unknown.length > 0 || missing.length > 0) {
+    const problems = [unknown.length > 0 && `unknown ${unknown.join(", ")}`, missing.length > 0 && `missing ${missing.join(", ")}`].filter(Boolean);
+    throw new Error(`step ${fields.id ?? JSON.stringify(Object.keys(fields))}: ${problems.join("; ")}`);
+  }
+  return fields;
+}
+
+export const gleamTest = step({
   id: "gleam-test",
   cwd: root,
   counted: true,
@@ -116,20 +131,20 @@ export const gleamTest = {
   failing: failedTests.gleeunit,
   // `gleam test` compiles the tests too, and prints "Running" once they start.
   compileFailed: (output) => /^error:/m.test(plain(output)) && !/Running .*\.main/.test(plain(output)),
-};
+});
 
-export const gleamBuild = { id: "build", cwd: root, counted: false, build: true, command: () => ["gleam", "build"] };
+export const gleamBuild = step({ id: "build", cwd: root, counted: false, build: true, command: () => ["gleam", "build"] });
 
-export const keystrokeCost = {
+export const keystrokeCost = step({
   id: "keystroke-cost",
   cwd: root,
   counted: true,
   command: () => ["node", "test/keystroke_cost.mjs"],
   read: readers.keystroke,
   failing: failedTests.keystroke,
-};
+});
 
-export const nodeTest = (id, file) => ({
+export const nodeTest = (id, file) => step({
   id,
   cwd: root,
   counted: true,
@@ -186,9 +201,9 @@ const e2eDir = join(root, "e2e");
 // The e2e runner writes only inside its own project, in a folder git ignores.
 const needsE2e = { outIn: join(e2eDir, ".e2e"), needs: join(e2eDir, "node_modules"), hint: "run 'cd e2e && npm install' once, then push again." };
 
-export const e2eTypes = { id: "e2e-types", cwd: e2eDir, counted: false, command: () => ["npx", "tsc"], ...needsE2e };
+export const e2eTypes = step({ id: "e2e-types", cwd: e2eDir, counted: false, command: () => ["npx", "tsc"], ...needsE2e });
 
-export const e2eDiscovery = { id: "e2e-discovery", cwd: root, counted: false, command: () => ["node", "test/e2e_discovery.mjs"], ...needsE2e };
+export const e2eDiscovery = step({ id: "e2e-discovery", cwd: root, counted: false, command: () => ["node", "test/e2e_discovery.mjs"], ...needsE2e });
 
 export function e2eConfigs(dir = e2eDir) {
   return readdirSync(dir, { withFileTypes: true })
@@ -197,7 +212,7 @@ export function e2eConfigs(dir = e2eDir) {
     .sort();
 }
 
-export const e2e = (config, args = []) => ({
+export const e2e = (config, args = []) => step({
   id: `e2e:${config}`,
   cwd: e2eDir,
   counted: true,

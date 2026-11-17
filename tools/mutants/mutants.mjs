@@ -186,13 +186,16 @@ export async function runMutants({
     console.error(`${signal}: the planted bug is taken out`);
   });
 
+  const build = checks.find((candidate) => candidate.build);
+  const rebuildFromCleanSource = (write) => runCheck(build, { write, timeoutMs });
+
   async function cleanTreeProblem(mutant, check, failing) {
     const again = check.narrow && failing.length > 0 ? check.narrow(failing) : check;
-    const build = checks.find((candidate) => candidate.build);
     for (const step of build ? [build, again] : [again]) {
       const saved = join(outDir, `${mutant.id}.${step.id}.clean.txt`);
       writeFileSync(saved, "");
-      const run = await runCheck(step, { write: (text) => appendFileSync(saved, text), timeoutMs });
+      const write = (text) => appendFileSync(saved, text);
+      const run = step === build ? await rebuildFromCleanSource(write) : await runCheck(step, { write, timeoutMs });
       const { verdict, reason } = classify(step, { ...run, timeoutMs });
       if (verdict !== "pass") return `${step.id} ${verdict === "error" ? reason : `came out ${verdict.toUpperCase()}${reason ? ` (${reason})` : ""}`}. Its output is in ${saved}`;
     }
@@ -275,8 +278,7 @@ export async function runMutants({
         assertClean(dir, `after ${mutant.id}`);
       }
     }
-    const build = checks.find((check) => check.build);
-    if (build) await runCheck(build, { write: (text) => appendFileSync(join(outDir, "final-build.txt"), text), timeoutMs });
+    if (build) await rebuildFromCleanSource((text) => appendFileSync(join(outDir, "final-build.txt"), text));
     return { calibration: proven.map(({ id, status, check }) => ({ id, status, check })), results };
   } finally {
     stop();
