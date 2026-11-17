@@ -17,6 +17,7 @@ const app = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>nullpad</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="/nullpad.css">
 </head>
 <body>
@@ -27,7 +28,7 @@ main();
 </script>
 </body>
 </html>`;
-const blank = "<!doctype html><title>blank</title>";
+const blank = '<!doctype html><title>blank</title><link rel="icon" href="data:,">';
 
 execFileSync("gleam", ["build"], { cwd: repo, stdio: "inherit" });
 
