@@ -100,6 +100,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
   let #(model, listed) = obey(model, listing)
   let start =
     effect.batch([
+      surface.start(model.editor),
       listed,
       platform.on_shortcut("e", UserToggledMarkdown),
       platform.on_hide(ToLibrary(library.SaveDue)),

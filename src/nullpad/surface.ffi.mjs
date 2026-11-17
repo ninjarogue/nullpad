@@ -261,8 +261,9 @@ export function noteEditor(editor) {
   current = editor;
 }
 
-export function currentEditor(drawn) {
-  return current ?? drawn;
+export function currentEditor() {
+  if (current === null) throw new Error("no editor was noted before an event came");
+  return current;
 }
 
 export function takeReplay(editor) {

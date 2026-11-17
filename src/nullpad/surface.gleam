@@ -59,9 +59,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
         anchor,
         attribute.aria_label("Note text"),
         attribute.readonly(editor.mode(editor) == editor.Normal),
-        // A key is decided by the editor the last message left, which the
-        // page may not have drawn yet.
-        ..field_events(fn() { current_editor(editor) }, on_event)
+        ..field_events(on_event)
       ],
       // Child text is only the *default* value: a brand-new DOM node starts
       // with the model's text. The browser ignores it after the first edit.
@@ -71,7 +69,6 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
 }
 
 fn field_events(
-  now: fn() -> Editor,
   on_event: fn(editor.Event) -> msg,
 ) -> List(attribute.Attribute(msg)) {
   let changed = {
@@ -120,9 +117,6 @@ fn field_events(
   let focus_changed = fn(focused) {
     decode.success(on_event(editor.FocusChanged(focused:)))
   }
-  let waits = fn() { editor.is_waiting(now()) }
-  let paints = fn() { editor.is_painted(now()) }
-  let claims = fn(key) { editor.claims(now(), key) }
   [
     event.on("input", typed),
     event.on("compositionend", composed),
@@ -144,16 +138,8 @@ fn field_events(
     // back: the editor does not hear of it.
     event.on("blur", leave_decoder(on_event)),
     event.advanced("beforeinput", history_decoder(on_event)),
-    event.advanced("paste", paste_decoder(waits, on_event)),
-    event.advanced(
-      "keydown",
-      decode.one_of(hold_decoder(waits, on_event), [
-        key_decoder(claims, on_event),
-        undo_key_decoder(on_event),
-        edge_decoder(paints, on_event),
-        escape_decoder(on_event),
-      ]),
-    ),
+    event.advanced("paste", paste_decoder(on_event)),
+    event.advanced("keydown", keydown_decoder(on_event)),
   ]
 }
 
@@ -423,6 +409,13 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
         |> decode.success
     }
   })
+}
+
+/// Notes the editor the app starts with, before any event can come. Each
+/// `sync` after notes the editor its message left, so a handler always reads
+/// the latest one through `current_editor`.
+pub fn start(editor: Editor) -> Effect(msg) {
+  effect.from(fn(_) { note_editor(editor) })
 }
 
 /// Brings the field and the page to what `editor` says, and paints its
@@ -937,7 +930,6 @@ fn control_decoder() -> Decoder(Buffer) {
 /// field as the page last drew it. A paste is held when its text arrives.
 /// An IME's keys go on to the field, which it owns while it composes.
 fn hold_decoder(
-  waits: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use key <- decode.field("key", decode.string)
@@ -969,14 +961,18 @@ fn hold_decoder(
     | "Escape" -> True
     _ -> string.length(key) == 1 && !pastes
   }
-  case waits() && holds && !composing && key_code != 229 {
+  case
+    editor.is_waiting(current_editor())
+    && holds
+    && !composing
+    && key_code != 229
+  {
     True -> decode.success(handler)
     False -> decode.failure(handler, expected: "a key the page is behind")
   }
 }
 
 fn paste_decoder(
-  waits: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use paste <- decode.then(decode.dynamic)
@@ -984,7 +980,7 @@ fn paste_decoder(
   let handler =
     on_event(editor.KeyHeld(editor.HeldPaste(text: pasted_text(paste), at:)))
     |> event.handler(prevent_default: True, stop_propagation: False)
-  case waits() {
+  case editor.is_waiting(current_editor()) {
     True -> decode.success(handler)
     False -> decode.failure(handler, expected: "a paste the page is behind")
   }
@@ -1013,17 +1009,9 @@ fn replay_held(
       replayed(read(at))
     }
     Some(editor.HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, at:)), True -> {
-      let same = fn(event) { event }
-      let now = fn() { current_editor(editor) }
-      let keydown =
-        decode.one_of(key_decoder(fn(key) { editor.claims(now(), key) }, same), [
-          undo_key_decoder(same),
-          edge_decoder(fn() { editor.is_painted(now()) }, same),
-          escape_decoder(same),
-        ])
       let pressed =
         held_key_event(control_id, key, code, shift, ctrl, meta, alt, at)
-      case decode.run(pressed, keydown) {
+      case decode.run(pressed, decided_decoder(fn(event) { event })) {
         Ok(handler) -> replayed(Some(handler.message))
         Error(_) ->
           case act_on_key(control_id, key, shift, ctrl, meta, alt) {
@@ -1039,8 +1027,26 @@ fn replay_held(
   }
 }
 
+/// A key is decided by the editor the last message left, which the page may
+/// not have drawn yet.
+fn keydown_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  decode.one_of(hold_decoder(on_event), [decided_decoder(on_event)])
+}
+
+/// What the field's keydown handlers do with a key the page is not behind.
+fn decided_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  decode.one_of(key_decoder(on_event), [
+    undo_key_decoder(on_event),
+    edge_decoder(on_event),
+    escape_decoder(on_event),
+  ])
+}
+
 fn key_decoder(
-  claims: fn(vim.Key) -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
@@ -1049,7 +1055,7 @@ fn key_decoder(
   use alt <- decode.field("altKey", decode.bool)
   use composing <- decode.field("isComposing", decode.bool)
   let key = parse_key(name, ctrl, meta || alt || composing)
-  case key, result.map(key, claims) {
+  case key, result.map(key, editor.claims(current_editor(), _)) {
     Ok(key), Ok(True) -> {
       use shown <- decode.map(shown_decoder())
       on_event(editor.KeyPressed(key:, shown:))
@@ -1065,7 +1071,6 @@ fn key_decoder(
 }
 
 fn edge_decoder(
-  paints: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use name <- decode.field("key", decode.string)
@@ -1107,7 +1112,9 @@ fn edge_decoder(
       False -> x
     }
   }
-  let painted_head = paints() && painted_on_page(control_id, painted_class)
+  let painted_head =
+    editor.is_painted(current_editor())
+    && painted_on_page(control_id, painted_class)
   let painted = shifted && painted_head
   let wanted = case name {
     "Backspace" if plain && head == start -> Ok(editor.JoinBefore)
@@ -1406,7 +1413,7 @@ fn hold_step(held: Bool, for: Editor) -> Nil
 fn note_editor(editor: Editor) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "currentEditor")
-fn current_editor(drawn: Editor) -> Editor
+fn current_editor() -> Editor
 
 @external(javascript, "./surface.ffi.mjs", "takeReplay")
 fn take_replay(for: Editor) -> Bool
