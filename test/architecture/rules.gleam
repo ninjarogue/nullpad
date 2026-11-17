@@ -38,34 +38,38 @@ const with_javascript = ["surface", "platform", "markdown"]
 /// JavaScript in surface and platform that only reads the page. Every other
 /// function there counts as changing it.
 const measures = [
-  "drawnInPage", "holdsFocus", "caretLine", "headLine", "holderText",
-  "paintedOnPage", "locate", "findControl", "textWidth", "boldWidth",
-  "utf16Split", "utf16Length", "below", "hasHardwareKeyboard", "canPaint",
-  "readVimSetting", "readMarkdownSetting", "pressLanding", "dropped",
+  "drawnInPage", "holdsFocus", "caretLine", "endsAtWrap", "headLine",
+  "holderText", "paintedOnPage", "locate", "findControl", "textWidth",
+  "boldWidth", "utf16Split", "utf16Length", "below", "hasHardwareKeyboard",
+  "canPaint", "readVimSetting", "readMarkdownSetting", "pressLanding", "dropped",
   "releasedOnSelection", "focusStayed", "currentEditor", "pastedText",
   "heldKeyEvent", "isApple", "isWindows",
 ]
 
-/// JavaScript that hands back app state an effect noted there, such as the
-/// editor the last message left. A handler reads the latest editor through
-/// one when its event comes.
 const records = ["currentEditor"]
 
-/// The types that hold app state from one message to the next: the editor,
-/// its undo history, the notes and vim's modes. A type in `src` that holds
-/// one is app state too, which makes the model app state. A buffer is not:
-/// the field reports one with each event, for a decoder to hand on.
 const state_roots = [
   "nullpad/editor.Editor", "nullpad/history.History", "nullpad/library.Library",
   "nullpad/vim.State",
 ]
 
-/// The app's message. A callback that hands one back is a message callback,
-/// as one that hands back a type variable is.
 const messages = ["nullpad/app.Msg"]
 
+type WrittenAhead {
+  WrittenAhead(path: String, function: String)
+}
+
+fn written_ahead_key(one: WrittenAhead) -> String {
+  one.path <> " " <> one.function
+}
+
+const written_ahead = [
+  WrittenAhead("test/editor_test.gleam", "pending_dd_deletes_the_cursor_line"),
+  WrittenAhead("test/editor_test.gleam", "pending_one_insert_is_one_undo_step"),
+]
+
 pub type Source {
-  /// `path` is relative to `src`: "nullpad/editor.gleam".
+  /// `path` is relative to the repository root: "src/nullpad/editor.gleam".
   Source(path: String, text: String)
 }
 
@@ -81,6 +85,7 @@ pub type Rule {
   DecoderState
   SkipsOutcome
   RawHtml
+  TestRuns
 }
 
 pub const rules = [
@@ -95,6 +100,7 @@ pub const rules = [
   DecoderState,
   SkipsOutcome,
   RawHtml,
+  TestRuns,
 ]
 
 pub fn says(rule: Rule) -> String {
@@ -115,6 +121,8 @@ pub fn says(rule: Rule) -> String {
     SkipsOutcome ->
       "a public editor function that changes the editor returns an Outcome"
     RawHtml -> "nothing draws raw HTML"
+    TestRuns ->
+      "every test in test/ is one gleeunit runs on JavaScript: public, no arguments, named _test, and for a target we run"
   }
 }
 
@@ -136,15 +144,23 @@ pub type Report {
 pub opaque type File {
   Gleam(path: String, name: String, module: glance.Module)
   JavaScript(path: String, name: String)
+  GleamTest(path: String, module: glance.Module)
   Other(path: String)
   Unreadable(path: String)
 }
 
 pub fn read(source: Source) -> File {
+  case string.starts_with(source.path, "test/") {
+    True -> read_test_source(source)
+    False -> read_src(source)
+  }
+}
+
+fn read_src(source: Source) -> File {
   let gleam = string.ends_with(source.path, ".gleam")
   let javascript = string.ends_with(source.path, ".ffi.mjs")
   let stem =
-    source.path
+    strip_prefix(source.path, "src/")
     |> string.replace(".ffi.mjs", "")
     |> string.replace(".gleam", "")
   let name = case stem, string.starts_with(stem, "nullpad/") {
@@ -163,6 +179,13 @@ pub fn read(source: Source) -> File {
   }
 }
 
+fn read_test_source(source: Source) -> File {
+  case glance.module(source.text) {
+    Ok(module) -> GleamTest(source.path, module)
+    Error(_) -> Unreadable(source.path)
+  }
+}
+
 pub fn path(file: File) -> String {
   file.path
 }
@@ -170,6 +193,7 @@ pub fn path(file: File) -> String {
 pub fn judge(files: List(File)) -> Report {
   let changers = changers(files)
   let context = context(files)
+  let checking = checking_tests(files)
   let found =
     list.flat_map(files, fn(file) {
       case file {
@@ -186,6 +210,7 @@ pub fn judge(files: List(File)) -> Report {
             forbidden_calls(path, name, module),
           ])
         JavaScript(path:, name:) -> javascript(path, name)
+        GleamTest(path:, module:) -> tests_run(path, module, checking)
         Other(path) -> [
           Found(Broken(JavaScriptFile, path, "not a .gleam or .ffi.mjs file")),
         ]
@@ -211,7 +236,7 @@ pub fn judge(files: List(File)) -> Report {
       DecoderState,
       "app state is "
         <> string.join(
-        set.to_list(context.state) |> list.sort(string.compare),
+        set.to_list(context.state_types) |> list.sort(string.compare),
         ", ",
       ),
     ),
@@ -429,7 +454,6 @@ fn may_change(
   }
 }
 
-/// This module's type aliases, and the types it imports under another name.
 fn aliases_of(module: glance.Module) -> Dict(String, glance.Type) {
   let renamed =
     list.flat_map(module.imports, fn(definition) {
@@ -505,15 +529,6 @@ fn mentions(type_: glance.Type, names: List(String)) -> Bool {
   }
 }
 
-/// The handler rule. A handler decides on what its event brings and on the
-/// editor the last message left, which it reads from a record when it runs:
-/// never on the frame the page last drew.
-///
-/// (A) A function that makes a handler has no parameter that holds app state,
-/// and no callback but one that hands back a message.
-/// (B) App state reaches a handler only through a record read when the event
-/// comes: a function that makes handlers, or calls one that does, reads no
-/// record while it runs, and no function hands one a closure over app state.
 fn decoder_state(
   path: String,
   name: String,
@@ -543,7 +558,7 @@ fn decoder_state(
           case
             list.contains(measures, javascript)
             && !list.contains(records, javascript)
-            && holds(returned, types, context.state)
+            && holds(returned, types, context.state_types)
           {
             True ->
               Ok(
@@ -567,18 +582,22 @@ fn decoder_state(
       let made =
         list.filter(used, builds(
           _,
-          context.decoders,
+          context.decoder_functions,
           runs(function, used, aliases),
         ))
       let maker = made != []
-      let reaches = set.contains(context.reach, this)
+      let reaches = set.contains(context.handler_builders, this)
       let scope =
         Scope(
-          held: set.from_list(held_parameters(function, types, context.state)),
+          held: set.from_list(held_parameters(
+            function,
+            types,
+            context.state_types,
+          )),
           closures: set.from_list(closure_parameters(
             function,
             types,
-            context.state,
+            context.state_types,
           )),
           modules:,
           sink: fn(callee) {
@@ -586,7 +605,7 @@ fn decoder_state(
               Some(seen) ->
                 case resolve(seen) {
                   Ok(called) ->
-                    case dict.get(context.sinks, called) {
+                    case dict.get(context.callback_takers, called) {
                       Ok(parameters) -> Some(#(called, parameters))
                       Error(Nil) -> None
                     }
@@ -604,8 +623,8 @@ fn decoder_state(
                 case parameter.name, parameter.type_ {
                   glance.Named(held), Some(type_) ->
                     case
-                      holds(type_, types, context.state),
-                      calls_back(type_, types, context.callbacks)
+                      holds(type_, types, context.state_types),
+                      calls_back(type_, types, context.callback_types)
                     {
                       True, _ -> [
                         function.name
@@ -636,8 +655,8 @@ fn decoder_state(
                 fn(seen) {
                   case resolve(seen) {
                     Ok(called) ->
-                      set.contains(context.readers, called)
-                      && !set.contains(context.reach, called)
+                      set.contains(context.early_readers, called)
+                      && !set.contains(context.handler_builders, called)
                     Error(Nil) -> False
                   }
                 },
@@ -687,8 +706,6 @@ fn decoder_state(
   ]
 }
 
-/// A function that runs a decoder itself, with `decode.run`, and hands none
-/// back makes no handler with it.
 fn runs(
   function: glance.Function,
   used: List(String),
@@ -698,7 +715,6 @@ fn runs(
   && !is_decoder(function, aliases)
 }
 
-/// A call that makes a handler or a decoder.
 fn builds(called: String, decoders: Set(String), runs: Bool) -> Bool {
   string.starts_with(called, "lustre/event.")
   || !runs
@@ -720,12 +736,9 @@ fn is_decoder(
   }
 }
 
-/// A type by the module that declares it and its name, such as
-/// "nullpad/editor.Editor".
 type TypeKey =
   String
 
-/// Names a type the way this module writes it.
 fn type_resolver(
   key: String,
   module: glance.Module,
@@ -779,8 +792,6 @@ fn type_resolver(
   }
 }
 
-/// Whether `type_` holds a type in `among`. A callback holds what it hands
-/// back.
 fn holds(
   type_: glance.Type,
   types: fn(Option(String), String) -> TypeKey,
@@ -796,9 +807,6 @@ fn holds(
   }
 }
 
-/// Whether `type_` holds a callback that hands back more than a message: a
-/// message is a type variable, which the handler cannot look into, or the
-/// app's message.
 fn calls_back(
   type_: glance.Type,
   types: fn(Option(String), String) -> TypeKey,
@@ -817,8 +825,6 @@ fn calls_back(
   }
 }
 
-/// Whether `type_` is written with a callback in it. A type it names is
-/// not looked into: the model holds the storage's callbacks.
 fn has_function(type_: glance.Type) -> Bool {
   case type_ {
     glance.NamedType(parameters:, ..) -> list.any(parameters, has_function)
@@ -845,7 +851,6 @@ fn held_parameters(
   })
 }
 
-/// The parameters that are, or hold, a callback that hands back app state.
 fn closure_parameters(
   function: glance.Function,
   types: fn(Option(String), String) -> TypeKey,
@@ -865,34 +870,21 @@ fn closure_parameters(
 
 type Context {
   Context(
-    /// The types that hold app state.
-    state: Set(TypeKey),
-    /// The types that hold a callback that hands back more than a message.
-    callbacks: Set(TypeKey),
-    /// The shell's decoder functions.
-    decoders: Set(String),
-    /// The shell functions that make a handler, or call one that does.
-    reach: Set(String),
-    /// What a closure over app state may not be handed: the functions in
-    /// `reach`, our JavaScript that takes a callback, and the functions that
-    /// map a handler's or an effect's message. Each with, for a function in
-    /// `src`, its parameters' labels and whether each takes a callback.
-    sinks: Dict(String, Option(List(#(Option(String), Bool)))),
-    /// The records, and the functions that read one as soon as they are
-    /// called.
-    readers: Set(String),
+    state_types: Set(TypeKey),
+    callback_types: Set(TypeKey),
+    decoder_functions: Set(String),
+    handler_builders: Set(String),
+    callback_takers: Dict(String, Option(List(#(Option(String), Bool)))),
+    early_readers: Set(String),
   )
 }
 
-/// The functions of `gleam/dynamic/decode` whose callback runs when the event
-/// comes.
 const decodes = [
   "gleam/dynamic/decode.then", "gleam/dynamic/decode.field",
   "gleam/dynamic/decode.optional_field", "gleam/dynamic/decode.subfield",
   "gleam/dynamic/decode.map",
 ]
 
-/// Whether a callee is one of `decodes`.
 fn decoding(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
   fn(seen) {
     case resolve(seen) {
@@ -902,8 +894,6 @@ fn decoding(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
   }
 }
 
-/// A decoder, or an effect, whose callback runs when its event comes or the
-/// effect is run, after the handlers are made.
 fn runs_later(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
   fn(seen) {
     case resolve(seen) {
@@ -919,7 +909,6 @@ const effect_makers = [
   "lustre/effect.after_paint",
 ]
 
-/// Lustre's functions that call a callback with each message later.
 const mappers = ["lustre/element.map", "lustre/effect.map"]
 
 type Known {
@@ -965,7 +954,7 @@ fn context(files: List(File)) -> Context {
             )
           })
         }
-        JavaScript(..) | Other(_) | Unreadable(_) -> []
+        JavaScript(..) | GleamTest(..) | Other(_) | Unreadable(_) -> []
       }
     })
   let shell = list.filter(known, fn(one) { one.shell })
@@ -979,7 +968,7 @@ fn context(files: List(File)) -> Context {
     |> set.from_list
   let counted = fn(one: Known) {
     let running = runs(one.function, one.used, one.aliases)
-    #(
+    Reaching(
       one.key,
       list.filter(one.used, fn(called) {
         !running || !set.contains(decoders, called)
@@ -990,8 +979,8 @@ fn context(files: List(File)) -> Context {
   let start =
     list.filter_map(shell, fn(one) {
       case counted(one) {
-        #(key, _, True) -> Ok(key)
-        _ -> Error(Nil)
+        Reaching(name:, starts: True, ..) -> Ok(name)
+        Reaching(starts: False, ..) -> Error(Nil)
       }
     })
     |> set.from_list
@@ -1036,17 +1025,15 @@ fn context(files: List(File)) -> Context {
     })
     |> set.from_list
   Context(
-    state:,
-    callbacks:,
-    decoders:,
-    reach:,
-    sinks:,
-    readers: early_readers(records, known),
+    state_types: state,
+    callback_types: callbacks,
+    decoder_functions: decoders,
+    handler_builders: reach,
+    callback_takers: sinks,
+    early_readers: early_readers(records, known),
   )
 }
 
-/// The records, and every function that reads one, directly or through
-/// others, as soon as it is called.
 fn early_readers(readers: Set(String), known: List(Known)) -> Set(String) {
   let grown =
     list.fold(known, readers, fn(grown, one) {
@@ -1079,8 +1066,6 @@ fn early_readers(readers: Set(String), known: List(Known)) -> Set(String) {
   }
 }
 
-/// Every custom type and type alias in `src`, with the module's way of
-/// naming types and the types it is made of.
 fn type_table(
   files: List(File),
 ) -> List(#(TypeKey, fn(Option(String), String) -> TypeKey, List(glance.Type))) {
@@ -1112,7 +1097,7 @@ fn type_table(
           }),
         )
       }
-      JavaScript(..) | Other(_) | Unreadable(_) -> []
+      JavaScript(..) | GleamTest(..) | Other(_) | Unreadable(_) -> []
     }
   })
 }
@@ -1145,13 +1130,11 @@ fn state_types(files: List(File)) -> Set(TypeKey) {
   grow_types(set.from_list(state_roots), type_table(files), holds)
 }
 
-/// The names a function binds itself: its parameters, and every name a
-/// pattern in it binds.
 fn bound_names(function: glance.Function) -> Set(String) {
   list.filter_map(statements(function.body, set.new()), fn(one) {
     case one {
       Bound(name) -> Ok(name)
-      Name(_) | Remote(..) | Text(_) -> Error(Nil)
+      Name(_) | Remote(..) | Text(_) | Stops -> Error(Nil)
     }
   })
   |> list.append(
@@ -1165,10 +1148,6 @@ fn bound_names(function: glance.Function) -> Set(String) {
   |> set.from_list
 }
 
-/// The readers `body` calls or names as it runs: outside any closure or
-/// capture, and before any `use` of a decoder or an effect, whose rest runs
-/// when the event comes or the effect is run. A reader named, not called, is
-/// handed on to be called who knows when. A closure bound with `let` that reads one counts as a reader.
 fn early_reads(
   body: List(glance.Statement),
   reader: fn(Seen) -> Bool,
@@ -1255,7 +1234,6 @@ fn early_read(
   list.append(called, inside)
 }
 
-/// The expressions directly inside `subject`, closures and blocks left out.
 fn expression_parts(subject: glance.Expression) -> List(glance.Expression) {
   let scope =
     Scope(held: set.new(), closures: set.new(), modules: set.new(), sink: fn(_) {
@@ -1266,13 +1244,9 @@ fn expression_parts(subject: glance.Expression) -> List(glance.Expression) {
 
 type Scope {
   Scope(
-    /// The names that hold app state.
     held: Set(String),
-    /// The names in `held` that are, or hold, a closure.
     closures: Set(String),
-    /// Import aliases: `editor.claims` names a function, not a field.
     modules: Set(String),
-    /// The sink this names, if it names one, with its parameters.
     sink: fn(glance.Expression) ->
       Option(#(String, Option(List(#(Option(String), Bool))))),
   )
@@ -1309,7 +1283,7 @@ fn bound(patterns: List(glance.Pattern)) -> List(String) {
   |> list.filter_map(fn(seen) {
     case seen {
       Bound(name) -> Ok(name)
-      Name(_) | Remote(..) | Text(_) -> Error(Nil)
+      Name(_) | Remote(..) | Text(_) | Stops -> Error(Nil)
     }
   })
 }
@@ -1344,8 +1318,6 @@ fn updated(
   })
 }
 
-/// The parts of `subject` that are expressions, each with the scope it is in.
-/// A case binds what its subjects hold.
 fn parts(
   subject: glance.Expression,
   scope: Scope,
@@ -1397,7 +1369,6 @@ fn parts(
   }
 }
 
-/// Whether `subject` names something that holds app state.
 fn refers(subject: glance.Expression, scope: Scope) -> Bool {
   case subject {
     glance.Variable(name:, ..) -> set.contains(scope.held, name)
@@ -1432,9 +1403,6 @@ fn refers_in(body: List(glance.Statement), scope: Scope) -> Bool {
   }
 }
 
-/// Whether `subject` is, or holds, a closure: one written in it, or a name
-/// bound to one over app state. What a function hands back is not looked
-/// into, but what a record or a variant is made of is.
 fn carries_closure(subject: glance.Expression, scope: Scope) -> Bool {
   case subject {
     glance.Fn(..) | glance.FnCapture(..) -> True
@@ -1476,9 +1444,6 @@ fn use_names(patterns: List(glance.UsePattern)) -> List(String) {
   bound(list.map(patterns, fn(use_pattern) { use_pattern.pattern }))
 }
 
-/// The sinks that `body` hands a closure over app state. A `use` hands on the
-/// rest of its block. A name bound with `let` or a pattern to what holds app
-/// state holds it too.
 fn handed_in(body: List(glance.Statement), scope: Scope) -> List(String) {
   case body {
     [] -> []
@@ -1552,9 +1517,6 @@ fn handed(subject: glance.Expression, scope: Scope) -> List(String) {
   list.append(made, inside)
 }
 
-/// For each argument, whether the parameter it fills takes a callback.
-/// Unlabelled arguments fill the parameters in order, and labelled ones the
-/// parameter with their label.
 fn callback_positions(
   arguments: List(glance.Field(glance.Expression)),
   parameters: Option(List(#(Option(String), Bool))),
@@ -1650,7 +1612,7 @@ fn forbidden_calls(
               Ok(
                 Found(Broken(FieldWrite, path, holder <> " names a text field")),
               )
-            Text(_) | Name(_) | Remote(..) | Bound(_) -> Error(Nil)
+            Text(_) | Name(_) | Remote(..) | Bound(_) | Stops -> Error(Nil)
           }
         })
       list.append(calls, texts)
@@ -1678,7 +1640,7 @@ fn external(
 }
 
 fn module_key(path: String) -> String {
-  string.replace(path, ".gleam", "")
+  path |> strip_prefix("src/") |> string.replace(".gleam", "")
 }
 
 /// Every function and constant that reaches page-changing JavaScript,
@@ -1689,8 +1651,6 @@ fn changers(files: List(File)) -> Set(String) {
   })
 }
 
-/// Every function and constant that reaches a JavaScript function `picks`
-/// chooses, given its module's name and its own, directly or through others.
 fn reaching(
   files: List(File),
   picks: fn(String, String) -> Bool,
@@ -1709,24 +1669,28 @@ fn reaching(
                   picks(name, javascript)
                 None -> False
               }
-              #(key <> "." <> function.name, uses(function, resolve), starts)
+              Reaching(
+                key <> "." <> function.name,
+                uses(function, resolve),
+                starts,
+              )
             })
           let constants =
             list.map(module.constants, fn(definition) {
               let constant = definition.definition
               let used =
                 list.filter_map(expression(constant.value, set.new()), resolve)
-              #(key <> "." <> constant.name, used, False)
+              Reaching(key <> "." <> constant.name, used, False)
             })
           list.append(functions, constants)
         }
-        JavaScript(..) | Other(_) | Unreadable(_) -> []
+        JavaScript(..) | GleamTest(..) | Other(_) | Unreadable(_) -> []
       }
     })
   let start =
     list.filter_map(functions, fn(function) {
-      case function.2 {
-        True -> Ok(function.0)
+      case function.starts {
+        True -> Ok(function.name)
         False -> Error(Nil)
       }
     })
@@ -1734,14 +1698,17 @@ fn reaching(
   grow(start, functions)
 }
 
-fn grow(
-  changers: Set(String),
-  functions: List(#(String, List(String), Bool)),
-) -> Set(String) {
+/// A function or constant, the functions it names, and whether it starts
+/// the reach: it changes the page, or it asserts.
+type Reaching {
+  Reaching(name: String, uses: List(String), starts: Bool)
+}
+
+fn grow(changers: Set(String), functions: List(Reaching)) -> Set(String) {
   let grown =
     list.fold(functions, changers, fn(grown, function) {
-      case list.any(function.1, set.contains(grown, _)) {
-        True -> set.insert(grown, function.0)
+      case list.any(function.uses, set.contains(grown, _)) {
+        True -> set.insert(grown, function.name)
         False -> grown
       }
     })
@@ -1816,7 +1783,7 @@ fn resolver(
       Remote(alias, label) ->
         dict.get(aliases, alias)
         |> result.map(fn(module) { module <> "." <> label })
-      Text(_) | Bound(_) -> Error(Nil)
+      Text(_) | Bound(_) | Stops -> Error(Nil)
     }
   }
 }
@@ -1828,10 +1795,9 @@ type Seen {
   Text(String)
   /// A name the code binds: a `let`, a pattern variable, a closure parameter.
   Bound(String)
+  Stops
 }
 
-/// What `body` names, calls and binds. A name the code has bound by then, in
-/// a scope that holds the use, is the binding's and not another function's.
 fn statements(body: List(glance.Statement), scope: Set(String)) -> List(Seen) {
   let #(seen, _) =
     list.fold(body, #([], scope), fn(so_far, statement) {
@@ -1846,13 +1812,16 @@ fn statements(body: List(glance.Statement), scope: Set(String)) -> List(Seen) {
         }
         glance.Assignment(pattern: assigned, value:, kind:, ..) -> #(
           list.append(expression(value, scope), case kind {
-            glance.LetAssert(message) -> maybe(message, scope)
+            glance.LetAssert(message) -> [Stops, ..maybe(message, scope)]
             glance.Let -> []
           }),
           pattern(assigned),
         )
         glance.Assert(expression: asserted, message:, ..) -> #(
-          list.append(expression(asserted, scope), maybe(message, scope)),
+          [
+            Stops,
+            ..list.append(expression(asserted, scope), maybe(message, scope))
+          ],
           [],
         )
         glance.Expression(inner) -> #(expression(inner, scope), [])
@@ -1862,12 +1831,11 @@ fn statements(body: List(glance.Statement), scope: Set(String)) -> List(Seen) {
   list.flatten(list.reverse(seen))
 }
 
-/// `scope` with the names `seen` binds.
 fn within(scope: Set(String), seen: List(Seen)) -> Set(String) {
   list.fold(seen, scope, fn(scope, one) {
     case one {
       Bound(name) -> set.insert(scope, name)
-      Name(_) | Remote(..) | Text(_) -> scope
+      Name(_) | Remote(..) | Text(_) | Stops -> scope
     }
   })
 }
@@ -1920,8 +1888,10 @@ fn expression(subject: glance.Expression, scope: Set(String)) -> List(Seen) {
     glance.Variable(name:, ..) -> named(name, scope)
     glance.NegateInt(value:, ..) | glance.NegateBool(value:, ..) -> inner(value)
     glance.Block(statements: body, ..) -> statements(body, scope)
-    glance.Panic(message:, ..) | glance.Todo(message:, ..) ->
-      maybe(message, scope)
+    glance.Panic(message:, ..) | glance.Todo(message:, ..) -> [
+      Stops,
+      ..maybe(message, scope)
+    ]
     glance.Tuple(elements:, ..) -> list.flat_map(elements, inner)
     glance.List(elements:, rest:, ..) ->
       list.append(list.flat_map(elements, inner), maybe(rest, scope))
@@ -2022,6 +1992,176 @@ fn pattern(subject: glance.Pattern) -> List(Seen) {
   }
 }
 
+fn tests_run(
+  path: String,
+  module: glance.Module,
+  checking: Set(String),
+) -> List(Finding) {
+  let name = test_module_name(path)
+  let functions = test_functions(path, module)
+  let asserting = reach(functions)
+  let misnamed_module = !string.ends_with(name, "_test")
+  let found =
+    list.flat_map(module.functions, fn(definition) {
+      let function = definition.definition
+      let named_test = string.ends_with(function.name, "_test")
+      let public = function.publicity == glance.Public
+      let key = written_ahead_key(WrittenAhead(path, function.name))
+      let stops = list.contains(statements(function.body, set.new()), Stops)
+      let forgotten =
+        public
+        && !named_test
+        && function.parameters == []
+        && {
+          stops
+          || {
+            function.name != "main"
+            && set.contains(asserting, name <> "." <> function.name)
+          }
+        }
+      let ahead =
+        forgotten
+        && list.any(written_ahead, fn(one) { written_ahead_key(one) == key })
+      list.flatten([
+        when(misnamed_module && named_test && public, fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " is in a module whose name does not end in _test, and gleeunit only runs modules that do",
+            )),
+          ]
+        }),
+        when(
+          named_test
+            && public
+            && function.parameters == []
+            && option.is_none(external(definition))
+            && !just_nil(function.body)
+            && !set.contains(checking, name <> "." <> function.name),
+          fn() {
+            [
+              Found(Broken(
+                TestRuns,
+                path,
+                function.name
+                  <> " reaches no assert, let assert, panic, todo or gleeunit/should call, so it checks nothing",
+              )),
+            ]
+          },
+        ),
+        when(targets_erlang(definition), fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " is for the Erlang target, and the tests run on JavaScript",
+            )),
+          ]
+        }),
+        when(named_test && !public, fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name <> " is private, so gleeunit never calls it",
+            )),
+          ]
+        }),
+        when(named_test && public && function.parameters != [], fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " takes arguments, and gleeunit calls it with none",
+            )),
+          ]
+        }),
+        when(
+          named_test
+            && public
+            && option.is_none(external(definition))
+            && just_nil(function.body),
+          fn() {
+            [
+              Found(Broken(
+                TestRuns,
+                path,
+                function.name <> " gives Nil and checks nothing",
+              )),
+            ]
+          },
+        ),
+        when(forgotten && !ahead, fn() {
+          [
+            Found(Broken(
+              TestRuns,
+              path,
+              function.name
+                <> " asserts, panics or calls should, or calls a function that does, and takes nothing, but its name does not end in _test, so gleeunit never calls it",
+            )),
+          ]
+        }),
+        when(ahead, fn() { [Looked(TestRuns, key)] }),
+      ])
+    })
+  [Looked(TestRuns, path), ..found]
+}
+
+fn test_module_name(path: String) -> String {
+  path |> strip_prefix("test/") |> string.replace(".gleam", "")
+}
+
+fn test_functions(path: String, module: glance.Module) -> List(Reaching) {
+  let name = test_module_name(path)
+  let resolve = resolver(name, module)
+  list.map(module.functions, fn(definition) {
+    let function = definition.definition
+    let used = uses(function, resolve)
+    let checks =
+      list.contains(statements(function.body, set.new()), Stops)
+      || list.any(used, string.starts_with(_, "gleeunit/should."))
+    Reaching(name <> "." <> function.name, used, checks)
+  })
+}
+
+fn reach(functions: List(Reaching)) -> Set(String) {
+  list.filter(functions, fn(function) { function.starts })
+  |> list.map(fn(function) { function.name })
+  |> set.from_list
+  |> grow(functions)
+}
+
+fn checking_tests(files: List(File)) -> Set(String) {
+  list.flat_map(files, fn(file) {
+    case file {
+      GleamTest(path:, module:) -> test_functions(path, module)
+      Gleam(..) | JavaScript(..) | Other(_) | Unreadable(_) -> []
+    }
+  })
+  |> reach
+}
+
+fn just_nil(body: List(glance.Statement)) -> Bool {
+  case body {
+    [] -> True
+    [glance.Expression(glance.Variable(name: "Nil", ..))] -> True
+    _ -> False
+  }
+}
+
+fn targets_erlang(definition: glance.Definition(glance.Function)) -> Bool {
+  list.any(definition.attributes, fn(attribute) {
+    case attribute {
+      glance.Attribute("target", [glance.Variable(name: "erlang", ..)]) -> True
+      glance.Attribute(..) -> False
+    }
+  })
+}
+
 fn javascript(path: String, name: String) -> List(Finding) {
   [
     Looked(JavaScriptFile, path),
@@ -2036,14 +2176,14 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
     list.filter_map(files, fn(file) {
       case file {
         Gleam(name:, ..) | JavaScript(name:, ..) -> Ok(name)
-        Other(_) | Unreadable(_) -> Error(Nil)
+        GleamTest(..) | Other(_) | Unreadable(_) -> Error(Nil)
       }
     })
   let unreadable =
     list.filter_map(files, fn(file) {
       case file {
         Unreadable(path) -> Ok("glance could not parse " <> path)
-        Gleam(..) | JavaScript(..) | Other(_) -> Error(Nil)
+        Gleam(..) | JavaScript(..) | GleamTest(..) | Other(_) -> Error(Nil)
       }
     })
   let missing =
@@ -2063,9 +2203,10 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
             |> option.map(fn(external) { external.function })
             |> option.to_result(Nil)
           })
-        JavaScript(..) | Other(_) | Unreadable(_) -> []
+        JavaScript(..) | GleamTest(..) | Other(_) | Unreadable(_) -> []
       }
     })
+  let looked_at = list.map(looked, fn(one) { one.1 })
   let unused = fn(allowed: List(String), used: List(String), what: String) {
     list.filter(allowed, fn(one) { !list.contains(used, one) })
     |> list.map(fn(one) {
@@ -2078,5 +2219,10 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
     idle,
     unused(measures, externals, "measure"),
     unused(records, externals, "record"),
+    unused(
+      list.map(written_ahead, written_ahead_key),
+      looked_at,
+      "written-ahead test",
+    ),
   ])
 }

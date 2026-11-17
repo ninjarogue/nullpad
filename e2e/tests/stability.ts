@@ -5,39 +5,6 @@ import type { Editing } from './editing.ts';
 import { cursorProblem } from './guards.ts';
 import { pause } from './nullpad.ts';
 
-/**
- * Types sample notes into the page view one key at a time, and after every
- * key measures how each source row of the note is shown. The intended rule is
- * that the page lays out again only when the caret changes row, and that
- * typing on a row changes only that row. A key breaks it when it
- *
- * - types on the caret's row (the caret stays on its row and the text
- *   changes) and another row looks different or sits somewhere else. Rows
- *   below may all move together, by as much as the caret's row grew.
- * - moves the caret along its row (the text does not change) and any row
- *   looks different or moves.
- * - moves the caret with an arrow to another row of the block the text field
- *   already held, and any row looks different or moves.
- *
- * A key that leaves the caret's block, and Enter and Backspace at the start
- * of a row, change the caret's row, so the page may lay out again after them.
- * So does the first arrow that moves the caret to another row after typing on
- * a row, because typing there can change what the block is (a table loses its
- * delimiter row, a paragraph line becomes a list). That move is the commit.
- * After it, and after any move that has had no typing before it, the rule
- * holds again.
- *
- * After every key it also looks at the cursor, as `cursorProblem` does: its
- * box must be inside the window and inside the page that scrolls.
- *
- * A row is shown by the drawn element that carries its `data-row`, or, while
- * the caret's block is open, by the text field. A row with no element of its
- * own (the second line of a paragraph, a table's delimiter row, a closing
- * fence) is shown by the element before it, and an opening fence by the code
- * block after it. A look is the font size, family and weight, the line
- * height, and the top of the row's element on the page.
- */
-
 export const ENTER = '\n';
 export const BACKSPACE = '\b';
 export const UP = '↑';
@@ -51,7 +18,6 @@ export const back = (times: number) => BACKSPACE.repeat(times);
 export const rows = (...lines: string[]) => lines.join(ENTER);
 export const times = (count: number, key: string) => key.repeat(count);
 
-/** Every kind of block and inline the markdown parser makes, as the element that draws it. */
 export const everyKind = [
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li.task', 'blockquote', 'pre', 'hr', 'table', 'strong', 'em', ':not(pre) > code',
   'a', 'del',
@@ -64,12 +30,17 @@ type Look = { size: string; family: string; weight: string; line: string; top: n
 type Snapshot = {
   looks: (Look | null)[];
   caret: { row: number; col: number };
-  /** The rows the text field holds, both ends included. */
   field: { first: number; last: number };
   problems: string[];
 };
 
 type Rule = 'typing on a row' | 'moving along a row' | 'moving between rows of one block';
+
+function ruleThatHolds(key: { textChanged: boolean; staysOnRow: boolean; inHeldBlock: boolean; commitsTyping: boolean }): Rule | null {
+  if (key.textChanged) return key.staysOnRow ? 'typing on a row' : null;
+  if (key.staysOnRow) return 'moving along a row';
+  return key.inHeldBlock && !key.commitsTyping ? 'moving between rows of one block' : null;
+}
 
 type Hit = { key: number; typed: string; rule: Rule; row: number; text: string; what: string };
 
@@ -223,7 +194,6 @@ const allTyped: { name: string; draws: string[]; samples: Sample[] }[] = [
   },
 ];
 
-/** Prose, headings, lists and quotes, and then everything else, so that two files can run side by side. */
 export const typedText = allTyped.slice(0, 5);
 export const typedBlocks = allTyped.slice(5);
 export const typed = allTyped;
@@ -233,7 +203,6 @@ export const noteWithEveryBlock = rows(
   '---', '', 'Head', '===', '', 'last',
 );
 
-/** Notes opened as they are, with the caret moved through them by arrows alone. */
 export const walked: { name: string; draws: string[]; note: string; keys: string }[] = [
   {
     name: 'a two-row heading and ATX headings',
@@ -299,10 +268,6 @@ function keyName(key: string) {
   return names[key] ?? key;
 }
 
-/**
- * What the page measures: one entry for every row of `lines`, however it is
- * shown, and where the caret is. Runs in the page.
- */
 function snapshotInPage(model: { lines: string[] }): Promise<Snapshot> {
   const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
   const sheet = document.querySelector('.page')!;
@@ -386,17 +351,13 @@ function describe(look: Look) {
 
 type Typed = { hits: Hit[]; problems: string[] };
 
-/**
- * Presses `keys` in the note the text field holds, starting with the caret at
- * the start of `text`, and lists every key that broke the rule.
- */
 export async function typeAndMeasure(browser: Browser, text: string, keys: string): Promise<Typed> {
   const lines = () => text.split('\n');
   const offsetOf = (row: number, col: number) =>
     lines().slice(0, row).reduce((sum, line) => sum + line.length + 1, 0) + Math.min(col, lines()[row]!.length);
   const rowAt = (index: number) => text.slice(0, index).split('\n').length - 1;
   let caret = 0;
-  let uncommitted = false;
+  let typedSinceRowChange = false;
   let lostCursor = 0;
 
   let was = await browser.evaluate(snapshotInPage, { lines: lines() });
@@ -444,13 +405,11 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
 
     const rowNow = now.caret.row;
     const stays = rowNow === rowBefore;
-    const inBlock = rowNow >= heldBefore.first && rowNow <= heldBefore.last;
-    const commits = !stays && uncommitted;
-    if (text !== before && stays) uncommitted = true;
-    else if (!stays) uncommitted = false;
-    let rule: Rule | null = null;
-    if (text !== before) rule = stays ? 'typing on a row' : null;
-    else rule = stays ? 'moving along a row' : inBlock && !commits ? 'moving between rows of one block' : null;
+    const inHeldBlock = rowNow >= heldBefore.first && rowNow <= heldBefore.last;
+    const commitsTyping = !stays && typedSinceRowChange;
+    if (text !== before && stays) typedSinceRowChange = true;
+    else if (!stays) typedSinceRowChange = false;
+    const rule = ruleThatHolds({ textChanged: text !== before, staysOnRow: stays, inHeldBlock, commitsTyping });
     if (rule === null || lines().length !== was.looks.length) {
       was = now;
       continue;
@@ -475,7 +434,6 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
   return { hits, problems };
 }
 
-/** Presses the keys of a sample one after another with no wait between two of them. */
 export async function pressFast(browser: Browser, keys: string) {
   for (const key of keys) {
     const name = keyName(key);
@@ -486,7 +444,6 @@ export async function pressFast(browser: Browser, keys: string) {
 
 export type End = { note: string; row: number; col: number };
 
-/** Where keys left the note: as saved, once the page has saved it, and where the caret is. */
 export async function endOf(editor: Editing): Promise<End> {
   await editor.fixtures.page.hide();
   let note = await editor.savedNewest();
@@ -500,7 +457,6 @@ export async function endOf(editor: Editing): Promise<End> {
   return { note, row, col };
 }
 
-/** What differs between the end of keys pressed one frame at a time and the end of the same keys pressed with no wait. */
 export function differences(slow: End, quick: End): string[] {
   const found: string[] = [];
   if (quick.note !== slow.note) {

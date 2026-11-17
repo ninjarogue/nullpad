@@ -4,33 +4,6 @@ import type { Spot } from './editing.ts';
 import { cursorAt, fast, selectionOf } from './guards.ts';
 import { pause, test } from './nullpad.ts';
 
-/**
- * A checklist of every key that moves the cursor or the selection, or deletes
- * around it, pressed at the edges of every kind of block in the page view
- * (Markdown off). Each key is one row of `keys`, and each edge is one entry of
- * a place in `sheets`. Every key at every place must leave the cursor, the
- * selection and the text where the same key leaves them in a plain text field
- * holding the same markdown.
- *
- * Where only the layout decides (Up, Down, Page Up and Page Down, and their
- * Shift and Ctrl forms), the plain field cannot be matched to the letter, because the
- * page draws proportional fonts and hides marks, so its columns are not the
- * field's. Up and Down are held to the source row, and to the pixel the caret
- * was at, within a few pixels, or to the end of a row too short to reach it.
- * Page Up and Page Down are held to the source row alone. Both are marked in
- * `follow`. A key that lands exactly where the plain field does always passes.
- *
- * A row the page wraps has lines a plain field does not. On a sheet of such
- * rows a key may instead leave the cursor and selection where a text field
- * does that is set as the page's field is, holding the same rows.
- *
- * With `NULLPAD_FAST=1` each key is pressed in the same frame as the click that
- * put the caret there. Without it each key waits for the page to be drawn.
- *
- * To check a new key, add a row to `keys`. A test fails for every key the
- * browser's own text field moves a caret or selection with that has no row.
- */
-
 type Follow = 'plain field' | 'row and pixel' | 'row';
 
 type Row = {
@@ -77,20 +50,13 @@ const keys: Row[] = [
   { key: ctrl('Delete') },
 ];
 
-/** How far, in pixels, a caret may land from where it was where only the layout decides: half a wide letter of a heading. */
 const pixelSlack = 16;
 
-/**
- * Where the caret is put before the key: the note as opened, a blank row, the
- * start of a line of a row the page wraps, counted from 0, or the gap before a
- * letter of a word drawn on the page.
- */
 type Where = 'opened' | { blank: number } | { line: number; of: number } | Spot;
 
 type Place = {
   name: string;
   at: Where;
-  /** The row starts with marks the page hides, so a click before its first letter may put the caret before or after them. */
   marks?: true;
 };
 
@@ -200,7 +166,6 @@ const rowCol = (text: string, offset: number): Cell => {
 
 const offsetOfRow = (note: string, row: number) => note.split('\n').slice(0, row).reduce((sum, line) => sum + line.length + 1, 0);
 
-/** Where a place is in the note. A blank row may hold marks the page hides, such as a quote's `>`, and a click on it lands after them. */
 function startOf(sheet: Sheet, place: Place) {
   if (place.at === 'opened') return 0;
   if ('blank' in place.at) return offsetOfRow(sheet.note, place.at.blank) + (sheet.note.split('\n')[place.at.blank] ?? '').length;
@@ -214,7 +179,6 @@ const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
 const describe = (anchor: Cell, head: Cell) =>
   anchor[0] === head[0] && anchor[1] === head[1] ? `the caret at ${show(head)}` : `the selection from ${show(anchor)} to ${show(head)}`;
 
-/** Presses the pointer on the blank row, drawn or open in the text field. */
 async function blankPoint(editor: Editing, row: number) {
   const point = await editor.fixtures.browser.evaluate((row: number) => {
     const drawn = document.querySelector(`[data-row="${row}"].blank`);
@@ -227,7 +191,6 @@ async function blankPoint(editor: Editing, row: number) {
   return point!;
 }
 
-/** Presses the pointer just inside the start of a line of a row the page draws. */
 async function linePoint(editor: Editing, line: number, row: number) {
   const point = await editor.fixtures.browser.evaluate(
     ({ line, row }: { line: number; row: number }) => {
@@ -264,11 +227,6 @@ async function reach(editor: Editing, place: Place) {
   return editor.click(place.at);
 }
 
-/**
- * What the key does in a text field set as the page's field is, holding the
- * rows it holds with the same selection, laid over the page. The page's field
- * loses the focus to it.
- */
 async function fieldKey(editor: Editing, key: string) {
   const { browser } = editor.fixtures;
   const first = await browser.evaluate(() => {
@@ -301,7 +259,6 @@ async function fieldKey(editor: Editing, key: string) {
   return { value: done.value, rows: done.value, first, anchor: cell(done.anchor), head: cell(done.head) };
 }
 
-/** Waits for the page to draw what was pressed, then reads the selection of the text field. */
 async function looked(editor: Editing, note: string) {
   await editor.fixtures.page.nextFrame();
   return selectionOf(editor.fixtures.browser, note.split('\n'));
@@ -317,17 +274,11 @@ async function savedAs(editor: Editing, expected: string) {
   return saved;
 }
 
-/** Escape draws the whole note, whichever blocks the last key opened. */
 async function drawWholeNote(editor: Editing) {
   await editor.fixtures.browser.keyboard.press('Escape');
   await editor.fixtures.page.nextFrame();
 }
 
-/**
- * Puts the page where a place is reached from: the whole note drawn, or the
- * note opened with the caret at its start. A note opened again holds its first
- * block in the text field, so it is drawn whole before a place in it is clicked.
- */
 async function begin(editor: Editing, sheet: Sheet, place: Place, reopen: boolean) {
   if (reopen || place.at === 'opened') await editor.open(sheet.note);
   if (place.at !== 'opened') await drawWholeNote(editor);
@@ -335,13 +286,6 @@ async function begin(editor: Editing, sheet: Sheet, place: Place, reopen: boolea
 
 type Landing = { at: Cell; x: number } | { problem: string };
 
-/**
- * Where a click aimed at each place of the sheet puts the caret in the page.
- * Asked once for each sheet, because a plain text field has to start where the
- * page does. A click before the first letter of a row whose marks are hidden may
- * be before or after the marks, and the page decides, so the key is tried from
- * wherever the page put the caret.
- */
 const landings = new Map<Sheet, Promise<Map<Place, Landing>>>();
 
 function landingsOf(editor: Editing, sheet: Sheet) {
@@ -369,14 +313,8 @@ function landingsOf(editor: Editing, sheet: Sheet) {
 
 type Want = { value: string; anchor: Cell; head: Cell };
 
-/** Where the caret is across the window, before the key and after it. */
 type Pixels = { before: number; after: number };
 
-/**
- * What is wrong with where the page left the caret and the selection, given
- * where the plain text field did. `x` is where the caret was in the window
- * before the key and after it, and `rowLength` the length of the row it is on.
- */
 function judge(row: Row, want: Want, got: { anchor: Cell; head: Cell }, x: Pixels, rowLength: number) {
   const follow = row.follow ?? 'plain field';
   const rowApart = got.head[0] !== want.head[0];
@@ -394,20 +332,10 @@ function judge(row: Row, want: Want, got: { anchor: Cell; head: Cell }, x: Pixel
   return [`${ends} (${how})`];
 }
 
-/**
- * A step up or down keeps the caret's place across the page, which draws the
- * row it starts from as it does, so it may stop a letter from where the field
- * set as the page's does, on the same line, as long as it keeps its pixel.
- */
 function nearTwin(row: Row, twin: Cell, got: Cell, before: number, after: number) {
   return row.follow === 'row and pixel' && twin[0] === got[0] && Math.abs(twin[1] - got[1]) <= 1 && Math.abs(after - before) <= pixelSlack;
 }
 
-/**
- * Where the page differs from a plain field on purpose: the ends of a painted
- * selection go where the page draws them, so a selection never ends on a
- * fence the page hides.
- */
 const apart = new Set([
   'a table and a code block, a blank row between a table and a code block (row 4 column 0), Shift+ArrowDown',
   'a table and a code block, a blank row between a table and a code block (row 4 column 0), ControlOrMeta+Shift+ArrowDown',

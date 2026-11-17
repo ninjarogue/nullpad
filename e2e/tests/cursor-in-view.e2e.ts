@@ -3,16 +3,8 @@ import { ctrl, Editing } from './editing.ts';
 import { cursorProblem } from './guards.ts';
 import { test } from './nullpad.ts';
 
-/**
- * Can a person still see the cursor? After every key of every movement and
- * typing guard, `cursorProblem` looks at the cursor's box. These tests add a
- * note of more than 80 blocks, where the page has to scroll all the way, in a
- * small window and at the width of a phone, where paragraphs wrap.
- */
-
 const words = (count: number, from: string) => Array.from({ length: count }, (_, index) => `${from}${index}`).join(' ');
 
-/** Eight kinds of block, over and over, so that every kind is reached from above and from below. */
 function longNote(blocks: number) {
   const kinds = [
     (n: number) => `## Section ${n}`,

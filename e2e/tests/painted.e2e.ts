@@ -278,7 +278,7 @@ test('a click on a painted blank line, which is drawn over the field, puts the c
     await browser.mouse.down();
     await browser.mouse.up();
     await expect.poll(() => page.paintedBlanks()).toEqual([]);
-    await expect.poll(() => browser.evaluate(() => document.querySelector('textarea')!.dataset['anchor'] ?? null)).toBe(`${row}:0`);
+    await expect.poll(() => browser.evaluate(() => document.querySelector('textarea')!.dataset['typistAnchor'] ?? null)).toBe(`${row}:0`);
   }
 });
 
@@ -1087,12 +1087,6 @@ test('Shift and an arrow left or right change what is painted, over every kind o
       await page.paintedBlanks(),
       await paintedCodeBreaks(browser),
     ]);
-  // A head steps a letter at a time through the marks the page hides, as in a
-  // text field, and the page draws every place among them at one place, as it
-  // draws a row it does not draw at the end of the block before. So each press
-  // paints something new, unless all it took or gave back is hidden: the marks
-  // of the table, the fence, the quote, the list item and the heading, and the
-  // rows of the table and the fence the page does not draw.
   const rows = note.split('\n');
   const undrawn = new Set([3, 6, 10]);
   const hidden = rows.flatMap((row, index) => {

@@ -65,8 +65,10 @@ fn kind_of(text: String) -> live.Kind {
 }
 
 pub fn the_field_is_set_like_the_block_it_holds_test() {
-  assert kind_of("## Packing") == live.Title(level: markdown.H2, marks: "## ")
-  assert kind_of("Title\n===") == live.Title(level: markdown.H1, marks: "")
+  assert kind_of("## Packing")
+    == live.Title(level: markdown.H2, typed_marks: "## ")
+  assert kind_of("Title\n===")
+    == live.Title(level: markdown.H1, typed_marks: "")
   assert kind_of("- Shoes\n  and socks")
     == live.ListItem(task: False, marker: "- ")
   assert kind_of("2. two") == live.ListItem(task: False, marker: "2. ")
@@ -86,7 +88,7 @@ fn field_kind(first_row: Int, last_row: Int) -> live.Kind {
 }
 
 pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
-  assert field_kind(0, 0) == live.Title(level: markdown.H1, marks: "# ")
+  assert field_kind(0, 0) == live.Title(level: markdown.H1, typed_marks: "# ")
   assert field_kind(1, 1) == live.Body
   assert field_kind(2, 3) == live.Body
   assert field_kind(5, 5) == live.ListItem(task: True, marker: "- [ ] ")
@@ -96,7 +98,7 @@ pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
 }
 
 pub fn a_field_with_a_blank_row_beside_its_block_is_set_like_the_block_test() {
-  assert field_kind(0, 1) == live.Title(level: markdown.H1, marks: "# ")
+  assert field_kind(0, 1) == live.Title(level: markdown.H1, typed_marks: "# ")
   assert field_kind(4, 7) == live.ListItem(task: True, marker: "- [ ] ")
   assert field_kind(8, 10) == live.ListItem(task: False, marker: "1. ")
   assert field_kind(11, 14) == live.Mono
@@ -120,8 +122,12 @@ pub fn a_blank_row_between_two_items_is_set_as_body_text_test() {
 pub fn a_heading_of_one_row_holds_the_marks_before_its_words_test() {
   let marks = fn(text) {
     case kind_of(text) {
-      live.Title(marks:, ..) -> marks
-      live.Body | live.Mono | live.ListItem(..) -> "not a heading"
+      live.Title(typed_marks:, ..) -> typed_marks
+      live.Body
+      | live.Mono
+      | live.ListItem(..)
+      | live.ItemTitle(..)
+      | live.QuoteTitle(..) -> "not a heading"
     }
   }
   assert marks("# Trip") == "# "
@@ -133,8 +139,9 @@ pub fn a_heading_of_one_row_holds_the_marks_before_its_words_test() {
 
 fn marker(field_text: String) -> String {
   case kind_of(field_text) {
-    live.ListItem(marker:, ..) -> marker
-    live.Body | live.Mono | live.Title(..) -> "not an item"
+    live.ListItem(marker:, ..) | live.ItemTitle(marker:, ..) -> marker
+    live.Body | live.Mono | live.Title(..) | live.QuoteTitle(..) ->
+      "not an item"
   }
 }
 
@@ -401,8 +408,6 @@ pub fn a_row_in_an_element_further_down_is_drawn_from_its_own_start_test() {
     == "one\n"
 }
 
-/// The end of the text of a table's last cell is inside the cell, before
-/// the pipe that closes it, as it is for every other cell.
 pub fn the_end_of_a_last_cell_is_before_its_pipe_test() {
   let lines = ["| name | qty |", "|------|-----|", "Some **bold**"]
   assert live.position(
@@ -433,6 +438,15 @@ pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_t
   assert at("1 | 2", "", "1") == 0
   assert at("a **b**", "a ", "b") == 2
   assert at("a \\| b", "a ", "|") == 2
+}
+
+pub fn a_place_at_the_start_of_a_table_cell_after_letters_written_in_more_than_one_byte_lands_in_that_cell_test() {
+  let at = fn(line, visible, next) {
+    live.position([line], row: 0, visible:, at_end: False, next:).col
+  }
+  assert at("| 日本 | 語 |", "日本", "語") == 7
+  assert at("| café | thé |", "café", "t") == 9
+  assert at("| 👍 | ok |", "👍", "o") == 6
 }
 
 fn settle(lines: List(String), visible: String, row: Int, col: Int) -> Int {
@@ -512,8 +526,6 @@ pub fn a_place_settles_with_the_other_end_on_its_row_test() {
   assert at(2, 4) == 2
 }
 
-/// Settling with no way to go never changes where a place is drawn, and a
-/// settled place stays, settled again the same way or with no way to go.
 pub fn a_settled_place_is_drawn_where_it_was_and_settles_no_further_test() {
   let ways = [order.Eq, order.Gt, order.Lt]
   let wrong = {
@@ -551,8 +563,6 @@ fn settle_toward(line: String, visible: String, col: Int, toward) -> Int {
   live.settle([line], row: 0, visible:, at:, other: Position(1, 0), toward:).col
 }
 
-/// A step that lands inside a pair settles on the side it was going, past
-/// the pair or before it, as a text field's next or last word step there.
 pub fn a_place_inside_a_pair_settles_the_way_the_head_went_test() {
   let line = "para **bold** end"
   let visible = "para bold end"

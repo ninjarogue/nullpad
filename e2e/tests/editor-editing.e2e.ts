@@ -3,13 +3,6 @@ import { ctrl, Editing, offsetOf } from './editing.ts';
 import type { Spot } from './editing.ts';
 import { test } from './nullpad.ts';
 
-/**
- * What any text editor does when text is typed, split, joined, pasted and
- * undone, in the page view (Markdown off). Where a plain text field holding
- * the whole note has one right answer, the page is held to it: the same keys
- * must leave the same text.
- */
-
 const note = 'alpha one\n\nbravo two words\n\ncharlie three';
 
 function likeAPlainField(name: string, body: string, at: Spot, keys: string[]) {

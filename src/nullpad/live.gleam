@@ -52,10 +52,18 @@ fn item_last_row(item: Item) -> Int {
 
 pub type Kind {
   Body
-  /// `marks` are the typed marks before the words of a heading of one row.
-  Title(level: Level, marks: String)
+  Title(level: Level, typed_marks: String)
   Mono
   ListItem(task: Bool, marker: String)
+  ItemTitle(Level, marker: String)
+  QuoteTitle(Level, in_item: Bool)
+}
+
+pub fn is_title(kind: Kind) -> Bool {
+  case kind {
+    Title(..) | ItemTitle(..) | QuoteTitle(..) -> True
+    Body | Mono | ListItem(..) -> False
+  }
 }
 
 pub fn kind(
@@ -72,11 +80,11 @@ pub fn kind(
     [Block(content: Heading(level:, ..), first_row:, ..)] ->
       Title(
         level:,
-        marks: lines
+        typed_marks: lines
           |> list.drop(first_row)
           |> list.first
           |> result.unwrap("")
-          |> markdown.heading_marks,
+          |> markdown.atx_heading_prefix,
       )
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
@@ -84,18 +92,66 @@ pub fn kind(
     | [Block(content: OrderedList(items:, ..), ..)] ->
       case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
         Ok(first) ->
-          ListItem(
-            task: option.is_some(first.task),
-            marker: marker(lines, first),
-          )
+          case first.task, lone_heading(first.blocks, field, False) {
+            None, Ok(LoneHeading(level:, ..)) ->
+              ItemTitle(level, marker: marker(lines, first))
+            Some(_), _ | None, Error(Nil) ->
+              ListItem(
+                task: option.is_some(first.task),
+                marker: marker(lines, first),
+              )
+          }
         Error(Nil) -> Body
       }
-    _ -> Body
+    [Block(content: Quote(blocks:), ..)] ->
+      case lone_heading(blocks, field, False) {
+        Ok(LoneHeading(level:, inside_item:)) ->
+          QuoteTitle(level, in_item: inside_item)
+        Error(Nil) -> Body
+      }
+    [Block(content: Paragraph(..), ..)] | [Block(content: Rule, ..)] | [] ->
+      Body
+    [_, _, ..] -> Body
   }
 }
 
-/// The column where the text of the innermost list item holding `row`
-/// starts, past its indentation and marker, or `None` outside every item.
+type LoneHeading {
+  LoneHeading(level: Level, inside_item: Bool)
+}
+
+fn lone_heading(
+  blocks: List(Block),
+  field: Region,
+  inside_item: Bool,
+) -> Result(LoneHeading, Nil) {
+  let held = fn(first_row, last_row) {
+    first_row <= field.last_row && last_row >= field.first_row
+  }
+  case
+    list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
+  {
+    [Block(content: Heading(level:, ..), first_row:, last_row:)] ->
+      case first_row == last_row && field == Region(first_row, last_row) {
+        True -> Ok(LoneHeading(level:, inside_item:))
+        False -> Error(Nil)
+      }
+    [Block(content: Quote(blocks:), ..)] ->
+      lone_heading(blocks, field, inside_item)
+    [Block(content: BulletList(items:, ..), ..)]
+    | [Block(content: OrderedList(items:, ..), ..)] ->
+      case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
+        Ok(item) -> lone_heading(item.blocks, field, True)
+        Error(Nil) -> Error(Nil)
+      }
+    [Block(content: Paragraph(..), ..)]
+    | [Block(content: CodeBlock(..), ..)]
+    | [Block(content: Table(..), ..)]
+    | [Block(content: Rule, ..)]
+    | []
+    | [_, _, ..] -> Error(Nil)
+  }
+}
+
 pub fn text_col(blocks: List(Block), row: Int) -> Option(Int) {
   let holding =
     list.find(blocks, fn(block) {
@@ -174,7 +230,7 @@ pub fn position(
         _ ->
           case closes(before, next) {
             True -> skip_to(rest, next, col)
-            False -> col + cell_start(string.drop_start(line, col), next)
+            False -> col + cell_start(buffer.rest_of(line, from: col), next)
           }
       }
       Position(row:, col:)
@@ -260,21 +316,13 @@ pub fn follows_hidden(
   }
 }
 
-/// Where `at` lands when it is among or beside marks the page hides between
-/// two drawn characters, which all draw at one place: the place among them
-/// nearest `at` where the line, cut there and at `other` when it is on the
-/// same row, draws what it draws whole. A selection between the two then
-/// holds both marks of a pair or neither, as the parser pairs them. Moving
-/// `toward` a side, it takes the first such place that way among the hidden
-/// marks of the row instead, so a step never settles back where it began.
-/// With no such place, `at` stays. `row` and `visible` are as for `drawn`.
 pub fn settle(
   lines: List(String),
   row row: Int,
   visible visible: String,
   at at: Position,
   other other: Position,
-  toward toward: order.Order,
+  toward travel_direction: order.Order,
 ) -> Position {
   let line = lines |> list.drop(at.row) |> list.first
   let here = case at.row >= row {
@@ -300,7 +348,7 @@ pub fn settle(
         == whole
       }
       let near = fn() { nearest(at.col, 0, start, end, whole_at) }
-      let col = case start < end, toward {
+      let col = case start < end, travel_direction {
         False, _ -> at.col
         True, order.Eq -> near()
         True, order.Gt ->
@@ -316,24 +364,22 @@ pub fn settle(
   }
 }
 
-/// The first column from `col` on, a step of `by` at a time, that is beside
-/// a hidden character and `fine`. `shown` holds whether each character from
-/// `col` that way is drawn, and `by_hidden` whether the one behind is not.
 fn beside_hidden(
-  shown: List(Bool),
+  drawn_flags: List(Bool),
   col: Int,
   by: Int,
-  by_hidden: Bool,
+  previous_hidden: Bool,
   fine: fn(Int) -> Bool,
 ) -> Result(Int, Nil) {
-  let beside = case shown {
+  let beside = case drawn_flags {
     [False, ..] -> True
-    _ -> by_hidden
+    _ -> previous_hidden
   }
-  case beside && fine(col), shown {
+  case beside && fine(col), drawn_flags {
     True, _ -> Ok(col)
     False, [] -> Error(Nil)
-    False, [drawn, ..shown] -> beside_hidden(shown, col + by, by, !drawn, fine)
+    False, [drawn, ..drawn_flags] ->
+      beside_hidden(drawn_flags, col + by, by, !drawn, fine)
   }
 }
 

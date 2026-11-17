@@ -1,5 +1,3 @@
-// Seeded script generator and raw Chrome DevTools key events (US layout).
-
 export function rng(seed) {
   let a = seed >>> 0;
   return () => {
@@ -14,7 +12,6 @@ const pick = (r, list) => list[Math.floor(r() * list.length)];
 
 export const pastes = ['x', 'two words', 'line1\nline2', '# head\n\n- item', 'a\n\nb\nc', '```\ncode\n```'];
 
-/** Weighted key classes. A script is a list of key specs ("Control+Shift+ArrowLeft") or { paste }. */
 export const classes = {
   char: { w: 30, gen: (r) => pick(r, [...'abcdefgh ijk#-*`>|[]~_=0123456789']) },
   enter: { w: 6, gen: () => 'Enter' },
@@ -43,16 +40,11 @@ export const classes = {
 
 const times = (n, key) => Array.from({ length: n }, () => key);
 
-/** Notes a script may start from: every kind of block, and plain rows only. */
 const notes = {
   rich: '# Head one\n\nbody text here\nmore body\n\n- item a\n- item b\n\n> quote line\n\n```\ncode\n```\n\nSetext\n======\n\nlast para',
   plain: 'alpha beta\n\nsecond para here\nthird row\n\nlast',
 };
 
-/**
- * Where a script starts: a pasted note with a selection already made, so that the keys
- * run on a selection (in one block, or painted across blocks) and not on a collapsed caret.
- */
 export const preludes = [
   { note: 'rich', keys: ['Control+Home', ...times(3, 'Shift+ArrowDown')] },
   { note: 'rich', keys: ['Control+End', 'Home', ...times(3, 'Shift+ArrowUp')] },
@@ -82,22 +74,18 @@ export function makeScripts(count, length, seed) {
   });
 }
 
-// key -> [code, virtual key code, text, needs shift]
 const base = {
-  Enter: ['Enter', 13, '\r'], Backspace: ['Backspace', 8], Delete: ['Delete', 46],
-  ArrowLeft: ['ArrowLeft', 37], ArrowUp: ['ArrowUp', 38], ArrowRight: ['ArrowRight', 39], ArrowDown: ['ArrowDown', 40],
-  Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34], Shift: ['ShiftLeft', 16], Control: ['ControlLeft', 17],
-  ' ': ['Space', 32, ' '], '-': ['Minus', 189, '-'], '_': ['Minus', 189, '_', true],
-  '=': ['Equal', 187, '='], '`': ['Backquote', 192, '`'], '~': ['Backquote', 192, '~', true],
-  '[': ['BracketLeft', 219, '['], ']': ['BracketRight', 221, ']'], '|': ['Backslash', 220, '|', true],
-  '#': ['Digit3', 51, '#', true], '*': ['Digit8', 56, '*', true], '>': ['Period', 190, '>', true],
+  Enter: { code: 'Enter', vk: 13, text: '\r' }, Backspace: { code: 'Backspace', vk: 8 }, Delete: { code: 'Delete', vk: 46 },
+  ArrowLeft: { code: 'ArrowLeft', vk: 37 }, ArrowUp: { code: 'ArrowUp', vk: 38 }, ArrowRight: { code: 'ArrowRight', vk: 39 }, ArrowDown: { code: 'ArrowDown', vk: 40 },
+  Home: { code: 'Home', vk: 36 }, End: { code: 'End', vk: 35 }, PageUp: { code: 'PageUp', vk: 33 }, PageDown: { code: 'PageDown', vk: 34 }, Shift: { code: 'ShiftLeft', vk: 16 }, Control: { code: 'ControlLeft', vk: 17 },
+  ' ': { code: 'Space', vk: 32, text: ' ' }, '-': { code: 'Minus', vk: 189, text: '-' }, '_': { code: 'Minus', vk: 189, text: '_', shifted: true },
+  '=': { code: 'Equal', vk: 187, text: '=' }, '`': { code: 'Backquote', vk: 192, text: '`' }, '~': { code: 'Backquote', vk: 192, text: '~', shifted: true },
+  '[': { code: 'BracketLeft', vk: 219, text: '[' }, ']': { code: 'BracketRight', vk: 221, text: ']' }, '|': { code: 'Backslash', vk: 220, text: '|', shifted: true },
+  '#': { code: 'Digit3', vk: 51, text: '#', shifted: true }, '*': { code: 'Digit8', vk: 56, text: '*', shifted: true }, '>': { code: 'Period', vk: 190, text: '>', shifted: true },
 };
 
 function describe(key) {
-  if (base[key]) {
-    const [code, vk, text, shifted] = base[key];
-    return { key, code, vk, text, shifted };
-  }
+  if (base[key]) return { key, ...base[key] };
   if (/^[a-z]$/.test(key)) return { key, code: 'Key' + key.toUpperCase(), vk: key.toUpperCase().charCodeAt(0), text: key };
   if (/^[A-Z]$/.test(key)) return { key, code: 'Key' + key, vk: key.charCodeAt(0), text: key, shifted: true };
   if (/^[0-9]$/.test(key)) return { key, code: 'Digit' + key, vk: key.charCodeAt(0), text: key };
@@ -106,7 +94,6 @@ function describe(key) {
 
 const modifier = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 
-/** One key press as a list of Input.dispatchKeyEvent parameters, modifier presses included. */
 export function keyEvents(spec) {
   const parts = spec.split('+');
   const key = parts.pop() || '+';

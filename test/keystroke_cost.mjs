@@ -7,8 +7,7 @@
 //
 // Exits 1 when a typed character parses the note more than once, or a caret
 // move parses it at all, and then the same for every variant of
-// `editor.Event`. `Composed`, which ends an IME composition, may do the one
-// parse the composing keys skipped. The times are printed, never checked: they are too noisy
+// `editor.Event`. The times are printed, never checked: they are too noisy
 // for a gate.
 
 import { register } from "node:module";
@@ -31,6 +30,13 @@ export async function load(url, context, nextLoad) {
 }`;
 register("data:text/javascript," + encodeURIComponent(counter));
 globalThis.parses = 0;
+// The view measures heading marks on a canvas against the page's styles,
+// which node does not have. A measure parses nothing.
+globalThis.document = {
+  documentElement: null,
+  createElement: () => ({ getContext: () => ({ measureText: () => ({ width: 0 }) }) }),
+};
+globalThis.getComputedStyle = () => ({ fontSize: "16px", getPropertyValue: () => "" });
 
 const build = process.argv[2]
   ? pathToFileURL(process.argv[2].replace(/\/?$/, "/"))
@@ -240,26 +246,26 @@ const events = {
     ["Line up selecting", (field) => new editor.EdgePressed(new editor.Line(true, true), 0, field)],
     ["Line down selecting", (field) => new editor.EdgePressed(new editor.Line(false, true), 0, field)],
     ["Line down", (field) => new editor.EdgePressed(new editor.Line(false, false), 0, field)],
-    ["Beside up", (field) => new editor.EdgePressed(new editor.Beside(true, false), 0, field)],
-    ["Beside down selecting", (field) => new editor.EdgePressed(new editor.Beside(false, true), 0, field)],
+    ["Beside up", (field) => new editor.EdgePressed(new editor.LineInField(true, false), 0, field)],
+    ["Beside down selecting", (field) => new editor.EdgePressed(new editor.LineInField(false, true), 0, field)],
     ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), 0, field)],
     ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), 0, field)],
     ["SelectLeft", (field) => new editor.EdgePressed(new editor.SelectLeft(), 0, field)],
     ["SelectRight", (field) => new editor.EdgePressed(new editor.SelectRight(), 0, field)],
     ["SelectLineStart", (field) => new editor.EdgePressed(new editor.SelectLineStart(), 0, field)],
     ["SelectLineEnd", (field) => new editor.EdgePressed(new editor.SelectLineEnd(), 0, field)],
-    ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToStart(), 0, field)],
-    ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToEnd(), 0, field)],
+    ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToNoteStart(), 0, field)],
+    ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToNoteEnd(), 0, field)],
     ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
     ["Page up", (field) => new editor.EdgePressed(new editor.Page(true, false), 0, field)],
     ["Page down selecting", (field) => new editor.EdgePressed(new editor.Page(false, true), 0, field)],
-    ["Before", (field) => new editor.EdgePressed(new editor.Before(), 0, field)],
-    ["After", (field) => new editor.EdgePressed(new editor.After(), 0, field)],
-    ["ToStart", (field) => new editor.EdgePressed(new editor.ToStart(), 0, field)],
-    ["ToEnd", (field) => new editor.EdgePressed(new editor.ToEnd(), 0, field)],
-    ["Widen", (field) => new editor.EdgePressed(new editor.Widen(), 0, field)],
-    ["Row up", (field) => new editor.EdgePressed(new editor.Row(true, false), 0, field)],
-    ["Row down selecting", (field) => new editor.EdgePressed(new editor.Row(false, true), 0, field)],
+    ["Before", (field) => new editor.EdgePressed(new editor.OntoRowBefore(), 0, field)],
+    ["After", (field) => new editor.EdgePressed(new editor.OntoRowAfter(), 0, field)],
+    ["ToStart", (field) => new editor.EdgePressed(new editor.ToNoteStart(), 0, field)],
+    ["ToEnd", (field) => new editor.EdgePressed(new editor.ToNoteEnd(), 0, field)],
+    ["Widen", (field) => new editor.EdgePressed(new editor.WidenToNote(), 0, field)],
+    ["Row up", (field) => new editor.EdgePressed(new editor.NextRow(true, false), 0, field)],
+    ["Row down selecting", (field) => new editor.EdgePressed(new editor.NextRow(false, true), 0, field)],
   ],
   EscapePressed: [["", (field) => new editor.EscapePressed(field)]],
   Pointed: [
@@ -293,17 +299,17 @@ const events = {
     ["in place", (_, row) => new editor.Dragged(row, "", true, "")],
   ],
   Stepped: [
-    ["a row above", (field, row) => [asked(field), new editor.Stepped(Math.max(0, row - 9), "", true, "", 40)]],
-    ["a row below", (field, row) => [asked(field), new editor.Stepped(row + 9, "", false, "", 40)]],
+    ["a row above", (field, row) => [asked(field), new editor.Stepped(Math.max(0, row - 9), "", true, "", new option.Some(40))]],
+    ["a row below", (field, row) => [asked(field), new editor.Stepped(row + 9, "", false, "", new option.Some(40))]],
   ],
   Unstepped: [
-    ["", (field) => [asked(field), new editor.Unstepped(40)]],
+    ["", (field) => [asked(field), new editor.Unstepped(new option.Some(40))]],
     ["after a window", (field) => [
       new editor.EdgePressed(new editor.Page(false, false), 0, field),
-      new editor.Unstepped(40),
+      new editor.Unstepped(new option.Some(40)),
     ]],
   ],
-  FieldStepped: [["", (field) => [asked(field), new editor.FieldStepped(moved(field, 0), 40)]]],
+  FieldStepped: [["", (field) => [asked(field), new editor.FieldStepped(moved(field, 0), new option.Some(40))]]],
   Aimed: [["moved", (field) => new editor.Aimed(moved(field, 0))]],
   SteppedPast: [
     ["", (field) => [asked(field), new editor.SteppedPast()]],
@@ -345,38 +351,38 @@ const events = {
   KeyHeld: [
     ["behind a step", (field) => [asked(field), new editor.KeyHeld(heldX)]],
     ["with nothing waiting", () => new editor.KeyHeld(heldX)],
-    ["an undo behind a step", (field) => [asked(field), new editor.KeyHeld(new editor.HeldUndo())]],
+    ["an undo behind a step", (field) => [asked(field), new editor.KeyHeld(new editor.HeldMenuUndo())]],
   ],
   Replayed: [
     ["a typed character", (field, row) => [
       asked(field),
       new editor.KeyHeld(heldX),
-      new editor.Stepped(row + 9, "", false, "", 40),
+      new editor.Stepped(row + 9, "", false, "", new option.Some(40)),
       (now) => new editor.Replayed(new option.Some(new editor.ControlChanged(typed(now), 0))),
     ]],
     ["a caret move", (field, row) => [
       asked(field),
       new editor.KeyHeld(heldX),
-      new editor.Stepped(row + 9, "", false, "", 40),
+      new editor.Stepped(row + 9, "", false, "", new option.Some(40)),
       (now) => new editor.Replayed(new option.Some(new editor.ControlChanged(moved(now, 0), 0))),
     ]],
     ["a step", (field, row) => [
       asked(field),
       new editor.KeyHeld(heldX),
-      new editor.Stepped(row + 9, "", false, "", 40),
+      new editor.Stepped(row + 9, "", false, "", new option.Some(40)),
       (now) => new editor.Replayed(new option.Some(new editor.EdgePressed(new editor.Line(false, true), 40, now))),
     ]],
     ["an undo", (field, row) => [
       new editor.ControlChanged(typed(field), 0),
       asked(field),
-      new editor.KeyHeld(new editor.HeldUndo()),
-      new editor.Stepped(row + 9, "", false, "", 40),
+      new editor.KeyHeld(new editor.HeldMenuUndo()),
+      new editor.Stepped(row + 9, "", false, "", new option.Some(40)),
       new editor.Replayed(new option.Some(new editor.UndoAsked())),
     ]],
     ["nothing", (field, row) => [
       asked(field),
       new editor.KeyHeld(heldX),
-      new editor.Stepped(row + 9, "", false, "", 40),
+      new editor.Stepped(row + 9, "", false, "", new option.Some(40)),
       new editor.Replayed(new option.None()),
     ]],
   ],
@@ -400,10 +406,12 @@ if (!declared?.length) {
   console.error("Could not read the variants of editor.Event.");
   process.exit(1);
 }
+let unlisted = 0;
 for (const variant of declared) {
   if (!events[variant]) {
     console.error(`editor.${variant} has no entry in test/keystroke_cost.mjs.`);
     failed = true;
+    unlisted++;
   }
 }
 
@@ -480,6 +488,7 @@ for (let step = 1; step <= 600; step++) {
   if (step === 100) heapAt = heap();
 }
 const perStep = (heap() - heapAt) / 500;
+let undoHolds = true;
 let undone = 0;
 while (undone < 600 && editor.text(editor.update(kept, new editor.UndoAsked()).editor) !== editor.text(kept)) {
   kept = editor.update(kept, new editor.UndoAsked()).editor;
@@ -489,9 +498,17 @@ console.log(`undo history: ${(perStep / 1024).toFixed(1)} KB a step over 500 ste
 if (undone !== 600) {
   console.error(`undo history: ${undone} of 600 steps could be undone.`);
   failed = true;
+  undoHolds = false;
 }
 if (perStep > STEP_BYTES) {
   console.error(`undo history: a step keeps ${(perStep / 1024).toFixed(1)} KB, over ${STEP_BYTES / 1024} KB.`);
   failed = true;
+  undoHolds = false;
 }
+
+const verdicts = [...rows, ...every].map((row) => row.verdict);
+const within = verdicts.filter((verdict) => verdict === "ok").length + (undoHolds ? 1 : 0);
+const over = verdicts.filter((verdict) => verdict.startsWith("OVER BUDGET")).length + unlisted + (undoHolds ? 0 : 1);
+const unbuilt = verdicts.filter((verdict) => verdict === "not built yet").length;
+console.log(`keystroke_cost: ${within} ok, ${over} failed, ${unbuilt} not built yet`);
 process.exit(failed ? 1 : 0);

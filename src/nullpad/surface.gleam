@@ -34,22 +34,20 @@ const painted_class = "painted"
 /// frame after any event from the element. With "" it wipes what was typed.
 /// With the model's text it is a second writer beside `sync`.
 pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
-  let kind = editor.kind(editor)
+  let setting = editor.setting(editor)
   let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
   let first_row = case editor.region(editor), drawn_whole {
     Some(live.Region(first_row:, ..)), False ->
       attribute.data(live.row_mark, int.to_string(first_row))
     Some(_), True | None, _ -> attribute.none()
   }
-  // Where the editor holds the anchor in the note, for the robot typist,
-  // which reads it around each Shift key: the field holds only some rows.
   let #(anchor, _) = buffer.selection(editor.buffer(editor))
   let anchor =
     attribute.data(
-      "anchor",
+      "typist-anchor",
       int.to_string(anchor.row) <> ":" <> int.to_string(anchor.col),
     )
-  html.div([attribute.class(classes(editor, kind)), marker(kind)], [
+  html.div([attribute.class(classes(editor, setting)), marker(setting)], [
     mirror(editor),
     element.element(
       "textarea",
@@ -140,7 +138,7 @@ fn field_events(
     event.on("blur", leave_decoder(on_event)),
     event.advanced("beforeinput", history_decoder(on_event)),
     event.advanced("paste", paste_decoder(on_event)),
-    event.advanced("keydown", keydown_decoder(on_event)),
+    event.advanced("keydown", hold_or_decide_key_decoder(on_event)),
   ]
 }
 
@@ -179,8 +177,8 @@ fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
 }
 
 /// CSS cannot measure typed text, so the marker is measured here.
-fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
-  case marker_width(kind) {
+fn marker(setting: Option(editor.Setting)) -> attribute.Attribute(msg) {
+  case marker_width(option.map(setting, fn(setting) { setting.kind })) {
     "" -> attribute.none()
     width -> attribute.style("--marker", width)
   }
@@ -189,33 +187,32 @@ fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
 fn marker_width(kind: Option(live.Kind)) -> String {
   case kind {
     Some(live.ListItem(marker:, ..)) ->
-      float.to_string(text_width(marker)) <> "px"
-    Some(live.Title(marks: "", ..)) -> ""
-    Some(live.Title(level:, marks:)) ->
-      float.to_string(bold_width(marks) +. spacing(level, marks)) <> "em"
-    Some(live.Body) | Some(live.Mono) | None -> ""
+      float.to_string(body_text_width(marker)) <> "px"
+    Some(live.ItemTitle(level, marker:)) ->
+      float.to_string(heading_text_width(marker, level)) <> "px"
+    Some(live.Title(typed_marks: "", ..)) -> ""
+    Some(live.Title(level:, typed_marks:)) ->
+      float.to_string(
+        bold_width_em(typed_marks) +. heading_letter_spacing(level, typed_marks),
+      )
+      <> "em"
+    Some(live.Body) | Some(live.Mono) | Some(live.QuoteTitle(..)) | None -> ""
   }
 }
 
-/// A sixth-level heading is spaced out, as the page draws it.
-fn spacing(level: markdown.Level, marks: String) -> Float {
+fn heading_letter_spacing(level: markdown.Level, marks: String) -> Float {
   case level {
     markdown.H6 -> 0.05 *. int.to_float(string.length(marks))
     markdown.H1 | markdown.H2 | markdown.H3 | markdown.H4 | markdown.H5 -> 0.0
   }
 }
 
-fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
-  case
-    kind,
-    editor.frame(editor),
-    editor.is_idle(editor),
-    editor.is_painted(editor)
-  {
-    None, _, _, _ | _, None, _, _ -> "editor"
-    Some(_), Some(_), True, _ -> "editor part idle"
-    Some(_), Some(_), False, True -> "editor part " <> painted_class
-    Some(kind), Some(frame), False, False ->
+fn classes(editor: Editor, setting: Option(editor.Setting)) -> String {
+  case setting, editor.is_idle(editor), editor.is_painted(editor) {
+    None, _, _ -> "editor"
+    Some(_), True, _ -> "editor part idle"
+    Some(_), False, True -> "editor part " <> painted_class
+    Some(editor.Setting(kind:, frame:)), False, False ->
       case rows_of(frame) == rows_of(kind) {
         True -> set_as(kind)
         False -> set_as(kind) <> " framed framed-" <> rows_of(frame)
@@ -230,12 +227,10 @@ fn rows_of(kind: live.Kind) -> String {
     live.Mono -> "mono"
     live.ListItem(task: False, ..) -> "item"
     live.ListItem(task: True, ..) -> "task"
-    live.Title(level: markdown.H1, ..) -> "h1"
-    live.Title(level: markdown.H2, ..) -> "h2"
-    live.Title(level: markdown.H3, ..) -> "h3"
-    live.Title(level: markdown.H4, ..) -> "h4"
-    live.Title(level: markdown.H5, ..) -> "h5"
-    live.Title(level: markdown.H6, ..) -> "h6"
+    live.Title(level:, ..) -> heading_class(level)
+    live.ItemTitle(level, ..) -> "item-" <> heading_class(level)
+    live.QuoteTitle(level, in_item:) ->
+      "quote-" <> heading_class(level) <> bool.to_string(in_item)
   }
 }
 
@@ -245,12 +240,23 @@ fn set_as(kind: live.Kind) -> String {
     live.Mono -> "editor part mono"
     live.ListItem(task: False, ..) -> "editor part item"
     live.ListItem(task: True, ..) -> "editor part item task"
-    live.Title(level: markdown.H1, ..) -> "editor part h1"
-    live.Title(level: markdown.H2, ..) -> "editor part h2"
-    live.Title(level: markdown.H3, ..) -> "editor part h3"
-    live.Title(level: markdown.H4, ..) -> "editor part h4"
-    live.Title(level: markdown.H5, ..) -> "editor part h5"
-    live.Title(level: markdown.H6, ..) -> "editor part h6"
+    live.Title(level:, ..) -> "editor part " <> heading_class(level)
+    live.ItemTitle(level, ..) -> "editor part item " <> heading_class(level)
+    live.QuoteTitle(level, in_item: False) ->
+      "editor part quote " <> heading_class(level)
+    live.QuoteTitle(level, in_item: True) ->
+      "editor part quote quoted-item " <> heading_class(level)
+  }
+}
+
+fn heading_class(level: markdown.Level) -> String {
+  case level {
+    markdown.H1 -> "h1"
+    markdown.H2 -> "h2"
+    markdown.H3 -> "h3"
+    markdown.H4 -> "h4"
+    markdown.H5 -> "h5"
+    markdown.H6 -> "h6"
   }
 }
 
@@ -258,10 +264,20 @@ pub fn page(
   editor: Editor,
   on_event: fn(editor.Event) -> msg,
 ) -> List(attribute.Attribute(msg)) {
-  case editor.region(editor) {
+  let attributes = case editor.region(editor) {
     None -> [attribute.class("page")]
     Some(_) -> [attribute.class("page " <> live_class), ..page_events(on_event)]
   }
+  [
+    attribute.style("--widest-marks", float.to_string(widest_marks_em())),
+    ..attributes
+  ]
+}
+
+/// The widest marks a heading can hang, in the ems of a heading 6.
+fn widest_marks_em() -> Float {
+  let marks = "###### "
+  bold_width_em(marks) +. heading_letter_spacing(markdown.H6, marks)
 }
 
 fn page_events(
@@ -412,10 +428,7 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   })
 }
 
-/// Notes the editor the app starts with, before any event can come. Each
-/// `sync` after notes the editor its message left, so a handler always reads
-/// the latest one through `current_editor`.
-pub fn start(editor: Editor) -> Effect(msg) {
+pub fn note_first_editor(editor: Editor) -> Effect(msg) {
   effect.from(fn(_) { note_editor(editor) })
 }
 
@@ -447,12 +460,10 @@ pub fn sync(
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
-  // The page paints the selection, and settles its ends where it can draw
-  // them. True when there is nothing to settle.
-  let draw = fn(dispatch) {
+  let draw_and_settle = fn(dispatch) {
     paint(editor)
     note_drawn(editor.row_count(editor))
-    case settling(editor) {
+    case selection_to_settle(editor) {
       Some(#(from, to)) -> {
         dispatch(on_event(editor.Settled(from:, to:)))
         False
@@ -460,20 +471,17 @@ pub fn sync(
       None -> True
     }
   }
-  // A held key is replayed once the page has drawn the editor as it is and
-  // has nothing more to say about it: no selection to settle, no step or aim
-  // to take.
-  let replay = fn(dispatch, quiet) {
+  let replay_when_quiet = fn(dispatch, quiet) {
     case quiet {
-      True -> replay_held(editor, dispatch, on_event)
+      True -> replay_next_held_key(editor, dispatch, on_event)
       False -> Nil
     }
   }
   let painted =
-    effect.before_paint(fn(dispatch, _) { replay(dispatch, draw(dispatch)) })
-  // A step the editor no longer waits for is not taken once the page is
-  // drawn.
-  let noted =
+    effect.before_paint(fn(dispatch, _) {
+      replay_when_quiet(dispatch, draw_and_settle(dispatch))
+    })
+  let note_for_events =
     effect.from(fn(_) {
       note_editor(editor)
       case editor.is_stepping(editor) {
@@ -482,16 +490,13 @@ pub fn sync(
       }
     })
   let synced = case sync {
-    // The field only grows once the page is drawn, so the browser does not
-    // scroll the page to a caret that typing takes onto a new line. Typing
-    // that makes its rows another kind of block sets their type at once.
     editor.InSync ->
       effect.batch([
         effect.from(fn(_) { hold_now() }),
         effect.before_paint(fn(dispatch, _) {
-          let quiet = draw(dispatch)
+          let quiet = draw_and_settle(dispatch)
           reveal_caret(control_id, live_class, painted_class)
-          replay(dispatch, quiet)
+          replay_when_quiet(dispatch, quiet)
         }),
       ])
     // Painted before the page is scrolled to the head, which may be painted.
@@ -503,11 +508,11 @@ pub fn sync(
           ask_focus()
         }),
         effect.before_paint(fn(dispatch, _) {
-          let quiet = draw(dispatch)
+          let quiet = draw_and_settle(dispatch)
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
-          replay(dispatch, quiet)
+          replay_when_quiet(dispatch, quiet)
         }),
       ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
@@ -526,7 +531,7 @@ pub fn sync(
           editor.PageUp -> #("page", False)
           editor.PageDown -> #("page", True)
         }
-        let head = editor.step_start(editor)
+        let head = editor.step_origin(editor)
         let lines = buffer.lines(editor.buffer(editor))
         let #(row, visible) =
           holder_text(control_id, live_class, live.row_mark, head.row)
@@ -536,7 +541,7 @@ pub fn sync(
           Some(live.Region(first_row:, ..)) -> first_row
           None -> -1
         }
-        let place =
+        let landing =
           step_head(
             control_id,
             live_class,
@@ -545,34 +550,36 @@ pub fn sync(
             head.row,
             offset,
             onward,
-            editor.from_row_start(editor),
+            editor.run_started_at_row_start(editor),
             granularity,
             forward,
             select,
-            x,
+            x |> option.map(dynamic.float) |> option.unwrap(dynamic.nil()),
             field_first,
             list.length(lines),
           )
-        case place {
-          #(-3, _, _, _, _) -> False
-          #(-2, _, _, _, _) -> {
+          |> decode.run(step_landing_decoder())
+          |> result.unwrap(StepNowhere(x: None))
+        case landing {
+          StepWaitsForPage -> False
+          StepPastEnd -> {
             dispatch(on_event(editor.SteppedPast))
             True
           }
-          #(-4, _, _, _, x) -> {
+          StepInField(x:) -> {
             case decode.run(find_control(control_id), control_decoder()) {
               Ok(shown) -> dispatch(on_event(editor.FieldStepped(shown:, x:)))
               Error(_) -> dispatch(on_event(editor.Unstepped(x:)))
             }
             True
           }
-          #(row, visible, at_end, next, x) if row >= 0 -> {
+          StepLanded(row:, visible:, at_end:, next:, x:) -> {
             dispatch(
               on_event(editor.Stepped(row:, visible:, at_end:, next:, x:)),
             )
             True
           }
-          _ -> {
+          StepNowhere(x:) -> {
             dispatch(on_event(editor.Unstepped(x:)))
             True
           }
@@ -584,12 +591,12 @@ pub fn sync(
           hold_step(!step_now(dispatch), editor)
         }),
         effect.before_paint(fn(dispatch, _) {
-          let quiet = draw(dispatch)
+          let quiet = draw_and_settle(dispatch)
           case take_held_step(editor) && !step_now(dispatch) {
             True -> dispatch(on_event(editor.Unstepped(x:)))
             False -> Nil
           }
-          replay(dispatch, quiet)
+          replay_when_quiet(dispatch, quiet)
         }),
       ])
     }
@@ -611,14 +618,14 @@ pub fn sync(
             backward,
             x,
             case line {
-              editor.FirstLine -> 0
-              editor.LastLine -> 1
-              editor.LineAbove -> 2
-              editor.LineBelow -> 3
-              editor.HeadLine -> 4
+              editor.FirstLine -> "first"
+              editor.LastLine -> "last"
+              editor.LineAbove -> "above"
+              editor.LineBelow -> "below"
+              editor.HeadLine -> "head"
             },
             select,
-            editor.from_row_start(editor),
+            editor.run_started_at_row_start(editor),
             again,
             editor,
           )
@@ -644,32 +651,30 @@ pub fn sync(
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
-          let quiet = draw(dispatch)
-          replay(dispatch, quiet && !aimed)
+          let quiet = draw_and_settle(dispatch)
+          replay_when_quiet(dispatch, quiet && !aimed)
         }),
       ])
     }
-    // A held key the browser takes past the field, done once the field holds
-    // the whole note.
     editor.WriteAndAct(buffer, key:) ->
       effect.batch([
         effect.from(fn(dispatch) {
           write_now(buffer)
           case key {
             editor.HeldKey(at:, ..) -> {
-              option.map(editor.browser_act(key, keyboard()), act)
+              option.map(editor.browser_act(key, keyboard()), act_as_browser)
               case decode.run(find_control(control_id), control_decoder()) {
                 Ok(shown) ->
                   dispatch(on_event(editor.ControlChanged(shown:, at:)))
                 Error(_) -> Nil
               }
             }
-            editor.HeldPaste(..) | editor.HeldUndo | editor.HeldRedo -> Nil
+            editor.HeldPaste(..) | editor.HeldMenuUndo | editor.HeldMenuRedo ->
+              Nil
           }
         }),
         painted,
       ])
-    // The browser acts on the key after the handler that wrote the field.
     editor.WriteAndRead(buffer) ->
       effect.batch([
         effect.from(fn(dispatch) {
@@ -683,7 +688,7 @@ pub fn sync(
           })
         }),
         effect.before_paint(fn(dispatch, _) {
-          draw(dispatch)
+          draw_and_settle(dispatch)
           Nil
         }),
       ])
@@ -748,7 +753,7 @@ pub fn sync(
         painted,
       ])
   }
-  effect.batch([noted, synced])
+  effect.batch([note_for_events, synced])
 }
 
 /// The selection is painted from where each of its ends is drawn, and the
@@ -807,12 +812,10 @@ fn paint(editor: Editor) -> Nil {
   }
 }
 
-/// Where the head of a painted selection settles, when a key moved it among
-/// marks the page hides: it never cuts a pair of them.
-fn settling(
+fn selection_to_settle(
   editor: Editor,
 ) -> Option(#(#(Position, Position), #(Position, Position))) {
-  let toward = editor.direction(editor)
+  let toward = editor.last_key_travel(editor)
   let settles =
     editor.is_painted(editor)
     && { toward != order.Eq || editor.is_pressed(editor) }
@@ -934,11 +937,7 @@ fn control_decoder() -> Decoder(Buffer) {
   decode.success(from_control(text, start, end, direction == "backward"))
 }
 
-/// A key pressed while the page is behind the editor is held, and replayed
-/// once the page has drawn the editor as it is: the browser would act on the
-/// field as the page last drew it. A paste is held when its text arrives.
-/// An IME's keys go on to the field, which it owns while it composes.
-fn hold_decoder(
+fn key_held_behind_page_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use key <- decode.field("key", decode.string)
@@ -955,8 +954,8 @@ fn hold_decoder(
     on_event(editor.KeyHeld(held))
     |> event.handler(prevent_default: True, stop_propagation: True)
   case
-    editor.is_waiting(current_editor())
-    && editor.holds(held, keyboard())
+    editor.keys_wait(current_editor())
+    && editor.replay_matches_browser(held, keyboard())
     && !composing
     && key_code != 229
   {
@@ -973,17 +972,13 @@ fn paste_decoder(
   let handler =
     on_event(editor.KeyHeld(editor.HeldPaste(text: pasted_text(paste), at:)))
     |> event.handler(prevent_default: True, stop_propagation: False)
-  case editor.is_waiting(current_editor()) {
+  case editor.keys_wait(current_editor()) {
     True -> decode.success(handler)
     False -> decode.failure(handler, expected: "a paste the page is behind")
   }
 }
 
-/// Replays the first held key on the field as the page now draws it, the way
-/// it would have gone had the page been drawn when it was pressed: the
-/// field's handlers decide again, and a key they leave to the browser is
-/// done here as the browser does it.
-fn replay_held(
+fn replay_next_held_key(
   editor: Editor,
   dispatch: fn(msg) -> Nil,
   on_event: fn(editor.Event) -> msg,
@@ -995,8 +990,8 @@ fn replay_held(
     |> option.from_result
   }
   case editor.replay(editor), take_replay(editor) {
-    Some(editor.HeldUndo), True -> replayed(Some(editor.UndoAsked))
-    Some(editor.HeldRedo), True -> replayed(Some(editor.RedoAsked))
+    Some(editor.HeldMenuUndo), True -> replayed(Some(editor.UndoAsked))
+    Some(editor.HeldMenuRedo), True -> replayed(Some(editor.RedoAsked))
     Some(editor.HeldPaste(text:, at:)), True -> {
       paste_into(control_id, text)
       replayed(read(at))
@@ -1006,12 +1001,12 @@ fn replay_held(
     -> {
       let pressed =
         held_key_event(control_id, key, code, shift, ctrl, meta, alt, at)
-      case decode.run(pressed, decided_decoder(fn(event) { event })) {
+      case decode.run(pressed, key_action_decoder(fn(event) { event })) {
         Ok(handler) -> replayed(Some(handler.message))
         Error(_) ->
           case editor.browser_act(held, keyboard()) {
             Some(browser_act) -> {
-              act(browser_act)
+              act_as_browser(browser_act)
               replayed(read(at))
             }
             None -> replayed(None)
@@ -1022,9 +1017,7 @@ fn replay_held(
   }
 }
 
-/// Does in the field what the browser does for a key the field's handlers
-/// leave to it.
-fn act(browser_act: editor.Act) -> Nil {
+fn act_as_browser(browser_act: editor.Act) -> Nil {
   case browser_act {
     editor.TypeText(text) ->
       act_on_field(control_id, "type", text, False, "", "")
@@ -1080,16 +1073,15 @@ fn keyboard() -> editor.Keyboard {
   }
 }
 
-/// A key is decided by the editor the last message left, which the page may
-/// not have drawn yet.
-fn keydown_decoder(
+fn hold_or_decide_key_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
-  decode.one_of(hold_decoder(on_event), [decided_decoder(on_event)])
+  decode.one_of(key_held_behind_page_decoder(on_event), [
+    key_action_decoder(on_event),
+  ])
 }
 
-/// What the field's keydown handlers do with a key the page is not behind.
-fn decided_decoder(
+fn key_action_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   decode.one_of(key_decoder(on_event), [
@@ -1154,15 +1146,15 @@ fn edge_decoder(
     list.drop(lines, head.row)
     |> list.first
     |> result.unwrap("")
-    |> string.drop_start(head.col)
+    |> buffer.rest_of(from: head.col)
     |> is_blank
-  // The browser would move the caret by the layout of a field the page has
-  // not yet set for the rows a press put in it.
-  let #(pending, landed_x, landed) = press_landing(control_id)
+  let PressLanding(pending:, landed_x:) =
+    decode.run(press_landing(control_id), press_landing_decoder())
+    |> result.unwrap(PressLanding(pending: False, landed_x: None))
   let from_press = fn(x) {
-    case landed && head.col != 0 {
-      True -> landed_x
-      False -> x
+    case landed_x, head.col {
+      Some(landed_x), col if col != 0 -> landed_x
+      Some(_), _ | None, _ -> x
     }
   }
   let painted_head =
@@ -1179,8 +1171,8 @@ fn edge_decoder(
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
     "ArrowUp" if bare && pending -> Ok(editor.Line(up: True, select: False))
     "ArrowDown" if bare && pending -> Ok(editor.Line(up: False, select: False))
-    "ArrowUp" if bare -> Ok(editor.Beside(up: True, select: False))
-    "ArrowDown" if bare -> Ok(editor.Beside(up: False, select: False))
+    "ArrowUp" if bare -> Ok(editor.LineInField(up: True, select: False))
+    "ArrowDown" if bare -> Ok(editor.LineInField(up: False, select: False))
     "ArrowUp" if shifted -> Ok(editor.Line(up: True, select: True))
     "ArrowDown" if shifted -> Ok(editor.Line(up: False, select: True))
     "ArrowLeft" if painted -> Ok(editor.SelectLeft)
@@ -1190,37 +1182,48 @@ fn edge_decoder(
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
     "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
     _ if command && !shift && select_all -> Ok(editor.SelectAll)
-    "Home" if command && shift -> Ok(editor.SelectToStart)
-    "End" if command && shift -> Ok(editor.SelectToEnd)
-    "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToStart)
-    "ArrowDown" if meta && shift && alone -> Ok(editor.SelectToEnd)
+    "Home" if command && shift -> Ok(editor.SelectToNoteStart)
+    "End" if command && shift -> Ok(editor.SelectToNoteEnd)
+    "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToNoteStart)
+    "ArrowDown" if meta && shift && alone -> Ok(editor.SelectToNoteEnd)
     "PageUp" if alone && !{ ctrl || meta } ->
       Ok(editor.Page(up: True, select: shift))
     "PageDown" if alone && !{ ctrl || meta } ->
       Ok(editor.Page(up: False, select: shift))
-    "Home" if command -> Ok(editor.ToStart)
-    "End" if command -> Ok(editor.ToEnd)
+    "Home" if command -> Ok(editor.ToNoteStart)
+    "End" if command -> Ok(editor.ToNoteEnd)
     "ArrowUp" if alone && ctrl && !meta ->
-      Ok(editor.Row(up: True, select: shift))
+      Ok(editor.NextRow(up: True, select: shift))
     "ArrowDown" if alone && ctrl && !meta ->
-      Ok(editor.Row(up: False, select: shift))
-    "ArrowUp" if alone && meta -> Ok(editor.ToStart)
-    "ArrowDown" if alone && meta -> Ok(editor.ToEnd)
+      Ok(editor.NextRow(up: False, select: shift))
+    "ArrowUp" if alone && meta -> Ok(editor.ToNoteStart)
+    "ArrowDown" if alone && meta -> Ok(editor.ToNoteEnd)
     "ArrowLeft" | "Backspace" if command && head.row == 0 && blank_before ->
-      Ok(editor.Widen)
+      Ok(editor.WidenToNote)
     "ArrowRight" | "Delete" if command && head.row == end.row && blank_after ->
-      Ok(editor.Widen)
-    "ArrowLeft" if plain && head == start -> Ok(editor.Before)
-    "ArrowRight" if plain && head == end -> Ok(editor.After)
-    "ArrowLeft" if bare && head == start -> Ok(editor.Widen)
-    "ArrowRight" if bare && head == end -> Ok(editor.Widen)
-    "Backspace" if alone && head == start -> Ok(editor.Widen)
-    "Delete" if alone && head == end -> Ok(editor.Widen)
+      Ok(editor.WidenToNote)
+    "ArrowLeft" if plain && head == start -> Ok(editor.OntoRowBefore)
+    "ArrowRight" if plain && head == end -> Ok(editor.OntoRowAfter)
+    "ArrowLeft" if bare && head == start -> Ok(editor.WidenToNote)
+    "ArrowRight" if bare && head == end -> Ok(editor.WidenToNote)
+    "Backspace" if alone && head == start -> Ok(editor.WidenToNote)
+    "Delete" if alone && head == end -> Ok(editor.WidenToNote)
     _ -> Error(Nil)
   }
   let edge = {
     use edge <- result.try(wanted)
     use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
+    // A text field drops a selection that runs forward to where a line
+    // wraps and puts the caret at its end, at the start of the line below.
+    use <- bool.guard(
+      name == "ArrowDown"
+        && bare
+        && anchor != head
+        && !pending
+        && !painted_head
+        && ends_at_wrap(control_id),
+      Error(Nil),
+    )
     let head = fn() {
       head_line(control_id, live_class, painted_class, painted_head)
     }
@@ -1232,20 +1235,19 @@ fn edge_decoder(
         case up && first || !up && last, pending {
           True, _ -> Ok(#(edge, from_press(x)))
           False, True -> Ok(#(editor.Line(up:, select: False), -1.0))
-          False, False -> Ok(#(editor.Beside(up:, select: False), x))
+          False, False -> Ok(#(editor.LineInField(up:, select: False), x))
         }
       }
-      // A step that waits for a press to be drawn measures the caret then.
       editor.Line(..) | editor.Page(..) if pending -> Ok(#(edge, -1.0))
       editor.Line(up:, select:) -> {
         let #(first, last, x) = head()
         case up && first || !up && last || !select {
           True -> Ok(#(edge, x))
-          False -> Ok(#(editor.Beside(up:, select: True), x))
+          False -> Ok(#(editor.LineInField(up:, select: True), x))
         }
       }
-      editor.Row(..) -> Ok(#(edge, from_press(head().2)))
-      editor.Beside(..) | editor.Page(..) -> Ok(#(edge, head().2))
+      editor.NextRow(..) -> Ok(#(edge, from_press(head().2)))
+      editor.LineInField(..) | editor.Page(..) -> Ok(#(edge, head().2))
       editor.JoinBefore
       | editor.JoinAfter
       | editor.SelectBefore
@@ -1254,21 +1256,21 @@ fn edge_decoder(
       | editor.SelectRight
       | editor.SelectLineStart
       | editor.SelectLineEnd
-      | editor.SelectToStart
-      | editor.SelectToEnd
+      | editor.SelectToNoteStart
+      | editor.SelectToNoteEnd
       | editor.SelectAll
-      | editor.Before
-      | editor.After
-      | editor.ToStart
-      | editor.ToEnd
-      | editor.Widen -> Ok(#(edge, 0.0))
+      | editor.OntoRowBefore
+      | editor.OntoRowAfter
+      | editor.ToNoteStart
+      | editor.ToNoteEnd
+      | editor.WidenToNote -> Ok(#(edge, 0.0))
     }
   }
   case edge {
     Ok(#(edge, x)) ->
       on_event(editor.EdgePressed(edge:, x:, shown:))
       |> event.handler(
-        prevent_default: wanted != Ok(editor.Widen),
+        prevent_default: wanted != Ok(editor.WidenToNote),
         stop_propagation: False,
       )
       |> decode.success
@@ -1396,12 +1398,18 @@ fn write_control(
   backward: Bool,
 ) -> Nil
 
-@external(javascript, "./surface.ffi.mjs", "textWidth")
-fn text_width(text: String) -> Float
+fn heading_text_width(text: String, level: markdown.Level) -> Float {
+  measure_heading(text, heading_class(level))
+}
 
-/// In widths of the root font's letter M.
+@external(javascript, "./surface.ffi.mjs", "textWidth")
+fn body_text_width(text: String) -> Float
+
+@external(javascript, "./surface.ffi.mjs", "textWidth")
+fn measure_heading(text: String, heading: String) -> Float
+
 @external(javascript, "./surface.ffi.mjs", "boldWidth")
-fn bold_width(text: String) -> Float
+fn bold_width_em(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "askFocus")
 fn ask_focus() -> Nil
@@ -1424,6 +1432,9 @@ fn holds_focus(id: String) -> Bool
 @external(javascript, "./surface.ffi.mjs", "drawnInPage")
 fn drawn_in_page(id: String, live_class: String) -> Bool
 
+@external(javascript, "./surface.ffi.mjs", "endsAtWrap")
+fn ends_at_wrap(id: String) -> Bool
+
 @external(javascript, "./surface.ffi.mjs", "caretLine")
 fn caret_line(id: String) -> #(Bool, Bool)
 
@@ -1434,6 +1445,45 @@ fn head_line(
   painted_class: String,
   painted: Bool,
 ) -> #(Bool, Bool, Float)
+
+type StepLanding {
+  StepWaitsForPage
+  StepPastEnd
+  StepInField(x: Option(Float))
+  StepLanded(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Option(Float),
+  )
+  StepNowhere(x: Option(Float))
+}
+
+fn step_landing_decoder() -> Decoder(StepLanding) {
+  use kind <- decode.field("kind", decode.string)
+  use x <- decode.optional_field("x", None, decode.map(decode.float, aimed_x))
+  case kind {
+    "waitsForPage" -> decode.success(StepWaitsForPage)
+    "pastEnd" -> decode.success(StepPastEnd)
+    "inField" -> decode.success(StepInField(x:))
+    "landed" -> {
+      use row <- decode.field("row", decode.int)
+      use visible <- decode.field("visible", decode.string)
+      use at_end <- decode.field("atEnd", decode.bool)
+      use next <- decode.field("next", decode.string)
+      decode.success(StepLanded(row:, visible:, at_end:, next:, x:))
+    }
+    _ -> decode.success(StepNowhere(x:))
+  }
+}
+
+fn aimed_x(x: Float) -> Option(Float) {
+  case x >=. 0.0 {
+    True -> Some(x)
+    False -> None
+  }
+}
 
 @external(javascript, "./surface.ffi.mjs", "stepHead")
 fn step_head(
@@ -1448,10 +1498,10 @@ fn step_head(
   granularity: String,
   forward: Bool,
   select: Bool,
-  x: Float,
+  x: Dynamic,
   field_first: Int,
   row_count: Int,
-) -> #(Int, String, Bool, String, Float)
+) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "holdStep")
 fn hold_step(held: Bool, for: Editor) -> Nil
@@ -1502,8 +1552,18 @@ fn painted_on_page(id: String, painted_class: String) -> Bool
 @external(javascript, "./surface.ffi.mjs", "notePress")
 fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
 
+type PressLanding {
+  PressLanding(pending: Bool, landed_x: Option(Float))
+}
+
+fn press_landing_decoder() -> Decoder(PressLanding) {
+  use pending <- decode.field("pending", decode.bool)
+  use landed_x <- decode.field("landedX", decode.optional(decode.float))
+  decode.success(PressLanding(pending:, landed_x:))
+}
+
 @external(javascript, "./surface.ffi.mjs", "pressLanding")
-fn press_landing(id: String) -> #(Bool, Float, Bool)
+fn press_landing(id: String) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "revealCaret")
 fn reveal_caret(id: String, live_class: String, painted_class: String) -> Nil
@@ -1547,7 +1607,7 @@ fn aim_control(
   end: Int,
   backward: Bool,
   x: Float,
-  line: Int,
+  line: String,
   select: Bool,
   row_start: Bool,
   again: Bool,

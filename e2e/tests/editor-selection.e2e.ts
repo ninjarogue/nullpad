@@ -3,13 +3,6 @@ import { clickSeries, ctrl, doubleClick, Editing, offsetOf, withRawPage } from '
 import type { Spot } from './editing.ts';
 import { test } from './nullpad.ts';
 
-/**
- * What any text editor does with a selection, in the page view (Markdown
- * off), where the note is drawn and a text field holds the block the caret is
- * in. A selection can start and end in different blocks, so each way of
- * making one is followed by each thing a person does with one.
- */
-
 const note = 'alpha one\n\nbravo two\n\ncharlie three';
 const start: Spot = { word: 'one', at: 0 };
 const end: Spot = { word: 'three', at: 0 };
@@ -67,10 +60,8 @@ const selections: Selection[] = [
 
 type Action = {
   name: string;
-  /** Every way of selecting is tried with the core actions, and the first and last also with the rest. */
   core: boolean;
   run(editor: Editing): Promise<void>;
-  /** What the note is after it, and what is on the clipboard, given what was selected. */
   after(selection: Selection): { note: string; clipboard: string };
 };
 
@@ -370,11 +361,6 @@ test('a double click inside the open block selects the word, and typing replaces
   });
 });
 
-/**
- * The keys and then `typed` leave the note as they leave a plain text field
- * holding it, as saved: the page hides marks, so it cannot be read off the
- * page.
- */
 function savedLikeAPlainField(name: string, body: string, at: Spot, keys: string[], typed = 'X') {
   test(name, async (fixtures) => {
     const editor = new Editing(fixtures);

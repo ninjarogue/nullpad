@@ -1572,12 +1572,13 @@ test('a right-click on the drawn page leaves the caret and the focus where they 
   await expect(page.text).toHaveValue('firstX');
 });
 
-for (const [what, typed, below] of [
-  ['a dash', '- x', 'below words'],
-  ['indented code', '    c', 'below words'],
-  ['a heading', '# T', 'below words'],
-  ['a task', '- [ ] t', 'below words'],
-  ['a number above a list', '1. n', '3. alpha\n4. beta'],
+for (const [what, heading, typed, below] of [
+  ['a dash', '', '- x', 'below words'],
+  ['indented code', '', '    c', 'below words'],
+  ['a seventh heading mark', '######', '#', 'below words'],
+  ['a word after a heading mark', '#', 'tag', 'below words'],
+  ['a task', '', '- [ ] t', 'below words'],
+  ['a number above a list', '', '1. n', '3. alpha\n4. beta'],
 ] as const) {
   test(`${what} typed on an empty row moves nothing around it and keeps the row's height`, async ({
     app,
@@ -1598,7 +1599,9 @@ for (const [what, typed, below] of [
     await page.nextFrame();
     const still = await measure();
 
-    let sofar = '';
+    for (const key of heading) await browser.keyboard.type(key);
+    await expect(page.text).toHaveValue(heading);
+    let sofar = heading;
     for (const key of typed) {
       await browser.keyboard.type(key);
       sofar += key;
@@ -1615,6 +1618,304 @@ for (const [what, typed, below] of [
     }
   });
 }
+
+const field = '[data-test-id="editor"]';
+
+for (const level of [1, 2, 3, 4, 5, 6]) {
+  const marks = '#'.repeat(level);
+  test(`${marks} typed before a line draws it at the size of a heading ${level} while the caret is on it`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `top\n\nHello world\n\nbelow words\n\n${marks} Finished`);
+    const finished = await page.sizesOf(`[data-test-id="live-below"] h${level}`);
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('Hello world');
+    await browser.keyboard.press('Home');
+    await page.nextFrame();
+    const belowAt = async () => (await page.placeOf('below'))!.top;
+    const bodySize = await page.sizesOf(field);
+    const before = await belowAt();
+
+    for (const mark of marks) await browser.keyboard.type(mark);
+    await expect(page.text).toHaveValue(`${marks}Hello world`);
+    await page.nextFrame();
+    expect(await page.sizesOf(field)).toEqual(bodySize);
+    expect(await belowAt()).toBe(before);
+
+    await browser.keyboard.type(' ');
+    await expect(page.text).toHaveValue(`${marks} Hello world`);
+    await expect.poll(() => page.sizesOf(field)).toEqual(finished);
+    const after = await belowAt();
+    expect(after).not.toBe(before);
+
+    await browser.keyboard.press('End');
+    for (const key of ' more') {
+      await browser.keyboard.type(key);
+      await page.nextFrame();
+      expect(await page.sizesOf(field)).toEqual(finished);
+      expect(await belowAt()).toBe(after);
+    }
+
+    const typed = { marks: (await page.placeOf(marks))!, hello: (await page.placeOf('Hello'))! };
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    await page.nextFrame();
+    const drawn = (await page.placeOf('Hello'))!;
+    expect({ below: await belowAt(), top: drawn.top, left: drawn.left }).toEqual({
+      below: after,
+      top: typed.hello.top,
+      left: typed.hello.left,
+    });
+    expect(typed.marks.right).toBeLessThanOrEqual(typed.hello.left + 0.5);
+  });
+}
+
+for (const [prefix, marks] of [
+  ['', '#'],
+  ['', '##'],
+  ['', '######'],
+  ['- ', '#'],
+  ['- ', '##'],
+  ['1. ', '#'],
+  ['> ', '#'],
+  ['> ', '##'],
+  ['> - ', '#'],
+  ['- > ', '#'],
+] as const) {
+  test(`${prefix}${marks} typed on an empty row is set at its drawn heading size at each key, the rows below move only as its marks are typed, and leaving it moves nothing`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    const steps = [...[...marks].map((_, at) => marks.slice(0, at + 1)), `${marks} `, `${marks} H`];
+    const belowAt = async () => (await page.placeOf('below'))!.top;
+    const reopen = async (body: string) => {
+      await disk.seed([stored(body)]);
+      await browser.evaluate(() => {
+        localStorage.setItem('nullpad.markdown', 'on');
+        return null;
+      });
+      await openLive({ app, disk, page }, body);
+    };
+    const drawn: { step: string; sizes: { size: string; line: string }; below: number }[] = [];
+    for (const step of steps) {
+      await reopen(`top\n\n${prefix}${step}\n\nbelow words`);
+      await page.stopEditing();
+      const heading = `[data-test-id="preview"] h${step.split('#').length - 1}`;
+      await expect(browser.locator(heading)).toHaveCount(1);
+      await page.nextFrame();
+      drawn.push({ step, sizes: await page.sizesOf(heading), below: await belowAt() });
+    }
+
+    await reopen('top\n\n\n\nbelow words');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    await browser.keyboard.type(prefix);
+    await expect(page.text).toHaveValue(prefix);
+    for (const { step, sizes, below } of drawn.slice(0, marks.length)) {
+      await browser.keyboard.type(step.slice(-1));
+      await expect(page.text).toHaveValue(`${prefix}${step}`);
+      await expect.poll(async () => ({ step, sizes: await page.sizesOf(field) })).toEqual({ step, sizes });
+      await expect.poll(async () => ({ step, below: await belowAt() })).toEqual({ step, below });
+    }
+    for (const { step, sizes, below } of drawn.slice(marks.length)) {
+      await browser.keyboard.type(step.slice(-1));
+      await expect(page.text).toHaveValue(`${prefix}${step}`);
+      await page.nextFrame();
+      expect({ step, sizes: await page.sizesOf(field), below: await belowAt() }).toEqual({
+        step,
+        sizes,
+        below: drawn[marks.length - 1].below,
+      });
+      expect(below).toBe(drawn[marks.length - 1].below);
+    }
+  });
+}
+
+test('taking the # off a heading returns its line to body size at once and moves the rows below once', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, 'top\n\nHello world\n\nbelow words');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('Home');
+  const bodySize = await page.sizesOf(field);
+  await page.nextFrame();
+  const before = (await page.placeOf('below'))!.top;
+
+  await browser.keyboard.type('# ');
+  await expect(page.text).toHaveValue('# Hello world');
+  await expect.poll(async () => (await page.sizesOf(field)).size).toBe('32px');
+  await expect.poll(async () => (await page.placeOf('below'))!.top).toBeGreaterThan(before);
+
+  await browser.keyboard.press('Backspace');
+  await expect(page.text).toHaveValue('#Hello world');
+  await expect.poll(() => page.sizesOf(field)).toEqual(bodySize);
+  await expect.poll(async () => (await page.placeOf('below'))!.top).toBe(before);
+
+  await browser.keyboard.press('Backspace');
+  await expect(page.text).toHaveValue('Hello world');
+  expect(await page.sizesOf(field)).toEqual(bodySize);
+  await page.nextFrame();
+  expect((await page.placeOf('below'))!.top).toBe(before);
+});
+
+test('taking the # off a finished heading draws its line at body size at once', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, 'top\n\n# Hello world\n\nbelow words');
+  const bodySize = await page.sizesOf('[data-test-id="live-below"] p');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await expect(page.text).toHaveValue('# Hello world');
+  await page.nextFrame();
+  const before = (await page.placeOf('below'))!.top;
+
+  await browser.keyboard.press('Home');
+  await browser.keyboard.press('Delete');
+  await expect(page.text).toHaveValue(' Hello world');
+  await expect.poll(() => page.sizesOf(field)).toEqual(bodySize);
+  await expect.poll(async () => (await page.placeOf('below'))!.top).toBeLessThan(before);
+});
+
+for (const [what, prefix, marks, size] of [
+  ['a list item', '- ', '#', '32px'],
+  ['a list item at level 2', '- ', '##', '24px'],
+  ['a list item at level 3', '- ', '###', '20px'],
+  ['a list item at level 4', '- ', '####', '18px'],
+  ['a list item at level 5', '- ', '#####', '16px'],
+  ['a list item at level 6', '- ', '######', '14px'],
+  ['a quote', '> ', '#', '32px'],
+  ['a quote at level 2', '> ', '##', '24px'],
+  ['a quote at level 3', '> ', '###', '20px'],
+  ['a quote at level 4', '> ', '####', '18px'],
+  ['a quote at level 5', '> ', '#####', '16px'],
+  ['a quote at level 6', '> ', '######', '14px'],
+  ['a nested item', '- - ', '#', '32px'],
+  ['a nested item at level 2', '- - ', '##', '24px'],
+  ['a nested item at level 3', '- - ', '###', '20px'],
+  ['a nested item at level 4', '- - ', '####', '18px'],
+  ['a nested item at level 5', '- - ', '#####', '16px'],
+  ['a nested item at level 6', '- - ', '######', '14px'],
+  ['a quoted item', '> - ', '#', '32px'],
+  ['a quoted item at level 2', '> - ', '##', '24px'],
+  ['a quoted item at level 3', '> - ', '###', '20px'],
+  ['a quoted item at level 4', '> - ', '####', '18px'],
+  ['a quoted item at level 5', '> - ', '#####', '16px'],
+  ['a quoted item at level 6', '> - ', '######', '14px'],
+  ['an ordered item', '1. ', '#', '32px'],
+  ['an ordered item at level 2', '1. ', '##', '24px'],
+  ['an ordered item at level 3', '1. ', '###', '20px'],
+  ['an ordered item at level 4', '1. ', '####', '18px'],
+  ['an ordered item at level 5', '1. ', '#####', '16px'],
+  ['an ordered item at level 6', '1. ', '######', '14px'],
+  ['a quote in an item', '- > ', '#', '32px'],
+  ['a quote in an item at level 2', '- > ', '##', '24px'],
+  ['a quote in an item at level 3', '- > ', '###', '20px'],
+  ['a quote in an item at level 4', '- > ', '####', '18px'],
+  ['a quote in an item at level 5', '- > ', '#####', '16px'],
+  ['a quote in an item at level 6', '- > ', '######', '14px'],
+] as const) {
+  test(`a # typed in ${what} draws its line at heading size at once, and leaving the line moves nothing`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, 'top\n\nHello world\n\nbelow words');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('Home');
+    await browser.keyboard.type(prefix);
+    await expect(page.text).toHaveValue(`${prefix}Hello world`);
+    await page.nextFrame();
+    const belowAt = async () => (await page.placeOf('below'))!.top;
+    const bodySize = await page.sizesOf(field);
+    const base = await belowAt();
+
+    await browser.keyboard.type(marks);
+    await expect(page.text).toHaveValue(`${prefix}${marks}Hello world`);
+    await page.nextFrame();
+    expect(await page.sizesOf(field)).toEqual(bodySize);
+    expect(await belowAt()).toBe(base);
+
+    await browser.keyboard.type(' ');
+    await expect(page.text).toHaveValue(`${prefix}${marks} Hello world`);
+    await expect.poll(async () => (await page.sizesOf(field)).size).toBe(size);
+    const typed = await page.sizesOf(field);
+    await expect.poll(belowAt).not.toBe(base);
+    const after = await belowAt();
+
+    await browser.keyboard.press('End');
+    for (const key of ' more') {
+      await browser.keyboard.type(key);
+      await page.nextFrame();
+      expect(await page.sizesOf(field)).toEqual(typed);
+      expect(await belowAt()).toBe(after);
+    }
+
+    const hello = (await page.placeOf('Hello'))!;
+    const hangs = prefix === '- ' || prefix === '1. ';
+    const marksAt = (await page.placeOf(marks))!;
+    await browser.keyboard.press('ArrowDown');
+    await expect(page.text).toHaveValue('');
+    await page.nextFrame();
+    expect(await page.sizesOf(`[data-test-id="live-above"] h${marks.length}`)).toEqual(typed);
+    const drawn = (await page.placeOf('Hello'))!;
+    expect({ below: await belowAt(), top: drawn.top }).toEqual({ below: after, top: hello.top });
+    if (hangs) expect(drawn.left).toBe(marksAt.left);
+  });
+
+  test(`taking the # off a heading in ${what} returns its line to body size at once`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, 'top\n\nHello world\n\nbelow words');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('Home');
+    await browser.keyboard.type(prefix);
+    await page.nextFrame();
+    const bodySize = await page.sizesOf(field);
+    const base = (await page.placeOf('below'))!.top;
+    await browser.keyboard.type(`${marks} `);
+    await expect.poll(async () => (await page.sizesOf(field)).size).toBe(size);
+
+    await browser.keyboard.press('Backspace');
+    await expect(page.text).toHaveValue(`${prefix}${marks}Hello world`);
+    await expect.poll(() => page.sizesOf(field)).toEqual(bodySize);
+    await expect.poll(async () => (await page.placeOf('below'))!.top).toBe(base);
+  });
+}
+
+test('a setext underline typed under a line does not make that line a heading while the caret is on the underline', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  await openLive({ app, disk, page }, '');
+  await browser.keyboard.type('Hello\n');
+  await expect(page.text).toHaveValue('');
+  await page.nextFrame();
+  const body = await page.fieldFont();
+  const line = await page.placeOf('Hello');
+  await browser.keyboard.type('---');
+  await expect(page.text).toHaveValue('---');
+  await page.nextFrame();
+  expect(await page.fieldFont()).toEqual(body);
+  expect(await page.placeOf('Hello')).toEqual(line);
+  await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
+});
 
 test('a press whose hand moves up to four pixels each way selects nothing, and five pixels sideways selects', async ({
   app,
@@ -2421,6 +2722,61 @@ for (const [cell, field] of [
     const { width, height } = (await box.boundingBox())!;
     await box.click({ position: { x: width - 4, y: height / 2 } });
     await expect.poll(() => page.caret()).toBe(field);
+  });
+}
+
+for (const [block, selector, row, field] of [
+  ['heading', 'h1', '# 👍🏽z', '# |👍🏽z'],
+  ['list item', 'li', '- 🇯🇵z', '- |🇯🇵z'],
+  ['quote', 'blockquote', '> 👨‍👩‍👧z', '> |👨‍👩‍👧z'],
+  ['table cell', 'td', '| a | b |\n|-|-|\n| e\u0301z | q |', '| a | b |\n|-|-|\n| |e\u0301z | q |'],
+] as const) {
+  test(`a click on the left of a drawn ${block}'s first letter made of several code points puts the caret before it, after the marks`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `Para.\n\n${row}\n\nEnd.`);
+    const at = await browser.evaluate((selector: string) => {
+      const text = document.createTreeWalker(document.querySelector(`.page.live ${selector}`)!, NodeFilter.SHOW_TEXT).nextNode() as Text;
+      const [first] = new Intl.Segmenter().segment(text.data);
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, first!.segment.length);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + box.width / 4, y: box.top + box.height / 2 };
+    }, selector);
+    await browser.mouse.move(at.x, at.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect.poll(() => page.caret()).toBe(field);
+  });
+}
+
+for (const [cell, row, field] of [
+  ['語', '| 日本 | 語 |', '| 日本 | |語 |'],
+  ['thé', '| café | thé |', '| café | |thé |'],
+] as const) {
+  test(`a click at the start of the drawn table cell ${cell}, after a cell of letters of more than one byte, puts the caret in that cell`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, `Para.\n\n| a | b |\n|-|-|\n${row}\n\nEnd.`);
+    const at = await browser.evaluate((cell: string) => {
+      const text = [...document.querySelectorAll('.page.live td')].find((td) => td.textContent === cell)!.firstChild!;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 1);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + box.width / 4, y: box.top + box.height / 2 };
+    }, cell);
+    await browser.mouse.move(at.x, at.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect.poll(() => page.caret()).toBe(`| a | b |\n|-|-|\n${field}`);
   });
 }
 

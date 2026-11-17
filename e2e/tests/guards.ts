@@ -2,15 +2,8 @@ import type { Browser } from '@e2e-dev/web';
 
 declare const process: { env: Record<string, string | undefined> };
 
-/**
- * `NULLPAD_FAST=1` runs the movement, editing and typing guards the way a
- * hurried hand does: no frame is waited for between two keys, or between a
- * click and the key after it. The page is looked at only where a guard asserts
- * something.
- */
 export const fast = process.env['NULLPAD_FAST'] === '1';
 
-/** The properties that decide where a character of a text field is drawn. */
 export const placing = [
   'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant-ligatures', 'font-kerning', 'font-feature-settings',
   'line-height', 'letter-spacing', 'word-spacing', 'tab-size', 'text-indent', 'text-transform', 'text-align', 'direction',
@@ -19,9 +12,7 @@ export const placing = [
 ];
 
 type Cursor = {
-  /** Where the cursor is in the window, or null when there is no open text field to have one. */
   at: { x: number; top: number; bottom: number } | null;
-  /** What is wrong with it as a person sees it, or null. */
   problem: string | null;
 };
 
@@ -30,21 +21,8 @@ type Cell = [number, number];
 type Selection = { problem: string } | { value: string; first: number; anchor: Cell; head: Cell };
 
 /**
- * The cursor and the selection as a person sees them. Runs in the page.
- *
- * While the text field is in sight, they are the field's. A text field cannot
- * be asked where its caret is, so a hidden copy of it is laid out at the same
- * place and asked instead. `lines` are the rows of the note as it should now
- * be: the text field holds the rows between the part drawn above it and the
- * part drawn below it, so the rows below fix where it starts.
- *
- * While a selection across blocks is painted on the drawn page, the field is
- * out of sight, and they are read from the paint: the selection from the
- * `nullpad-selection` highlight, the cursor from the `nullpad-head` one. A
- * place on the drawn page stands for every place of the note drawn there,
- * such as before and after the marks the page hides. Of those, the reader
- * takes the one the text field holds, which is where typing goes, and names
- * the problem when the field holds none of them.
+ * A text field cannot be asked where its caret is, so a hidden copy of it is
+ * laid out at the same place and asked instead.
  */
 function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; lines: string[]; focus: boolean }): Cursor | Selection {
   const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
@@ -87,10 +65,6 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     ruler.setAttribute('aria-hidden', 'true');
     ruler.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;visibility:hidden;pointer-events:none;overflow:hidden;box-sizing:border-box`;
     for (const name of use.placing) ruler.style.setProperty(name, style.getPropertyValue(name));
-    // Where a row wraps, the end of a line and the start of the next share an
-    // offset. A caret the keys put there is drawn at the start of the next
-    // line, where the letter after it is, and a marker of no width would sit
-    // at the end of the line before.
     const marker = document.createElement('span');
     const letter = field.value[head];
     const after = letter === undefined || letter === '\n' ? '' : letter;
@@ -106,7 +80,6 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     if (at.top < rect.top - 0.5 || at.bottom > rect.bottom + 0.5) {
       return { at, problem: `${where(at)}, and the text field's box ends at y ${round(rect.top)} to ${round(rect.bottom)}` };
     }
-    // A caret before a space that ends a wrapped line is drawn at the field's right edge.
     const hit = document.elementFromPoint(Math.min(at.x + 0.5, rect.right - 0.5), (at.top + at.bottom) / 2);
     if (hit !== field) return { at, problem: `${where(at)}, and ${named(hit)} is drawn over it` };
     return { at, problem: null };
@@ -126,7 +99,6 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     return { value: field.value, first, anchor: backward ? end : start, head: backward ? start : end };
   };
 
-  /** The box of a caret at `range`: the letter after it, else the letter before it, else the element it is in. */
   const caretBox = (range: AbstractRange) => {
     const node = range.startContainer;
     const offset = range.startOffset;
@@ -170,7 +142,6 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     const segmenter = new Intl.Segmenter();
     const letters = (text: string) => [...segmenter.segment(text)].map((piece) => piece.segment);
 
-    /** The drawn text from the start of `holder` to where the page draws `col` of `row`, which `holder` draws. */
     const drawnTo = (holder: HTMLElement, row: number, col: number) => {
       const visible = holder.textContent ?? '';
       const drawnRows = visible.split('\n');
@@ -186,7 +157,6 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
       return [...drawnRows.slice(0, index), taken].join('\n');
     };
 
-    /** Every place of the note that is drawn at the boundary point `node`, `offset`. */
     const placesAt = (node: Node, offset: number) => {
       const found: Cell[] = [];
       for (let row = 0; row < lines.length; row++) {
@@ -243,17 +213,11 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
   return use.want === 'cursor' ? paintedCursor(headMark) : paintedSelection(selected, headMark);
 }
 
-/** Looks at the cursor and names the key after which it was out of view. Null when it is in view. */
 export async function cursorProblem(browser: Browser, after: string) {
   const { problem } = (await browser.evaluate(lookInPage, { want: 'cursor', placing, lines: [], focus: true })) as Cursor;
   return problem === null ? null : `after ${after}: ${problem}`;
 }
 
-/** Where the cursor is in the window, or null when there is none. */
-/**
- * Whether the cursor starts a line as the page or the text field draws it,
- * where it cannot go further left: the letter before it is on another line.
- */
 export async function cursorStartsLine(browser: Browser) {
   return (await browser.evaluate(startsLineInPage, placing)) as boolean;
 }
@@ -297,11 +261,6 @@ export async function cursorAt(browser: Browser) {
   return ((await browser.evaluate(lookInPage, { want: 'cursor', placing, lines: [], focus: true })) as Cursor).at;
 }
 
-/**
- * The selection as rows and columns of the note, and what the text field
- * holds. `lines` are the rows of the note as it should now be. `focus: false`
- * reads it even when the field has no focus.
- */
 export async function selectionOf(browser: Browser, lines: string[], focus = true) {
   return (await browser.evaluate(lookInPage, { want: 'selection', placing, lines, focus })) as Selection;
 }
@@ -309,15 +268,11 @@ export async function selectionOf(browser: Browser, lines: string[], focus = tru
 export type Box = { left: number; top: number; right: number; bottom: number };
 
 export type Word = {
-  /** Where the page draws the word, or null while the text field holds it. */
   drawn: Box | null;
-  /** Where the open text field has the word, or null while the page draws it. */
   typed: Box | null;
-  /** Where a hand aims at the drawn word: a quarter of the way into its middle letter. */
   aim: { x: number; y: number } | null;
 };
 
-/** The first drawn text node holding `word` and the same word in the open text field. Runs in the page. */
 function wordInPage(find: { word: string; placing: string[] }): Word {
   const rect = (range: Range): Box => {
     const box = range.getClientRects()[0] ?? range.getBoundingClientRect();
@@ -363,12 +318,10 @@ function wordInPage(find: { word: string; placing: string[] }): Word {
   return { drawn, typed, aim };
 }
 
-/** Where `word` is, drawn on the page and in the open text field. The word must appear once in the note. */
 export function wordAt(browser: Browser, word: string) {
   return browser.evaluate(wordInPage, { word, placing });
 }
 
-/** The words drawn on the page, and the ones among them that are link text, which a click follows instead of editing. Runs in the page. */
 export function drawnWordsInPage(): { words: string[]; links: string[] } {
   const words: string[] = [];
   const links: string[] = [];
@@ -381,7 +334,6 @@ export function drawnWordsInPage(): { words: string[]; links: string[] } {
   return { words, links };
 }
 
-/** Every run of three or more letters or digits drawn on the page. */
 export function drawnWords(browser: Browser) {
   return browser.evaluate(drawnWordsInPage);
 }

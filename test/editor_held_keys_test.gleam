@@ -1,7 +1,3 @@
-//// Keys pressed before the page has drawn what the editor asked of it: they
-//// wait behind the steps of the head the page has not taken, and are replayed
-//// one at a time, in the order they were pressed, once it has.
-
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/order
@@ -53,7 +49,6 @@ fn ctrl(name: String) -> Held {
   )
 }
 
-/// Shift and Down, which the page takes.
 fn step_down(ed: Editor) -> Editor {
   let shown = editor.field_buffer(ed)
   let Outcome(editor: ed, sync:, ..) =
@@ -65,11 +60,10 @@ fn step_down(ed: Editor) -> Editor {
   ed
 }
 
-/// The page took the step down from the first row to the blank row.
 fn stepped(ed: Editor) -> Editor {
   editor.update(
     ed,
-    editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: 0.0),
+    editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: Some(0.0)),
   ).editor
 }
 
@@ -98,13 +92,13 @@ pub fn every_kind_of_key_waits_behind_a_step_and_replays_in_order_test() {
     ctrl("z"),
     ctrl("e"),
     editor.HeldPaste(text: "pasted", at: 0),
-    editor.HeldUndo,
-    editor.HeldRedo,
+    editor.HeldMenuUndo,
+    editor.HeldMenuRedo,
     key("Escape"),
   ]
   let ed = opened() |> step_down
   let ed = list.fold(keys, ed, hold)
-  assert editor.is_waiting(ed)
+  assert editor.keys_wait(ed)
   assert editor.replay(ed) == None
 
   let ed = stepped(ed)
@@ -116,7 +110,7 @@ pub fn every_kind_of_key_waits_behind_a_step_and_replays_in_order_test() {
       editor.update(ed, editor.Replayed(None)).editor
     })
   assert editor.replay(ed) == None
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
 pub fn a_replayed_step_holds_the_keys_behind_it_until_the_page_takes_it_test() {
@@ -146,7 +140,7 @@ pub fn a_replayed_step_holds_the_keys_behind_it_until_the_page_takes_it_test() {
   let ed =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: 0.0),
+      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: Some(0.0)),
     ).editor
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 0), Position(row: 2, col: 0))
@@ -164,10 +158,9 @@ pub fn a_replayed_letter_types_over_what_the_step_selected_test() {
     )
   assert editor.text(ed) == "x\nsecond para here\nthird row\n\nlast"
   assert editor.replay(ed) == None
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
-/// The field once `text` is typed over its selection.
 fn typed_over(ed: Editor, text: String) -> buffer.Buffer {
   let field = editor.field_buffer(ed)
   let #(anchor, head) = buffer.selection(field)
@@ -188,7 +181,7 @@ pub fn a_press_drops_the_keys_waiting_behind_a_step_test() {
         y: 0.0,
       ),
     )
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
   assert editor.replay(ed) == None
 
   let ed = stepped(ed)
@@ -200,7 +193,7 @@ pub fn a_press_drops_the_keys_waiting_behind_a_step_test() {
 pub fn the_focus_leaving_drops_the_keys_waiting_test() {
   let ed = opened() |> step_down |> hold(key("x"))
   let ed = editor.update(ed, editor.FocusChanged(focused: False)).editor
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
   assert editor.replay(ed) == None
 }
 
@@ -220,16 +213,16 @@ pub fn an_undo_waits_behind_the_keys_pressed_before_it_test() {
       ),
     ).editor
   assert editor.text(ed) == "x\nsecond para here\nthird row\n\nlast"
-  assert editor.replay(ed) == Some(editor.HeldUndo)
+  assert editor.replay(ed) == Some(editor.HeldMenuUndo)
 
   let ed = editor.update(ed, editor.Replayed(Some(editor.UndoAsked))).editor
   assert editor.text(ed) == note
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
 pub fn a_key_held_when_nothing_waits_is_replayed_at_once_test() {
   let ed = opened() |> hold(key("x"))
-  assert editor.is_waiting(ed)
+  assert editor.keys_wait(ed)
   assert editor.replay(ed) == Some(key("x"))
 }
 
@@ -250,7 +243,9 @@ pub fn a_replayed_key_the_browser_takes_past_the_field_is_acted_on_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Replayed(Some(editor.EdgePressed(editor.Widen, x: 0.0, shown:))),
+      editor.Replayed(
+        Some(editor.EdgePressed(editor.WidenToNote, x: 0.0, shown:)),
+      ),
     )
   let assert editor.WriteAndAct(whole, key: held) = sync
   assert held == ctrl("End")
@@ -263,10 +258,14 @@ pub fn keys_wait_while_the_field_holds_the_note_for_the_browser_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Widen, x: 0.0, shown: editor.field_buffer(ed)),
+      editor.EdgePressed(
+        editor.WidenToNote,
+        x: 0.0,
+        shown: editor.field_buffer(ed),
+      ),
     )
   let assert editor.WriteAndRead(whole) = sync
-  assert editor.is_waiting(ed)
+  assert editor.keys_wait(ed)
 
   let ed = hold(ed, shifted("ArrowLeft"))
   assert editor.replay(ed) == None
@@ -277,7 +276,7 @@ pub fn keys_wait_while_the_field_holds_the_note_for_the_browser_test() {
 pub fn a_replayed_key_steers_the_head_the_way_it_moved_it_test() {
   let held = shifted("ArrowLeft")
   let ed = opened() |> step_down |> hold(held) |> stepped
-  assert editor.direction(ed) == order.Gt
+  assert editor.last_key_travel(ed) == order.Gt
   assert editor.replay(ed) == Some(held)
 
   let Outcome(editor: ed, ..) =
@@ -293,10 +292,9 @@ pub fn a_replayed_key_steers_the_head_the_way_it_moved_it_test() {
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 0), Position(row: 0, col: 10))
-  assert editor.direction(ed) == order.Lt
+  assert editor.last_key_travel(ed) == order.Lt
 }
 
-/// `field` with `text` put over its selection, as an IME composes it there.
 fn over(field: buffer.Buffer, text: String) -> buffer.Buffer {
   let #(anchor, head) = buffer.selection(field)
   let #(from, to) = case buffer.compare(anchor, head) {
@@ -306,9 +304,6 @@ fn over(field: buffer.Buffer, text: String) -> buffer.Buffer {
   buffer.replace(field, from:, to:, with: text)
 }
 
-/// Every held key replayed, as the surface replays them once the page has
-/// caught up: a letter or a text typed over the field's selection, an undo
-/// or a redo asked again.
 fn drain(ed: Editor) -> Editor {
   let typed = fn(text) {
     editor.update(
@@ -322,17 +317,13 @@ fn drain(ed: Editor) -> Editor {
     None -> ed
     Some(editor.HeldKey(key:, ..)) -> drain(typed(key))
     Some(editor.HeldPaste(text:, ..)) -> drain(typed(text))
-    Some(editor.HeldUndo) ->
+    Some(editor.HeldMenuUndo) ->
       drain(editor.update(ed, editor.Replayed(Some(editor.UndoAsked))).editor)
-    Some(editor.HeldRedo) ->
+    Some(editor.HeldMenuRedo) ->
       drain(editor.update(ed, editor.Replayed(Some(editor.RedoAsked))).editor)
   }
 }
 
-/// An IME begins to compose while the page is behind: a text field would
-/// have done the step and the key first, so what it composes goes in after
-/// them, over what they leave selected. The field is the IME's until it
-/// ends, so the step waits too, and the field is put back once it ends.
 pub fn text_an_ime_composes_behind_a_held_key_goes_in_after_it_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let field = editor.field_buffer(ed)
@@ -354,7 +345,7 @@ pub fn text_an_ime_composes_behind_a_held_key_goes_in_after_it_test() {
 
   let ed = ed |> stepped |> drain
   assert editor.text(ed) == "zか\nsecond para here\nthird row\n\nlast"
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
 pub fn text_an_ime_composes_while_only_a_step_waits_goes_over_what_it_selects_test() {
@@ -367,7 +358,7 @@ pub fn text_an_ime_composes_while_only_a_step_waits_goes_over_what_it_selects_te
 
   let ed = ed |> stepped |> drain
   assert editor.text(ed) == "か\nsecond para here\nthird row\n\nlast"
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
 pub fn text_an_ime_composes_before_a_held_key_is_replayed_goes_in_after_it_test() {
@@ -383,11 +374,9 @@ pub fn text_an_ime_composes_before_a_held_key_is_replayed_goes_in_after_it_test(
 
   let ed = drain(ed)
   assert editor.text(ed) == "xあ" <> note
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
-/// Chrome sends `select` while an IME composes, which the surface reports as
-/// a change of the field.
 pub fn a_select_while_an_ime_composes_behind_a_key_does_not_end_it_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let field = editor.field_buffer(ed)
@@ -420,7 +409,7 @@ pub fn undo_and_redo_asked_while_an_ime_composes_behind_a_key_are_not_taken_test
     editor.update(ed, editor.Composed(shown: over(field, "か"), at: 0)).editor
   let ed = ed |> stepped |> drain
   assert editor.text(ed) == "zか\nsecond para here\nthird row\n\nlast"
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
 pub fn an_undo_held_before_a_composition_is_taken_before_it_test() {
@@ -434,7 +423,7 @@ pub fn an_undo_held_before_a_composition_is_taken_before_it_test() {
 
   let ed = ed |> stepped |> drain
   assert editor.text(ed) == "か\nsecond para here\nthird row\n\nlast"
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
 pub fn an_undo_after_a_composition_behind_a_key_takes_back_the_composition_test() {
@@ -447,11 +436,9 @@ pub fn an_undo_after_a_composition_behind_a_key_takes_back_the_composition_test(
 
   let ed = ed |> stepped |> drain
   assert editor.text(ed) == note
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
-/// An IME may convert text before the caret again, past the selection it
-/// began in: what it leaves is kept where it left it.
 pub fn text_an_ime_converts_again_behind_a_held_key_is_kept_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let converted =
@@ -462,12 +449,12 @@ pub fn text_an_ime_converts_again_behind_a_held_key_is_kept_test() {
 
   let ed = drain(ed)
   assert editor.text(ed) == "ALPHAz beta\n\nsecond para here\nthird row\n\nlast"
-  assert !editor.is_waiting(ed)
+  assert !editor.keys_wait(ed)
 }
 
 pub fn keys_typed_while_a_chosen_note_loads_go_into_it_test() {
   let choosing = editor.set_choosing(opened(), True).editor
-  assert editor.is_waiting(choosing)
+  assert editor.keys_wait(choosing)
   let choosing = hold(choosing, key("Z"))
   assert editor.replay(choosing) == None
 
@@ -497,7 +484,7 @@ pub fn choosing_another_note_drops_the_keys_waiting_behind_a_step_test() {
 
   let arrived = editor.open(choosing.editor, "next").editor
   assert editor.replay(arrived) == None
-  assert !editor.is_waiting(arrived)
+  assert !editor.keys_wait(arrived)
 }
 
 pub fn a_box_ticked_while_a_chosen_note_loads_changes_nothing_test() {
@@ -532,7 +519,7 @@ pub fn a_modifier_that_types_a_character_has_it_typed_test() {
   assert editor.browser_act(option_a, editor.OtherKeyboard) == None
   assert editor.browser_act(ctrl_alt_r, editor.WindowsKeyboard) == None
   assert editor.browser_act(alt_e, editor.AppleKeyboard) == None
-  assert !editor.holds(ctrl_alt_r, editor.WindowsKeyboard)
+  assert !editor.replay_matches_browser(ctrl_alt_r, editor.WindowsKeyboard)
 }
 
 pub fn only_the_shortcuts_the_replay_can_do_are_held_test() {
@@ -545,14 +532,14 @@ pub fn only_the_shortcuts_the_replay_can_do_are_held_test() {
   let held =
     ["a", "c", "x", "z", "y", "f", "p", "s", "l", "r", "d", "+", "-", "v"]
     |> list.filter(fn(key) {
-      editor.holds(ctrl_key(key), editor.WindowsKeyboard)
+      editor.replay_matches_browser(ctrl_key(key), editor.WindowsKeyboard)
     })
   assert held == ["a", "c", "x", "z", "y"]
-  assert !editor.holds(ctrl_key("a"), editor.AppleKeyboard)
+  assert !editor.replay_matches_browser(ctrl_key("a"), editor.AppleKeyboard)
   assert editor.browser_act(cmd_key("a"), editor.AppleKeyboard)
     == Some(editor.SelectWholeField)
-  assert editor.holds(cmd_key("z"), editor.AppleKeyboard)
-  assert !editor.holds(cmd_key("s"), editor.AppleKeyboard)
+  assert editor.replay_matches_browser(cmd_key("z"), editor.AppleKeyboard)
+  assert !editor.replay_matches_browser(cmd_key("s"), editor.AppleKeyboard)
 }
 
 pub fn cmd_and_option_move_by_lines_and_words_on_a_mac_test() {
@@ -577,8 +564,6 @@ pub fn cmd_and_option_move_by_lines_and_words_on_a_mac_test() {
   assert editor.browser_act(ctrl("ArrowLeft"), editor.AppleKeyboard) == None
 }
 
-/// Off a Mac, Control with ArrowUp or ArrowDown moves by paragraphs in a
-/// text field, so it is held behind the steps like any key the replay does.
 pub fn control_and_up_or_down_is_held_off_a_mac_test() {
   let up =
     editor.HeldKey(
@@ -590,31 +575,29 @@ pub fn control_and_up_or_down_is_held_off_a_mac_test() {
       alt: False,
       at: 0,
     )
-  assert editor.holds(up, editor.OtherKeyboard)
-  assert editor.holds(ctrl("ArrowDown"), editor.WindowsKeyboard)
-  assert !editor.holds(ctrl("ArrowUp"), editor.AppleKeyboard)
+  assert editor.replay_matches_browser(up, editor.OtherKeyboard)
+  assert editor.replay_matches_browser(
+    ctrl("ArrowDown"),
+    editor.WindowsKeyboard,
+  )
+  assert !editor.replay_matches_browser(ctrl("ArrowUp"), editor.AppleKeyboard)
   assert editor.browser_act(up, editor.OtherKeyboard)
     == Some(editor.MoveCaret(True, editor.Backward, editor.ByParagraph))
   assert editor.browser_act(ctrl("ArrowDown"), editor.WindowsKeyboard)
     == Some(editor.MoveCaret(False, editor.Forward, editor.ByParagraph))
 }
 
-/// Off a Mac, Control with Home or End goes to the start or the end of the
-/// note in a text field, so it is held. On a Mac, Option with them does
-/// nothing there, so it goes on to the browser.
 pub fn control_and_home_or_end_is_held_off_a_mac_test() {
-  assert editor.holds(ctrl("Home"), editor.WindowsKeyboard)
+  assert editor.replay_matches_browser(ctrl("Home"), editor.WindowsKeyboard)
   assert editor.browser_act(ctrl("Home"), editor.WindowsKeyboard)
     == Some(editor.MoveCaret(False, editor.Backward, editor.ByDocument))
   assert editor.browser_act(ctrl("End"), editor.OtherKeyboard)
     == Some(editor.MoveCaret(False, editor.Forward, editor.ByDocument))
   let option_home = pressed("Home", "", ctrl: False, meta: False, alt: True)
   assert editor.browser_act(option_home, editor.AppleKeyboard) == None
-  assert !editor.holds(option_home, editor.AppleKeyboard)
+  assert !editor.replay_matches_browser(option_home, editor.AppleKeyboard)
 }
 
-/// The focus comes back while an IME composes behind a held key: it still
-/// composes, so what it composes still goes in after the key.
 pub fn the_focus_coming_back_leaves_a_composition_behind_a_key_composing_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let field = editor.field_buffer(ed)
@@ -648,7 +631,7 @@ pub fn a_drop_ends_the_steps_still_waiting_test() {
   assert editor.text(dropped)
     == "alphax beta\n\nsecond para here\nthird row\n\nlast"
   assert !editor.is_stepping(dropped)
-  assert !editor.is_waiting(dropped)
+  assert !editor.keys_wait(dropped)
 }
 
 pub fn keys_held_behind_the_steps_a_drop_ends_are_still_replayed_test() {
