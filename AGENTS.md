@@ -1,6 +1,6 @@
 # nullpad
 
-A markdown note editor in Gleam with Lustre. Read this before changing code.
+A markdown note editor in Gleam with Lustre. Read this before changing code. How we work (tests first, break-it gate, failure modes, check reviews) is in [docs/PROCESS.md](docs/PROCESS.md).
 
 ## Architecture rules
 
