@@ -522,6 +522,12 @@ test('A click where the caret already is ends a run: ArrowDown takes the column 
 keepsTheColumn('End where the caret already is moves nothing and keeps the run', 'xxxxxxxxxa\nxb\nxxxxxxxxxc', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'End', 'ArrowDown']);
 keepsTheColumn('ArrowRight at the end of the note moves nothing and keeps the run', 'xxxxxxxxxa\nxb', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'ArrowRight', 'ArrowUp']);
 
+const fox = 'The quick brown fox jumps over the lazy dog and keeps running through the forest until the night falls over the whole valley again and again';
+const foxes = `${fox}\n${fox}\n${fox}`;
+for (const at of [1, 4, 8, 25, 29]) {
+  keepsTheColumn(`ArrowDown from letter ${at} of a wrapped row lands where a plain field does`, foxes, { word: 'The quick brown fox jumps over', at, row: 0 }, ['ArrowDown']);
+}
+
 const longNote = Array.from({ length: 60 }, (_, row) => `row ${row} of the note`).join('\n\n');
 
 function movesWithoutTheWholeNote(name: string, at: Spot, keys: string[]) {
