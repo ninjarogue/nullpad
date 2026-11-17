@@ -5,6 +5,7 @@ import type { App, Locator, Screen } from 'e2e';
 import type { BrowserContext, Page as Tab } from 'playwright-core';
 import { listen } from '../browser-problems.mjs';
 import { engine } from '../engine.ts';
+import { Finger } from './finger.ts';
 
 export type Note = { key: string; title: string | null; body: string };
 
@@ -282,6 +283,11 @@ export class Page {
   /** What the browser reported since the last call: the test answers for it, and the end of the test fails on what it did not take. */
   takeProblems() {
     return this.reports.take();
+  }
+
+  /** Makes the window a phone with a finger, once the page is open. The finger touches for real: see `Finger`. */
+  phone() {
+    return Finger.onPhone(() => this.nextFrame());
   }
 
   /** An element of the note drawn around the text field. */
