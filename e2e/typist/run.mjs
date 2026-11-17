@@ -1,10 +1,11 @@
 // Robot typist: random key scripts typed into a plain textarea and into nullpad in real
 // Chromium. Any difference in text, cursor or selection is a bug, shrunk to a short script.
 //
-//   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3] [--tours 3]
+//   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3] [--tours 3] [--phone-count 12]
 //   node typist/run.mjs --script '["a","Enter","ArrowLeft"]'     replay one script
 //   node typist/run.mjs --pace frame|slow|burst|mixed            how fast nullpad is typed at
 //   --close-at-once                                               Ctrl+E (source view) sent with the last keys
+//   --phone                                                       every page is a phone (390x844, mobile, touch)
 //   node typist/run.mjs --scripts '[["a"],["b"]]'               compare several scripts, no shrinking
 //   node typist/run.mjs --no-known                                ignore known.mjs
 //   node typist/run.mjs --no-shifts                               leave the text-shift watcher off
@@ -30,6 +31,10 @@
 // also types `--tours` seeded scripts a frame at a time that paste one block of every kind (every
 // heading level and both setext forms, lists, tasks, a quote, a fence, an indented block, a table
 // and a rule) and walk the cursor down through every row and back up.
+//
+// Phone. A run also types `--phone-count` shorter random scripts and two tours on a phone, which
+// draws a note with other widths, margins and padding: the pages of that pass are 390x844, mobile
+// and touch. `--phone` types the whole run there.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +51,11 @@ const count = Number(args.count ?? process.env.TYPIST_COUNT ?? 120);
 const seed = Number(args.seed ?? process.env.TYPIST_SEED ?? 1);
 const length = Number(args.length ?? 40);
 const workers = Number(args.workers ?? 3);
+const phoneOnly = args.phone !== undefined;
 const tourCount = Number(args.tours ?? 3);
+const phoneCount = phoneOnly || args.script ? 0 : Number(args['phone-count'] ?? 12);
+/** The phone pass types shorter scripts: a row of the note wraps at 390px where the plain textarea does not. */
+const phoneLength = 24;
 const useKnown = args['no-known'] === undefined;
 const useShifts = args['no-shifts'] === undefined;
 const e2eDir = fileURLToPath(new URL('..', import.meta.url));
@@ -86,6 +95,8 @@ const closeAtOnce = args['close-at-once'] !== undefined;
 const forcedPace = args.pace && args.pace !== 'mixed' ? args.pace : null;
 if (forcedPace && !paces.includes(forcedPace)) throw new Error(`--pace ${forcedPace}: one of ${paces.join(', ')}, mixed`);
 const paceOf = (i) => forcedPace ?? (i % 16 === 15 ? 'slow' : i % 16 >= 9 ? 'frame' : 'burst');
+const phonePaceOf = (i) => forcedPace ?? (i % 3 === 0 ? 'burst' : 'frame');
+const phoneDevice = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 /** A slow script has a third fewer keys, or the short run would take a minute. */
 const slowKeys = 28;
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -117,8 +128,8 @@ async function startServer() {
 let clipboard = Promise.resolve();
 
 /** A page that runs a script and answers { state, undone }. kind is 'textarea' or 'nullpad'. */
-async function open(browser, url, kind, errors) {
-  const context = await browser.newContext();
+async function open(browser, url, kind, errors, phone) {
+  const context = await browser.newContext(phone ? phoneDevice : {});
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: url });
   const page = await context.newPage();
   const cdp = await context.newCDPSession(page);
@@ -305,7 +316,7 @@ async function shrink(keys, fails, comparable = async (candidate) => candidate) 
 }
 
 const show = (keys) => JSON.stringify(keys);
-const replayCommand = (keys, pace) => `node typist/run.mjs --pace ${pace} --script '${show(keys).replaceAll("'", "'\\''")}'`;
+const replayCommand = (keys, pace, phone) => `node typist/run.mjs${phone ? ' --phone' : ''} --pace ${pace} --script '${show(keys).replaceAll("'", "'\\''")}'`;
 
 async function main() {
   const t0 = performance.now();
@@ -315,12 +326,14 @@ async function main() {
   let browser;
   try {
     browser = await chromium.launch({ channel: 'chromium' });
-    const pairs = await Promise.all(
-      Array.from({ length: workers }, async () => {
-        const [plain, nullpad] = await Promise.all([open(browser, server.url, 'textarea', errors), open(browser, server.url, 'nullpad', errors)]);
-        return { plain, nullpad };
-      }),
-    );
+    const makePair = async (phone) => {
+      const [plain, nullpad] = await Promise.all([open(browser, server.url, 'textarea', errors, phone), open(browser, server.url, 'nullpad', errors, phone)]);
+      return { plain, nullpad, phone };
+    };
+    const [phonePair, ...pairs] = await Promise.all([
+      phoneCount > 0 ? makePair(true) : null,
+      ...Array.from({ length: workers }, () => makePair(phoneOnly)),
+    ]);
     const compare = async (pair, keys, pace, closeAtOnce = false) => {
       const [a, b] = await Promise.all([pair.plain(keys), pair.nullpad(keys, pace, closeAtOnce)]);
       return { a, b, why: differ(a, b) };
@@ -345,15 +358,22 @@ async function main() {
       return;
     }
     if (process.env.TYPIST_TRACE) console.log(`pages up at ${((performance.now() - t0) / 1000).toFixed(1)}s`);
-    const job = (keys, pace) => ({ keys: useKnown && !args.script ? sanitize(pace === 'slow' ? keys.slice(0, slowKeys) : keys, pace) : keys, pace });
+    const job = (keys, pace, phone = false) => ({ keys: useKnown && !args.script ? sanitize(pace === 'slow' ? keys.slice(0, slowKeys) : keys, pace) : keys, pace, phone });
+    const phoneTours = Math.min(2, tourCount);
     const made = args.script
       ? [job(JSON.parse(args.script), forcedPace ?? 'burst')]
       : [
           ...makeScripts(count, length, seed).map((keys, i) => job(keys, paceOf(i))),
           ...tours(tourCount, seed).map((keys) => job(keys, forcedPace ?? 'frame')),
+          ...(phonePair
+            ? [
+                ...makeScripts(phoneCount, phoneLength, seed + 1000).map((keys, i) => job(keys, phonePaceOf(i), true)),
+                ...tours(phoneTours, seed + 1000).map((keys) => job(keys, forcedPace ?? 'frame', true)),
+              ]
+            : []),
         ];
-    const lanes = pairs.map((pair) => ({ pair, jobs: [] }));
-    made.forEach((_, i) => lanes[i % workers].jobs.push(i));
+    const lanes = [...pairs, ...(phonePair ? [phonePair] : [])].map((pair) => ({ pair, jobs: [] }));
+    made.forEach((each, i) => lanes[each.phone ? lanes.length - 1 : i % workers].jobs.push(i));
     const laneOf = (i) => lanes.find((lane) => lane.jobs.includes(i)).pair;
     const paceOfScript = (i) => made[i].pace;
     // The plain textarea decides which vertical keys can be compared, so it has to type each script first.
@@ -384,7 +404,7 @@ async function main() {
 
     // Open bugs must still fail, and intended differences must still be there.
     const stale = [];
-    if (useKnown && !args.script)
+    if (useKnown && !args.script && !phoneOnly)
       await Promise.all(
         pairs.map(async (pair, w) => {
           const mine = known.filter((k, i) => k.repro && i % workers === w);
@@ -397,7 +417,7 @@ async function main() {
 
     const mix = paces.map((p) => `${scripts.filter((_, i) => paceOfScript(i) === p).length} ${p}`).join(', ');
     const keysTyped = scripts.reduce((sum, script) => sum + script.length, 0);
-    const kinds = `${count} random of ${length} keys and ${tourCount} block tours`;
+    const kinds = `${count} random of ${length} keys and ${tourCount} block tours${phonePair ? `, on a phone ${phoneCount} random of ${phoneLength} keys and ${phoneTours} tours` : ''}${phoneOnly ? ', all on a phone' : ''}`;
     console.log(`typist: ${scripts.length} scripts (${kinds}; ${mix}), seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min, ${keysTyped} keys, ${Math.round((keysTyped / run) * 60000)} keys/min)`);
     for (const e of [...new Set(errors)]) console.log(`  browser reported: ${e}`);
 
@@ -412,7 +432,7 @@ async function main() {
       if (seen.has(text)) continue;
       seen.add(text);
       const { a, b, why } = await differs(pair, keys, pace, 2);
-      console.log(`\nDIFFERENCE (${why}, ${pace}) script #${f.i} of seed ${seed}, shrunk ${scripts[f.i].length} -> ${keys.length} keys`);
+      console.log(`\nDIFFERENCE (${why}, ${pace}${pair.phone ? ', phone' : ''}) script #${f.i} of seed ${seed}, shrunk ${scripts[f.i].length} -> ${keys.length} keys`);
       console.log(`  script   ${text}`);
       const sameText = a.state.v === b.state.v;
       const brief = (r) => JSON.stringify(sameText ? { s: r.state.s, e: r.state.e, d: r.state.d } : r.state);
@@ -421,7 +441,7 @@ async function main() {
       console.log(`  nullpad  ${brief(b)} undone ${JSON.stringify(b.undone)}`);
       for (const moved of b.anchorMoves ?? []) console.log(`  ${moved}`);
       for (const shifted of (b.shifts ?? []).slice(0, 3)) console.log(`  shifted  ${shifted}`);
-      console.log(`  replay   ${replayCommand(keys, pace)}`);
+      console.log(`  replay   ${replayCommand(keys, pace, pair.phone)}`);
     }
     if (failed.length > seen.size) console.log(`\n${failed.length} scripts differ in new ways; ${seen.size} distinct shrunk scripts shown (--shrink N for more)`);
     for (const k of stale) {
