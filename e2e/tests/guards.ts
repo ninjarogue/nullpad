@@ -24,7 +24,7 @@ type Selection = { problem: string } | { value: string; first: number; anchor: C
  * A text field cannot be asked where its caret is, so a hidden copy of it is
  * laid out at the same place and asked instead.
  */
-function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; lines: string[]; focus: boolean }): Cursor | Selection {
+function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; lines: string[]; focus: boolean; cut?: boolean }): Cursor | Selection {
   const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
   if (!field) return use.want === 'cursor' ? { at: null, problem: 'there is no text field' } : { problem: 'there is no text field' };
   const focused = document.activeElement === field;
@@ -46,7 +46,10 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
   const where = (at: { x: number; top: number; bottom: number }) =>
     `the cursor is at y ${round(at.top)} to ${round(at.bottom)}, x ${round(at.x)}, and the page shows y ${round(seen.top)} to ${round(seen.bottom)}, x ${round(seen.left)} to ${round(seen.right)}`;
   const outOfView = (at: { x: number; top: number; bottom: number }) =>
-    at.top < seen.top - 0.5 || at.bottom > seen.bottom + 0.5 || at.x < seen.left - 0.5 || at.x > seen.right + 0.5;
+    (use.cut ? at.bottom <= seen.top + 0.5 || at.top >= seen.bottom - 0.5 : at.top < seen.top - 0.5 || at.bottom > seen.bottom + 0.5) ||
+    at.x < seen.left - 0.5 ||
+    at.x > seen.right + 0.5;
+  const shownMiddle = (at: { top: number; bottom: number }) => (Math.max(at.top, seen.top) + Math.min(at.bottom, seen.bottom)) / 2;
   const named = (element: Element | null) => (element ? `<${element.tagName.toLowerCase()} class="${element.className}">` : 'nothing');
 
   const paintedRanges = (name: string) => [...((globalThis.CSS?.highlights?.get(name) as Iterable<AbstractRange> | undefined) ?? [])];
@@ -80,7 +83,7 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     if (at.top < rect.top - 0.5 || at.bottom > rect.bottom + 0.5) {
       return { at, problem: `${where(at)}, and the text field's box ends at y ${round(rect.top)} to ${round(rect.bottom)}` };
     }
-    const hit = document.elementFromPoint(Math.min(at.x + 0.5, rect.right - 0.5), (at.top + at.bottom) / 2);
+    const hit = document.elementFromPoint(Math.min(at.x + 0.5, rect.right - 0.5), shownMiddle(at));
     if (hit !== field) return { at, problem: `${where(at)}, and ${named(hit)} is drawn over it` };
     return { at, problem: null };
   };
@@ -129,7 +132,7 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
     if (outOfView(at)) return { at, problem: `${where(at)}, so it is out of view` };
     const node = head.startContainer;
     const owner = (node instanceof Element ? node : node.parentElement!).closest('[data-row]') ?? node.parentElement!;
-    const hit = document.elementFromPoint(at.x + 0.5, (at.top + at.bottom) / 2);
+    const hit = document.elementFromPoint(at.x + 0.5, shownMiddle(at));
     if (!hit || !(owner.contains(hit) || hit.contains(owner))) return { at, problem: `${where(at)}, and ${named(hit)} is drawn over it` };
     return { at, problem: null };
   };
@@ -213,8 +216,13 @@ function lookInPage(use: { want: 'cursor' | 'selection'; placing: string[]; line
   return use.want === 'cursor' ? paintedCursor(headMark) : paintedSelection(selected, headMark);
 }
 
-export async function cursorProblem(browser: Browser, after: string) {
-  const { problem } = (await browser.evaluate(lookInPage, { want: 'cursor', placing, lines: [], focus: true })) as Cursor;
+/**
+ * After a click, a cursor on a line the page shows only part of is in view:
+ * a text field does not scroll to a caret a click puts there. After keys it
+ * has to show whole.
+ */
+export async function cursorProblem(browser: Browser, after: string, clicked = false) {
+  const { problem } = (await browser.evaluate(lookInPage, { want: 'cursor', placing, lines: [], focus: true, cut: clicked })) as Cursor;
   return problem === null ? null : `after ${after}: ${problem}`;
 }
 

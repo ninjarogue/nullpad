@@ -505,6 +505,8 @@ pub fn sync(
           replay_when_quiet(dispatch, quiet)
         }),
       ])
+    editor.InSyncInPlace ->
+      effect.batch([effect.from(fn(_) { hold_now() }), painted])
     // Painted before the page is scrolled to the head, which may be painted.
     editor.Write(buffer) ->
       effect.batch([
@@ -518,6 +520,19 @@ pub fn sync(
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
+          replay_when_quiet(dispatch, quiet)
+        }),
+      ])
+    editor.WriteInPlace(buffer) ->
+      effect.batch([
+        effect.from(fn(_) {
+          write_now(buffer)
+          focus_in_place(control_id)
+          ask_focus()
+        }),
+        effect.before_paint(fn(dispatch, _) {
+          let quiet = draw_and_settle(dispatch)
+          focus_later(fn() { focus_in_place(control_id) })
           replay_when_quiet(dispatch, quiet)
         }),
       ])

@@ -61,6 +61,7 @@ function shownInPage() {
 export class Editing {
   private lost = 0;
   private blurred = false;
+  private pointed = false;
 
   constructor(readonly fixtures: Fixtures) {}
 
@@ -203,12 +204,13 @@ export class Editing {
 
   async seeCursor(after: string) {
     if (this.blurred) return;
-    const problem = await cursorProblem(this.fixtures.browser, after);
+    const problem = await cursorProblem(this.fixtures.browser, after, this.pointed);
     if (problem !== null && this.lost++ < 5) expect.soft(problem, 'the cursor is in view').toBeNull();
   }
 
   private async pointerAt(x: number, y: number) {
     this.blurred = false;
+    this.pointed = true;
     const { browser } = this.fixtures;
     await browser.mouse.move(x, y);
     await browser.mouse.down();
@@ -234,6 +236,7 @@ export class Editing {
   async shiftClick(spot: Spot) {
     const { browser } = this.fixtures;
     const { x, y } = await this.point(spot);
+    this.pointed = true;
     await browser.keyboard.down('Shift');
     await browser.mouse.move(x, y);
     await browser.mouse.down();
@@ -246,6 +249,7 @@ export class Editing {
     const { browser } = this.fixtures;
     const start = await this.point(from);
     const end = await this.point(to);
+    this.pointed = true;
     await browser.mouse.move(start.x, start.y);
     await browser.mouse.down();
     for (let step = 1; step <= 8; step++) {
@@ -261,6 +265,7 @@ export class Editing {
   }
 
   async press(...keys: string[]) {
+    this.pointed = false;
     for (const key of keys) {
       this.blurred = key === 'Escape';
       await this.fixtures.browser.keyboard.press(key);
@@ -271,6 +276,7 @@ export class Editing {
 
   async type(text: string) {
     this.blurred = false;
+    this.pointed = false;
     if (fast) return this.fixtures.browser.keyboard.type(text);
     for (const piece of text.match(/\S*\s*/g) ?? []) {
       if (piece === '') continue;
@@ -281,6 +287,7 @@ export class Editing {
 
   /** Enter is pressed for each "\n" in `text`, as a person would. */
   async write(text: string) {
+    this.pointed = false;
     for (const [index, line] of text.split('\n').entries()) {
       if (index > 0) await this.fixtures.browser.keyboard.press('Enter');
       if (line !== '') await this.fixtures.browser.keyboard.type(line);

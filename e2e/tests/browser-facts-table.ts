@@ -1840,4 +1840,56 @@ export const facts: Fact[] = [
       });
     },
   }),
+  fact({
+    id: 'click-on-a-cut-line-keeps-the-scroll',
+    says: 'A click that puts the caret on a line a text field shows only part of scrolls nothing: not the page around a field taller than it, and not a field that scrolls itself.',
+    relied: [
+      { file: 'src/nullpad/editor.gleam', text: 'True -> Outcome(..outcome, sync: InSyncInPlace)' },
+      { file: 'src/nullpad/editor.gleam', text: 'sync: WriteInPlace(field_buffer(clicked)),' },
+    ],
+    html:
+      '<style>textarea{font:16px/20px monospace;padding:0;border:0;resize:none;width:200px;display:block}</style>' +
+      '<div id="page" style="position:absolute;left:20px;top:20px;height:100px;overflow:auto"><textarea id="tall" style="height:400px;overflow:hidden"></textarea></div>' +
+      '<textarea id="own" style="position:absolute;left:300px;top:20px;height:100px;overflow:auto"></textarea>',
+    observe: async (page) => {
+      const cut = await page.evaluate(() => {
+        const text = Array.from({ length: 20 }, (_, line) => `line ${line}`).join('\n');
+        const page = document.getElementById('page')!;
+        const tall = document.getElementById('tall') as HTMLTextAreaElement;
+        const own = document.getElementById('own') as HTMLTextAreaElement;
+        tall.value = text;
+        own.value = text;
+        page.scrollTop = 50;
+        own.scrollTop = 50;
+        return { page: page.getBoundingClientRect(), own: own.getBoundingClientRect(), start: text.indexOf('line 2'), end: text.indexOf('line 3') };
+      });
+      const clickAt = async (box: { left: number; top: number }, id: string) => {
+        await page.mouse.click(box.left + 20, box.top + 5);
+        await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+        return page.evaluate((id: string) => {
+          const field = document.getElementById(id) as HTMLTextAreaElement;
+          return { caret: field.selectionStart, page: document.getElementById('page')!.scrollTop, own: (document.getElementById('own') as HTMLTextAreaElement).scrollTop };
+        }, id);
+      };
+      return { start: cut.start, end: cut.end, tall: await clickAt(cut.page, 'tall'), own: await clickAt(cut.own, 'own') };
+    },
+    holds: (seen) => {
+      const read = (one: { caret: number; page: number; own: number } | undefined) => one && finite(one.caret) && finite(one.page) && finite(one.own);
+      if (!finite(seen?.start) || !finite(seen?.end) || !read(seen.tall) || !read(seen.own)) return `the clicks were read as ${JSON.stringify(seen)}`;
+      for (const [name, one] of [['the field the page holds', seen.tall], ['the field that scrolls itself', seen.own]] as const) {
+        if (one.caret < seen.start || one.caret >= seen.end) return `the click on the cut line of ${name} put the caret at ${one.caret}, not on that line (${seen.start} to ${seen.end}), so this looked at nothing`;
+      }
+      if (seen.tall.page !== 50) return instead('the scroll of the page after a click on the cut line of the field it holds', 50, seen.tall.page);
+      if (seen.own.own !== 50) return instead('the scroll of a field after a click on its cut line', 50, seen.own.own);
+      return null;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        document.addEventListener('selectionchange', () => {
+          document.getElementById('page')!.scrollTop = 0;
+          document.getElementById('own')!.scrollTop = 0;
+        });
+      });
+    },
+  }),
 ];
