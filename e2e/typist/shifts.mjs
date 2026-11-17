@@ -129,6 +129,10 @@ function align(before, after, typed) {
   return pairs;
 }
 
+/** Where the room a block takes starts and ends. A rule draws its line in the middle of its margins, so its room is its margins and its line. */
+const roomTop = (block) => (block.kind === 'hr' ? block.box.top - block.marginTop : block.box.top);
+const roomBottom = (block) => block.box.top + block.box.height + (block.kind === 'hr' ? block.marginBottom : 0);
+
 const px = (n) => `${n > 0 ? '+' : ''}${Math.round(n * 100) / 100}px`;
 const name = (block) => (block.field ? 'text field' : `${block.kind} ${JSON.stringify(block.text.slice(0, 24))}`);
 const names = (blocks) => (blocks.length ? blocks.map(name).join(', ') : 'nothing');
@@ -153,7 +157,7 @@ export function judge(before, after, { typed }) {
   if (!before.length || !after.length) return problems;
   const pairs = align(before, after, typed);
 
-  const first = after[0].box.top - before[0].box.top;
+  const first = roomTop(after[0]) - roomTop(before[0]);
   if (Math.abs(first) > tolerance && !before[0].frozen) report(`the first block moved ${px(first)}: ${name(before[0])} -> ${name(after[0])}`, first, [before[0], after[0]]);
 
   let drift = 0;
@@ -167,7 +171,7 @@ export function judge(before, after, { typed }) {
     const where = `${names(lost)} -> ${names(gained)}`;
     drift = anchors;
     if (lost.some((block) => block.frozen)) return;
-    const moved = lost.length && gained.length && (!typed || touched.every(plain)) ? gained[0].box.top - lost[0].box.top - earlier : 0;
+    const moved = lost.length && gained.length && (!typed || touched.every(plain)) ? roomTop(gained[0]) - roomTop(lost[0]) - earlier : 0;
     if (Math.abs(moved) > tolerance) report(`the first touched block did not stay where it was, it moved ${px(moved)}: ${where}`, moved, touched);
     if (!touched.length) {
       if (Math.abs(change) > tolerance) report(`two blocks that did not change moved ${px(change)} apart: ${name(before[from[0] - 1] ?? before[to[0]])}`, change, [before[from[0] - 1] ?? before[to[0]]]);
@@ -201,7 +205,7 @@ export function judge(before, after, { typed }) {
         else if (Math.abs(line.width - old.width) > tolerance) report(`line ${n + 1} of ${name(now)} changed width ${px(line.width - old.width)}`, line.width - old.width, [now]);
       });
   }
-  const bottom = (blocks) => blocks.at(-1).box.top + blocks.at(-1).box.height;
+  const bottom = (blocks) => roomBottom(blocks.at(-1));
   const last = pairs.at(-1);
   if (!last || last[0] !== before.length - 1 || last[1] !== after.length - 1) gap([before.length, after.length], bottom(after) - bottom(before));
   return problems;

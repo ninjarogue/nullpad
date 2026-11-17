@@ -146,6 +146,26 @@ export const known = [
     sanitize: (script) => script,
   },
   {
+    id: 'indented-code-panel',
+    kind: 'open',
+    reason:
+      'An indented code block is drawn as a panel with 43px of padding above and below its lines, but its rows in the text field are bare lines with no fence rows to stand for the padding, so the blocks below move 43px when the cursor enters or leaves it.',
+    repro: [{ paste: 'a\n\n    code\n\nb' }, 'Control+Home', 'ArrowDown', 'ArrowDown'],
+    pace: 'frame',
+    shift: (problem) => (near(problem.change, 43) || near(problem.change, 44)) && problem.blocks.some((b) => b.kind === 'pre'),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'table-height',
+    kind: 'open',
+    reason:
+      'A table is drawn with cell padding and borders, so it is not as tall as the rows it opens as in the text field: a table with one body row is 10.37px shorter than its three rows, and the blocks below move that much when the cursor enters or leaves it.',
+    repro: [{ paste: '| a | b |\n|---|---|\n| 1 | 2 |\n\nb' }, 'Control+Home'],
+    pace: 'frame',
+    shift: (problem) => problem.blocks.some((b) => b.kind === 'div.table-scroll'),
+    sanitize: (script) => script,
+  },
+  {
     id: 'first-list-margins',
     kind: 'open',
     reason:

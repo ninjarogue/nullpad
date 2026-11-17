@@ -1,7 +1,7 @@
 // Robot typist: random key scripts typed into a plain textarea and into nullpad in real
 // Chromium. Any difference in text, cursor or selection is a bug, shrunk to a short script.
 //
-//   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3]
+//   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3] [--tours 3]
 //   node typist/run.mjs --script '["a","Enter","ArrowLeft"]'     replay one script
 //   node typist/run.mjs --pace frame|slow|burst|mixed            how fast nullpad is typed at
 //   --close-at-once                                               Ctrl+E (source view) sent with the last keys
@@ -25,12 +25,17 @@
 //     blocks are all set in one line height. A line that turns into a heading, or a paste of several
 //     kinds of block, changes the line height, and then any height is allowed.
 // A script typed in a burst has no frame between its keys to look in, so it is not watched.
+//
+// Block tours. The random scripts rarely walk the cursor into a block of each kind, so each run
+// also types `--tours` seeded scripts a frame at a time that paste one block of every kind (every
+// heading level and both setext forms, lists, tasks, a quote, a fence, an indented block, a table
+// and a rule) and walk the cursor down through every row and back up.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { listen } from '../browser-problems.mjs';
-import { editsText, keyEvents, makeScripts } from './keys.mjs';
+import { editsText, keyEvents, makeScripts, tours } from './keys.mjs';
 import { judged, known, sanitize, skips } from './known.mjs';
 import { capture, judge } from './shifts.mjs';
 
@@ -41,6 +46,7 @@ const count = Number(args.count ?? process.env.TYPIST_COUNT ?? 120);
 const seed = Number(args.seed ?? process.env.TYPIST_SEED ?? 1);
 const length = Number(args.length ?? 40);
 const workers = Number(args.workers ?? 3);
+const tourCount = Number(args.tours ?? 3);
 const useKnown = args['no-known'] === undefined;
 const useShifts = args['no-shifts'] === undefined;
 const e2eDir = fileURLToPath(new URL('..', import.meta.url));
@@ -338,15 +344,24 @@ async function main() {
       }
       return;
     }
-    const paceOfScript = (i) => (args.script ? (forcedPace ?? 'burst') : paceOf(i));
     if (process.env.TYPIST_TRACE) console.log(`pages up at ${((performance.now() - t0) / 1000).toFixed(1)}s`);
-    const made = args.script ? [JSON.parse(args.script)] : makeScripts(count, length, seed).map((s, i) => (useKnown ? sanitize(paceOfScript(i) === 'slow' ? s.slice(0, slowKeys) : s, paceOfScript(i)) : s));
+    const job = (keys, pace) => ({ keys: useKnown && !args.script ? sanitize(pace === 'slow' ? keys.slice(0, slowKeys) : keys, pace) : keys, pace });
+    const made = args.script
+      ? [job(JSON.parse(args.script), forcedPace ?? 'burst')]
+      : [
+          ...makeScripts(count, length, seed).map((keys, i) => job(keys, paceOf(i))),
+          ...tours(tourCount, seed).map((keys) => job(keys, forcedPace ?? 'frame')),
+        ];
+    const lanes = pairs.map((pair) => ({ pair, jobs: [] }));
+    made.forEach((_, i) => lanes[i % workers].jobs.push(i));
+    const laneOf = (i) => lanes.find((lane) => lane.jobs.includes(i)).pair;
+    const paceOfScript = (i) => made[i].pace;
     // The plain textarea decides which vertical keys can be compared, so it has to type each script first.
-    const scripts = args.script || !useKnown ? made : [];
-    if (scripts.length === 0) {
+    const scripts = made.map((each) => each.keys);
+    if (useKnown && !args.script) {
       await Promise.all(
-        pairs.map(async (pair, w) => {
-          for (let i = w; i < made.length; i += workers) scripts[i] = await pair.plain.prune(made[i], paceOfScript(i));
+        lanes.map(async ({ pair, jobs }) => {
+          for (const i of jobs) scripts[i] = await pair.plain.prune(scripts[i], paceOfScript(i));
         }),
       );
     }
@@ -354,8 +369,8 @@ async function main() {
     if (process.env.TYPIST_TRACE) console.log(`ready at ${((ready - t0) / 1000).toFixed(1)}s`);
     const failed = [];
     await Promise.all(
-      pairs.map(async (pair, w) => {
-        for (let i = w; i < scripts.length; i += workers) {
+      lanes.map(async ({ pair, jobs }) => {
+        for (const i of jobs) {
           const t = performance.now();
           const r = await compare(pair, scripts[i], paceOfScript(i));
           if (process.env.TYPIST_TRACE && performance.now() - t > 1500) console.log(`slow ${((performance.now() - t) / 1000).toFixed(1)}s #${i} ${show(scripts[i]).slice(0, 400)}`);
@@ -382,19 +397,21 @@ async function main() {
 
     const mix = paces.map((p) => `${scripts.filter((_, i) => paceOfScript(i) === p).length} ${p}`).join(', ');
     const keysTyped = scripts.reduce((sum, script) => sum + script.length, 0);
-    console.log(`typist: ${scripts.length} scripts of ${length} keys (${mix}), seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min, ${keysTyped} keys, ${Math.round((keysTyped / run) * 60000)} keys/min)`);
+    const kinds = `${count} random of ${length} keys and ${tourCount} block tours`;
+    console.log(`typist: ${scripts.length} scripts (${kinds}; ${mix}), seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min, ${keysTyped} keys, ${Math.round((keysTyped / run) * 60000)} keys/min)`);
     for (const e of [...new Set(errors)]) console.log(`  browser reported: ${e}`);
 
     failed.sort((x, y) => x.i - y.i);
     const seen = new Set();
     for (const f of failed.slice(0, Number(args.shrink ?? 8))) {
       const pace = paceOfScript(f.i);
-      const comparable = useKnown && !args.script ? (c) => pairs[0].plain.prune(c, pace) : undefined;
-      const keys = await shrink(scripts[f.i], async (c) => (await differs(pairs[0], c, pace, 2)).why !== null, comparable);
+      const pair = laneOf(f.i);
+      const comparable = useKnown && !args.script ? (c) => pair.plain.prune(c, pace) : undefined;
+      const keys = await shrink(scripts[f.i], async (c) => (await differs(pair, c, pace, 2)).why !== null, comparable);
       const text = show(keys);
       if (seen.has(text)) continue;
       seen.add(text);
-      const { a, b, why } = await differs(pairs[0], keys, pace, 2);
+      const { a, b, why } = await differs(pair, keys, pace, 2);
       console.log(`\nDIFFERENCE (${why}, ${pace}) script #${f.i} of seed ${seed}, shrunk ${scripts[f.i].length} -> ${keys.length} keys`);
       console.log(`  script   ${text}`);
       const sameText = a.state.v === b.state.v;

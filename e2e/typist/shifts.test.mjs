@@ -198,3 +198,26 @@ test('a list item field at the top has a margin below it only, so the move below
   const after = [field(0, 1, { marginBottom: 4 })];
   assert.deepEqual(judge(before, after, { typed: true }), []);
 });
+
+const rule = (top) => block('hr', '', top + 12.6, { height: 2, margin: 12.6, marginBottom: 12.6, row: '2' });
+
+test('a rule takes the room of the row it replaces, though its line is drawn in the middle of it', () => {
+  const before = [p('one', 0), field(line, 1), block('div.blank', '', line * 2, { row: '2' }), p('four', line * 3)];
+  const after = [p('one', 0), rule(line), field(line * 2), p('four', line * 3)];
+  assert.deepEqual(judge(before, after, { typed: false }), []);
+});
+
+test('a rule with more room than the row it replaces is caught as a jump below it', () => {
+  const before = [p('one', 0), field(line, 1), block('div.blank', '', line * 2, { row: '2' }), p('four', line * 3)];
+  const wide = block('hr', '', line + 14.6, { height: 2, margin: 14.6, marginBottom: 14.6, row: '2' });
+  const after = [p('one', 0), wide, moved(field(line * 2), 4), moved(p('four', line * 3), 4)];
+  assert.ok(judge(before, after, { typed: false }).some((problem) => /the text did not change, but the blocks below moved \+4px/.test(problem)));
+});
+
+test('a rule at the end of the note takes the room of the row it replaces', () => {
+  const before = [p('one', 0), field(line)];
+  const after = [p('one', 0), rule(line)];
+  assert.deepEqual(judge(before, after, { typed: false }), []);
+  const wide = block('hr', '', line + 14.6, { height: 2, margin: 14.6, marginBottom: 14.6, row: '2' });
+  assert.ok(judge(before, [p('one', 0), wide], { typed: false }).some((problem) => /moved \+4px/.test(problem)));
+});
