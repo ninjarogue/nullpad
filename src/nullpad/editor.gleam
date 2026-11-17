@@ -63,6 +63,10 @@ type Choice {
 /// has not is held: the browser would act on the field as the page last
 /// drew it, so the key is replayed, in the order it was pressed, once the
 /// page has drawn the editor as it is.
+///
+/// Keys still held when the focus leaves, a press comes or Escape is pressed
+/// are dropped with the steps they wait behind: typed where the selection is
+/// without those steps, they would land where the user did not aim them.
 type Page {
   CaughtUp
   /// `steps` of the head wait for the page to take them, and only the first
@@ -757,6 +761,18 @@ fn choosing(editor: Editor, keys: List(Held), event: Event) -> Outcome {
   }
 }
 
+/// A change of the selection or the text that no step made ends the steps
+/// still waiting, which were measured from where the head was.
+fn ends_steps(before: Editor, outcome: Outcome) -> Outcome {
+  case outcome.editor.buffer == before.buffer {
+    True -> outcome
+    False -> {
+      let page = behind([], held_keys(outcome.editor))
+      Outcome(..outcome, editor: Editor(..outcome.editor, page:))
+    }
+  }
+}
+
 /// The field is put back as it was by anything that would change the note.
 fn keep_note(before: Editor, outcome: Outcome) -> Outcome {
   case buffer.text(outcome.editor.buffer) == buffer.text(before.buffer) {
@@ -771,7 +787,33 @@ fn keep_note(before: Editor, outcome: Outcome) -> Outcome {
 }
 
 fn follow(editor: Editor, event: Event) -> Outcome {
-  let outcome = apply(editor, event)
+  let outcome = case event {
+    Dragged(..) | Settled(..) | Released | Dropped(..) ->
+      ends_steps(editor, apply(editor, event))
+    ControlChanged(..)
+    | Composing(..)
+    | Composed(..)
+    | KeyPressed(..)
+    | EdgePressed(..)
+    | EscapePressed(..)
+    | Pointed(..)
+    | LinePointed(..)
+    | ShiftPointed(..)
+    | Grabbed(..)
+    | WordPressed(..)
+    | SelectionPointed(..)
+    | Stepped(..)
+    | Unstepped(..)
+    | FieldStepped(..)
+    | Aimed(..)
+    | SteppedPast
+    | DragStarted
+    | FocusChanged(..)
+    | UndoAsked
+    | RedoAsked
+    | KeyHeld(..)
+    | Replayed(..) -> apply(editor, event)
+  }
   let goal = case in_run(event), outcome.editor.buffer == editor.buffer {
     Moves, _ | Changes, True -> outcome.editor.goal
     Changes, False | Ends, _ -> None
@@ -911,7 +953,12 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       case editor.ime {
         ComposingBehind -> hold_composition(editor, shown, at)
         ComposingHere | NotComposing ->
-          typed(Editor(..editor, clock: at), shown, None, realign)
+          typed(
+            Editor(..editor, clock: at, ime: NotComposing),
+            shown,
+            None,
+            realign,
+          )
       }
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge: Widen, shown:, ..) -> spread(editor, shown)
@@ -2033,7 +2080,11 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
     True -> editor.history
     False -> history.record(editor.history, buffer, at: editor.clock)
   }
-  Editor(..editor, buffer:, field:, history:, ime: NotComposing)
+  let ime = case buffer == editor.buffer {
+    True -> editor.ime
+    False -> NotComposing
+  }
+  Editor(..editor, buffer:, field:, history:, ime:)
 }
 
 /// The page keeps how it was laid out through an edit that leaves the
