@@ -143,7 +143,7 @@ export function pickE2e({ map, changed, parts }) {
   const files = Object.keys(map.files);
   const own = changed.filter((path) => /^e2e\/tests\/.+\.e2e\.ts$/.test(path) && files.includes(path));
   const helpers = changed.some((path) => (path.startsWith("e2e/") && !own.includes(path) && !path.startsWith("e2e/node_modules/") && !/^e2e\/package(?:-lock)?\.json$/.test(path)) || path.startsWith("assets/") || dependencies([path]));
-  if (helpers) return { files, why: "assets, dependencies or the e2e helpers changed, so every e2e file is picked" };
+  if (helpers) return { files, why: "assets, dependencies or the e2e helpers changed, so every e2e file is picked, and the full gate runs them, so they are not run twice" };
   const score = new Map(own.map((file) => [file, 1000]));
   if (changed.some((path) => path.startsWith("src/") || path.startsWith("assets/"))) for (const file of files) if (map.files[file].reads) score.set(file, score.get(file) ?? 0.5);
   for (const [module, { wide, fns }] of parts) {
@@ -235,7 +235,9 @@ export async function runPicked({ repo, base, log = console.log }) {
     }
     log(`  gleeunit: ${text.match(/\d+ passed, no failures/)?.[0] ?? "passed"}`);
   }
-  if (e2e.files.length > 0) {
+  if (e2e.why) {
+    log(`  e2e: ${e2e.why}`);
+  } else if (e2e.files.length > 0) {
     const steps = await import(pathToFileURL(join(repo, "test", "steps.mjs")).href);
     const counts = await import(pathToFileURL(join(repo, "test", "test_counts.mjs")).href);
     const stop = counts.stopOnSignals();
