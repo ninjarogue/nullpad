@@ -50,13 +50,21 @@ const decoders_that_still_read_state = [#("surface.key_decoder", 1)]
 
 const plain_types = ["String", "Int", "Bool", "Float"]
 
+type WrittenAhead {
+  WrittenAhead(path: String, function: String)
+}
+
+fn written_ahead_key(one: WrittenAhead) -> String {
+  one.path <> " " <> one.function
+}
+
 const written_ahead = [
-  "test/editor_test.gleam pending_dd_deletes_the_cursor_line",
-  "test/editor_test.gleam pending_one_insert_is_one_undo_step",
+  WrittenAhead("test/editor_test.gleam", "pending_dd_deletes_the_cursor_line"),
+  WrittenAhead("test/editor_test.gleam", "pending_one_insert_is_one_undo_step"),
 ]
 
 pub type Source {
-  /// `path` is relative to `src`: "nullpad/editor.gleam".
+  /// `path` is relative to the repository root: "src/nullpad/editor.gleam".
   Source(path: String, text: String)
 }
 
@@ -137,10 +145,17 @@ pub opaque type File {
 }
 
 pub fn read(source: Source) -> File {
+  case string.starts_with(source.path, "test/") {
+    True -> read_test_source(source)
+    False -> read_src(source)
+  }
+}
+
+fn read_src(source: Source) -> File {
   let gleam = string.ends_with(source.path, ".gleam")
   let javascript = string.ends_with(source.path, ".ffi.mjs")
   let stem =
-    source.path
+    strip_prefix(source.path, "src/")
     |> string.replace(".ffi.mjs", "")
     |> string.replace(".gleam", "")
   let name = case stem, string.starts_with(stem, "nullpad/") {
@@ -159,7 +174,7 @@ pub fn read(source: Source) -> File {
   }
 }
 
-pub fn read_test_file(source: Source) -> File {
+fn read_test_source(source: Source) -> File {
   case glance.module(source.text) {
     Ok(module) -> GleamTest(source.path, module)
     Error(_) -> Unreadable(source.path)
@@ -623,7 +638,7 @@ fn external(
 }
 
 fn module_key(path: String) -> String {
-  string.replace(path, ".gleam", "")
+  path |> strip_prefix("src/") |> string.replace(".gleam", "")
 }
 
 /// Every function and constant that reaches page-changing JavaScript,
@@ -643,13 +658,17 @@ fn changers(files: List(File)) -> Set(String) {
                   touches_page(name) && !list.contains(measures, javascript)
                 None -> False
               }
-              #(key <> "." <> function.name, uses(function, resolve), starts)
+              Reaching(
+                key <> "." <> function.name,
+                uses(function, resolve),
+                starts,
+              )
             })
           let constants =
             list.map(module.constants, fn(definition) {
               let constant = definition.definition
               let used = list.filter_map(expression(constant.value), resolve)
-              #(key <> "." <> constant.name, used, False)
+              Reaching(key <> "." <> constant.name, used, False)
             })
           list.append(functions, constants)
         }
@@ -658,8 +677,8 @@ fn changers(files: List(File)) -> Set(String) {
     })
   let start =
     list.filter_map(functions, fn(function) {
-      case function.2 {
-        True -> Ok(function.0)
+      case function.starts {
+        True -> Ok(function.name)
         False -> Error(Nil)
       }
     })
@@ -667,14 +686,17 @@ fn changers(files: List(File)) -> Set(String) {
   grow(start, functions)
 }
 
-fn grow(
-  changers: Set(String),
-  functions: List(#(String, List(String), Bool)),
-) -> Set(String) {
+/// A function or constant, the functions it names, and whether it starts
+/// the reach: it changes the page, or it asserts.
+type Reaching {
+  Reaching(name: String, uses: List(String), starts: Bool)
+}
+
+fn grow(changers: Set(String), functions: List(Reaching)) -> Set(String) {
   let grown =
     list.fold(functions, changers, fn(grown, function) {
-      case list.any(function.1, set.contains(grown, _)) {
-        True -> set.insert(grown, function.0)
+      case list.any(function.uses, set.contains(grown, _)) {
+        True -> set.insert(grown, function.name)
         False -> grown
       }
     })
@@ -959,7 +981,7 @@ fn tests_run(
       let function = definition.definition
       let named_test = string.ends_with(function.name, "_test")
       let public = function.publicity == glance.Public
-      let key = path <> " " <> function.name
+      let key = written_ahead_key(WrittenAhead(path, function.name))
       let stops = list.contains(statements(function.body), Stops)
       let forgotten =
         public
@@ -972,7 +994,9 @@ fn tests_run(
             && set.contains(asserting, name <> "." <> function.name)
           }
         }
-      let ahead = forgotten && list.contains(written_ahead, key)
+      let ahead =
+        forgotten
+        && list.any(written_ahead, fn(one) { written_ahead_key(one) == key })
       list.flatten([
         when(misnamed_module && named_test && public, fn() {
           [
@@ -1066,10 +1090,7 @@ fn test_module_name(path: String) -> String {
   path |> strip_prefix("test/") |> string.replace(".gleam", "")
 }
 
-fn test_functions(
-  path: String,
-  module: glance.Module,
-) -> List(#(String, List(String), Bool)) {
+fn test_functions(path: String, module: glance.Module) -> List(Reaching) {
   let name = test_module_name(path)
   let resolve = resolver(name, module)
   list.map(module.functions, fn(definition) {
@@ -1078,13 +1099,13 @@ fn test_functions(
     let checks =
       list.contains(statements(function.body), Stops)
       || list.any(used, string.starts_with(_, "gleeunit/should."))
-    #(name <> "." <> function.name, used, checks)
+    Reaching(name <> "." <> function.name, used, checks)
   })
 }
 
-fn reach(functions: List(#(String, List(String), Bool))) -> Set(String) {
-  list.filter(functions, fn(function) { function.2 })
-  |> list.map(fn(function) { function.0 })
+fn reach(functions: List(Reaching)) -> Set(String) {
+  list.filter(functions, fn(function) { function.starts })
+  |> list.map(fn(function) { function.name })
   |> set.from_list
   |> grow(functions)
 }
@@ -1177,6 +1198,10 @@ fn faults(files: List(File), looked: List(#(Rule, String))) -> List(String) {
       looked_at,
       "decoder allowance",
     ),
-    unused(written_ahead, looked_at, "written-ahead test"),
+    unused(
+      list.map(written_ahead, written_ahead_key),
+      looked_at,
+      "written-ahead test",
+    ),
   ])
 }

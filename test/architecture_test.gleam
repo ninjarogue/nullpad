@@ -112,7 +112,7 @@ pub fn every_rule_has_a_break_that_proves_it_test() {
 
 pub fn a_written_ahead_test_that_was_renamed_is_a_fault_test() {
   let renamed =
-    rules.read_test_file(Source(
+    rules.read(Source(
       "test/editor_test.gleam",
       "pub fn pending_dd_deletes_the_cursor_line_test() {\n  assert 1 == 1\n}\n",
     ))
@@ -126,7 +126,7 @@ pub fn a_written_ahead_test_that_was_renamed_is_a_fault_test() {
 
 pub fn a_written_ahead_test_is_not_flagged_while_it_is_not_named_test() {
   let ahead =
-    rules.read_test_file(Source(
+    rules.read(Source(
       "test/editor_test.gleam",
       "pub fn pending_dd_deletes_the_cursor_line() {\n  assert 1 == 2\n}\n",
     ))
@@ -140,7 +140,7 @@ pub fn a_written_ahead_test_is_not_flagged_while_it_is_not_named_test() {
 
 pub fn the_same_function_in_another_file_is_flagged_test() {
   let other =
-    rules.read_test_file(Source(
+    rules.read(Source(
       "test/other_test.gleam",
       "pub fn pending_dd_deletes_the_cursor_line() {\n  assert 1 == 2\n}\n",
     ))
@@ -186,36 +186,25 @@ fn source() -> List(File) {
   list.append(
     list.map(paths, fn(path) {
       let assert Ok(text) = simplifile.read(path)
-      rules.read(Source(string.drop_start(path, 4), text))
+      rules.read(Source(path, text))
     }),
     list.filter(tests, string.ends_with(_, ".gleam"))
       |> list.map(fn(path) {
         let assert Ok(text) = simplifile.read(path)
-        rules.read_test_file(Source(path, text))
+        rules.read(Source(path, text))
       }),
   )
 }
 
-fn is_test_file(path: String) -> Bool {
-  string.starts_with(path, "test/")
-}
-
 fn read_text(path: String) -> String {
-  let from = case is_test_file(path) {
-    True -> path
-    False -> "src/" <> path
-  }
-  case simplifile.read(from) {
+  case simplifile.read(path) {
     Ok(text) -> text
     Error(_) -> ""
   }
 }
 
 fn read_again(path: String, text: String) -> File {
-  case is_test_file(path) {
-    True -> rules.read_test_file(Source(path, text))
-    False -> rules.read(Source(path, text))
-  }
+  rules.read(Source(path, text))
 }
 
 type Kind {
@@ -261,48 +250,48 @@ const view =
 "
 
 fn breaks() -> List(Break) {
-  let surface = "nullpad/surface.gleam"
+  let surface = "src/nullpad/surface.gleam"
   [
     Break(
       Caught(rules.CoreImports),
       "core imports Lustre",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       first("import lustre/effect\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports Lustre under an alias",
-      "nullpad/live.gleam",
+      "src/nullpad/live.gleam",
       first("import lustre/element as el\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports the shell",
-      "nullpad/vim.gleam",
+      "src/nullpad/vim.gleam",
       first("import nullpad/surface\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports storage, which imports Lustre",
-      "nullpad/buffer.gleam",
+      "src/nullpad/buffer.gleam",
       first("import nullpad/storage\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports a package",
-      "nullpad/markdown.gleam",
+      "src/nullpad/markdown.gleam",
       first("import plinth/browser/window\n"),
     ),
     Break(
       Caught(rules.JavaScriptFile),
       "a core module gets a JavaScript file",
-      "nullpad/vim.ffi.mjs",
+      "src/nullpad/vim.ffi.mjs",
       first("export const now = () => Date.now();\n"),
     ),
     Break(
       Caught(rules.CallsJavaScript),
       "editor calls JavaScript",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       last(
         "@external(javascript, \"./surface.ffi.mjs\", \"focusControl\")\nfn poke(id: String) -> Nil",
       ),
@@ -310,7 +299,7 @@ fn breaks() -> List(Break) {
     Break(
       Caught(rules.CallsJavaScript),
       "app calls JavaScript",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       last(
         "@external(javascript, \"./platform.ffi.mjs\", \"below\")\nfn poke(id: String) -> Nil",
       ),
@@ -318,13 +307,13 @@ fn breaks() -> List(Break) {
     Break(
       Caught(rules.BackendImport),
       "app imports a storage backend",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       first("import nullpad/storage/indexeddb\n"),
     ),
     Break(
       Caught(rules.BackendImport),
       "library imports a storage backend",
-      "nullpad/library.gleam",
+      "src/nullpad/library.gleam",
       first("import nullpad/storage/indexeddb as db\n"),
     ),
     Break(
@@ -377,7 +366,7 @@ fn breaks() -> List(Break) {
     Break(
       Caught(rules.ChangesPage),
       "app draws and saves a setting at once",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       fn(rest) {
         string.replace(
           rest,
@@ -420,13 +409,13 @@ fn breaks() -> List(Break) {
     Break(
       Clean,
       "a commented-out import",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       first("// import lustre/effect\n"),
     ),
     Break(
       Clean,
       "a core module imports another core module",
-      "nullpad/vim.gleam",
+      "src/nullpad/vim.gleam",
       first("import nullpad/markdown\n"),
     ),
     Break(
@@ -440,7 +429,7 @@ fn breaks() -> List(Break) {
     Break(
       Escapes,
       "logic added to app instead of a pure module",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       last("fn decide(count: Int) -> Bool {\n  count > 3 && count % 2 == 0\n}"),
     ),
   ]
@@ -449,9 +438,9 @@ fn breaks() -> List(Break) {
 /// Found by an attacker who had not seen `breaks`. The check as first
 /// written missed every `Caught` here and raised every `Clean` here.
 fn outside_breaks() -> List(Break) {
-  let app = "nullpad/app.gleam"
-  let surface = "nullpad/surface.gleam"
-  let preview = "nullpad/preview.gleam"
+  let app = "src/nullpad/app.gleam"
+  let surface = "src/nullpad/surface.gleam"
+  let preview = "src/nullpad/preview.gleam"
   [
     Break(
       Caught(rules.Annotated),
@@ -480,7 +469,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.Listed),
       "a new settings module nobody listed",
-      "nullpad/settings.gleam",
+      "src/nullpad/settings.gleam",
       first(
         "import lustre/element.{type Element}\nimport lustre/element/html\nimport nullpad/platform\n\npub fn view() -> Element(msg) {\n  let _ = platform.focus(\"nullpad-control\")\n  html.div([], [element.text(\"Settings\")])\n}\n",
       ),
@@ -488,7 +477,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.ChangesPage),
       "a new settings module focuses while drawing",
-      "nullpad/settings.gleam",
+      "src/nullpad/settings.gleam",
       first(
         "import lustre/element.{type Element}\nimport lustre/element/html\nimport nullpad/platform\n\npub fn view() -> Element(msg) {\n  let _ = platform.focus(\"nullpad-control\")\n  html.div([], [element.text(\"Settings\")])\n}\n",
       ),
@@ -496,7 +485,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.Listed),
       "a new search module imports Lustre and platform",
-      "nullpad/search.gleam",
+      "src/nullpad/search.gleam",
       first(
         "import lustre/effect.{type Effect}\nimport nullpad/platform\n\npub fn jump(id: String) -> Effect(msg) {\n  platform.focus(id)\n}\n",
       ),
@@ -528,7 +517,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.JavaScriptFile),
       "JavaScript in a plain .js file",
-      "nullpad/extra.js",
+      "src/nullpad/extra.js",
       first(
         "export function wipe() {\n  document.querySelector(\"textarea\").value = \"\";\n}\n",
       ),
@@ -536,7 +525,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.CallsJavaScript),
       "platform calls another file's JavaScript",
-      "nullpad/platform.gleam",
+      "src/nullpad/platform.gleam",
       last(
         "@external(javascript, \"./extra.js\", \"wipe\")\npub fn wipe() -> Nil",
       ),
@@ -544,7 +533,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.SkipsOutcome),
       "a public editor function hands back a bare Editor",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       last("pub fn shout(editor: Editor) -> Editor {\n  editor\n}"),
     ),
     Break(
@@ -558,7 +547,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Clean,
       "a second storage backend",
-      "nullpad/storage/localstorage.gleam",
+      "src/nullpad/storage/localstorage.gleam",
       first(
         "@external(javascript, \"./localstorage.ffi.mjs\", \"count\")\npub fn count() -> Int\n",
       ),
@@ -566,7 +555,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Clean,
       "a second storage backend's JavaScript",
-      "nullpad/storage/localstorage.ffi.mjs",
+      "src/nullpad/storage/localstorage.ffi.mjs",
       first("export function count() {\n  return localStorage.length;\n}\n"),
     ),
     Break(
@@ -580,7 +569,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Clean,
       "a new effect in platform that scrolls",
-      "nullpad/platform.gleam",
+      "src/nullpad/platform.gleam",
       last(
         "pub fn scroll_to(id: String) -> Effect(msg) {\n  effect.from(fn(_) { focus_element(id) })\n}",
       ),
@@ -616,11 +605,11 @@ fn outside_breaks() -> List(Break) {
 /// from a rule to review: the JavaScript text rules and the marker rule let
 /// most of that attacker's breaks through and flagged ordinary code.
 fn second_round() -> List(Break) {
-  let app = "nullpad/app.gleam"
-  let surface = "nullpad/surface.gleam"
-  let editor = "nullpad/editor.gleam"
-  let platform_js = "nullpad/platform.ffi.mjs"
-  let surface_js = "nullpad/surface.ffi.mjs"
+  let app = "src/nullpad/app.gleam"
+  let surface = "src/nullpad/surface.gleam"
+  let editor = "src/nullpad/editor.gleam"
+  let platform_js = "src/nullpad/platform.ffi.mjs"
+  let surface_js = "src/nullpad/surface.ffi.mjs"
   [
     Break(
       Caught(rules.ChangesPage),
@@ -649,7 +638,7 @@ fn second_round() -> List(Break) {
     Break(
       Caught(rules.FieldWrite),
       "a second text field through element.element",
-      "nullpad/preview.gleam",
+      "src/nullpad/preview.gleam",
       last(
         "fn second_field(text: String) -> Element(msg) {\n  element.element(\"textarea\", [], [element.text(text)])\n}",
       ),
@@ -701,7 +690,7 @@ fn second_round() -> List(Break) {
     Break(
       Caught(rules.Listed),
       "a backend placed outside src/nullpad",
-      "storage/memory.gleam",
+      "src/storage/memory.gleam",
       first("pub fn size() -> Int {\n  1\n}\n"),
     ),
     Break(
@@ -765,7 +754,7 @@ fn second_round() -> List(Break) {
     Break(
       Escapes,
       "a storage backend's JavaScript changes the page",
-      "nullpad/storage/indexeddb.ffi.mjs",
+      "src/nullpad/storage/indexeddb.ffi.mjs",
       last("export function announce(text) {\n  document.title = text;\n}"),
     ),
     Break(
@@ -800,7 +789,7 @@ fn second_round() -> List(Break) {
     Break(
       Escapes,
       "core JavaScript reads the document",
-      "nullpad/markdown.ffi.mjs",
+      "src/nullpad/markdown.ffi.mjs",
       last("export const w = () => document.title;"),
     ),
   ]
