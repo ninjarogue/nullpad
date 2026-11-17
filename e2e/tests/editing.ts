@@ -1,6 +1,6 @@
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import type { App } from 'e2e';
+import type { App, Locator } from 'e2e';
 import { chromium } from 'playwright-core';
 import type { Page as RawPage } from 'playwright-core';
 import { cursorProblem, fast, selectionOf } from './guards.ts';
@@ -284,6 +284,12 @@ export class Editing {
     }
     await browser.mouse.up();
     await this.settle(`a drag from "${from.word}" to "${to.word}"`);
+  }
+
+  /** Clicks a control outside the note, which takes the focus, so until the note has it again there is no cursor to look at. */
+  async focusElsewhere(control: Locator) {
+    this.blurred = true;
+    await control.click();
   }
 
   /** Escape leaves the text field, so after it there is no cursor to look at. */

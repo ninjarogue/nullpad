@@ -417,7 +417,7 @@ test('Ctrl+Z and Ctrl+Y in the title take back and give back the title, never th
   await editor.open('alpha');
   await editor.press(ctrl('End'));
   await editor.type(' two words');
-  await page.title.click();
+  await editor.focusElsewhere(page.title);
   await browser.keyboard.type('My title');
 
   for (const key of [ctrl('z'), ctrl('z')]) await browser.keyboard.press(key);
