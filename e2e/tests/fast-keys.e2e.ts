@@ -791,9 +791,11 @@ for (const { name, key, typed } of appleKeys) {
   });
 }
 
+// The field holds the block the caret is in, so these are where the same
+// keys typed one at a time leave the caret, not a plain textarea's.
 const paragraphKeys = [
-  { name: 'Control and ArrowUp goes to the start of the paragraph', key: 'Control+ArrowUp', typed: 'one\n\nXtwo' },
-  { name: 'Control, Shift and ArrowUp selects to the start of the paragraph', key: 'Control+Shift+ArrowUp', typed: 'one\n\nX' },
+  { name: 'Control and ArrowUp moves up a paragraph', key: 'Control+ArrowUp', typed: 'one\nX\ntwo' },
+  { name: 'Control, Shift and ArrowUp selects up a paragraph', key: 'Control+Shift+ArrowUp', typed: 'one\nX' },
 ];
 
 for (const { name, key, typed } of paragraphKeys) {

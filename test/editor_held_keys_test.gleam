@@ -583,6 +583,10 @@ pub fn control_and_up_or_down_is_held_off_a_mac_test() {
   assert editor.holds(up, editor.OtherKeyboard)
   assert editor.holds(ctrl("ArrowDown"), editor.WindowsKeyboard)
   assert !editor.holds(ctrl("ArrowUp"), editor.AppleKeyboard)
+  assert editor.browser_act(up, editor.OtherKeyboard)
+    == Some(editor.MoveCaret(True, editor.Backward, editor.ByParagraph))
+  assert editor.browser_act(ctrl("ArrowDown"), editor.WindowsKeyboard)
+    == Some(editor.MoveCaret(False, editor.Forward, editor.ByParagraph))
 }
 
 /// The focus comes back while an IME composes behind a held key: it still

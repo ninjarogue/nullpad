@@ -353,6 +353,7 @@ pub type Granularity {
   ByWord
   ByLine
   ByLineBoundary
+  ByParagraph
   ByDocument
 }
 
@@ -421,10 +422,11 @@ pub fn browser_act(held: Held, keyboard: Keyboard) -> Option(Act) {
         }
       }
       let up_down = fn(direction) {
-        case plain, lines {
-          True, _ -> Some(MoveCaret(shift, direction, ByLine))
-          False, True -> Some(MoveCaret(shift, direction, ByDocument))
-          False, False -> None
+        case plain, lines, words && keyboard != AppleKeyboard {
+          True, _, _ -> Some(MoveCaret(shift, direction, ByLine))
+          False, True, _ -> Some(MoveCaret(shift, direction, ByDocument))
+          False, False, True -> Some(MoveCaret(shift, direction, ByParagraph))
+          False, False, False -> None
         }
       }
       let home_end = fn(direction) {

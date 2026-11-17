@@ -1065,6 +1065,7 @@ fn granularity(by: editor.Granularity) -> String {
     editor.ByWord -> "word"
     editor.ByLine -> "line"
     editor.ByLineBoundary -> "lineboundary"
+    editor.ByParagraph -> "paragraph"
     editor.ByDocument -> "documentboundary"
   }
 }
