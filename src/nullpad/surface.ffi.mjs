@@ -36,9 +36,13 @@ const heldTypography = {
   },
 };
 
-export function holdControl(id, classes, rows, marker) {
+// A field drawn idle or with a painted selection has no rows' type, and
+// takes the type of the rows it is written with at once, so that a key
+// pressed before the render measures it as it will be drawn.
+export function holdControl(id, paintedClass, classes, rows, marker) {
   const holder = document.getElementById(id)?.parentElement;
-  if (!holder || (heldTypography.drawnRows === "" && !holder.classList.contains("idle"))) return;
+  const untyped = holder?.classList.contains("idle") || holder?.classList.contains(paintedClass);
+  if (!holder || (heldTypography.drawnRows === "" && !untyped)) return;
   heldTypography.apply(holder, classes, rows, marker);
 }
 

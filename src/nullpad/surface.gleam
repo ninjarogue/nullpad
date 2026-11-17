@@ -447,6 +447,7 @@ pub fn sync(
       Some(rows), False ->
         hold_control(
           control_id,
+          painted_class,
           set_as(rows),
           rows_of(rows),
           marker_width(kind),
@@ -1386,6 +1387,7 @@ fn mirror(editor: Editor) -> Element(msg) {
 @external(javascript, "./surface.ffi.mjs", "holdControl")
 fn hold_control(
   id: String,
+  painted_class: String,
   classes: String,
   rows: String,
   marker: String,
