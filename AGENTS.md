@@ -45,6 +45,10 @@ cd e2e && npx tsc && npm test
 
 `.githooks/pre-push` runs all of them.
 
+- A commit that fixes a bug ends with a `Caught-by:` line naming what found it: a test file, `keystroke_cost`, `hostile_input`, the robot typist, the planted-bug harness, a blind break-it pass, a review, or `aric` for a bug found by hand. The weekly check review counts these lines to see which checks earn their keep.
+- Tools that check our tests (the test-count gate, the planted-bug harness, e2e discovery) and their own tests change only when a real slip gets past them in a real PR, the same rule as the architecture check. No attack rounds for their own sake.
+- No check is deleted, merged or loosened without aric's approval in the weekly check review or the PR.
+
 ## Code
 
 - Few comments. Keep one only for behaviour forced by the browser, Lustre or a spec, or for a public contract.
