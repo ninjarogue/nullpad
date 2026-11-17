@@ -997,7 +997,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         False -> placed
       }
       let landed = landing(steps(editor))
-      let moved = case stays(editor, placed) {
+      let moved = case page_step_blocked(editor, placed) {
         True -> editor
         False ->
           edit(editor, buffer.select(editor.buffer, anchor:, head: placed))
@@ -1048,7 +1048,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         True -> anchor
         False -> head
       }
-      let moved = case stays(editor, head) {
+      let moved = case page_step_blocked(editor, head) {
         True -> editor
         False ->
           edit(editor, buffer.select(editor.buffer, anchor:, head:))
@@ -1300,7 +1300,7 @@ fn begin_run(
 pub fn run_started_at_row_start(editor: Editor) -> Bool {
   case editor.vertical_goal {
     Some(Goal(markdown_col: col, ..)) -> col == 0
-    None -> step_start(editor).col == 0
+    None -> step_origin(editor).col == 0
   }
 }
 
@@ -1318,7 +1318,7 @@ fn landing(waiting: List(Queued)) -> Option(Bool) {
   }
 }
 
-pub fn step_start(editor: Editor) -> Position {
+pub fn step_origin(editor: Editor) -> Position {
   let #(anchor, head) = buffer.selection(editor.buffer)
   let #(start, end) = case buffer.compare(anchor, head) {
     order.Gt -> #(head, anchor)
@@ -1399,12 +1399,12 @@ fn in_row(
   }
 }
 
-fn stays(editor: Editor, reached: Position) -> Bool {
+fn page_step_blocked(editor: Editor, reached: Position) -> Bool {
   let #(anchor, head) = buffer.selection(editor.buffer)
   case steps(editor) {
     [Queued(move: PageUp, select: False), ..]
     | [Queued(move: PageDown, select: False), ..] ->
-      anchor != head && reached == step_start(editor)
+      anchor != head && reached == step_origin(editor)
     [Queued(move: PageUp, select: True), ..]
     | [Queued(move: PageDown, select: True), ..]
     | [Queued(move: LineUp, ..), ..]

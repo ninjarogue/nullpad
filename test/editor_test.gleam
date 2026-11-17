@@ -1668,19 +1668,23 @@ pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_t
     )
   assert editor.region(ed) == Some(Region(0, 1))
   assert editor.blocks(ed) == markdown.parse("~~wow~~\n-")
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 }
 
 pub fn moving_inside_a_block_never_changes_how_the_field_is_set_test() {
   let heading = "Hello\n-"
   let ed = live(heading)
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 
   let ed = show(ed, caret(heading, 1, 1))
   assert editor.region(ed) == Some(Region(0, 1))
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
   let ed = show(ed, caret(heading, 0, 2))
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 
   let table = "| a | b |\n|-|-|\n| 1 | 2 |"
   let ed = live(table)
@@ -1708,7 +1712,7 @@ pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
   let ed = live("top\n\n") |> point(2)
 
   assert editor.kind(show(ed, caret("# T", 0, 3)))
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   assert editor.kind(show(ed, caret("- item", 0, 6)))
     == Some(live.ListItem(task: False, marker: "- "))
   assert editor.kind(show(ed, caret("```", 0, 3))) == Some(live.Mono)
@@ -1716,7 +1720,8 @@ pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
 
 pub fn a_row_that_joins_a_block_beyond_the_field_is_set_as_body_text_test() {
   let ed = live("# Title\ntext")
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H1, marks: "# "))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret("Title", 0, 0), at: 0))
@@ -1762,7 +1767,8 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
     editor.update(blurred, editor.FocusChanged(True))
   assert sync == editor.Write(caret("Hello\n-", 1, 1))
   assert editor.region(back) == Some(Region(0, 1))
-  assert editor.kind(back) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(back)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 
   let Outcome(editor: escaped, sync:, ..) =
     editor.update(ed, editor.EscapePressed(shown: caret("-", 0, 1)))
@@ -2550,11 +2556,11 @@ pub fn a_page_key_goes_from_the_start_or_end_of_a_selection_and_keeps_it_with_no
   }
   let selection = fn(ed) { buffer.selection(editor.buffer(ed)) }
   let up = page(True, Position(0, 0), Position(0, 2))
-  assert editor.step_start(up) == Position(0, 0)
+  assert editor.step_origin(up) == Position(0, 0)
   let Outcome(editor: up, ..) = editor.update(up, editor.SteppedPast)
   assert selection(up) == #(Position(0, 0), Position(0, 2))
   let down = page(False, Position(1, 3), Position(0, 2))
-  assert editor.step_start(down) == Position(1, 3)
+  assert editor.step_origin(down) == Position(1, 3)
   let Outcome(editor: down, ..) = editor.update(down, editor.SteppedPast)
   assert selection(down) == #(Position(1, 5), Position(1, 5))
   let up = page(True, Position(0, 1), Position(0, 3))
@@ -2696,14 +2702,15 @@ pub fn a_heading_typed_on_a_row_is_framed_as_that_heading_at_once_test() {
   assert editor.frame(ed) == Some(live.Body)
 
   let marks = show(ed, caret("# Hello", 0, 2))
-  assert editor.kind(marks) == Some(live.Title(level: markdown.H1, marks: "# "))
+  assert editor.kind(marks)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   assert editor.frame(marks)
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   assert editor.blocks(marks) == editor.blocks(ed)
 
   let more = show(ed, caret("### Hello", 0, 4))
   assert editor.frame(more)
-    == Some(live.Title(level: markdown.H3, marks: "### "))
+    == Some(live.Title(level: markdown.H3, typed_marks: "### "))
 
   let bare = show(ed, caret("#Hello", 0, 1))
   assert editor.frame(bare) == Some(live.Body)
@@ -2750,14 +2757,16 @@ pub fn the_marks_of_a_heading_in_an_item_or_a_quote_removed_frame_the_row_at_onc
 pub fn a_heading_with_no_text_is_set_and_framed_as_a_heading_test() {
   let ed = live("top\n\n\n\nbelow") |> point(2)
   let marks = show(ed, caret("#", 0, 1))
-  assert editor.kind(marks) == Some(live.Title(level: markdown.H1, marks: "#"))
-  assert editor.frame(marks) == Some(live.Title(level: markdown.H1, marks: "#"))
+  assert editor.kind(marks)
+    == Some(live.Title(level: markdown.H1, typed_marks: "#"))
+  assert editor.frame(marks)
+    == Some(live.Title(level: markdown.H1, typed_marks: "#"))
 
   let spaced = show(ed, caret("# ", 0, 2))
   assert editor.kind(spaced)
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   assert editor.frame(spaced)
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 
   let item = show(ed, caret("- #", 0, 3))
   assert editor.kind(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
@@ -2771,19 +2780,20 @@ pub fn a_heading_with_no_text_is_set_and_framed_as_a_heading_test() {
 
   let laid_out = live("# \n\nbelow")
   assert editor.kind(laid_out)
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   assert editor.frame(laid_out)
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 }
 
 pub fn a_heading_whose_text_is_removed_stays_a_heading_test() {
   let ed = live("# T\n\nbelow")
-  assert editor.frame(ed) == Some(live.Title(level: markdown.H1, marks: "# "))
+  assert editor.frame(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   let emptied = show(ed, caret("# ", 0, 2))
   assert editor.kind(emptied)
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   assert editor.frame(emptied)
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 }
 
 pub fn a_setext_heading_in_an_item_or_a_quote_is_set_as_that_item_or_quote_test() {
@@ -2800,7 +2810,8 @@ pub fn a_setext_heading_in_an_item_or_a_quote_is_set_as_that_item_or_quote_test(
 
 pub fn the_marks_of_a_heading_removed_frame_the_row_as_body_text_at_once_test() {
   let ed = live("# Hello\n\nbelow")
-  assert editor.frame(ed) == Some(live.Title(level: markdown.H1, marks: "# "))
+  assert editor.frame(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 
   let removed = show(ed, caret("Hello", 0, 0))
   assert editor.kind(removed) == Some(live.Body)
@@ -2884,7 +2895,8 @@ pub fn nothing_is_dropped_in_vim_normal_mode_test() {
 pub fn a_selection_reaching_another_row_lays_out_the_row_typed_as_another_block_test() {
   let ed = live("- a\n- b") |> point(1) |> show(caret("# b", 0, 3))
   assert editor.region(ed) == Some(Region(1, 1))
-  assert editor.frame(ed) == Some(live.Title(level: markdown.H1, marks: "# "))
+  assert editor.frame(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 
   let Outcome(editor: ed, ..) =
     editor.update(

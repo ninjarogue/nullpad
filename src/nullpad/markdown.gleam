@@ -919,7 +919,7 @@ fn heading(line: List(String)) -> Result(#(Level, List(String)), Nil) {
   }
 }
 
-pub fn heading_marks(line: String) -> String {
+pub fn atx_heading_prefix(line: String) -> String {
   let chars = string.to_graphemes(line)
   let #(indent, text) = list.split_while(chars, fn(char) { char == " " })
   let #(marks, after_marks) = list.split_while(text, fn(char) { char == "#" })

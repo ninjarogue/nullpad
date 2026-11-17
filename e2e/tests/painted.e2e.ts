@@ -278,7 +278,7 @@ test('a click on a painted blank line, which is drawn over the field, puts the c
     await browser.mouse.down();
     await browser.mouse.up();
     await expect.poll(() => page.paintedBlanks()).toEqual([]);
-    await expect.poll(() => browser.evaluate(() => document.querySelector('textarea')!.dataset['anchor'] ?? null)).toBe(`${row}:0`);
+    await expect.poll(() => browser.evaluate(() => document.querySelector('textarea')!.dataset['typistAnchor'] ?? null)).toBe(`${row}:0`);
   }
 });
 

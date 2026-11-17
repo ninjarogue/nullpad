@@ -28,7 +28,7 @@ const caretOf = `(() => {
   return { value: c.value, anchor: back ? c.selectionEnd : c.selectionStart, head: back ? c.selectionStart : c.selectionEnd };
 })()`;
 const sign = (s) => JSON.stringify([s.v, s.s, s.e, s.d]);
-const anchorOf = `document.querySelector('textarea')?.dataset.anchor ?? null`;
+const anchorOf = `document.querySelector('textarea')?.dataset.typistAnchor ?? null`;
 const movesAnchor = (k) => typeof k === 'string' && k.includes('Shift+');
 const slowMs = 120;
 const paces = ['burst', 'frame', 'slow'];

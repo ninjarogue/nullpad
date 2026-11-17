@@ -44,7 +44,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
   let #(anchor, _) = buffer.selection(editor.buffer(editor))
   let anchor =
     attribute.data(
-      "anchor",
+      "typist-anchor",
       int.to_string(anchor.row) <> ":" <> int.to_string(anchor.col),
     )
   html.div([attribute.class(classes(editor, setting)), marker(setting)], [
@@ -138,7 +138,7 @@ fn field_events(
     event.on("blur", leave_decoder(on_event)),
     event.advanced("beforeinput", history_decoder(on_event)),
     event.advanced("paste", paste_decoder(on_event)),
-    event.advanced("keydown", keydown_decoder(on_event)),
+    event.advanced("keydown", hold_or_decide_key_decoder(on_event)),
   ]
 }
 
@@ -190,14 +190,17 @@ fn marker_width(kind: Option(live.Kind)) -> String {
       float.to_string(body_text_width(marker)) <> "px"
     Some(live.ItemTitle(level, marker:)) ->
       float.to_string(heading_text_width(marker, level)) <> "px"
-    Some(live.Title(marks: "", ..)) -> ""
-    Some(live.Title(level:, marks:)) ->
-      float.to_string(bold_width(marks) +. spacing(level, marks)) <> "em"
+    Some(live.Title(typed_marks: "", ..)) -> ""
+    Some(live.Title(level:, typed_marks:)) ->
+      float.to_string(
+        bold_width_em(typed_marks) +. heading_letter_spacing(level, typed_marks),
+      )
+      <> "em"
     Some(live.Body) | Some(live.Mono) | Some(live.QuoteTitle(..)) | None -> ""
   }
 }
 
-fn spacing(level: markdown.Level, marks: String) -> Float {
+fn heading_letter_spacing(level: markdown.Level, marks: String) -> Float {
   case level {
     markdown.H6 -> 0.05 *. int.to_float(string.length(marks))
     markdown.H1 | markdown.H2 | markdown.H3 | markdown.H4 | markdown.H5 -> 0.0
@@ -415,7 +418,7 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   })
 }
 
-pub fn start(editor: Editor) -> Effect(msg) {
+pub fn note_first_editor(editor: Editor) -> Effect(msg) {
   effect.from(fn(_) { note_editor(editor) })
 }
 
@@ -447,10 +450,10 @@ pub fn sync(
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
-  let draw = fn(dispatch) {
+  let draw_and_settle = fn(dispatch) {
     paint(editor)
     note_drawn(editor.row_count(editor))
-    case settling(editor) {
+    case selection_to_settle(editor) {
       Some(#(from, to)) -> {
         dispatch(on_event(editor.Settled(from:, to:)))
         False
@@ -458,15 +461,17 @@ pub fn sync(
       None -> True
     }
   }
-  let replay = fn(dispatch, quiet) {
+  let replay_when_quiet = fn(dispatch, quiet) {
     case quiet {
-      True -> replay_held(editor, dispatch, on_event)
+      True -> replay_next_held_key(editor, dispatch, on_event)
       False -> Nil
     }
   }
   let painted =
-    effect.before_paint(fn(dispatch, _) { replay(dispatch, draw(dispatch)) })
-  let noted =
+    effect.before_paint(fn(dispatch, _) {
+      replay_when_quiet(dispatch, draw_and_settle(dispatch))
+    })
+  let note_for_events =
     effect.from(fn(_) {
       note_editor(editor)
       case editor.is_stepping(editor) {
@@ -479,9 +484,9 @@ pub fn sync(
       effect.batch([
         effect.from(fn(_) { hold_now() }),
         effect.before_paint(fn(dispatch, _) {
-          let quiet = draw(dispatch)
+          let quiet = draw_and_settle(dispatch)
           reveal_caret(control_id, live_class, painted_class)
-          replay(dispatch, quiet)
+          replay_when_quiet(dispatch, quiet)
         }),
       ])
     // Painted before the page is scrolled to the head, which may be painted.
@@ -493,11 +498,11 @@ pub fn sync(
           ask_focus()
         }),
         effect.before_paint(fn(dispatch, _) {
-          let quiet = draw(dispatch)
+          let quiet = draw_and_settle(dispatch)
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
-          replay(dispatch, quiet)
+          replay_when_quiet(dispatch, quiet)
         }),
       ])
     editor.WriteQuietly(buffer) -> effect.batch([write(buffer), painted])
@@ -516,7 +521,7 @@ pub fn sync(
           editor.PageUp -> #("page", False)
           editor.PageDown -> #("page", True)
         }
-        let head = editor.step_start(editor)
+        let head = editor.step_origin(editor)
         let lines = buffer.lines(editor.buffer(editor))
         let #(row, visible) =
           holder_text(control_id, live_class, live.row_mark, head.row)
@@ -576,12 +581,12 @@ pub fn sync(
           hold_step(!step_now(dispatch), editor)
         }),
         effect.before_paint(fn(dispatch, _) {
-          let quiet = draw(dispatch)
+          let quiet = draw_and_settle(dispatch)
           case take_held_step(editor) && !step_now(dispatch) {
             True -> dispatch(on_event(editor.Unstepped(x:)))
             False -> Nil
           }
-          replay(dispatch, quiet)
+          replay_when_quiet(dispatch, quiet)
         }),
       ])
     }
@@ -636,8 +641,8 @@ pub fn sync(
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
-          let quiet = draw(dispatch)
-          replay(dispatch, quiet && !aimed)
+          let quiet = draw_and_settle(dispatch)
+          replay_when_quiet(dispatch, quiet && !aimed)
         }),
       ])
     }
@@ -647,7 +652,7 @@ pub fn sync(
           write_now(buffer)
           case key {
             editor.HeldKey(at:, ..) -> {
-              option.map(editor.browser_act(key, keyboard()), act)
+              option.map(editor.browser_act(key, keyboard()), act_as_browser)
               case decode.run(find_control(control_id), control_decoder()) {
                 Ok(shown) ->
                   dispatch(on_event(editor.ControlChanged(shown:, at:)))
@@ -673,7 +678,7 @@ pub fn sync(
           })
         }),
         effect.before_paint(fn(dispatch, _) {
-          draw(dispatch)
+          draw_and_settle(dispatch)
           Nil
         }),
       ])
@@ -738,7 +743,7 @@ pub fn sync(
         painted,
       ])
   }
-  effect.batch([noted, synced])
+  effect.batch([note_for_events, synced])
 }
 
 /// The selection is painted from where each of its ends is drawn, and the
@@ -797,7 +802,7 @@ fn paint(editor: Editor) -> Nil {
   }
 }
 
-fn settling(
+fn selection_to_settle(
   editor: Editor,
 ) -> Option(#(#(Position, Position), #(Position, Position))) {
   let toward = editor.last_key_travel(editor)
@@ -920,7 +925,7 @@ fn control_decoder() -> Decoder(Buffer) {
   decode.success(from_control(text, start, end, direction == "backward"))
 }
 
-fn hold_decoder(
+fn key_held_behind_page_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   use key <- decode.field("key", decode.string)
@@ -961,7 +966,7 @@ fn paste_decoder(
   }
 }
 
-fn replay_held(
+fn replay_next_held_key(
   editor: Editor,
   dispatch: fn(msg) -> Nil,
   on_event: fn(editor.Event) -> msg,
@@ -984,12 +989,12 @@ fn replay_held(
     -> {
       let pressed =
         held_key_event(control_id, key, code, shift, ctrl, meta, alt, at)
-      case decode.run(pressed, decided_decoder(fn(event) { event })) {
+      case decode.run(pressed, key_action_decoder(fn(event) { event })) {
         Ok(handler) -> replayed(Some(handler.message))
         Error(_) ->
           case editor.browser_act(held, keyboard()) {
             Some(browser_act) -> {
-              act(browser_act)
+              act_as_browser(browser_act)
               replayed(read(at))
             }
             None -> replayed(None)
@@ -1000,7 +1005,7 @@ fn replay_held(
   }
 }
 
-fn act(browser_act: editor.Act) -> Nil {
+fn act_as_browser(browser_act: editor.Act) -> Nil {
   case browser_act {
     editor.TypeText(text) ->
       act_on_field(control_id, "type", text, False, "", "")
@@ -1056,13 +1061,15 @@ fn keyboard() -> editor.Keyboard {
   }
 }
 
-fn keydown_decoder(
+fn hold_or_decide_key_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
-  decode.one_of(hold_decoder(on_event), [decided_decoder(on_event)])
+  decode.one_of(key_held_behind_page_decoder(on_event), [
+    key_action_decoder(on_event),
+  ])
 }
 
-fn decided_decoder(
+fn key_action_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   decode.one_of(key_decoder(on_event), [
@@ -1379,7 +1386,7 @@ fn body_text_width(text: String) -> Float
 fn measure_heading(text: String, heading: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "boldWidth")
-fn bold_width(text: String) -> Float
+fn bold_width_em(text: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "askFocus")
 fn ask_focus() -> Nil

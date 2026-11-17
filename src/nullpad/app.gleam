@@ -100,7 +100,7 @@ pub fn init(flags: Flags) -> #(Model, Effect(Msg)) {
   let #(model, listed) = obey(model, listing)
   let start =
     effect.batch([
-      surface.start(model.editor),
+      surface.note_first_editor(model.editor),
       listed,
       platform.on_shortcut("e", UserToggledMarkdown),
       platform.on_hide(ToLibrary(library.SaveDue)),
@@ -114,7 +114,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserTickedTask(task:, checked:) ->
       apply(model, editor.tick(model.editor, task, checked))
 
-    ToLibrary(event) -> tell_library(model, event) |> wait_for_choice
+    ToLibrary(event) ->
+      tell_library(model, event) |> hold_keys_until_chosen_note
 
     UserOpenedMenu(menu) -> #(
       Model(..model, menu: Some(menu)),
@@ -123,7 +124,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserClosedMenu -> #(Model(..model, menu: None), effect.none())
     UserDeletedNote(id) ->
       tell_library(Model(..model, menu: None), library.UserDeletedNote(id))
-      |> wait_for_choice
+      |> hold_keys_until_chosen_note
 
     UserToggledMarkdown -> {
       let showing = case model.showing {
@@ -165,7 +166,18 @@ fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
   )
 }
 
-fn wait_for_choice(done: #(Model, Effect(Msg))) -> #(Model, Effect(Msg)) {
+// Lustre prevents the default before it decodes, and a decoder that fails
+// sends no message.
+fn keep_field_focus_on_press() -> attribute.Attribute(Msg) {
+  event.prevent_default(event.on(
+    "mousedown",
+    decode.failure(UserClosedMenu, expected: ""),
+  ))
+}
+
+fn hold_keys_until_chosen_note(
+  done: #(Model, Effect(Msg)),
+) -> #(Model, Effect(Msg)) {
   let #(model, effects) = done
   let choosing = library.is_choosing(model.library)
   case editor.is_choosing(model.editor) == choosing {
@@ -385,12 +397,7 @@ fn note_button(
       attribute.data("test-id", "note-" <> storage.id_text(id)),
       attribute.aria_current(current),
       event.on_click(ToLibrary(library.UserPickedNote(id))),
-      // Lustre prevents the default before it decodes, and a decoder that
-      // fails sends no message.
-      event.prevent_default(event.on(
-        "mousedown",
-        decode.failure(UserClosedMenu, expected: ""),
-      )),
+      keep_field_focus_on_press(),
       // A right-click, a long press where the browser makes it one, and the
       // keyboard's menu key.
       event.advanced("contextmenu", {

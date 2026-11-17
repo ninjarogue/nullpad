@@ -426,7 +426,7 @@ fn breaks() -> List(Break) {
           "fn waiting_now() -> Bool {\n  editor.keys_wait(current_editor())\n}",
         ),
         after(
-          "fn hold_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
+          "fn key_held_behind_page_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
           "  let _ = waiting_now()\n",
         ),
       ),
@@ -1363,12 +1363,12 @@ fn fourth_round() -> List(Break) {
       surface,
       both(
         instead(
-          "fn hold_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
-          "fn hold_decoder(\n  drawn: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let waits = fn() { editor.keys_wait(drawn()) }\n",
+          "fn key_held_behind_page_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
+          "fn key_held_behind_page_decoder(\n  drawn: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let waits = fn() { editor.keys_wait(drawn()) }\n",
         ),
         instead(
-          "decode.one_of(hold_decoder(on_event), [",
-          "decode.one_of(hold_decoder(current_editor, on_event), [",
+          "decode.one_of(key_held_behind_page_decoder(on_event), [",
+          "decode.one_of(key_held_behind_page_decoder(current_editor, on_event), [",
         ),
       ),
     ),
@@ -1401,7 +1401,7 @@ fn fourth_round() -> List(Break) {
       "f02: a key handler's maker takes a callback for the editor",
       surface,
       last(
-        "fn on_keydown(\n  now: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> attribute.Attribute(msg) {\n  let _ = now\n  event.advanced(\"keydown\", keydown_decoder(on_event))\n}",
+        "fn on_keydown(\n  now: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> attribute.Attribute(msg) {\n  let _ = now\n  event.advanced(\"keydown\", hold_or_decide_key_decoder(on_event))\n}",
       ),
     ),
     Break(
@@ -1664,8 +1664,8 @@ fn fifth_round() -> List(Break) {
           "  let in_vim = fn() { editor.mode(current_editor()) != editor.Plain }\n",
         ),
         instead(
-          "    event.advanced(\"keydown\", keydown_decoder(on_event)),\n",
-          "    event.advanced(\"keydown\", case in_vim() {\n      True -> keydown_decoder(on_event)\n      False -> hold_decoder(on_event)\n    }),\n",
+          "    event.advanced(\"keydown\", hold_or_decide_key_decoder(on_event)),\n",
+          "    event.advanced(\"keydown\", case in_vim() {\n      True -> hold_or_decide_key_decoder(on_event)\n      False -> key_held_behind_page_decoder(on_event)\n    }),\n",
         ),
       ),
     ),
@@ -1675,8 +1675,8 @@ fn fifth_round() -> List(Break) {
       "src/nullpad/surface.gleam",
       both(
         instead(
-          "    event.advanced(\"keydown\", keydown_decoder(on_event)),\n",
-          "    event.advanced(\"keydown\", case in_vim(current_editor) {\n      True -> keydown_decoder(on_event)\n      False -> hold_decoder(on_event)\n    }),\n",
+          "    event.advanced(\"keydown\", hold_or_decide_key_decoder(on_event)),\n",
+          "    event.advanced(\"keydown\", case in_vim(current_editor) {\n      True -> hold_or_decide_key_decoder(on_event)\n      False -> key_held_behind_page_decoder(on_event)\n    }),\n",
         ),
         last(
           "fn in_vim(now: fn() -> Editor) -> Bool {\n  editor.mode(now()) != editor.Plain\n}",
@@ -1751,7 +1751,7 @@ fn fifth_round() -> List(Break) {
       "src/nullpad/surface.gleam",
       instead(
         "            fn() { dispatch(on_event(editor.Released)) },\n          )\n        })\n      effect.batch([placed, followed, painted])",
-        "            fn() {\n              draw(dispatch)\n              dispatch(on_event(editor.Released))\n            },\n          )\n        })\n      effect.batch([placed, followed, painted])",
+        "            fn() {\n              draw_and_settle(dispatch)\n              dispatch(on_event(editor.Released))\n            },\n          )\n        })\n      effect.batch([placed, followed, painted])",
       ),
     ),
     Break(
@@ -2105,8 +2105,8 @@ fn fifth_round() -> List(Break) {
       "src/nullpad/surface.gleam",
       both(
         instead(
-          "  let noted =\n    effect.from(fn(_) {\n",
-          "  let noted =\n    at_once(fn() {\n",
+          "  let note_for_events =\n    effect.from(fn(_) {\n",
+          "  let note_for_events =\n    at_once(fn() {\n",
         ),
         last(
           "fn at_once(run: fn() -> Nil) -> Effect(msg) {\n  use _ <- effect.from\n  run()\n}",

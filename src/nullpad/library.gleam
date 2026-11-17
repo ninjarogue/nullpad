@@ -17,7 +17,7 @@ pub opaque type Library {
     open: Option(Open),
     edits: Int,
     leaving_for: Option(Destination),
-    arriving: Bool,
+    loading_chosen_note: Bool,
     /// While storage has the request to delete the open note nothing is
     /// saved, or the save would bring the note back.
     deleting: Option(NoteId),
@@ -100,7 +100,7 @@ pub fn start() -> #(Library, List(Command)) {
       open: None,
       edits: 0,
       leaving_for: None,
-      arriving: False,
+      loading_chosen_note: False,
       deleting: None,
       undo: None,
       deletes: 0,
@@ -126,7 +126,7 @@ pub fn is_open(library: Library, id: NoteId) -> Bool {
 }
 
 pub fn is_choosing(library: Library) -> Bool {
-  library.leaving_for != None || library.arriving
+  library.leaving_for != None || library.loading_chosen_note
 }
 
 pub fn deleting(library: Library) -> Option(NoteId) {
@@ -190,10 +190,18 @@ pub fn update(
     }
 
     StorageLoaded(Ok(note)) ->
-      open_when_saved(Library(..library, arriving: False), note, text)
+      open_when_saved(
+        Library(..library, loading_chosen_note: False),
+        note,
+        text,
+      )
     StorageCreated(Ok(note)) -> {
       let #(library, opened) =
-        open_when_saved(Library(..library, arriving: False), note, text)
+        open_when_saved(
+          Library(..library, loading_chosen_note: False),
+          note,
+          text,
+        )
       #(library, list.append(opened, [ListNotes]))
     }
 
@@ -286,11 +294,11 @@ pub fn update(
     UndoExpired(_) -> #(library, [])
 
     StorageLoaded(Error(storage.NotFound as failure)) -> #(
-      Library(..library, arriving: False, problem: Some(failure)),
+      Library(..library, loading_chosen_note: False, problem: Some(failure)),
       [ListNotes],
     )
     StorageLoaded(Error(failure)) | StorageCreated(Error(failure)) -> #(
-      Library(..library, arriving: False, problem: Some(failure)),
+      Library(..library, loading_chosen_note: False, problem: Some(failure)),
       [],
     )
     StorageListed(Error(failure)) -> #(
@@ -332,7 +340,7 @@ fn leave_when_saved(
     Some(_), Some(Open(save_state: Saving, ..)) -> #(library, [])
     Some(destination), Some(Open(save_state: Saved, ..))
     | Some(destination), None
-    -> #(Library(..library, leaving_for: None, arriving: True), [
+    -> #(Library(..library, leaving_for: None, loading_chosen_note: True), [
       case destination {
         ExistingNote(id) -> LoadNote(id)
         NewNote -> CreateNote

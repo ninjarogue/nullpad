@@ -52,7 +52,7 @@ fn item_last_row(item: Item) -> Int {
 
 pub type Kind {
   Body
-  Title(level: Level, marks: String)
+  Title(level: Level, typed_marks: String)
   Mono
   ListItem(task: Bool, marker: String)
   ItemTitle(Level, marker: String)
@@ -80,11 +80,11 @@ pub fn kind(
     [Block(content: Heading(level:, ..), first_row:, ..)] ->
       Title(
         level:,
-        marks: lines
+        typed_marks: lines
           |> list.drop(first_row)
           |> list.first
           |> result.unwrap("")
-          |> markdown.heading_marks,
+          |> markdown.atx_heading_prefix,
       )
     [Block(content: CodeBlock(..), ..)] | [Block(content: Table(..), ..)] ->
       Mono
@@ -322,7 +322,7 @@ pub fn settle(
   visible visible: String,
   at at: Position,
   other other: Position,
-  toward toward: order.Order,
+  toward travel_direction: order.Order,
 ) -> Position {
   let line = lines |> list.drop(at.row) |> list.first
   let here = case at.row >= row {
@@ -348,7 +348,7 @@ pub fn settle(
         == whole
       }
       let near = fn() { nearest(at.col, 0, start, end, whole_at) }
-      let col = case start < end, toward {
+      let col = case start < end, travel_direction {
         False, _ -> at.col
         True, order.Eq -> near()
         True, order.Gt ->
@@ -365,20 +365,21 @@ pub fn settle(
 }
 
 fn beside_hidden(
-  shown: List(Bool),
+  drawn_flags: List(Bool),
   col: Int,
   by: Int,
-  by_hidden: Bool,
+  previous_hidden: Bool,
   fine: fn(Int) -> Bool,
 ) -> Result(Int, Nil) {
-  let beside = case shown {
+  let beside = case drawn_flags {
     [False, ..] -> True
-    _ -> by_hidden
+    _ -> previous_hidden
   }
-  case beside && fine(col), shown {
+  case beside && fine(col), drawn_flags {
     True, _ -> Ok(col)
     False, [] -> Error(Nil)
-    False, [drawn, ..shown] -> beside_hidden(shown, col + by, by, !drawn, fine)
+    False, [drawn, ..drawn_flags] ->
+      beside_hidden(drawn_flags, col + by, by, !drawn, fine)
   }
 }
 
