@@ -2,8 +2,9 @@
 //// person does. Each runs a fixed number of cases from a fixed seed, so a
 //// run repeats exactly, and a failing case is shrunk before it is shown.
 //// `properties/gen` makes the text, `properties/script` the actions, and
-//// `rows` and `kept` hold what a property is checked against.
+//// `rows`, `kept` and `saving` hold what a property is checked against.
 
+import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -16,6 +17,7 @@ import nullpad/surface
 import properties/gen.{Anything, Tame}
 import properties/kept
 import properties/rows
+import properties/saving
 import properties/script.{type Action}
 import qcheck.{type Generator}
 
@@ -327,6 +329,26 @@ pub fn the_editor_edits_the_text_the_way_a_plain_string_does_test() {
       },
     )
   Nil
+}
+
+// 6. Saving
+
+fn title() -> Generator(Option(String)) {
+  gen.weighted(#(2, qcheck.return(None)), [
+    #(1, qcheck.map(gen.typed(), fn(title) { Some("T" <> title) })),
+  ])
+}
+
+pub fn saving_twice_is_the_same_as_saving_once_test() {
+  let cases =
+    qcheck.tuple3(title(), gen.note(Anything), gen.few(saving.again(), 1, 5))
+  use #(title, body, extras) <- check(300, 106, cases)
+  let once = saving.saved_then(title, body, [])
+  assert saving.saved_then(title, body, extras) == once
+    as "saving again changed the store, the library or the saves asked for"
+  assert once.saves_asked == 1 as "one edit was not saved exactly once"
+  assert dict.get(once.stored, "k") == Ok(saving.stored(title, body))
+    as "the store does not hold what was saved"
 }
 
 pub fn the_generated_notes_hold_every_kind_of_text_test() {
