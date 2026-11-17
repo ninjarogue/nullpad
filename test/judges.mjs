@@ -59,15 +59,21 @@ function readJudged(dir, list) {
 const trackedAndNew = (repo) => git(repo, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]).split("\0").filter(Boolean);
 const filesOf = (repo, sha) => git(repo, ["ls-tree", "-r", "-z", "--name-only", sha]).split("\0").filter(Boolean);
 
+/**
+ * The `Changes-test:` lines of the commits since the base, wherever they sit in the message. Git's own
+ * trailer parser only reads the last paragraph, and a `Co-Authored-By` block added below a trailer would
+ * hide it, so the lines are read as they are.
+ */
 export function trailersOf(repo, base) {
-  const out = git(repo, ["log", `--format=%H%x1f%(trailers:key=${TRAILER},valueonly=true,unfold=true,separator=%x1e)%x1d`, `${base}..HEAD`]);
+  const out = git(repo, ["log", "--format=%H%x1f%B%x1d", `${base}..HEAD`]);
+  const line = new RegExp(`^${TRAILER}:[ \\t]*(.+)$`, "gm");
   const found = [];
   for (const record of out.split("\x1d")) {
-    const [hash, values] = record.replace(/^\n/, "").split("\x1f");
-    if (!hash || !values) continue;
-    for (const value of values.split("\x1e").map((text) => text.trim()).filter(Boolean)) {
-      const split = value.match(/^(.*?)\s+(?:—|--)\s+(.*)$/s);
-      found.push({ commit: hash.trim().slice(0, 7), subject: (split?.[1] ?? value).trim(), reason: (split?.[2] ?? "").trim(), text: value });
+    const [hash, message] = record.replace(/^\n/, "").split("\x1f");
+    if (!hash || !message) continue;
+    for (const [, value] of message.matchAll(line)) {
+      const split = value.trim().match(/^(.*?)\s+(?:—|--)\s+(.*)$/s);
+      found.push({ commit: hash.trim().slice(0, 7), subject: (split?.[1] ?? value).trim(), reason: (split?.[2] ?? "").trim(), text: value.trim() });
     }
   }
   return found;

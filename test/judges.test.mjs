@@ -551,4 +551,18 @@ describe("trailers", () => {
       ["test/b.mjs", "ascii dashes"],
     ]);
   });
+
+  test("are read wherever they sit in the message, so a Co-Authored-By block under them does not hide them from git", () => {
+    const dir = scratch.make("judges-trailers-loose-");
+    git(dir, "init", "-q", "-b", "main");
+    git(dir, "config", "user.name", "t");
+    git(dir, "config", "user.email", "t@t");
+    writeFileSync(join(dir, "a"), "1");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "first");
+    const base = git(dir, "rev-parse", "HEAD").trim();
+    writeFileSync(join(dir, "a"), "2");
+    git(dir, "commit", "-q", "-am", "second\n\nWhat it does, in prose.\n\nChanges-test: test/a.mjs — a reason\n\nCo-Authored-By: t <t@t>\nClaude-Session: https://example.test/x");
+    assert.deepEqual(trailersOf(dir, base).map((one) => [one.subject, one.reason]), [["test/a.mjs", "a reason"]]);
+  });
 });
