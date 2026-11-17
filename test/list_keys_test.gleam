@@ -238,3 +238,23 @@ pub fn tab_and_shift_tab_keep_items_nested_when_a_number_changes_width_test() {
   assert press("9. i\n10. k|id\n    1. grand", vim.Tab)
     == "9. i\n   1. k|id\n      1. grand"
 }
+
+pub fn every_bullet_and_spacing_carries_on_test() {
+  assert press("+ yay|", vim.Enter) == "+ yay\n+ |"
+  assert press("1.  x|", vim.Enter) == "1.  x\n2.  |"
+  assert press("- - a|", vim.Enter) == "- - a\n  - |"
+}
+
+pub fn tab_numbers_an_item_after_the_list_it_joins_test() {
+  assert press("1. a\n   1. x\n2. b|", vim.Tab) == "1. a\n   1. x\n   2. b|"
+}
+
+pub fn list_keys_keep_a_quote_whole_test() {
+  assert press("> - a\n> - b|", vim.Tab) == "> - a\n>   - b|"
+  assert press("> - a\n> - |", vim.Enter) == "> - a\n>\n> |"
+}
+
+pub fn the_caret_before_the_marker_stays_before_it_test() {
+  assert press("- a\n  - b\n |  - c", vim.BackTab) == "- a\n  - b\n|- c"
+  assert press("- a\n|- b", vim.Tab) == "- a\n  |- b"
+}

@@ -56,3 +56,12 @@ test('tab nests an item and shift tab brings it back', async ({ browser, page })
   await expect(page.inPreview('ol ol')).toHaveCount(0);
   await expect(page.items).toHaveText(['one', 'inner']);
 });
+
+test('ctrl with tab or enter is left to the browser', async ({ browser, page }) => {
+  await browser.keyboard.type('- a');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('b');
+  await browser.keyboard.press('Control+Tab');
+  await browser.keyboard.press('Control+Enter');
+  await expect(page.text).toHaveValue('- b');
+});
