@@ -8,6 +8,7 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import nullpad/buffer.{type Position, Position}
 import nullpad/editor.{type Editor}
@@ -18,7 +19,7 @@ import properties/gen.{Anything, Tame}
 import properties/kept
 import properties/rows
 import properties/saving
-import properties/script.{type Action}
+import properties/script.{type Action, type Run}
 import qcheck.{type Generator}
 
 fn check(
@@ -329,6 +330,92 @@ pub fn the_editor_edits_the_text_the_way_a_plain_string_does_test() {
       },
     )
   Nil
+}
+
+// 9. Runs of typing and erasing
+
+type Streak {
+  TypedStreak(codepoints: List(String), selected: Int)
+  BackspacedStreak(times: Int)
+  DeletedStreak(times: Int)
+}
+
+fn streaks() -> Generator(Streak) {
+  gen.weighted(
+    #(
+      3,
+      qcheck.map2(
+        gen.keystrokes(),
+        gen.weighted(#(2, qcheck.return(0)), [#(1, qcheck.bounded_int(1, 4))]),
+        TypedStreak,
+      ),
+    ),
+    [
+      #(1, qcheck.map(qcheck.bounded_int(1, 6), BackspacedStreak)),
+      #(1, qcheck.map(qcheck.bounded_int(1, 6), DeletedStreak)),
+    ],
+  )
+}
+
+/// The caret at `at`, or the `selected` letters after it when they are on
+/// one row.
+fn placed(ed: Editor, at: Int, selected: Int) -> Run {
+  let start = script.start(ed)
+  let caret = script.run(start, script.Select(at:, length: 0, backward: False))
+  let ranged =
+    script.run(start, script.Select(at:, length: selected, backward: False))
+  let #(anchor, head) = buffer.selection(editor.buffer(ranged.editor))
+  case anchor.row == head.row {
+    True -> ranged
+    False -> caret
+  }
+}
+
+pub fn a_run_of_typing_or_erasing_undoes_in_one_step_test() {
+  let cases =
+    qcheck.tuple3(setup(qcheck.bool()), streaks(), qcheck.bounded_int(0, 4000))
+  use #(setup, streak, at) <- check(300, 109, cases)
+  let selected = case streak {
+    TypedStreak(selected:, ..) -> selected
+    BackspacedStreak(_) | DeletedStreak(_) -> 0
+  }
+  let start = placed(opened(setup), at, selected)
+  let before = editor.buffer(start.editor)
+  let #(anchor, head) = buffer.selection(before)
+  let line =
+    list.drop(buffer.lines(before), head.row)
+    |> list.first
+    |> result.unwrap("")
+  let width = string.length(line)
+  // A letter typed before a combining mark or a joiner becomes one letter
+  // with it, so no run of letters is typed there.
+  let next = string.slice(line, int.max(anchor.col, head.col), 1)
+  let actions = case streak {
+    TypedStreak(codepoints:, ..) ->
+      case next != "" && string.length("a" <> next) < 2 {
+        True -> []
+        False -> list.map(codepoints, script.Type(_, gap: 10))
+      }
+    BackspacedStreak(times:) ->
+      list.repeat(script.Backspace(gap: 10), int.min(times, head.col))
+    DeletedStreak(times:) ->
+      list.repeat(
+        script.DeleteForward(gap: 10),
+        int.min(times, width - head.col),
+      )
+  }
+  let done = list.fold(actions, start, script.run)
+  case editor.text(done.editor) == editor.text(start.editor) {
+    True -> Nil
+    False -> {
+      let undone = editor.update(done.editor, editor.UndoAsked).editor
+      let restored = editor.buffer(undone)
+      assert buffer.lines(restored) == buffer.lines(before)
+        as "one undo did not take back the whole run"
+      assert selected > 0 || restored == before
+        as "undo did not put the caret back"
+    }
+  }
 }
 
 // 6. Saving

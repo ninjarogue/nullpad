@@ -232,6 +232,28 @@ pub fn typed() -> Generator(String) {
   ])
 }
 
+/// What a person types, one code point at a time as the browser reports
+/// it. Each letter starts with a code point of its own, and the ones that
+/// follow join it, as an accent or a skin tone does. A joiner or a virama
+/// is typed with what it joins, as the whole letter, because typed alone at
+/// the end of a run it would join the letter after the caret.
+pub fn keystrokes() -> Generator(List(String)) {
+  let letter =
+    weighted(#(4, element(["a"], [["b"], ["x"], ["1"]])), [
+      #(5, element(["é"], [["ñ"], ["日"], ["本"], ["😀"], ["Å"]])),
+      #(
+        4,
+        element(["e", "\u{301}"], [
+          ["a", "\u{300}", "\u{323}"],
+          ["👍", "\u{1F3FD}"],
+          ["👨\u{200D}👩\u{200D}👧"],
+          ["न", "म", "स", "त", "े"],
+        ]),
+      ),
+    ])
+  few(of: letter, from: 1, to: 6) |> qcheck.map(list.flatten)
+}
+
 type Piece =
   List(String)
 
