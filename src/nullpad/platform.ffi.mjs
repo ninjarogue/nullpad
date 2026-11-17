@@ -10,13 +10,21 @@ export function setTimeout(ms, run) {
 // Ctrl plus `key`, or Cmd plus `key` on Apple devices. Ctrl is left alone
 // there because Ctrl+E and friends move the cursor in every Mac text field.
 export function listenForShortcut(key, run) {
-  const apple = /Mac|iPhone|iPad/.test(navigator.platform);
+  const apple = isApple();
   document.addEventListener("keydown", (event) => {
     const held = apple ? event.metaKey : event.ctrlKey;
     if (!held || event.altKey || !isKey(event, key)) return;
     event.preventDefault();
     run();
   });
+}
+
+export function isApple() {
+  return /Mac|iPhone|iPad/.test(navigator.platform);
+}
+
+export function isWindows() {
+  return navigator.platform.startsWith("Win");
 }
 
 // A shortcut letter on a keyboard laid out for another alphabet is named

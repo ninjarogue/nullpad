@@ -498,3 +498,71 @@ pub fn a_box_ticked_while_a_chosen_note_loads_changes_nothing_test() {
   let choosing = editor.set_choosing(listed, True).editor
   assert editor.text(editor.tick(choosing, box, True).editor) == "- [ ] milk"
 }
+
+fn pressed(
+  key: String,
+  code: String,
+  ctrl ctrl: Bool,
+  meta meta: Bool,
+  alt alt: Bool,
+) -> Held {
+  editor.HeldKey(key:, code:, shift: False, ctrl:, meta:, alt:, at: 0)
+}
+
+pub fn a_modifier_that_types_a_character_has_it_typed_test() {
+  let option_a = pressed("å", "KeyA", ctrl: False, meta: False, alt: True)
+  let alt_gr_q = pressed("@", "KeyQ", ctrl: True, meta: False, alt: True)
+  let ctrl_alt_r = pressed("r", "KeyR", ctrl: True, meta: False, alt: True)
+  let alt_e = pressed("e", "KeyE", ctrl: False, meta: False, alt: True)
+  assert editor.browser_act(option_a, editor.AppleKeyboard)
+    == Some(editor.TypeText("å"))
+  assert editor.browser_act(alt_gr_q, editor.WindowsKeyboard)
+    == Some(editor.TypeText("@"))
+  assert editor.browser_act(alt_gr_q, editor.AppleKeyboard) == None
+  assert editor.browser_act(option_a, editor.OtherKeyboard) == None
+  assert editor.browser_act(ctrl_alt_r, editor.WindowsKeyboard) == None
+  assert editor.browser_act(alt_e, editor.AppleKeyboard) == None
+  assert !editor.holds(ctrl_alt_r, editor.WindowsKeyboard)
+}
+
+pub fn only_the_shortcuts_the_replay_can_do_are_held_test() {
+  let ctrl_key = fn(key) {
+    pressed(key, "", ctrl: True, meta: False, alt: False)
+  }
+  let cmd_key = fn(key) {
+    pressed(key, "", ctrl: False, meta: True, alt: False)
+  }
+  let held =
+    ["a", "c", "x", "z", "y", "f", "p", "s", "l", "r", "d", "+", "-", "v"]
+    |> list.filter(fn(key) {
+      editor.holds(ctrl_key(key), editor.WindowsKeyboard)
+    })
+  assert held == ["a", "c", "x", "z", "y"]
+  assert !editor.holds(ctrl_key("a"), editor.AppleKeyboard)
+  assert editor.browser_act(cmd_key("a"), editor.AppleKeyboard)
+    == Some(editor.SelectWholeField)
+  assert editor.holds(cmd_key("z"), editor.AppleKeyboard)
+  assert !editor.holds(cmd_key("s"), editor.AppleKeyboard)
+}
+
+pub fn cmd_and_option_move_by_lines_and_words_on_a_mac_test() {
+  let apple = fn(key, meta, alt) {
+    editor.browser_act(
+      pressed(key, "", ctrl: False, meta:, alt:),
+      editor.AppleKeyboard,
+    )
+  }
+  assert apple("ArrowLeft", True, False)
+    == Some(editor.MoveCaret(False, editor.Backward, editor.ByLineBoundary))
+  assert apple("ArrowRight", False, True)
+    == Some(editor.MoveCaret(False, editor.Right, editor.ByWord))
+  assert apple("Backspace", True, False)
+    == Some(editor.DeleteBy(False, editor.ByLineBoundary))
+  assert apple("Delete", False, True)
+    == Some(editor.DeleteBy(True, editor.ByWord))
+  assert apple("ArrowUp", True, False)
+    == Some(editor.MoveCaret(False, editor.Backward, editor.ByDocument))
+  assert editor.browser_act(ctrl("ArrowLeft"), editor.OtherKeyboard)
+    == Some(editor.MoveCaret(False, editor.Left, editor.ByWord))
+  assert editor.browser_act(ctrl("ArrowLeft"), editor.AppleKeyboard) == None
+}

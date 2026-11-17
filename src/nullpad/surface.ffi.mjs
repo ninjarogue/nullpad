@@ -283,60 +283,36 @@ export function pastedText(paste) {
   return paste.clipboardData?.getData("text/plain") ?? "";
 }
 
-// What the browser does for a key in a text field, done for a held key the
-// field's handlers left to the browser. Selection.modify takes the steps a
-// key takes, as the browser does, so words and lines are its own. False for
-// a key that does nothing to the field.
-export function actOnKey(...args) {
-  try {
-    return actOn(...args);
-  } catch {
-    return false;
-  }
-}
-
-function actOn(id, key, shift, ctrl, meta, alt) {
+// What the browser does in a text field for a key, as the editor names it,
+// done for a held key the field's handlers left to the browser.
+// Selection.modify takes the steps a key takes, as the browser does, so
+// words and lines are its own.
+export function actOnField(id, act, text, extend, direction, granularity) {
   const control = document.getElementById(id);
-  if (!control || alt) return false;
-  const command = ctrl || meta;
-  const alter = shift ? "extend" : "move";
-  const selection = getSelection();
-  switch (key) {
-    case "Enter":
-      return !command && typeInto(control, "\n");
-    case "Backspace":
-      return cut(control, selection, "backward", command ? "word" : "character");
-    case "Delete":
-      return cut(control, selection, "forward", command ? "word" : "character");
-    case "ArrowLeft":
-    case "ArrowRight":
-      selection.modify(alter, key === "ArrowLeft" ? "left" : "right", command ? "word" : "character");
-      return true;
-    case "Home":
-    case "End":
-      selection.modify(alter, key === "Home" ? "backward" : "forward", command ? "documentboundary" : "lineboundary");
-      return true;
-    case "ArrowUp":
-    case "ArrowDown":
-      if (command) return false;
-      selection.modify(alter, key === "ArrowUp" ? "backward" : "forward", "line");
-      return true;
-  }
-  if ([...key].length !== 1) return false;
-  if (!command) return typeInto(control, key);
-  switch (key.toLowerCase()) {
-    case "a":
-      control.select();
-      return true;
-    case "c":
-      document.execCommand("copy");
-      return true;
-    case "x":
-      document.execCommand("copy");
-      control.setRangeText("", control.selectionStart, control.selectionEnd, "end");
-      return true;
-  }
-  return false;
+  if (!control) return;
+  try {
+    switch (act) {
+      case "type":
+        typeInto(control, text);
+        break;
+      case "move":
+        getSelection().modify(extend ? "extend" : "move", direction, granularity);
+        break;
+      case "delete":
+        cut(control, getSelection(), direction, granularity);
+        break;
+      case "selectAll":
+        control.select();
+        break;
+      case "copy":
+        document.execCommand("copy");
+        break;
+      case "cut":
+        document.execCommand("copy");
+        control.setRangeText("", control.selectionStart, control.selectionEnd, "end");
+        break;
+    }
+  } catch {}
 }
 
 export function pasteInto(id, text) {
@@ -346,7 +322,6 @@ export function pasteInto(id, text) {
 
 function typeInto(control, text) {
   control.setRangeText(text, control.selectionStart, control.selectionEnd, "end");
-  return true;
 }
 
 // A word deleted at the edge of a line takes the line break, which a word
@@ -355,15 +330,6 @@ function cut(control, selection, direction, granularity) {
   if (control.selectionStart === control.selectionEnd) selection.modify("extend", direction, granularity);
   if (control.selectionStart === control.selectionEnd) selection.modify("extend", direction, "character");
   control.setRangeText("", control.selectionStart, control.selectionEnd, "end");
-  return true;
-}
-
-// A held key the field does nothing with goes to the page, where the app's
-// own shortcuts listen.
-export function pressOnPage(key, code, shiftKey, ctrlKey, metaKey, altKey) {
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", { key, code, shiftKey, ctrlKey, metaKey, altKey, bubbles: true, cancelable: true }),
-  );
 }
 
 export function blurControl(id) {

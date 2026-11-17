@@ -20,6 +20,7 @@ import nullpad/buffer.{type Buffer, type Position}
 import nullpad/editor.{type Editor}
 import nullpad/live
 import nullpad/markdown
+import nullpad/platform
 import nullpad/vim
 
 const control_id = "nullpad-control"
@@ -655,8 +656,8 @@ pub fn sync(
         effect.from(fn(dispatch) {
           write_now(buffer)
           case key {
-            editor.HeldKey(key:, shift:, ctrl:, meta:, alt:, at:, ..) -> {
-              act_on_key(control_id, key, shift, ctrl, meta, alt)
+            editor.HeldKey(at:, ..) -> {
+              option.map(editor.browser_act(key, keyboard()), act)
               case decode.run(find_control(control_id), control_decoder()) {
                 Ok(shown) ->
                   dispatch(on_event(editor.ControlChanged(shown:, at:)))
@@ -945,25 +946,9 @@ fn hold_decoder(
   let handler =
     on_event(editor.KeyHeld(held))
     |> event.handler(prevent_default: True, stop_propagation: True)
-  let pastes = { ctrl || meta } && is_key(key, code, "v")
-  let holds = case key {
-    "Enter"
-    | "Backspace"
-    | "Delete"
-    | "ArrowLeft"
-    | "ArrowRight"
-    | "ArrowUp"
-    | "ArrowDown"
-    | "Home"
-    | "End"
-    | "PageUp"
-    | "PageDown"
-    | "Escape" -> True
-    _ -> string.length(key) == 1 && !pastes
-  }
   case
     editor.is_waiting(current_editor())
-    && holds
+    && editor.holds(held, keyboard())
     && !composing
     && key_code != 229
   {
@@ -1008,22 +993,81 @@ fn replay_held(
       paste_into(control_id, text)
       replayed(read(at))
     }
-    Some(editor.HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, at:)), True -> {
+    Some(editor.HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, at:) as held),
+      True
+    -> {
       let pressed =
         held_key_event(control_id, key, code, shift, ctrl, meta, alt, at)
       case decode.run(pressed, decided_decoder(fn(event) { event })) {
         Ok(handler) -> replayed(Some(handler.message))
         Error(_) ->
-          case act_on_key(control_id, key, shift, ctrl, meta, alt) {
-            True -> replayed(read(at))
-            False -> {
-              replayed(None)
-              press_on_page(key, code, shift, ctrl, meta, alt)
+          case editor.browser_act(held, keyboard()) {
+            Some(browser_act) -> {
+              act(browser_act)
+              replayed(read(at))
             }
+            None -> replayed(None)
           }
       }
     }
     Some(_), False | None, _ -> Nil
+  }
+}
+
+/// Does in the field what the browser does for a key the field's handlers
+/// leave to it.
+fn act(browser_act: editor.Act) -> Nil {
+  case browser_act {
+    editor.TypeText(text) ->
+      act_on_field(control_id, "type", text, False, "", "")
+    editor.MoveCaret(extend:, direction:, by:) ->
+      act_on_field(
+        control_id,
+        "move",
+        "",
+        extend,
+        case direction {
+          editor.Left -> "left"
+          editor.Right -> "right"
+          editor.Backward -> "backward"
+          editor.Forward -> "forward"
+        },
+        granularity(by),
+      )
+    editor.DeleteBy(forward:, by:) ->
+      act_on_field(
+        control_id,
+        "delete",
+        "",
+        False,
+        case forward {
+          True -> "forward"
+          False -> "backward"
+        },
+        granularity(by),
+      )
+    editor.SelectWholeField ->
+      act_on_field(control_id, "selectAll", "", False, "", "")
+    editor.CopySelection -> act_on_field(control_id, "copy", "", False, "", "")
+    editor.CutSelection -> act_on_field(control_id, "cut", "", False, "", "")
+  }
+}
+
+fn granularity(by: editor.Granularity) -> String {
+  case by {
+    editor.ByCharacter -> "character"
+    editor.ByWord -> "word"
+    editor.ByLine -> "line"
+    editor.ByLineBoundary -> "lineboundary"
+    editor.ByDocument -> "documentboundary"
+  }
+}
+
+fn keyboard() -> editor.Keyboard {
+  case platform.is_apple(), platform.is_windows() {
+    True, _ -> editor.AppleKeyboard
+    False, True -> editor.WindowsKeyboard
+    False, False -> editor.OtherKeyboard
   }
 }
 
@@ -1089,7 +1133,7 @@ fn edge_decoder(
   let plain = bare && anchor == head
   let shifted = alone && shift && !{ ctrl || meta }
   let command = alone && { ctrl || meta }
-  let select_all = is_key(name, code, "a")
+  let select_all = editor.is_key(name, code, "a")
   let lines = buffer.lines(shown)
   let blank_before =
     list.drop(lines, head.row)
@@ -1248,7 +1292,11 @@ fn undo_key_decoder(
   use alt <- decode.field("altKey", decode.bool)
   use composing <- decode.field("isComposing", decode.bool)
   let command = { ctrl || meta } && !alt && !composing
-  let kind = case command, is_key(name, code, "z"), is_key(name, code, "y") {
+  let kind = case
+    command,
+    editor.is_key(name, code, "z"),
+    editor.is_key(name, code, "y")
+  {
     True, True, _ if shift -> "historyRedo"
     True, True, _ -> "historyUndo"
     True, False, True if ctrl && !meta && !shift -> "historyRedo"
@@ -1296,16 +1344,6 @@ fn escape_decoder(
     _, _ -> decode.failure(handler, expected: "Escape")
   }
 }
-
-/// A shortcut letter on a keyboard laid out for another alphabet is named
-/// by where the key sits.
-fn is_key(name: String, code: String, letter: String) -> Bool {
-  let typed = string.lowercase(name)
-  let latin = string.length(typed) == 1 && string.contains(letters, typed)
-  typed == letter || { !latin && code == "Key" <> string.uppercase(letter) }
-}
-
-const letters = "abcdefghijklmnopqrstuvwxyz"
 
 fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
   case ignore, name, string.length(name) {
@@ -1433,28 +1471,18 @@ fn held_key_event(
 @external(javascript, "./surface.ffi.mjs", "pastedText")
 fn pasted_text(paste: Dynamic) -> String
 
-@external(javascript, "./surface.ffi.mjs", "actOnKey")
-fn act_on_key(
+@external(javascript, "./surface.ffi.mjs", "actOnField")
+fn act_on_field(
   id: String,
-  key: String,
-  shift: Bool,
-  ctrl: Bool,
-  meta: Bool,
-  alt: Bool,
-) -> Bool
+  act: String,
+  text: String,
+  extend: Bool,
+  direction: String,
+  granularity: String,
+) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "pasteInto")
 fn paste_into(id: String, text: String) -> Nil
-
-@external(javascript, "./surface.ffi.mjs", "pressOnPage")
-fn press_on_page(
-  key: String,
-  code: String,
-  shift: Bool,
-  ctrl: Bool,
-  meta: Bool,
-  alt: Bool,
-) -> Nil
 
 @external(javascript, "./surface.ffi.mjs", "takeHeldStep")
 fn take_held_step(for: Editor) -> Bool

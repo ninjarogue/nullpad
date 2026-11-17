@@ -43,7 +43,7 @@ const measures = [
   "utf16Split", "utf16Length", "below", "hasHardwareKeyboard", "canPaint",
   "readVimSetting", "readMarkdownSetting", "pressLanding", "dropped",
   "releasedOnSelection", "focusStayed", "currentEditor", "pastedText",
-  "heldKeyEvent",
+  "heldKeyEvent", "isApple", "isWindows",
 ]
 
 /// JavaScript that hands back app state an effect noted there, such as the

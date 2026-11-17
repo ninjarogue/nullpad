@@ -312,6 +312,179 @@ pub type Held {
   HeldRedo
 }
 
+/// Which keys of the system the browser runs on move and delete by words and
+/// lines, and which modifiers type a character.
+pub type Keyboard {
+  /// Cmd moves by lines and the whole note, Option by words, and Option
+  /// types a character of its own.
+  AppleKeyboard
+  /// Ctrl moves by words and the whole note, and Ctrl with Alt is AltGr,
+  /// which types a character of its own.
+  WindowsKeyboard
+  /// Ctrl moves by words and the whole note. AltGr comes with no modifier.
+  OtherKeyboard
+}
+
+/// What a text field does for a key its handlers leave to the browser. The
+/// surface does it for a held key when it replays it.
+pub type Act {
+  TypeText(text: String)
+  MoveCaret(extend: Bool, direction: Direction, by: Granularity)
+  DeleteBy(forward: Bool, by: Granularity)
+  SelectWholeField
+  CopySelection
+  CutSelection
+}
+
+pub type Direction {
+  Left
+  Right
+  Backward
+  Forward
+}
+
+pub type Granularity {
+  ByCharacter
+  ByWord
+  ByLine
+  ByLineBoundary
+  ByDocument
+}
+
+/// Whether a key pressed while the page is behind is held, which it is
+/// only when its replay does what the browser would have done: the field's
+/// handlers decide Escape, PageUp, PageDown and the undo and redo keys
+/// again, and `browser_act` the keys they leave to the browser. Any other
+/// key, such as a browser's own shortcut, goes on to the browser.
+pub fn holds(held: Held, keyboard: Keyboard) -> Bool {
+  case held {
+    HeldKey(key: "Escape", ..)
+    | HeldKey(key: "PageUp", ..)
+    | HeldKey(key: "PageDown", ..) -> True
+    HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, ..) -> {
+      let command = { ctrl || meta } && !alt
+      let undoes =
+        is_key(key, code, "z") || { is_key(key, code, "y") && ctrl && !shift }
+      { command && undoes } || browser_act(held, keyboard) != None
+    }
+    HeldPaste(..) | HeldUndo | HeldRedo -> True
+  }
+}
+
+/// What the browser does in a text field for a key its handlers leave to
+/// it, or `None` for a key that does nothing there or that the replay
+/// cannot do as the browser would.
+pub fn browser_act(held: Held, keyboard: Keyboard) -> Option(Act) {
+  case held {
+    HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, ..) -> {
+      let plain = !ctrl && !meta && !alt
+      let #(words, lines, types, command) = case keyboard {
+        AppleKeyboard -> #(
+          alt && !ctrl && !meta,
+          meta && !ctrl && !alt,
+          alt && !ctrl && !meta,
+          meta && !ctrl && !alt,
+        )
+        WindowsKeyboard -> #(
+          ctrl && !meta && !alt,
+          False,
+          ctrl && alt && !meta,
+          ctrl && !meta && !alt,
+        )
+        OtherKeyboard -> #(
+          ctrl && !meta && !alt,
+          False,
+          False,
+          ctrl && !meta && !alt,
+        )
+      }
+      let by = case plain, words, lines {
+        True, _, _ -> Some(ByCharacter)
+        False, True, _ -> Some(ByWord)
+        False, False, True -> Some(ByLineBoundary)
+        False, False, False -> None
+      }
+      let across = fn(back) {
+        case by {
+          Some(ByLineBoundary) if back ->
+            Some(MoveCaret(shift, Backward, ByLineBoundary))
+          Some(ByLineBoundary) ->
+            Some(MoveCaret(shift, Forward, ByLineBoundary))
+          Some(by) if back -> Some(MoveCaret(shift, Left, by))
+          Some(by) -> Some(MoveCaret(shift, Right, by))
+          None -> None
+        }
+      }
+      let up_down = fn(direction) {
+        case plain, lines {
+          True, _ -> Some(MoveCaret(shift, direction, ByLine))
+          False, True -> Some(MoveCaret(shift, direction, ByDocument))
+          False, False -> None
+        }
+      }
+      let home_end = fn(direction) {
+        case plain, words {
+          True, _ -> Some(MoveCaret(shift, direction, ByLineBoundary))
+          False, True if keyboard != AppleKeyboard ->
+            Some(MoveCaret(shift, direction, ByDocument))
+          False, _ -> None
+        }
+      }
+      case key {
+        "Enter" if plain -> Some(TypeText("\n"))
+        "Enter" -> None
+        "Backspace" -> option.map(by, DeleteBy(False, _))
+        "Delete" -> option.map(by, DeleteBy(True, _))
+        "ArrowLeft" -> across(True)
+        "ArrowRight" -> across(False)
+        "ArrowUp" -> up_down(Backward)
+        "ArrowDown" -> up_down(Forward)
+        "Home" -> home_end(Backward)
+        "End" -> home_end(Forward)
+        _ -> {
+          let typed = case string.length(key) == 1 {
+            False -> False
+            True -> plain || { types && !names_its_key(key, code) }
+          }
+          let shortcut = case command && !shift && string.length(key) == 1 {
+            False -> None
+            True ->
+              [
+                #("a", SelectWholeField),
+                #("c", CopySelection),
+                #("x", CutSelection),
+              ]
+              |> list.find(fn(letter) { is_key(key, code, letter.0) })
+              |> option.from_result
+              |> option.map(fn(letter) { letter.1 })
+          }
+          case typed {
+            True -> Some(TypeText(key))
+            False -> shortcut
+          }
+        }
+      }
+    }
+    HeldPaste(..) | HeldUndo | HeldRedo -> None
+  }
+}
+
+/// Whether a key is the letter's key: a shortcut letter on a keyboard laid
+/// out for another alphabet is named by where the key sits.
+pub fn is_key(name: String, code: String, letter: String) -> Bool {
+  let typed = string.lowercase(name)
+  let latin = string.length(typed) == 1 && string.contains(letters, typed)
+  typed == letter || { !latin && code == "Key" <> string.uppercase(letter) }
+}
+
+const letters = "abcdefghijklmnopqrstuvwxyz"
+
+/// Whether a key pressed with a modifier names the letter or digit printed
+/// on it, as a shortcut does, rather than a character the modifier types.
+fn names_its_key(name: String, code: String) -> Bool {
+  code == "Key" <> string.uppercase(name) || code == "Digit" <> name
+}
+
 /// A key that reaches past the rows the field holds. The `Select` keys move
 /// the head and keep the anchor.
 pub type Edge {
