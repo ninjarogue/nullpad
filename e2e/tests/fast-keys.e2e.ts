@@ -938,3 +938,34 @@ for (const { name, key, typed } of paragraphKeys) {
     await expect(page.text).toHaveValue(`${note}\n${typed}`);
   });
 }
+
+test('text an IME puts in the field in the frame of Escape wakes it, and the keys after it are typed there', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  await withRawPage(origin, '# T\n\nstart para\n\nsecond one', async (raw) => {
+    await raw.keyboard.press('Control+End');
+    await raw.keyboard.press('ArrowUp');
+    await raw.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await raw.evaluate(() => {
+      const held: FrameRequestCallback[] = [];
+      const real = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (run) => held.push(run);
+      (globalThis as { redraw?: () => void }).redraw = () => {
+        window.requestAnimationFrame = real;
+        for (const run of held) real(run);
+      };
+      return null;
+    });
+    await raw.keyboard.press('Escape');
+    await raw.keyboard.insertText('日');
+    await raw.evaluate(() => {
+      (globalThis as { redraw?: () => void }).redraw!();
+      return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    });
+    await raw.keyboard.press('a');
+    await raw.keyboard.press('Enter');
+    await raw.keyboard.type('b');
+    await raw.keyboard.press('Control+e');
+    await expect.poll(() => raw.getByLabel('Note text').inputValue()).toBe('# T\n\nstart para\n日a\nb\nsecond one');
+  });
+});
