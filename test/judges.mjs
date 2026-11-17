@@ -114,6 +114,36 @@ export function describeFailure(item) {
   return [`  ${item.id}`, `    ${reasons[item.what] ?? item.what}: ${item.why}`, `    to keep the change, put this line in a commit message: ${hint(item)}`].join("\n");
 }
 
+const MOST_SHOWN = 10;
+const rank = { "changed-gate": 2, "weakened-helper": 1, unreadable: 1, "removed-file": 1 };
+
+/**
+ * The failures as lines. The tests that were removed, weakened or fail come first, and the parts of one
+ * gate script that changed are one line, so a script rewritten whole cannot push a deleted test out of
+ * view. Only the first few are given in full: hundreds at once mean the run broke (the app or the
+ * browser stopped), and a list of that many trailers to paste would hide it.
+ */
+export function describeFailures(items) {
+  const gate = new Map();
+  const merged = [];
+  for (const item of items) {
+    const seen = item.what === "changed-gate" ? gate.get(item.file) : undefined;
+    if (seen) seen.parts++;
+    else {
+      const entry = { item, parts: 1 };
+      if (item.what === "changed-gate") gate.set(item.file, entry);
+      merged.push(entry);
+    }
+  }
+  const lines = merged
+    .map(({ item, parts }) => ({ item: parts > 1 ? { ...item, id: item.file, why: `${parts} parts of it changed, the first is ${item.why}` } : item, rank: rank[item.what] ?? 0 }))
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ item }) => item);
+  const shown = lines.slice(0, MOST_SHOWN).map(describeFailure);
+  if (lines.length > MOST_SHOWN) shown.push(`  and ${lines.length - MOST_SHOWN} more. This many at once usually means the run itself broke (the app or the browser stopped): push again before adding trailers.`);
+  return shown;
+}
+
 export function describeTrailers(trailers) {
   if (trailers.length === 0) return "";
   return [`${TRAILER} trailers on this branch. Put them in the PR description:`, ...trailers.map((trailer) => `  ${TRAILER}: ${trailer.text}  (${trailer.commit})`), ""].join("\n");
@@ -262,7 +292,7 @@ async function overlayRun({ repo, tree, trailers, narrow, log }) {
         log(`  ${step.id}: ${judging.passed} tests pass on this branch's code in ${seconds(Date.now() - started)}${ignored > 0 ? `, ${ignored} covered by a trailer` : ""}`);
         continue;
       }
-      failures.push(...bad, ...uncovered.map((item) => describeFailure({ ...item, what: "fails-on-branch", why: "fails on this branch's code" })));
+      failures.push(...bad, ...describeFailures(uncovered.map((item) => ({ ...item, what: "fails-on-branch", why: "fails on this branch's code" }))));
       failures.push(`  last lines of ${step.id}:\n${plain(run.output).trimEnd().split("\n").slice(-30).join("\n").replace(/^/gm, "    ")}`);
       break;
     }
@@ -308,7 +338,7 @@ export async function run({ repo, base: given, gateArgs = [], pick = true, only 
     if (statics.notes.length > 0) log(`note: helpers of main's tests that do not assert were changed (not judged): ${statics.notes.slice(0, 5).join("; ")}${statics.notes.length > 5 ? `; and ${statics.notes.length - 5} more` : ""}`);
     if (sorted.failing.length > 0 || sorted.noReason.length > 0) {
       log(`FAIL ${sorted.failing.length} judge${sorted.failing.length === 1 ? "" : "s"} of main's changed without a ${TRAILER} trailer:`);
-      for (const item of sorted.failing) log(describeFailure(item));
+      for (const line of describeFailures(sorted.failing)) log(line);
       return 1;
     }
     log(`judges: every test and script of main's is still here${sorted.covered.length > 0 ? `, ${sorted.covered.length} changed under a trailer` : ""}`);

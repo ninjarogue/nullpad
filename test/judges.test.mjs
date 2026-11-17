@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFil
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { compare, inventoryOf, judged, loadParsers } from "./inventory.mjs";
-import { covers, parseArgs, sort, trailersOf } from "./judges.mjs";
+import { covers, describeFailures, parseArgs, sort, trailersOf } from "./judges.mjs";
 import { useScratch } from "./scratch.mjs";
 import { root } from "./steps.mjs";
 
@@ -530,6 +530,32 @@ describe("the pre-push gate on a branch", () => {
     branch.edit(toyTest, 'test("adds negatives", () => {\n  assert.equal(add(-1, -1), -2);\n});\n', "");
     branch.commit("add the judges and drop a test");
     caught(branch.push(), /adds negatives/);
+  });
+});
+
+describe("the failures printed", () => {
+  const item = (n) => ({ id: `test/a.mjs > t${n}`, file: "test/a.mjs", what: "fails-on-branch", why: "fails on this branch's code" });
+
+  test("a few are each given with the trailer line to paste", () => {
+    const lines = describeFailures([item(1), item(2)]);
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /Changes-test: test\/a\.mjs > t1/);
+  });
+
+  test("a deleted test is first, and the many parts of one rewritten gate script are one line, so neither is lost in the list", () => {
+    const part = (n) => ({ id: `test/inventory.mjs::var:p${n}`, file: "test/inventory.mjs", what: "changed-gate", why: "changed" });
+    const gone = { id: "test/toy.test.mjs > adds negatives", file: "test/toy.test.mjs", what: "removed-test", why: "gone" };
+    const lines = describeFailures([...Array.from({ length: 118 }, (_, n) => part(n)), gone]);
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /toy\.test\.mjs > adds negatives/);
+    assert.match(lines[1], /Changes-test: test\/inventory\.mjs —/);
+    assert.match(lines[1], /118 parts of it changed/);
+  });
+
+  test("hundreds are cut to the first few and a line that says the run itself probably broke", () => {
+    const lines = describeFailures(Array.from({ length: 416 }, (_, n) => item(n)));
+    assert.equal(lines.length, 11);
+    assert.match(lines[10], /and 406 more.*run itself broke/);
   });
 });
 
