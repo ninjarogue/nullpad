@@ -161,11 +161,11 @@ fn all_breaks() -> List(Break) {
   list.flatten([
     breaks(),
     outside_breaks(),
-    second_round(),
-    third_round(),
-    fourth_round(),
-    fifth_round(),
-    sixth_round(),
+    attacker_two_breaks(),
+    attacker_three_breaks(),
+    attacker_four_breaks(),
+    attacker_five_breaks(),
+    attacker_six_breaks(),
     test_breaks(),
   ])
 }
@@ -670,7 +670,7 @@ fn outside_breaks() -> List(Break) {
 /// From a second attacker. `Escapes` here is also the record of what moved
 /// from a rule to review: the JavaScript text rules and the marker rule let
 /// most of that attacker's breaks through and flagged ordinary code.
-fn second_round() -> List(Break) {
+fn attacker_two_breaks() -> List(Break) {
   let app = "src/nullpad/app.gleam"
   let surface = "src/nullpad/surface.gleam"
   let editor = "src/nullpad/editor.gleam"
@@ -876,7 +876,7 @@ fn second_round() -> List(Break) {
   ]
 }
 
-fn third_round() -> List(Break) {
+fn attacker_three_breaks() -> List(Break) {
   let surface = "src/nullpad/surface.gleam"
   let inline_decoder =
     "event.on(\"dblclick\", decode.success(on_event(editor.FocusChanged(editor.is_idle(editor))))),\n"
@@ -997,7 +997,7 @@ fn third_round() -> List(Break) {
   ]
 }
 
-fn fourth_round() -> List(Break) {
+fn attacker_four_breaks() -> List(Break) {
   let app = "src/nullpad/app.gleam"
   let surface = "src/nullpad/surface.gleam"
   let moved =
@@ -1457,7 +1457,7 @@ fn fourth_round() -> List(Break) {
   ]
 }
 
-fn fifth_round() -> List(Break) {
+fn attacker_five_breaks() -> List(Break) {
   [
     Break(
       Caught(rules.DecoderState),
@@ -2153,7 +2153,7 @@ fn fifth_round() -> List(Break) {
   ]
 }
 
-fn sixth_round() -> List(Break) {
+fn attacker_six_breaks() -> List(Break) {
   let guarded =
     "fn(task, checked) {\n            case editor.keys_wait(model.editor) {\n              True -> UserClosedMenu\n              False -> UserTickedTask(task, checked)\n            }\n          }"
   [

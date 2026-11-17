@@ -236,7 +236,7 @@ pub fn judge(files: List(File)) -> Report {
       DecoderState,
       "app state is "
         <> string.join(
-        set.to_list(context.state) |> list.sort(string.compare),
+        set.to_list(context.state_types) |> list.sort(string.compare),
         ", ",
       ),
     ),
@@ -558,7 +558,7 @@ fn decoder_state(
           case
             list.contains(measures, javascript)
             && !list.contains(records, javascript)
-            && holds(returned, types, context.state)
+            && holds(returned, types, context.state_types)
           {
             True ->
               Ok(
@@ -582,18 +582,22 @@ fn decoder_state(
       let made =
         list.filter(used, builds(
           _,
-          context.decoders,
+          context.decoder_functions,
           runs(function, used, aliases),
         ))
       let maker = made != []
-      let reaches = set.contains(context.reach, this)
+      let reaches = set.contains(context.handler_builders, this)
       let scope =
         Scope(
-          held: set.from_list(held_parameters(function, types, context.state)),
+          held: set.from_list(held_parameters(
+            function,
+            types,
+            context.state_types,
+          )),
           closures: set.from_list(closure_parameters(
             function,
             types,
-            context.state,
+            context.state_types,
           )),
           modules:,
           sink: fn(callee) {
@@ -601,7 +605,7 @@ fn decoder_state(
               Some(seen) ->
                 case resolve(seen) {
                   Ok(called) ->
-                    case dict.get(context.sinks, called) {
+                    case dict.get(context.callback_takers, called) {
                       Ok(parameters) -> Some(#(called, parameters))
                       Error(Nil) -> None
                     }
@@ -619,8 +623,8 @@ fn decoder_state(
                 case parameter.name, parameter.type_ {
                   glance.Named(held), Some(type_) ->
                     case
-                      holds(type_, types, context.state),
-                      calls_back(type_, types, context.callbacks)
+                      holds(type_, types, context.state_types),
+                      calls_back(type_, types, context.callback_types)
                     {
                       True, _ -> [
                         function.name
@@ -651,8 +655,8 @@ fn decoder_state(
                 fn(seen) {
                   case resolve(seen) {
                     Ok(called) ->
-                      set.contains(context.readers, called)
-                      && !set.contains(context.reach, called)
+                      set.contains(context.early_readers, called)
+                      && !set.contains(context.handler_builders, called)
                     Error(Nil) -> False
                   }
                 },
@@ -866,12 +870,12 @@ fn closure_parameters(
 
 type Context {
   Context(
-    state: Set(TypeKey),
-    callbacks: Set(TypeKey),
-    decoders: Set(String),
-    reach: Set(String),
-    sinks: Dict(String, Option(List(#(Option(String), Bool)))),
-    readers: Set(String),
+    state_types: Set(TypeKey),
+    callback_types: Set(TypeKey),
+    decoder_functions: Set(String),
+    handler_builders: Set(String),
+    callback_takers: Dict(String, Option(List(#(Option(String), Bool)))),
+    early_readers: Set(String),
   )
 }
 
@@ -1021,12 +1025,12 @@ fn context(files: List(File)) -> Context {
     })
     |> set.from_list
   Context(
-    state:,
-    callbacks:,
-    decoders:,
-    reach:,
-    sinks:,
-    readers: early_readers(records, known),
+    state_types: state,
+    callback_types: callbacks,
+    decoder_functions: decoders,
+    handler_builders: reach,
+    callback_takers: sinks,
+    early_readers: early_readers(records, known),
   )
 }
 
