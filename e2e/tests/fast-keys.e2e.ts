@@ -969,3 +969,58 @@ test('text an IME puts in the field in the frame of Escape wakes it, and the key
     await expect.poll(() => raw.getByLabel('Note text').inputValue()).toBe('# T\n\nstart para\n日a\nb\nsecond one');
   });
 });
+
+const paintedThenPage = [
+  '# Heading one',
+  '',
+  'Paragraph with a fairly long line that will certainly wrap around several times when the width is narrow enough to force it, yes indeed.',
+  '',
+  '- item one',
+  '  - nested item two that is also long enough to wrap around the available width at some point yes',
+  '    - deep',
+  '- item three',
+  '',
+  '> quote line that is long enough to wrap around the available width for sure, really quite long indeed yes',
+  '> second quote line',
+  '',
+  '```js',
+  'code  line',
+  '  indented',
+  '```',
+  '',
+  '| a | b |',
+  '|---|---|',
+  '| 1 | 2 |',
+  '',
+  '',
+  '',
+  '## Last heading here',
+  'tail line',
+].join('\n');
+
+test('a letter typed in the frame of a PageDown from a selection the page paints goes where the PageDown put the caret', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await browser.setViewport({ width: 1024, height: 600 });
+  const typedAfterPageDown = async (held: boolean) => {
+    await editor.open(paintedThenPage);
+    for (const key of ['Enter', '`', '-', ' ', 'Shift+ArrowDown']) await browser.keyboard.press(key);
+    await page.nextFrame();
+    if (held) {
+      await page.beforeRedraw(async () => {
+        await browser.keyboard.press('PageDown');
+        await browser.keyboard.press('x');
+      });
+    } else {
+      await browser.keyboard.press('PageDown');
+      await page.nextFrame();
+      await browser.keyboard.press('x');
+    }
+    await page.nextFrame();
+    await page.hide();
+    return editor.saved();
+  };
+  const afterTheFrame = await typedAfterPageDown(false);
+  expect(afterTheFrame, 'the letter is typed').toContain('x');
+  expect(await typedAfterPageDown(true)).toBe(afterTheFrame);
+});
