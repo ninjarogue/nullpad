@@ -490,6 +490,16 @@ pub fn keys_typed_while_choosing_go_into_the_note_kept_test() {
   assert editor.set_choosing(stayed, False).editor == stayed
 }
 
+pub fn choosing_another_note_drops_the_keys_waiting_behind_a_step_test() {
+  let choosing =
+    opened() |> step_down |> hold(key("x")) |> editor.set_choosing(True)
+  assert editor.replay(choosing.editor) == None
+
+  let arrived = editor.open(choosing.editor, "next").editor
+  assert editor.replay(arrived) == None
+  assert !editor.is_waiting(arrived)
+}
+
 pub fn a_box_ticked_while_a_chosen_note_loads_changes_nothing_test() {
   let box = markdown.Task(checked: False, row: 0, col: 3)
   let listed = editor.new(vim: False, live: True, paint: True)
