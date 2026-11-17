@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { loadParsers } from "./inventory.mjs";
@@ -83,6 +83,11 @@ describe("gleeunit on only the picked modules", () => {
     const one = await passed("test/buffer_test.gleam");
     const two = await passed("test/buffer_test.gleam", "test/history_test.gleam");
     assert.ok(one > 0 && two > one, `${one} tests in one module, ${two} in two`);
+  });
+
+  test("a module that reads the repo (the fixtures of the spec, src for the architecture rules) finds what it reads, and the run leaves the repo as it was", async () => {
+    assert.ok((await passed("test/gfm_test.gleam", "test/architecture_test.gleam")) > 0);
+    assert.ok(existsSync(join(root, "test", "commonmark", "gfm.json")) && existsSync(join(root, "src", "nullpad", "markdown.gleam")));
   });
 });
 

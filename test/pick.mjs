@@ -174,21 +174,36 @@ export function capture(argv, { cwd, env = {} }) {
   });
 }
 
-/** Runs gleeunit on only these modules. gleeunit runs the `.gleam` files it finds in `./test`, so a scratch folder with empty files of those names picks them. */
-export async function runGleeunit({ repo, modules }) {
-  const scratch = mkdtempSync(join(tmpdir(), "pick-"));
-  try {
-    writeFileSync(join(scratch, "gleam.toml"), readFileSync(join(repo, "gleam.toml")));
-    for (const { path } of modules) {
-      const file = join(scratch, path);
-      mkdirSync(join(file, ".."), { recursive: true });
-      writeFileSync(file, "");
+/**
+ * What `gleeunit.main` does for the JavaScript target, for only the modules it is given: import the
+ * compiled module, run every function that ends in `_test`, and report through gleeunit's own
+ * reporting, so the output and the exit code are the ones `gleam test` gives. It runs in the repo itself,
+ * because the tests read files from there (the fixtures of the spec, `src` and `test` for the
+ * architecture rules).
+ */
+const gleeunitOf = `
+const [dist, gleeunit, ...modules] = process.argv.slice(1);
+const reporting = await import(new URL("gleeunit/internal/reporting.mjs", gleeunit).href);
+let state = reporting.new_state();
+for (const path of modules) {
+  const name = path.slice("test/".length).replace(".gleam", "");
+  const module = await import(new URL(name + ".mjs", dist).href);
+  for (const fn of Object.keys(module)) {
+    if (!fn.endsWith("_test")) continue;
+    try {
+      await module[fn]();
+      state = reporting.test_passed(state);
+    } catch (error) {
+      state = reporting.test_failed(state, name, fn, error);
     }
-    const entry = pathToFileURL(join(repo, "build", "dev", "javascript", "nullpad", "nullpad_test.mjs")).href;
-    return await capture(["node", "-e", `import(${JSON.stringify(entry)}).then((module) => module.main())`], { cwd: scratch });
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
   }
+}
+process.exit(reporting.finished(state));
+`;
+
+export async function runGleeunit({ repo, modules }) {
+  const built = pathToFileURL(join(repo, "build", "dev", "javascript") + "/").href;
+  return await capture(["node", "--input-type=module", "-e", gleeunitOf, new URL("nullpad/", built).href, new URL("gleeunit/", built).href, ...modules.map(({ path }) => path)], { cwd: repo });
 }
 
 export async function pickFor({ repo, base }) {
