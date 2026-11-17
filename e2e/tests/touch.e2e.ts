@@ -236,3 +236,39 @@ test('a finger drag that starts on the text field scrolls the page and selects n
   expect(await page.painted()).toBeNull();
   expect(await pressesSeen(browser, page)).toEqual([]);
 });
+
+test('a swipe along the strip of notes on a phone scrolls it, and a tap on the note at its far end opens it', async ({
+  app,
+  browser,
+  disk,
+  page,
+}) => {
+  const notes = Array.from({ length: 12 }, (_, i) => ({ key: `n${i + 1}`, title: `Note ${i + 1}`, body: `body of note ${i + 1}` }));
+  await disk.seed(notes);
+  await app.open('/');
+  await expect(page.text).toHaveValue('body of note 12');
+  const finger = await page.phone();
+  const strip = () =>
+    browser.evaluate(() => {
+      const list = document.querySelector('[data-test-id="note-list"]')!;
+      return { scrolled: list.scrollLeft, room: list.scrollWidth - list.clientWidth };
+    });
+  const far = page.row('Note 1');
+  expect((await strip()).room).toBeGreaterThan(phone.width);
+  expect((await far.boundingBox())!.x).toBeGreaterThan(phone.width);
+
+  const list = (await page.list.boundingBox())!;
+  const along = { x: phone.width - 40, y: list.y + list.height / 2 };
+  await finger.swipeLeft(along, 300);
+  await expect.poll(async () => (await strip()).scrolled).toBeGreaterThan(200);
+  for (let swipes = 0; swipes < 8 && (await far.boundingBox())!.x + (await far.boundingBox())!.width > phone.width; swipes++) {
+    await finger.swipeLeft(along, 300);
+  }
+  const shown = (await far.boundingBox())!;
+  expect(shown.x).toBeGreaterThanOrEqual(0);
+  expect(shown.x + shown.width).toBeLessThanOrEqual(phone.width);
+
+  await finger.tapOn(far);
+  await expect(page.currentRow).toHaveText('Note 1');
+  await expect(page.text).toHaveValue('body of note 1');
+});

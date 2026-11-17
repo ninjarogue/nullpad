@@ -60,10 +60,24 @@ export class Finger {
    * Drags the page under the finger: puts it at `from`, moves it `by` pixels up the screen a little
    * at a time, holds it still for a moment so that the page does not fling on, and lifts it.
    */
-  async swipeUp(from: Point, by: number) {
+  swipeUp(from: Point, by: number) {
+    return this.swipe(from, { x: 0, y: -by });
+  }
+
+  /** The same, moving what is under the finger `by` pixels to the left. */
+  swipeLeft(from: Point, by: number) {
+    return this.swipe(from, { x: -by, y: 0 });
+  }
+
+  private async swipe(from: Point, along: Point) {
+    const by = Math.hypot(along.x, along.y);
     await this.session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
     for (let moved = 0; moved < by; moved += 24) {
-      await this.session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from.x, y: from.y - Math.min(moved + 24, by) }] });
+      const part = Math.min(moved + 24, by) / by;
+      await this.session.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: from.x + along.x * part, y: from.y + along.y * part }],
+      });
       await new Promise((done) => setTimeout(done, 8));
     }
     await new Promise((done) => setTimeout(done, 150));
