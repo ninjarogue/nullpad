@@ -287,7 +287,15 @@ export function pastedText(paste) {
 // field's handlers left to the browser. Selection.modify takes the steps a
 // key takes, as the browser does, so words and lines are its own. False for
 // a key that does nothing to the field.
-export function actOnKey(id, key, shift, ctrl, meta, alt) {
+export function actOnKey(...args) {
+  try {
+    return actOn(...args);
+  } catch {
+    return false;
+  }
+}
+
+function actOn(id, key, shift, ctrl, meta, alt) {
   const control = document.getElementById(id);
   if (!control || alt) return false;
   const command = ctrl || meta;
@@ -484,7 +492,18 @@ function aimedHere(control) {
 // with whether the field was aimed: a key that moved the caret since the
 // field was written, or aimed, keeps its place and its own column. `by`
 // names the aim: only the last one made is made again.
-export function aimControl(id, liveClass, paintedClass, text, start, end, backward, x, line, select, rowStart, again, by) {
+export function aimControl(id, ...args) {
+  try {
+    return aimFrom(id, ...args);
+  } catch {
+    const control = document.getElementById(id);
+    if (!control) return [false, "", 0, 0, false];
+    aimed.delete(control);
+    return [false, control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
+  }
+}
+
+function aimFrom(id, liveClass, paintedClass, text, start, end, backward, x, line, select, rowStart, again, by) {
   const control = document.getElementById(id);
   if (!control) return [false, "", 0, 0, false];
   const shown = () => [
@@ -1203,7 +1222,19 @@ function undrawn(control) {
 // the start of a row. A field typed in since it was drawn still starts on
 // the row it was drawn on, and the rows typed into it or out of it move the
 // rows drawn past it, so it is stepped from as it is.
-export function stepHead(
+//
+// A step the browser fails to take is no step, so the keys that wait for it
+// are not held for ever. So is an aim, and a held key the browser fails to
+// act on.
+export function stepHead(...args) {
+  try {
+    return stepFrom(...args);
+  } catch {
+    return [-1, "", false, "", args[11]];
+  }
+}
+
+function stepFrom(
   id, liveClass, paintedClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x, fieldFirst, rowCount,
 ) {
   if (x < 0 && rowStart) x = 0;
