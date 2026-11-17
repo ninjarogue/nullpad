@@ -56,7 +56,6 @@ function readJudged(dir, list) {
   return files;
 }
 
-const trackedAndNew = (repo) => git(repo, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]).split("\0").filter(Boolean);
 const filesOf = (repo, sha) => git(repo, ["ls-tree", "-r", "-z", "--name-only", sha]).split("\0").filter(Boolean);
 
 /**
@@ -152,9 +151,9 @@ export function describeTrailers(trailers) {
   return [`${TRAILER} trailers on this branch. Put them in the PR description:`, ...trailers.map((trailer) => `  ${TRAILER}: ${trailer.text}  (${trailer.commit})`), ""].join("\n");
 }
 
-function staticJudge({ repo, base, tree, parsers }) {
+function staticJudge({ repo, base, tree, head, parsers }) {
   const baseFiles = readJudged(tree, filesOf(repo, base));
-  const branchFiles = readJudged(repo, trackedAndNew(repo));
+  const branchFiles = readJudged(head, filesOf(repo, "HEAD"));
   const differing = [...baseFiles].filter(([path, text]) => branchFiles.get(path) !== text && !ofValues(path)).map(([path]) => path);
   const valued = [...baseFiles].some(([path, text]) => ofValues(path) && branchFiles.get(path) !== text);
   if (differing.length === 0 && !valued) return { items: [], notes: [], differing };
@@ -188,12 +187,12 @@ const gleamFilesIn = (output) => [...new Set([...plain(output).matchAll(/(?:â”Œâ
  * When the branch changed only test files, every other file is the branch's own byte for byte,
  * so the branch's run covers it, and only the test files that differ run here (`narrow`).
  */
-async function overlayRun({ repo, tree, trailers, narrow, log }) {
+async function overlayRun({ repo, tree, head, trailers, narrow, log }) {
   for (const name of ["src", "assets"]) {
     rmSync(join(tree, name), { recursive: true, force: true });
-    if (existsSync(join(repo, name))) cpSync(join(repo, name), join(tree, name), { recursive: true });
+    if (existsSync(join(head, name))) cpSync(join(head, name), join(tree, name), { recursive: true });
   }
-  for (const name of ["gleam.toml", "manifest.toml"]) if (existsSync(join(repo, name))) cpSync(join(repo, name), join(tree, name));
+  for (const name of ["gleam.toml", "manifest.toml"]) if (existsSync(join(head, name))) cpSync(join(head, name), join(tree, name));
   if (existsSync(join(repo, "build"))) {
     cpSync(join(repo, "build"), join(tree, "build"), { recursive: true, dereference: true, preserveTimestamps: true });
     rmSync(join(tree, "build", "dev", "javascript", "nullpad"), { recursive: true, force: true });
@@ -329,11 +328,19 @@ export async function run({ repo, base: given, gateArgs = [], pick = true, only 
   }
   const parsers = await loadParsers(repo);
   const tree = mkdtempSync(join(tmpdir(), "judges-"));
-  const cleanup = () => rmSync(tree, { recursive: true, force: true });
+  const head = mkdtempSync(join(tmpdir(), "judges-head-"));
+  const cleanup = () => {
+    rmSync(tree, { recursive: true, force: true });
+    rmSync(head, { recursive: true, force: true });
+  };
   try {
     extractTree(repo, sha, tree);
+    extractTree(repo, "HEAD", head);
+    if (git(repo, ["status", "--porcelain", "--untracked-files=no"]).trim() !== "" || git(repo, ["ls-files", "--others", "--exclude-standard"]).trim() !== "") {
+      log("note: the working tree has uncommitted changes. The judge reads what HEAD holds, which is what a push sends, so they are not judged.");
+    }
     const trailers = trailersOf(repo, sha);
-    const statics = staticJudge({ repo, base: sha, tree, parsers });
+    const statics = staticJudge({ repo, base: sha, tree, head, parsers });
     const sorted = sort(statics.items, trailers);
     const printed = describeTrailers(trailers);
     if (printed) log(printed);
@@ -359,7 +366,7 @@ export async function run({ repo, base: given, gateArgs = [], pick = true, only 
       const narrow = statics.differing.every((path) => roleOf(path) === "test") ? statics.differing : null;
       log(`==> main's tests and gate scripts on this branch's src and assets${narrow === null ? "" : `: only the ${narrow.length} test file${narrow.length === 1 ? "" : "s"} of main's that differ (${narrow.slice(0, 4).join(", ")}${narrow.length > 4 ? ", ..." : ""}), because every other judged file is the branch's own byte for byte`}`);
       const at = Date.now();
-      const overlay = await overlayRun({ repo, tree, trailers, narrow, log });
+      const overlay = await overlayRun({ repo, tree, head, trailers, narrow, log });
       timing.overlay = Date.now() - at;
       if (overlay.failures.length > 0) {
         log(`FAIL main's tests fail on this branch's code:\n${overlay.failures.join("\n")}`);

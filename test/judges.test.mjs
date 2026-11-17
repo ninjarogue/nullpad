@@ -881,6 +881,31 @@ describe("the pre-push gate on a branch", () => {
     caught(branch.push(), /test\/toy_test\.gleam::adds_test/);
   });
 
+  test("a weakened test that is committed fails even when the working tree is put back before the push", () => {
+    const branch = base.branch();
+    const original = branch.read(toyTest);
+    branch.edit(toyTest, "assert.equal(sum, 3);", "assert.ok(sum);");
+    branch.commit("loosen");
+    branch.write(toyTest, original);
+    caught(branch.push(), /adds small numbers/, /made check less/);
+  });
+
+  test("a change that is not committed is not judged, and the run says it reads what HEAD holds", () => {
+    const branch = base.branch();
+    branch.edit(toyTest, "assert.equal(sum, 3);", "assert.ok(sum);");
+    const run = branch.push();
+    assert.match(run.out, /uncommitted changes/);
+    assert.match(run.out, /HEAD/);
+    assert.match(run.out, /every test and script of main's is still here/);
+  });
+
+  test("a test file that is only in the working tree is not read as one of the branch's", () => {
+    const branch = base.branch();
+    branch.write("test/extra.test.mjs", "import { test } from 'node:test';\ntest('x', () => {});\n");
+    const run = branch.push();
+    assert.match(run.out, /uncommitted changes/);
+  });
+
   test("with a Changes-test trailer naming the test and giving a reason, the change passes and the trailer is printed", () => {
     const branch = base.branch();
     branch.edit(toyTest, "assert.equal(add(0, 7), 7);", "assert.equal(add(0, 7), 7 + 0);");
