@@ -415,8 +415,6 @@ button[aria-pressed="true"] {
   overflow: hidden;
 }
 
-/* A key can reach the field before the page is drawn again, and in a field
-   with no height the browser moves and deletes by words wrongly. */
 .editor.part.idle textarea {
   height: 1.7rem;
 }
@@ -477,10 +475,6 @@ button[aria-pressed="true"] {
   font-variant-ligatures: none;
 }
 
-/* An item's marker sits in the list's gutter when drawn. In the field the
-   typed marker hangs left by its own width (`--marker`, or `--held-marker`
-   until the render, set by `surface`), so the item's words stay in place,
-   on every wrapped line. */
 .editor.part.item {
   margin: 0.25rem 0;
   margin-left: min(0px, var(--gutter) - var(--held-marker, var(--marker)));
@@ -500,9 +494,6 @@ button[aria-pressed="true"] {
   line-height: 1.25;
 }
 
-/* A heading is drawn without its marks. In the field they hang left of its
-   words by their own width (`--marker`, in the heading's font), as far as
-   the page's margin lets them, so the words wrap where they are drawn. */
 .editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
   --hang: min(
     var(--held-marker, var(--marker, 0px)),
@@ -540,10 +531,6 @@ button[aria-pressed="true"] {
   letter-spacing: 0.05em;
 }
 
-/* A row typed as another kind of block than the page laid it out as keeps
-   the height and margins it was laid out with, so nothing around it moves.
-   So does the field written with other rows until the page draws them
-   (`held`, set by `surface`), in the type of those rows. */
 .editor.part:is(.framed, .held) {
   margin-block: 0;
 }

@@ -4,8 +4,6 @@ import { fast } from './guards.ts';
 import { test } from './nullpad.ts';
 import { differences, DOWN, drawnKinds, END, ENTER, endOf, everyKind, noteWithEveryBlock, pressFast, report, typeAndMeasure, typed, walked } from './stability.ts';
 
-/** Moves the caret through notes, and types in a note that has every kind of block. The rule they are held to is in `stability.ts`. */
-
 for (const walk of walked) {
   test(`moving the caret through ${walk.name} changes no row`, async ({ app, browser, disk, page }) => {
     await disk.seed([{ key: 'walk', title: null, body: walk.note }]);

@@ -17,7 +17,6 @@ pub opaque type Library {
     open: Option(Open),
     edits: Int,
     leaving_for: Option(Destination),
-    /// Storage loads or makes the note the user chose.
     arriving: Bool,
     /// While storage has the request to delete the open note nothing is
     /// saved, or the save would bring the note back.
@@ -126,8 +125,6 @@ pub fn is_open(library: Library, id: NoteId) -> Bool {
   }
 }
 
-/// Whether the user chose a note that has yet to open: it waits for the
-/// open note to be saved, or for storage to load or make it.
 pub fn is_choosing(library: Library) -> Bool {
   library.leaving_for != None || library.arriving
 }

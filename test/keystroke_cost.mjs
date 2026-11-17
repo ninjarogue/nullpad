@@ -7,8 +7,7 @@
 //
 // Exits 1 when a typed character parses the note more than once, or a caret
 // move parses it at all, and then the same for every variant of
-// `editor.Event`. `Composed`, which ends an IME composition, may do the one
-// parse the composing keys skipped. The times are printed, never checked: they are too noisy
+// `editor.Event`. The times are printed, never checked: they are too noisy
 // for a gate.
 
 import { register } from "node:module";

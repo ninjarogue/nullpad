@@ -41,8 +41,6 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       attribute.data(live.row_mark, int.to_string(first_row))
     Some(_), True | None, _ -> attribute.none()
   }
-  // Where the editor holds the anchor in the note, for the robot typist,
-  // which reads it around each Shift key: the field holds only some rows.
   let #(anchor, _) = buffer.selection(editor.buffer(editor))
   let anchor =
     attribute.data(
@@ -197,7 +195,6 @@ fn marker_width(kind: Option(live.Kind)) -> String {
   }
 }
 
-/// A sixth-level heading is spaced out, as the page draws it.
 fn spacing(level: markdown.Level, marks: String) -> Float {
   case level {
     markdown.H6 -> 0.05 *. int.to_float(string.length(marks))
@@ -412,9 +409,6 @@ fn on_point(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   })
 }
 
-/// Notes the editor the app starts with, before any event can come. Each
-/// `sync` after notes the editor its message left, so a handler always reads
-/// the latest one through `current_editor`.
 pub fn start(editor: Editor) -> Effect(msg) {
   effect.from(fn(_) { note_editor(editor) })
 }
@@ -447,8 +441,6 @@ pub fn sync(
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
-  // The page paints the selection, and settles its ends where it can draw
-  // them. True when there is nothing to settle.
   let draw = fn(dispatch) {
     paint(editor)
     note_drawn(editor.row_count(editor))
@@ -460,9 +452,6 @@ pub fn sync(
       None -> True
     }
   }
-  // A held key is replayed once the page has drawn the editor as it is and
-  // has nothing more to say about it: no selection to settle, no step or aim
-  // to take.
   let replay = fn(dispatch, quiet) {
     case quiet {
       True -> replay_held(editor, dispatch, on_event)
@@ -471,8 +460,6 @@ pub fn sync(
   }
   let painted =
     effect.before_paint(fn(dispatch, _) { replay(dispatch, draw(dispatch)) })
-  // A step the editor no longer waits for is not taken once the page is
-  // drawn.
   let noted =
     effect.from(fn(_) {
       note_editor(editor)
@@ -482,9 +469,6 @@ pub fn sync(
       }
     })
   let synced = case sync {
-    // The field only grows once the page is drawn, so the browser does not
-    // scroll the page to a caret that typing takes onto a new line. Typing
-    // that makes its rows another kind of block sets their type at once.
     editor.InSync ->
       effect.batch([
         effect.from(fn(_) { hold_now() }),
@@ -649,8 +633,6 @@ pub fn sync(
         }),
       ])
     }
-    // A held key the browser takes past the field, done once the field holds
-    // the whole note.
     editor.WriteAndAct(buffer, key:) ->
       effect.batch([
         effect.from(fn(dispatch) {
@@ -669,7 +651,6 @@ pub fn sync(
         }),
         painted,
       ])
-    // The browser acts on the key after the handler that wrote the field.
     editor.WriteAndRead(buffer) ->
       effect.batch([
         effect.from(fn(dispatch) {
@@ -807,8 +788,6 @@ fn paint(editor: Editor) -> Nil {
   }
 }
 
-/// Where the head of a painted selection settles, when a key moved it among
-/// marks the page hides: it never cuts a pair of them.
 fn settling(
   editor: Editor,
 ) -> Option(#(#(Position, Position), #(Position, Position))) {
@@ -932,10 +911,6 @@ fn control_decoder() -> Decoder(Buffer) {
   decode.success(from_control(text, start, end, direction == "backward"))
 }
 
-/// A key pressed while the page is behind the editor is held, and replayed
-/// once the page has drawn the editor as it is: the browser would act on the
-/// field as the page last drew it. A paste is held when its text arrives.
-/// An IME's keys go on to the field, which it owns while it composes.
 fn hold_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
@@ -977,10 +952,6 @@ fn paste_decoder(
   }
 }
 
-/// Replays the first held key on the field as the page now draws it, the way
-/// it would have gone had the page been drawn when it was pressed: the
-/// field's handlers decide again, and a key they leave to the browser is
-/// done here as the browser does it.
 fn replay_held(
   editor: Editor,
   dispatch: fn(msg) -> Nil,
@@ -1020,8 +991,6 @@ fn replay_held(
   }
 }
 
-/// Does in the field what the browser does for a key the field's handlers
-/// leave to it.
 fn act(browser_act: editor.Act) -> Nil {
   case browser_act {
     editor.TypeText(text) ->
@@ -1078,15 +1047,12 @@ fn keyboard() -> editor.Keyboard {
   }
 }
 
-/// A key is decided by the editor the last message left, which the page may
-/// not have drawn yet.
 fn keydown_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
   decode.one_of(hold_decoder(on_event), [decided_decoder(on_event)])
 }
 
-/// What the field's keydown handlers do with a key the page is not behind.
 fn decided_decoder(
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
@@ -1154,8 +1120,6 @@ fn edge_decoder(
     |> result.unwrap("")
     |> string.drop_start(head.col)
     |> is_blank
-  // The browser would move the caret by the layout of a field the page has
-  // not yet set for the rows a press put in it.
   let #(pending, landed_x, landed) = press_landing(control_id)
   let from_press = fn(x) {
     case landed && head.col != 0 {
@@ -1233,7 +1197,6 @@ fn edge_decoder(
           False, False -> Ok(#(editor.Beside(up:, select: False), x))
         }
       }
-      // A step that waits for a press to be drawn measures the caret then.
       editor.Line(..) | editor.Page(..) if pending -> Ok(#(edge, -1.0))
       editor.Line(up:, select:) -> {
         let #(first, last, x) = head()
@@ -1397,7 +1360,6 @@ fn write_control(
 @external(javascript, "./surface.ffi.mjs", "textWidth")
 fn text_width(text: String) -> Float
 
-/// In widths of the root font's letter M.
 @external(javascript, "./surface.ffi.mjs", "boldWidth")
 fn bold_width(text: String) -> Float
 

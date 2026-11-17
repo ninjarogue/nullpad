@@ -316,10 +316,6 @@ export class Page {
     }, word);
   }
 
-  /**
-   * Runs `act` while the page draws nothing, as on a device too busy to draw
-   * between two events. Then lets it draw. `act` must not wait for a frame.
-   */
   async beforeRedraw(act: () => Promise<void>) {
     await this.nextFrame();
     await this.browser.evaluate(() => {
@@ -340,14 +336,12 @@ export class Page {
     await this.nextFrame();
   }
 
-  /** Presses `keys` one after another while the page draws nothing. */
   pressBeforeRedraw(...keys: string[]) {
     return this.beforeRedraw(async () => {
       for (const key of keys) await this.browser.keyboard.press(key);
     });
   }
 
-  /** The middle of the note's row in the list, in the window. */
   rowCentre(title: string) {
     return this.browser.evaluate((title: string) => {
       const row = [...document.querySelectorAll('[data-test-id="note-list"] [data-test-id^="note-"]')].find(

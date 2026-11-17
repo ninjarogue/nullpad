@@ -2118,8 +2118,6 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
   let assert editor.WriteAndAim(x: 60.0, line: editor.LastLine, ..) = sync
 }
 
-/// A run down a note of three blocks, the caret aimed at `x` 40 on the
-/// blank row below the first.
 fn run_down(note: String) -> Editor {
   let ed = pressed(note, 0, "")
   let Outcome(editor: ed, ..) =

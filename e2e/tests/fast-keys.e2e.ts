@@ -4,15 +4,6 @@ import { ctrl, Editing, offsetOf, withRawPage } from './editing.ts';
 import type { Fixtures, Spot } from './editing.ts';
 import { pause, test } from './nullpad.ts';
 
-/**
- * Fast typing. A hurried hand sends a key before the page has drawn what the
- * click before it did, and a busy device draws nothing between two events.
- * Each test sends its events with no frame between them, by holding the
- * page's animation frames back until the last one is in, and then holds the
- * page to what a plain text field does with the same events one after the
- * other.
- */
-
 const note = 'alpha one\n\nbravo two words\n\ncharlie three';
 
 const inThisBlock: Spot = { word: 'alpha', at: 2 };
@@ -101,7 +92,6 @@ for (const { name, held } of afterClick) {
   }
 }
 
-/** Up and Down keep a column that a proportional font does not share with the plain field, so the keys that go on past one row start in column 0. */
 const selections: { name: string; from: Spot; keys: string[] }[] = [
   { name: 'Shift+ArrowUp from the last block', from: inTheLastBlock, keys: ['Shift+ArrowUp'] },
   { name: 'Shift+ArrowUp twice from the last block', from: { word: 'charlie', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp'] },
@@ -138,7 +128,6 @@ const timings = [
   { name: 'in the same frame as the tap', held: true },
 ];
 
-/** What the notes are once the page has saved them. */
 async function savedNotes({ disk, page }: Fixtures) {
   await page.hide();
   let notes = await disk.notes();
@@ -185,7 +174,6 @@ for (const view of views) {
   }
 }
 
-/** An arrow into a block of another kind aims at the column on that block as it is drawn, so a letter before the next frame lands where it lands after the frame. */
 const crossings: { name: string; note: string; from: Spot; keys: string[] }[] = [
   { name: 'from a heading down to a paragraph', note: '# Big title here\n\nparagraph words', from: { word: 'here', at: 4 }, keys: ['ArrowDown', 'ArrowDown'] },
   { name: 'from a paragraph up to a heading', note: '# Big title here\n\nparagraph words', from: { word: 'words', at: 5 }, keys: ['ArrowUp', 'ArrowUp'] },
@@ -217,12 +205,6 @@ for (const { name, note: body, from, keys: pressed } of crossings) {
   });
 }
 
-/**
- * A click moves the text field to the block it lands in, and until the next
- * frame the page still shows the field on the block it left. Steps pressed
- * in that frame go over that page, up or down onto the block the field left,
- * which is first or last on the page, or has a paragraph past it.
- */
 const stepsAfterClick: { name: string; note: string; before?: Spot; at: Spot; keys: string[] }[] = [
   { name: 'Shift+ArrowUp three times onto a quote at the top', note: '> a\n>\n> b\n\nnext', at: { word: 'next', at: 0 }, keys: ['Shift+ArrowUp', 'Shift+ArrowUp', 'Shift+ArrowUp'] },
   { name: 'Shift+ArrowDown three times onto a quote at the end', note: 'first\n\n> a\n>\n> b', before: { word: 'b', at: 1 }, at: { word: 'first', at: 0 }, keys: ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowDown'] },
@@ -249,12 +231,6 @@ for (const { name, note: body, before, at, keys: pressed } of stepsAfterClick) {
   });
 }
 
-/**
- * With the whole note drawn, a click puts the field in the block it lands in,
- * which the page has not drawn yet. A step pressed in the same frame waits
- * for it, and goes a line of the row as the page draws it, as it does a
- * frame later.
- */
 test('Shift+ArrowDown in the same frame as a click on a row that wraps, with the whole note drawn, selects one line', async (fixtures) => {
   const { browser, page } = fixtures;
   const editor = new Editing(fixtures);
@@ -280,12 +256,6 @@ test('Shift+ArrowDown in the same frame as a click on a row that wraps, with the
   expect(await typed(true)).toBe(apart);
 });
 
-/**
- * Typing changes the field before the page is drawn again, so a step after
- * it in the same frame starts from text the page does not show yet. The
- * keys after the step act where the step took the caret, in that frame or
- * once it is drawn.
- */
 const afterTyping: { name: string; note: string; at?: Spot; keys: string[]; typed: string }[] = [
   { name: 'a letter, PageUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'PageUp', 'y'], typed: '' },
   { name: 'a letter, Shift+ArrowUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+ArrowUp', 'y'], typed: '' },
@@ -314,11 +284,6 @@ for (const { name, note: body, at = { word: 'bbb', at: 3 }, keys: pressed, typed
   });
 }
 
-/**
- * An undo or a redo from a menu, pressed while a step waits, waits behind the
- * keys pressed before it and is taken once the page has caught up, as it is
- * a frame later. Chrome reports a menu's undo and redo as input.
- */
 const fromMenu: { name: string; keys: string[]; asked: 'historyUndo' | 'historyRedo' }[] = [
   { name: 'an undo from a menu after a letter and a step', keys: ['x', 'Enter', 'Shift+ArrowUp'], asked: 'historyUndo' },
   { name: 'a redo from a menu after a step and an undo', keys: ['x', 'Enter', 'Shift+ArrowUp', ctrl('z')], asked: 'historyRedo' },
@@ -361,12 +326,6 @@ for (const { name, keys: pressed, asked } of fromMenu) {
   });
 }
 
-/**
- * A click onto another row of a block of several rows writes the field with
- * them, and until the next frame the page draws the field where it was. An
- * arrow up or down pressed in that frame goes from where the click put the
- * caret, one row, as it does a frame later.
- */
 const arrowsAfterClick: { name: string; at: Spot; key: string }[] = [
   { name: 'ArrowUp after a click on the last row of a block', at: { word: 'four', at: 2 }, key: 'ArrowUp' },
   { name: 'ArrowDown after a click on the first row of a block', at: { word: 'bravo', at: 3 }, key: 'ArrowDown' },
@@ -396,12 +355,6 @@ for (const { name, at, key } of arrowsAfterClick) {
   });
 }
 
-/**
- * Letters typed at the start of a heading make it a paragraph, which the
- * page sets in smaller type once it draws it. An arrow pressed before then
- * still aims at the column the letters left, as it does once the page has
- * drawn the paragraph.
- */
 test('letters that make a heading a paragraph, and ArrowDown, in one frame, aim at the column the letters left', async (fixtures) => {
   const { browser, page } = fixtures;
   const editor = new Editing(fixtures);
@@ -472,13 +425,6 @@ test('keys typed into an empty note in one frame, the last a selection to the en
   await expect(page.text).toHaveValue(expected);
 });
 
-/**
- * A key the browser acts on past the rows the field holds, such as Ctrl+Delete
- * at the end of the note, is acted on with the whole note in the field, which
- * is read once the browser has acted. A frame can draw that field before the
- * read, and a key can come before the read too: it acts where the browser left
- * the caret. The reads are held back here, so that both happen every time.
- */
 test('Shift+ArrowLeft after Ctrl+Delete at the end of the note, drawn before the field is read, selects one letter', async (fixtures) => {
   const { browser, page } = fixtures;
   const editor = new Editing(fixtures);
@@ -515,13 +461,6 @@ test('Shift+ArrowLeft after Ctrl+Delete at the end of the note, drawn before the
   await expect(page.text).toHaveValue(expected);
 });
 
-/**
- * An IME owns the field while it composes, so its keys go on to the field
- * even while the page is behind, as it is when a step waits for the rows an
- * Enter in the same frame added. An IME's key has keyCode 229, and once the
- * composition has begun, isComposing too. Held, it would be typed again as a
- * letter once the page caught up.
- */
 test('a key an IME sends while the page is behind goes to the IME, and is not typed again', async ({ app, browser }) => {
   await app.open('/blank');
   const origin = new URL(await browser.url()).origin;
@@ -596,12 +535,6 @@ test('PageDown pressed while a step waits for the rows an Enter in the same fram
   });
 });
 
-/**
- * A key that takes the head to another block writes the field with that
- * block's rows, and until the next frame the page still draws the field
- * where it was. A page step pressed in that frame waits for the page to
- * draw the field where it now is, and lands where it lands a frame later.
- */
 const longNote = "# Heading one that is quite long and will wrap around on the page because it keeps going and going and going\n\nFirst paragraph with **bold words** and *italic words* and some `code` here, long enough to wrap onto several visual lines in the editor at this width, yes indeed.\n\n## Second heading\nLine directly under heading\n\n> quote line one that is long enough to wrap around because quotes are narrower than the page and so on and so forth\n> - item in quote\n>   - nested item in quote with a lot of words to make it wrap around the width of the quote block\n> > nested quote\n> > - list in nested quote\n\n- list item one\n- list item two that is long enough to wrap around because it keeps going and going on and on and on and on and on\n  - nested a\n1. ordered\n2. second\n\n```js\nconst a = 1;\n\nfunction f() { return 2; }\n```\n\n> ```\n> fenced in quote\n> \n> more\n> ```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 33 | 44 |\n\n\n### h3\n#### h4 long long long long long long long long long long long long long long long long long long long long long long long long long long long\n##### h5\n###### h6\n\nlast paragraph";
 test('ArrowDown onto the next block and PageDown, in one frame, land where they do a frame apart', async (fixtures) => {
   const { browser, page } = fixtures;
@@ -681,16 +614,6 @@ test('PageDown twice in one frame on a phone, after a letter, lands where it doe
   }
 });
 
-/**
- * An IME composes in the field while keys wait behind a step, as they do when
- * Enter and Shift+ArrowUp are pressed in one frame. A plain text field takes
- * each key as it comes: the step and the key before the composition are done
- * before it, and what the IME composes goes in at the caret they leave, over
- * the selection they leave. So the composed text goes in after the keys that
- * wait, once, and is never typed over by them. `frames` holds the page's
- * redraws until `redraw`. An undo or a redo asked while the IME composes is
- * not taken, as when nothing waits.
- */
 type ImeStep = string | { ime: string } | { commit: string } | 'redraw' | 'late keydown';
 
 async function composeBehind(origin: string, steps: ImeStep[], frames: boolean) {
@@ -911,11 +834,6 @@ for (const { name, keys: pressed, held, typed, fails } of breaks) {
   });
 }
 
-/**
- * A key is held while the page is behind only when its replay does what the
- * browser would have done. A browser shortcut the replay cannot do goes on to
- * the browser.
- */
 test('browser shortcuts pressed while the page is behind go on to the browser', async ({ app, browser, disk, page }) => {
   await disk.seed([{ key: 'live', title: null, body: note }]);
   await app.open('/');
@@ -990,8 +908,6 @@ for (const { name, key, typed } of appleKeys) {
   });
 }
 
-// The field holds the block the caret is in, so these are where the same
-// keys typed one at a time leave the caret, not a plain textarea's.
 const paragraphKeys = [
   { name: 'Control and ArrowUp moves up a paragraph', key: 'Control+ArrowUp', typed: 'one\nX\ntwo' },
   { name: 'Control, Shift and ArrowUp selects up a paragraph', key: 'Control+Shift+ArrowUp', typed: 'one\nX' },

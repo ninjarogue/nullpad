@@ -12,25 +12,8 @@ import nullpad/live.{type Region, Region}
 import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
-/// Every change to `buffer` goes through `edit` or `compose`. `edit`
-/// records it in `history`, except while a drag is under way: the browser
-/// moves dragged text in two changes, and the drag's end records both as
-/// one step. `ime` is while an IME composes in the field, from its first
-/// change through `compose` to its end or the next change through `edit`:
-/// undo and redo are not taken until it ends.
-///
-/// `page` is what the page has yet to do for the editor: the steps of the
-/// head over the drawn page that it has not placed yet, and the keys
-/// pressed since, which wait for them.
-///
-/// `goal` is where a run of moves up and down aims, as a text field keeps
-/// the caret's x. The first move of a run sets it, and any other change to
-/// the selection or the text ends the run.
-///
-/// `choice` is whether the note in the editor is the one the user chose.
 pub opaque type Editor {
   /// `press` is a mouse press the editor took, held until it is let go.
-  /// `clicked` is where the last plain press put the caret.
   /// `dragging` is while the browser drags the field's selection.
   Editor(
     buffer: Buffer,
@@ -51,56 +34,26 @@ pub opaque type Editor {
   )
 }
 
-/// While a note the user chose loads, the note in the editor no longer
-/// changes, and the keys they type wait for the note they chose and go into
-/// it once it opens.
 type Choice {
   Chosen
   Choosing(keys: List(Held))
 }
 
-/// Whether the page has caught up with the editor. A key pressed while it
-/// has not is held: the browser would act on the field as the page last
-/// drew it, so the key is replayed, in the order it was pressed, once the
-/// page has drawn the editor as it is.
-///
-/// Keys still held when the focus leaves, a press comes, another note is
-/// chosen or Escape is pressed are dropped with the steps they wait behind:
-/// typed where the selection is without those steps, or into the other note,
-/// they would land where the user did not aim them.
 type Page {
   CaughtUp
-  /// `steps` of the head wait for the page to take them, and only the first
-  /// is asked for, so each starts where the one before it ended. `keys` wait
-  /// behind them, and are replayed one at a time once no step waits, each
-  /// once the page has drawn what the one before it did.
   Behind(steps: List(Queued), keys: List(Held))
 }
 
-/// What an IME does in the field, which is its own until it ends: the editor
-/// does not write the field meanwhile.
 type Ime {
   NotComposing
-  /// The editor takes in each change it makes to the field as it makes it.
   ComposingHere
-  /// It began to compose while the page was behind. A text field would have
-  /// done the steps and keys that wait first, so the editor takes in nothing
-  /// it composes, and holds the text it ends with behind them, to go over
-  /// the selection they leave. The steps wait for it to end too.
   ComposingBehind
 }
 
-/// `x` is how far from the left of the page's text the head was drawn when
-/// the run began, with the start of a row at 0. Every move up or down lands
-/// nearest it, on the line as the page will show it. `col` is the head's
-/// column then, which a row the page does not draw, such as a fence, takes
-/// as a text field of the markdown takes its x.
 type Goal {
   Goal(x: Float, col: Int)
 }
 
-/// A move of the head that waits for the page. Without `select` the anchor
-/// goes with the head.
 type Queued {
   Queued(move: Move, select: Bool)
 }
@@ -126,22 +79,6 @@ type Focus {
 
 type Field {
   Whole
-  /// The note drawn as a page, with `rows` of it in the text field.
-  ///
-  /// `parsed` is the text of `buffer` parsed. While `composing` it is the
-  /// text from before the composition, which differs only inside `rows`.
-  ///
-  /// `drawn` is the page as it was laid out: `parsed` as it was when the
-  /// rows of the selection last changed, the number of rows changed, a row
-  /// outside `rows` changed, or the field was out of focus. So it differs
-  /// from `parsed` only inside `rows`, and typing on a row moves nothing
-  /// outside the field. The page around the field and the field's rows come
-  /// from `drawn`: `rows` is `drawn` revealed around the selection, or the
-  /// whole note while it is `wide`, for a key the browser acts on. Out of
-  /// focus, and while a composition that added or took rows, `rows` stay
-  /// the rows the field shows: a blurred field is left as it is, so the
-  /// browser can give it the focus back, and an IME owns the field it
-  /// composes in.
   Part(
     rows: Region,
     drawn: List(Block),
@@ -174,7 +111,6 @@ pub type Event {
   /// In the middle of an IME composition: the control must not be written
   /// to until it ends.
   Composing(shown: Buffer)
-  /// The IME ended its composition, and left the field as `shown`.
   Composed(shown: Buffer, at: Int)
   KeyPressed(key: vim.Key, shown: Buffer)
   EdgePressed(edge: Edge, x: Float, shown: Buffer)
@@ -220,10 +156,6 @@ pub type Event {
     x: Float,
     y: Float,
   )
-  /// The second press of a double click, at a place on the page or at none,
-  /// and at `x`, `y` in the window: selects the word the first press put the
-  /// caret in, wherever showing its block moved that word, or else the word
-  /// at the place.
   WordPressed(
     row: Int,
     visible: String,
@@ -245,30 +177,13 @@ pub type Event {
   )
   /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool, next: String)
-  /// The page took the first waiting step of the head: the head moves to
-  /// the place on the drawn page that the step reached. The anchor stays.
-  /// `x` is where the step aimed, from the left of the text, which starts a
-  /// run that had no column yet.
   Stepped(row: Int, visible: String, at_end: Bool, next: String, x: Float)
-  /// A step that took the head nowhere: the page had no place for it, or
-  /// neither the page nor the field could be read for it. The head stays
-  /// where it is, and the next waiting step goes on. `x` is where the step
-  /// aimed, as for `Stepped`, and below 0 when it aimed nowhere.
   Unstepped(x: Float)
-  /// The field took the first waiting step itself, and shows where it put
-  /// the selection. `x` is where a step of a line aimed, as for `Stepped`.
   FieldStepped(shown: Buffer, x: Float)
-  /// The field as an aim at the run's column left it.
   Aimed(shown: Buffer)
   /// A step with nothing drawn past the head: the head goes to the start or
   /// the end of the note, as in a text field.
   SteppedPast
-  /// The page painted a selection from `from` with ends among marks it
-  /// hides, and draws them where `live.settle` puts them, at `to`. Unless
-  /// the selection has moved since, it is taken there. A drag from a press
-  /// settles both ends, so what it selects holds both marks of a pair or
-  /// neither. A key settles only the head it moved: the anchor stays where
-  /// it was put, so what is deleted or typed over is what was selected.
   Settled(from: #(Position, Position), to: #(Position, Position))
   Released
   /// The browser starts to drag the field's selection.
@@ -290,18 +205,11 @@ pub type Event {
   /// written.
   UndoAsked
   RedoAsked
-  /// A key pressed while the page is behind the editor: it waits behind
-  /// the steps of the head the page has not taken, and is replayed once the
-  /// page has caught up, in the order it was pressed.
   KeyHeld(held: Held)
-  /// The surface replayed the first held key on the field as the page now
-  /// draws it, and the key did `then`, or nothing the editor hears of.
   Replayed(then: Option(Event))
 }
 
-/// What a held key replays.
 pub type Held {
-  /// A key as the browser names it, pressed at `at`.
   HeldKey(
     key: String,
     code: String,
@@ -311,15 +219,11 @@ pub type Held {
     alt: Bool,
     at: Int,
   )
-  /// Text pasted into the field, or composed in it by an IME, at `at`.
   HeldPaste(text: String, at: Int)
-  /// Undo or redo from the browser's menu.
   HeldUndo
   HeldRedo
 }
 
-/// Which keys of the system the browser runs on move and delete by words and
-/// lines, and which modifiers type a character.
 pub type Keyboard {
   /// Cmd moves by lines and the whole note, Option by words, and Option
   /// types a character of its own.
@@ -331,8 +235,6 @@ pub type Keyboard {
   OtherKeyboard
 }
 
-/// What a text field does for a key its handlers leave to the browser. The
-/// surface does it for a held key when it replays it.
 pub type Act {
   TypeText(text: String)
   MoveCaret(extend: Bool, direction: Direction, by: Granularity)
@@ -358,11 +260,6 @@ pub type Granularity {
   ByDocument
 }
 
-/// Whether a key pressed while the page is behind is held, which it is
-/// only when its replay does what the browser would have done: the field's
-/// handlers decide Escape, PageUp, PageDown and the undo and redo keys
-/// again, and `browser_act` the keys they leave to the browser. Any other
-/// key, such as a browser's own shortcut, goes on to the browser.
 pub fn holds(held: Held, keyboard: Keyboard) -> Bool {
   case held {
     HeldKey(key: "Escape", ..)
@@ -378,9 +275,6 @@ pub fn holds(held: Held, keyboard: Keyboard) -> Bool {
   }
 }
 
-/// What the browser does in a text field for a key its handlers leave to
-/// it, or `None` for a key that does nothing there or that the replay
-/// cannot do as the browser would.
 pub fn browser_act(held: Held, keyboard: Keyboard) -> Option(Act) {
   case held {
     HeldKey(key:, code:, shift:, ctrl:, meta:, alt:, ..) -> {
@@ -477,8 +371,8 @@ pub fn browser_act(held: Held, keyboard: Keyboard) -> Option(Act) {
   }
 }
 
-/// Whether a key is the letter's key: a shortcut letter on a keyboard laid
-/// out for another alphabet is named by where the key sits.
+/// A shortcut letter on a keyboard laid out for another alphabet is named by
+/// where the key sits.
 pub fn is_key(name: String, code: String, letter: String) -> Bool {
   let typed = string.lowercase(name)
   let latin = string.length(typed) == 1 && string.contains(letters, typed)
@@ -487,8 +381,6 @@ pub fn is_key(name: String, code: String, letter: String) -> Bool {
 
 const letters = "abcdefghijklmnopqrstuvwxyz"
 
-/// Whether a key pressed with a modifier names the letter or digit printed
-/// on it, as a shortcut does, rather than a character the modifier types.
 fn names_its_key(name: String, code: String) -> Bool {
   code == "Key" <> string.uppercase(name) || code == "Digit" <> name
 }
@@ -500,12 +392,7 @@ pub type Edge {
   Down
   JoinBefore
   JoinAfter
-  /// An arrow up or down: the head moves one line up or down the drawn
-  /// page.
   Line(up: Bool, select: Bool)
-  /// An arrow up or down, with Shift for `select`, from a line of the field
-  /// that has a line of the field above or below it: the head moves to that
-  /// line, at the run's column, which the browser does not know.
   Beside(up: Bool, select: Bool)
   SelectBefore
   SelectAfter
@@ -518,26 +405,12 @@ pub type Edge {
   SelectToStart
   SelectToEnd
   SelectAll
-  /// Page Up or Page Down: the head moves a window up or down the drawn
-  /// page.
   Page(up: Bool, select: Bool)
-  /// Ctrl and an arrow up or down: the head moves to the run's column on
-  /// the last drawn line of the row above, or the first of the row below, as
-  /// in a text field that holds the markdown, or to the start or end of the
-  /// note from its first or last row. It moves from the head, with or
-  /// without `select`, as Chrome's text field does.
   Row(up: Bool, select: Bool)
-  /// An arrow left or right, with no selection, from the start or the end
-  /// of the rows the field holds: the caret moves one character, onto the
-  /// row before or after them.
   Before
   After
-  /// Ctrl and Home or End: the caret goes to the start or the end of the
-  /// note.
   ToStart
   ToEnd
-  /// A key the browser acts on by the text alone, which can take the head
-  /// past the field: the field holds the whole note while it does.
   Widen
 }
 
@@ -545,19 +418,9 @@ pub type Sync {
   InSync
   Write(Buffer)
   WriteQuietly(Buffer)
-  /// Then the head moves to the place nearest `x` from the left of the text
-  /// on a drawn line of the field. With `select` the anchor stays, and
-  /// without it the caret moves.
   WriteAndAim(Buffer, x: Float, line: Line, select: Bool)
-  /// Then the head takes `move` over the drawn page, a step of a line or a
-  /// window to the place nearest `x` from the left of the text, or below
-  /// where the head is drawn when `x` is below 0. A selection keeps its
-  /// anchor with `select`, and goes with the head without.
   WriteAndStep(Buffer, move: Move, select: Bool, x: Float)
-  /// Then the browser acts on the key, and the field is read once it has.
   WriteAndRead(Buffer)
-  /// Then the surface acts on the held key as the browser would have, and
-  /// reads the field.
   WriteAndAct(Buffer, key: Held)
   Release(Buffer)
   /// A press at `x`, `y` in the window: the field is written, when there is
@@ -569,8 +432,6 @@ pub type Sync {
   HoldSelection(x: Float, y: Float)
 }
 
-/// A line of the field, by where the head is: the first or last line of its
-/// row, the line above or below the head's, or the head's own.
 pub type Line {
   FirstLine
   LastLine
@@ -587,7 +448,6 @@ pub type Move {
   LineEnd
   LetterBack
   LetterOn
-  /// A window up or down.
   PageUp
   PageDown
 }
@@ -658,9 +518,6 @@ pub fn open(editor: Editor, text: String) -> Outcome {
   |> write_and_focus
 }
 
-/// The user chose another note, which has yet to open, or the note they
-/// chose stays in the editor after all: the keys typed meanwhile go into
-/// it.
 pub fn set_choosing(editor: Editor, choosing: Bool) -> Outcome {
   let editor = case editor.choice, choosing {
     Chosen, True -> Editor(..editor, page: CaughtUp, choice: Choosing([]))
@@ -726,8 +583,6 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
   }
 }
 
-/// A key waits for the note the user chose. Nothing else may change the note
-/// they left.
 fn choosing(editor: Editor, keys: List(Held), event: Event) -> Outcome {
   let wait = fn(held) {
     let choice = Choosing(list.append(keys, [held]))
@@ -764,8 +619,6 @@ fn choosing(editor: Editor, keys: List(Held), event: Event) -> Outcome {
   }
 }
 
-/// A change of the selection or the text that no step made ends the steps
-/// still waiting, which were measured from where the head was.
 fn ends_steps(before: Editor, outcome: Outcome) -> Outcome {
   case outcome.editor.buffer == before.buffer {
     True -> outcome
@@ -776,7 +629,6 @@ fn ends_steps(before: Editor, outcome: Outcome) -> Outcome {
   }
 }
 
-/// The field is put back as it was by anything that would change the note.
 fn keep_note(before: Editor, outcome: Outcome) -> Outcome {
   case buffer.text(outcome.editor.buffer) == buffer.text(before.buffer) {
     True -> outcome
@@ -833,9 +685,6 @@ fn follow(editor: Editor, event: Event) -> Outcome {
   Outcome(..outcome, editor: Editor(..outcome.editor, goal:, travel:))
 }
 
-/// Which way the last key moved the head: a painted head among hidden marks
-/// settles that way, so a step never settles back where it came from. `Eq`
-/// once anything but a key put the head where it is, which then stays.
 pub fn direction(editor: Editor) -> order.Order {
   editor.travel
 }
@@ -873,10 +722,6 @@ fn steers(event: Event) -> Bool {
   }
 }
 
-/// What an event does to a run of moves up and down, as a text field keeps
-/// the caret's x: a move of the run, a press or a key that ends it, or
-/// anything else, which ends it when it changes the selection or the text.
-/// A key that moves nothing keeps it.
 type InRun {
   Moves
   Ends
@@ -945,7 +790,6 @@ fn is_vertical(edge: Edge) -> Bool {
 fn apply(editor: Editor, event: Event) -> Outcome {
   let unasked = steps(editor) == []
   case event {
-    // Chrome sends `select` while an IME composes.
     ControlChanged(shown:, at:) ->
       case editor.ime {
         NotComposing -> typed(Editor(..editor, clock: at), shown, None, realign)
@@ -1155,8 +999,6 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         }
       }
     Aimed(shown:) -> typed(editor, shown, None, realign)
-    // A line step with rows still past the head stops on the first, which
-    // the page does not draw.
     SteppedPast -> {
       let #(anchor, from) = buffer.selection(editor.buffer)
       let #(back, line, select) = case steps(editor) {
@@ -1298,8 +1140,6 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     Replayed(Some(RedoAsked)) -> travel(replayed(editor), history.redo)
     Replayed(Some(event)) -> {
       let outcome = apply(replayed(editor), event)
-      // A key the browser acts on past the field is acted on once the field
-      // holds the whole note.
       case outcome.sync, replay(editor) {
         WriteAndRead(whole), Some(key) ->
           Outcome(..outcome, sync: WriteAndAct(whole, key:))
@@ -1321,13 +1161,11 @@ fn apply(editor: Editor, event: Event) -> Outcome {
   }
 }
 
-/// A key waits behind what the page has yet to do.
 fn hold_key(editor: Editor, held: Held) -> Outcome {
   let page = behind(steps(editor), list.append(held_keys(editor), [held]))
   Outcome(editor: Editor(..editor, page:), sync: InSync, requests: [])
 }
 
-/// The key that was replayed is taken off the keys that wait.
 fn replayed(editor: Editor) -> Editor {
   case replay(editor), editor.page {
     Some(_), Behind(steps:, keys: [_, ..keys]) ->
@@ -1379,12 +1217,6 @@ fn travel(
   }
 }
 
-/// The next waiting step, once the first has landed. A step up or down
-/// that `landed` with nothing waiting after it is aimed at the run's column
-/// on the line it reached, as the field shows that line, unless the
-/// selection is painted over the drawn page, which then shows it, or the
-/// step stopped on a row the page does not draw, which took the run's
-/// column.
 fn next_step(editor: Editor, landed: Option(Bool), undrawn: Bool) -> Outcome {
   let waiting = list.drop(steps(editor), 1)
   let editor = Editor(..editor, page: behind(waiting, held_keys(editor)))
@@ -1407,9 +1239,6 @@ fn next_step(editor: Editor, landed: Option(Bool), undrawn: Bool) -> Outcome {
   }
 }
 
-/// A step up or down measured from where the head was drawn starts the
-/// run's column there, when the run has none yet. Any other step that moved
-/// the head ends the run, before the next waiting step aims.
 fn begin_run(
   editor: Editor,
   before: Editor,
@@ -1427,10 +1256,6 @@ fn begin_run(
   }
 }
 
-/// Whether a step up or down lands at the start of a row, before the marks
-/// the page hides, as a text field's does from the start of a row: when the
-/// run of steps began at the start of a row, or, before a run, when the head
-/// is there.
 pub fn from_row_start(editor: Editor) -> Bool {
   case editor.goal {
     Some(Goal(col:, ..)) -> col == 0
@@ -1438,8 +1263,6 @@ pub fn from_row_start(editor: Editor) -> Bool {
   }
 }
 
-/// Whether the first waiting step goes up or down, and if so whether it
-/// selects.
 fn landing(waiting: List(Queued)) -> Option(Bool) {
   case waiting {
     [Queued(move: LineUp, select:), ..]
@@ -1454,9 +1277,6 @@ fn landing(waiting: List(Queued)) -> Option(Bool) {
   }
 }
 
-/// Where the first waiting step starts: the head, but for Page Up and Page
-/// Down without Shift, which go from the start and the end of a selection,
-/// as in Chrome's text field.
 pub fn step_start(editor: Editor) -> Position {
   let #(anchor, head) = buffer.selection(editor.buffer)
   let #(start, end) = case buffer.compare(anchor, head) {
@@ -1478,14 +1298,6 @@ pub fn step_start(editor: Editor) -> Position {
   }
 }
 
-/// A step of a letter or to a line's end over marks the page hides, which
-/// it draws at one place, lands where a text field's does, if that place
-/// cuts no pair of marks: a letter on through marks such as `- ` that start
-/// the row, and back over those before the head when the page's step left
-/// the row. A head on a row the page does not draw, such as a fence, is
-/// drawn at the end of the block before it, so a step the page took from
-/// there to another row stays on the head's own row. `row` and `visible`
-/// are the place the page's step reached, as for `live.position`.
 fn in_row(
   editor: Editor,
   row row: Int,
@@ -1546,9 +1358,6 @@ fn in_row(
   }
 }
 
-/// A page step without Shift that reaches no further than where it started
-/// leaves a selection as it is, as Chrome's text field does when it has
-/// nowhere to go.
 fn stays(editor: Editor, reached: Position) -> Bool {
   let #(anchor, head) = buffer.selection(editor.buffer)
   case steps(editor) {
@@ -1567,8 +1376,6 @@ fn stays(editor: Editor, reached: Position) -> Bool {
   }
 }
 
-/// A step up or down aims at the run's column. Any other, or one with no
-/// run, is measured from where the head is drawn.
 fn step_x(editor: Editor, move: Move) -> Float {
   case move, editor.goal {
     LineUp, Some(Goal(x:, ..))
@@ -1634,9 +1441,6 @@ fn line_at(editor: Editor, row: Int) -> #(Position, Position) {
   }
 }
 
-/// A line step past rows the page does not draw, such as a fence, a rule or
-/// a heading's underline, stops on the first of them, `by` rows from `head`,
-/// as it does in a text field, at the run's column.
 fn undrawn_row(editor: Editor, head: Position, by: Int) -> Position {
   let row = head.row + by
   Position(
@@ -1645,11 +1449,6 @@ fn undrawn_row(editor: Editor, head: Position, by: Int) -> Position {
   )
 }
 
-/// A line step the page lands before the marks it hides at the start of a
-/// list item's row, beside the text where it draws the item's marker, takes
-/// the run's column among those marks, as a text field of the markdown does.
-/// `visible` and `next` are where the page's step reached, as for
-/// `live.position`, which names no drawn character next there.
 fn among_marks(
   editor: Editor,
   head: Position,
@@ -1675,8 +1474,6 @@ fn among_marks(
   }
 }
 
-/// The column a run of moves up and down keeps, or the head's before it has
-/// one.
 fn run_col(editor: Editor, head: Position) -> Int {
   case editor.goal {
     Some(Goal(col:, ..)) -> col
@@ -1774,10 +1571,6 @@ fn keep_history(before: Editor, outcome: Outcome) -> Outcome {
   Outcome(..outcome, editor:)
 }
 
-/// What an IME composed behind the page waits behind the steps and keys
-/// that wait, and the field it composed in is put back as the editor has it.
-/// When the IME changed the field past the selection it began in, as it may
-/// to convert text again, its text stays where it composed it.
 fn hold_composition(editor: Editor, shown: Buffer, at: Int) -> Outcome {
   let field = field_buffer(editor)
   case composed_text(field, shown) {
@@ -1799,8 +1592,6 @@ fn hold_composition(editor: Editor, shown: Buffer, at: Int) -> Outcome {
   }
 }
 
-/// The text an IME put over the selection of `before` to leave `after`,
-/// with the caret after it.
 fn composed_text(before: Buffer, after: Buffer) -> Result(String, Nil) {
   let #(anchor, head) = buffer.selection(before)
   let #(from, to) = case buffer.compare(anchor, head) {
@@ -1823,7 +1614,6 @@ fn composed_text(before: Buffer, after: Buffer) -> Result(String, Nil) {
   }
 }
 
-/// The field holds the whole note, as it is, for the browser to act on.
 fn spread(editor: Editor, shown: Buffer) -> Outcome {
   let editor = edit(editor, base(editor, shown))
   case editor.field {
@@ -1904,8 +1694,6 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     SelectRight if live -> #(base, StepTo(Queued(LetterOn, select: True)))
     SelectLineStart if live -> #(base, StepTo(Queued(LineStart, select: True)))
     SelectLineEnd if live -> #(base, StepTo(Queued(LineEnd, select: True)))
-    // Collapsed, the selection may leave the rows the field holds, so its
-    // head steps over the page as the field will show it.
     Beside(up: True, select: False) if live && anchor != head -> #(
       base,
       StepTo(Queued(LineUp, select: False)),
@@ -1924,9 +1712,6 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
         False -> #(Position(row: head.row + 1, col: 0), Aim(FirstLine, select:))
       }
       let selected = buffer.select(base, anchor:, head: to)
-      // A selection painted over the drawn page is not laid out as the
-      // field lays it out, so its head steps over the page from the edge of
-      // its row instead.
       case select, then, is_painted(edit(editor, selected) |> realign) {
         True, Aim(..), True -> {
           let edge = case up {
@@ -2282,9 +2067,6 @@ pub fn blocks(editor: Editor) -> List(Block) {
   }
 }
 
-/// A selection that reaches past the block it ends in is painted over the
-/// drawn page, which is drawn whole. The field keeps the focus and the
-/// selected rows, and is not seen. A wide field is not seen either.
 pub fn is_painted(editor: Editor) -> Bool {
   let #(anchor, head) = buffer.selection(editor.buffer)
   case editor.paints, editor.field, editor.focus {
@@ -2295,24 +2077,14 @@ pub fn is_painted(editor: Editor) -> Bool {
   }
 }
 
-/// Whether the page is to take a step of the head: one waits, and no IME
-/// composes in the field, where the step would move the caret.
 pub fn is_stepping(editor: Editor) -> Bool {
   steps(editor) != [] && editor.ime == NotComposing
 }
 
-/// Whether the page is behind the editor, so that a key pressed now is held.
-/// It is also while the field holds the whole note for the browser to act
-/// on: the editor learns where the browser left the caret only once the
-/// field is read, after the key.
 pub fn is_waiting(editor: Editor) -> Bool {
   editor.page != CaughtUp || is_wide(editor) || editor.choice != Chosen
 }
 
-/// The held key to replay now: the first, once no step waits for the page,
-/// the field has been read after the browser acted on it, no IME composes
-/// in it, and the note in the editor is the one the user chose. The surface
-/// replays it once the page has drawn the editor as it is.
 pub fn replay(editor: Editor) -> Option(Held) {
   let held_back =
     editor.ime != NotComposing || is_wide(editor) || editor.choice != Chosen
@@ -2333,8 +2105,6 @@ fn is_wide(editor: Editor) -> Bool {
   }
 }
 
-/// Whether a press the editor took is still held, so that a drag from it
-/// may yet select.
 pub fn is_pressed(editor: Editor) -> Bool {
   editor.press != None
 }

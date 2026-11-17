@@ -165,7 +165,6 @@ fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
   )
 }
 
-/// Keys typed while the note the user chose loads wait for it.
 fn wait_for_choice(done: #(Model, Effect(Msg))) -> #(Model, Effect(Msg)) {
   let #(model, effects) = done
   let choosing = library.is_choosing(model.library)
@@ -386,10 +385,8 @@ fn note_button(
       attribute.data("test-id", "note-" <> storage.id_text(id)),
       attribute.aria_current(current),
       event.on_click(ToLibrary(library.UserPickedNote(id))),
-      // The text field keeps the focus, so that keys typed while the note
-      // loads are typed into a note and not lost on the button. Lustre
-      // prevents the default before it decodes, and a decoder that fails
-      // sends no message, which is all a press needs here.
+      // Lustre prevents the default before it decodes, and a decoder that
+      // fails sends no message.
       event.prevent_default(event.on(
         "mousedown",
         decode.failure(UserClosedMenu, expected: ""),

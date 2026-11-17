@@ -46,22 +46,13 @@ const measures = [
   "heldKeyEvent", "isApple", "isWindows",
 ]
 
-/// JavaScript that hands back app state an effect noted there, such as the
-/// editor the last message left. A handler reads the latest editor through
-/// one when its event comes.
 const records = ["currentEditor"]
 
-/// The types that hold app state from one message to the next: the editor,
-/// its undo history, the notes and vim's modes. A type in `src` that holds
-/// one is app state too, which makes the model app state. A buffer is not:
-/// the field reports one with each event, for a decoder to hand on.
 const state_roots = [
   "nullpad/editor.Editor", "nullpad/history.History", "nullpad/library.Library",
   "nullpad/vim.State",
 ]
 
-/// The app's message. A callback that hands one back is a message callback,
-/// as one that hands back a type variable is.
 const messages = ["nullpad/app.Msg"]
 
 pub type Source {
@@ -429,7 +420,6 @@ fn may_change(
   }
 }
 
-/// This module's type aliases, and the types it imports under another name.
 fn aliases_of(module: glance.Module) -> Dict(String, glance.Type) {
   let renamed =
     list.flat_map(module.imports, fn(definition) {
@@ -505,15 +495,6 @@ fn mentions(type_: glance.Type, names: List(String)) -> Bool {
   }
 }
 
-/// The handler rule. A handler decides on what its event brings and on the
-/// editor the last message left, which it reads from a record when it runs:
-/// never on the frame the page last drew.
-///
-/// (A) A function that makes a handler has no parameter that holds app state,
-/// and no callback but one that hands back a message.
-/// (B) App state reaches a handler only through a record read when the event
-/// comes: a function that makes handlers, or calls one that does, reads no
-/// record while it runs, and no function hands one a closure over app state.
 fn decoder_state(
   path: String,
   name: String,
@@ -687,8 +668,6 @@ fn decoder_state(
   ]
 }
 
-/// A function that runs a decoder itself, with `decode.run`, and hands none
-/// back makes no handler with it.
 fn runs(
   function: glance.Function,
   used: List(String),
@@ -698,7 +677,6 @@ fn runs(
   && !is_decoder(function, aliases)
 }
 
-/// A call that makes a handler or a decoder.
 fn builds(called: String, decoders: Set(String), runs: Bool) -> Bool {
   string.starts_with(called, "lustre/event.")
   || !runs
@@ -720,12 +698,9 @@ fn is_decoder(
   }
 }
 
-/// A type by the module that declares it and its name, such as
-/// "nullpad/editor.Editor".
 type TypeKey =
   String
 
-/// Names a type the way this module writes it.
 fn type_resolver(
   key: String,
   module: glance.Module,
@@ -779,8 +754,6 @@ fn type_resolver(
   }
 }
 
-/// Whether `type_` holds a type in `among`. A callback holds what it hands
-/// back.
 fn holds(
   type_: glance.Type,
   types: fn(Option(String), String) -> TypeKey,
@@ -796,9 +769,6 @@ fn holds(
   }
 }
 
-/// Whether `type_` holds a callback that hands back more than a message: a
-/// message is a type variable, which the handler cannot look into, or the
-/// app's message.
 fn calls_back(
   type_: glance.Type,
   types: fn(Option(String), String) -> TypeKey,
@@ -817,8 +787,6 @@ fn calls_back(
   }
 }
 
-/// Whether `type_` is written with a callback in it. A type it names is
-/// not looked into: the model holds the storage's callbacks.
 fn has_function(type_: glance.Type) -> Bool {
   case type_ {
     glance.NamedType(parameters:, ..) -> list.any(parameters, has_function)
@@ -845,7 +813,6 @@ fn held_parameters(
   })
 }
 
-/// The parameters that are, or hold, a callback that hands back app state.
 fn closure_parameters(
   function: glance.Function,
   types: fn(Option(String), String) -> TypeKey,
@@ -865,34 +832,21 @@ fn closure_parameters(
 
 type Context {
   Context(
-    /// The types that hold app state.
     state: Set(TypeKey),
-    /// The types that hold a callback that hands back more than a message.
     callbacks: Set(TypeKey),
-    /// The shell's decoder functions.
     decoders: Set(String),
-    /// The shell functions that make a handler, or call one that does.
     reach: Set(String),
-    /// What a closure over app state may not be handed: the functions in
-    /// `reach`, our JavaScript that takes a callback, and the functions that
-    /// map a handler's or an effect's message. Each with, for a function in
-    /// `src`, its parameters' labels and whether each takes a callback.
     sinks: Dict(String, Option(List(#(Option(String), Bool)))),
-    /// The records, and the functions that read one as soon as they are
-    /// called.
     readers: Set(String),
   )
 }
 
-/// The functions of `gleam/dynamic/decode` whose callback runs when the event
-/// comes.
 const decodes = [
   "gleam/dynamic/decode.then", "gleam/dynamic/decode.field",
   "gleam/dynamic/decode.optional_field", "gleam/dynamic/decode.subfield",
   "gleam/dynamic/decode.map",
 ]
 
-/// Whether a callee is one of `decodes`.
 fn decoding(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
   fn(seen) {
     case resolve(seen) {
@@ -902,8 +856,6 @@ fn decoding(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
   }
 }
 
-/// A decoder, or an effect, whose callback runs when its event comes or the
-/// effect is run, after the handlers are made.
 fn runs_later(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
   fn(seen) {
     case resolve(seen) {
@@ -919,7 +871,6 @@ const effect_makers = [
   "lustre/effect.after_paint",
 ]
 
-/// Lustre's functions that call a callback with each message later.
 const mappers = ["lustre/element.map", "lustre/effect.map"]
 
 type Known {
@@ -1045,8 +996,6 @@ fn context(files: List(File)) -> Context {
   )
 }
 
-/// The records, and every function that reads one, directly or through
-/// others, as soon as it is called.
 fn early_readers(readers: Set(String), known: List(Known)) -> Set(String) {
   let grown =
     list.fold(known, readers, fn(grown, one) {
@@ -1079,8 +1028,6 @@ fn early_readers(readers: Set(String), known: List(Known)) -> Set(String) {
   }
 }
 
-/// Every custom type and type alias in `src`, with the module's way of
-/// naming types and the types it is made of.
 fn type_table(
   files: List(File),
 ) -> List(#(TypeKey, fn(Option(String), String) -> TypeKey, List(glance.Type))) {
@@ -1145,8 +1092,6 @@ fn state_types(files: List(File)) -> Set(TypeKey) {
   grow_types(set.from_list(state_roots), type_table(files), holds)
 }
 
-/// The names a function binds itself: its parameters, and every name a
-/// pattern in it binds.
 fn bound_names(function: glance.Function) -> Set(String) {
   list.filter_map(statements(function.body, set.new()), fn(one) {
     case one {
@@ -1165,10 +1110,6 @@ fn bound_names(function: glance.Function) -> Set(String) {
   |> set.from_list
 }
 
-/// The readers `body` calls or names as it runs: outside any closure or
-/// capture, and before any `use` of a decoder or an effect, whose rest runs
-/// when the event comes or the effect is run. A reader named, not called, is
-/// handed on to be called who knows when. A closure bound with `let` that reads one counts as a reader.
 fn early_reads(
   body: List(glance.Statement),
   reader: fn(Seen) -> Bool,
@@ -1255,7 +1196,6 @@ fn early_read(
   list.append(called, inside)
 }
 
-/// The expressions directly inside `subject`, closures and blocks left out.
 fn expression_parts(subject: glance.Expression) -> List(glance.Expression) {
   let scope =
     Scope(held: set.new(), closures: set.new(), modules: set.new(), sink: fn(_) {
@@ -1266,13 +1206,9 @@ fn expression_parts(subject: glance.Expression) -> List(glance.Expression) {
 
 type Scope {
   Scope(
-    /// The names that hold app state.
     held: Set(String),
-    /// The names in `held` that are, or hold, a closure.
     closures: Set(String),
-    /// Import aliases: `editor.claims` names a function, not a field.
     modules: Set(String),
-    /// The sink this names, if it names one, with its parameters.
     sink: fn(glance.Expression) ->
       Option(#(String, Option(List(#(Option(String), Bool))))),
   )
@@ -1344,8 +1280,6 @@ fn updated(
   })
 }
 
-/// The parts of `subject` that are expressions, each with the scope it is in.
-/// A case binds what its subjects hold.
 fn parts(
   subject: glance.Expression,
   scope: Scope,
@@ -1397,7 +1331,6 @@ fn parts(
   }
 }
 
-/// Whether `subject` names something that holds app state.
 fn refers(subject: glance.Expression, scope: Scope) -> Bool {
   case subject {
     glance.Variable(name:, ..) -> set.contains(scope.held, name)
@@ -1432,9 +1365,6 @@ fn refers_in(body: List(glance.Statement), scope: Scope) -> Bool {
   }
 }
 
-/// Whether `subject` is, or holds, a closure: one written in it, or a name
-/// bound to one over app state. What a function hands back is not looked
-/// into, but what a record or a variant is made of is.
 fn carries_closure(subject: glance.Expression, scope: Scope) -> Bool {
   case subject {
     glance.Fn(..) | glance.FnCapture(..) -> True
@@ -1476,9 +1406,6 @@ fn use_names(patterns: List(glance.UsePattern)) -> List(String) {
   bound(list.map(patterns, fn(use_pattern) { use_pattern.pattern }))
 }
 
-/// The sinks that `body` hands a closure over app state. A `use` hands on the
-/// rest of its block. A name bound with `let` or a pattern to what holds app
-/// state holds it too.
 fn handed_in(body: List(glance.Statement), scope: Scope) -> List(String) {
   case body {
     [] -> []
@@ -1552,9 +1479,6 @@ fn handed(subject: glance.Expression, scope: Scope) -> List(String) {
   list.append(made, inside)
 }
 
-/// For each argument, whether the parameter it fills takes a callback.
-/// Unlabelled arguments fill the parameters in order, and labelled ones the
-/// parameter with their label.
 fn callback_positions(
   arguments: List(glance.Field(glance.Expression)),
   parameters: Option(List(#(Option(String), Bool))),
@@ -1689,8 +1613,6 @@ fn changers(files: List(File)) -> Set(String) {
   })
 }
 
-/// Every function and constant that reaches a JavaScript function `picks`
-/// chooses, given its module's name and its own, directly or through others.
 fn reaching(
   files: List(File),
   picks: fn(String, String) -> Bool,
@@ -1830,8 +1752,6 @@ type Seen {
   Bound(String)
 }
 
-/// What `body` names, calls and binds. A name the code has bound by then, in
-/// a scope that holds the use, is the binding's and not another function's.
 fn statements(body: List(glance.Statement), scope: Set(String)) -> List(Seen) {
   let #(seen, _) =
     list.fold(body, #([], scope), fn(so_far, statement) {
@@ -1862,7 +1782,6 @@ fn statements(body: List(glance.Statement), scope: Set(String)) -> List(Seen) {
   list.flatten(list.reverse(seen))
 }
 
-/// `scope` with the names `seen` binds.
 fn within(scope: Set(String), seen: List(Seen)) -> Set(String) {
   list.fold(seen, scope, fn(scope, one) {
     case one {

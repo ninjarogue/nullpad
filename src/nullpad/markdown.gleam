@@ -919,8 +919,6 @@ fn heading(line: List(String)) -> Result(#(Level, List(String)), Nil) {
   }
 }
 
-/// The marks that start a heading of one row, with the spaces around them,
-/// such as "## " in "## Title", or "" when `line` starts no such heading.
 pub fn heading_marks(line: String) -> String {
   let chars = string.to_graphemes(line)
   let #(indent, text) = list.split_while(chars, fn(char) { char == " " })

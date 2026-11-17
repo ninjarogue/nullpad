@@ -401,8 +401,6 @@ pub fn a_row_in_an_element_further_down_is_drawn_from_its_own_start_test() {
     == "one\n"
 }
 
-/// The end of the text of a table's last cell is inside the cell, before
-/// the pipe that closes it, as it is for every other cell.
 pub fn the_end_of_a_last_cell_is_before_its_pipe_test() {
   let lines = ["| name | qty |", "|------|-----|", "Some **bold**"]
   assert live.position(
@@ -512,8 +510,6 @@ pub fn a_place_settles_with_the_other_end_on_its_row_test() {
   assert at(2, 4) == 2
 }
 
-/// Settling with no way to go never changes where a place is drawn, and a
-/// settled place stays, settled again the same way or with no way to go.
 pub fn a_settled_place_is_drawn_where_it_was_and_settles_no_further_test() {
   let ways = [order.Eq, order.Gt, order.Lt]
   let wrong = {
@@ -551,8 +547,6 @@ fn settle_toward(line: String, visible: String, col: Int, toward) -> Int {
   live.settle([line], row: 0, visible:, at:, other: Position(1, 0), toward:).col
 }
 
-/// A step that lands inside a pair settles on the side it was going, past
-/// the pair or before it, as a text field's next or last word step there.
 pub fn a_place_inside_a_pair_settles_the_way_the_head_went_test() {
   let line = "para **bold** end"
   let visible = "para bold end"

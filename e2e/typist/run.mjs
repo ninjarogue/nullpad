@@ -1,12 +1,3 @@
-// Robot typist: random key scripts typed into a plain textarea and into nullpad in real
-// Chromium. Any difference in text, cursor or selection is a bug, shrunk to a short script.
-//
-//   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3]
-//   node typist/run.mjs --script '["a","Enter","ArrowLeft"]'     replay one script
-//   node typist/run.mjs --pace frame|slow|burst|mixed            how fast nullpad is typed at
-//   --close-at-once                                               Ctrl+E (source view) sent with the last keys
-//   node typist/run.mjs --scripts '[["a"],["b"]]'               compare several scripts, no shrinking
-//   node typist/run.mjs --no-known                                ignore known.mjs
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -37,29 +28,14 @@ const caretOf = `(() => {
   return { value: c.value, anchor: back ? c.selectionEnd : c.selectionStart, head: back ? c.selectionStart : c.selectionEnd };
 })()`;
 const sign = (s) => JSON.stringify([s.v, s.s, s.e, s.d]);
-/** Where nullpad's editor holds the anchor of the selection, as row:column of the whole note. */
 const anchorOf = `document.querySelector('textarea')?.dataset.anchor ?? null`;
-/**
- * A Shift key moves the head of the selection and never its anchor, in any text field. Checked
- * in nullpad alone, around each Shift key of a paced script: an extra frame after the key before
- * it, as the page draws a key's anchor in a frame callback that a paced wait can run ahead of,
- * and two frames after it, as the page may answer a painted selection a frame late.
- */
 const movesAnchor = (k) => typeof k === 'string' && k.includes('Shift+');
-/**
- * How fast nullpad is typed at. The plain textarea is always typed at in a burst.
- *   burst  every key at once, as a held key or a fast hand does
- *   frame  the next key after the page drew a frame
- *   slow   the next key 120ms later, after the page has settled
- * A default run mixes them: most scripts burst, many go a frame at a time, a few are slow.
- */
 const slowMs = 120;
 const paces = ['burst', 'frame', 'slow'];
 const closeAtOnce = args['close-at-once'] !== undefined;
 const forcedPace = args.pace && args.pace !== 'mixed' ? args.pace : null;
 if (forcedPace && !paces.includes(forcedPace)) throw new Error(`--pace ${forcedPace}: one of ${paces.join(', ')}, mixed`);
 const paceOf = (i) => forcedPace ?? (i % 16 === 15 ? 'slow' : i % 16 >= 9 ? 'frame' : 'burst');
-/** A slow script has a third fewer keys, or the short run would take a minute. */
 const slowKeys = 28;
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -89,7 +65,6 @@ async function startServer() {
 // The clipboard belongs to the browser, so only one page may paste at a time.
 let clipboard = Promise.resolve();
 
-/** A page that runs a script and answers { state, undone }. kind is 'textarea' or 'nullpad'. */
 async function open(browser, url, kind, errors) {
   const context = await browser.newContext();
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: url });
@@ -117,10 +92,6 @@ async function open(browser, url, kind, errors) {
       release();
     }
   };
-  /**
-   * The keys of a script that can be compared, found by typing the script into the plain
-   * textarea: a key is left out where known.mjs says nullpad cannot be compared to it.
-   */
   const prune = async (keys, pace) => {
     await ev(`document.body.innerHTML = ${JSON.stringify(blank)}; document.querySelector('textarea').focus()`);
     const kept = [];
@@ -145,7 +116,6 @@ async function open(browser, url, kind, errors) {
   const run = async (keys, pace = 'burst', closeAtOnce = false) => {
     if (kind === 'textarea') await ev(`document.body.innerHTML = ${JSON.stringify(blank)}; document.querySelector('textarea').focus()`);
     else if (!first) {
-      // Click "New note" and wait for the empty note to take the focus.
       await ev(`(async () => {
         const rows = () => document.querySelectorAll('[data-test-id=note-list] li').length;
         const before = rows();
@@ -194,8 +164,6 @@ async function open(browser, url, kind, errors) {
         if (after !== before) anchorMoves.push(`${k} moved the anchor from ${before} to ${after}`);
       }
     }
-    // Ctrl+E shows the source: the text field is only comparable there. The page gets two frames
-    // to finish the last key first, so that the end of every script is not a race with Ctrl+E.
     if (kind === 'nullpad') {
       if (!closeAtOnce) {
         await drain();
@@ -206,8 +174,6 @@ async function open(browser, url, kind, errors) {
     }
     await drain();
     const state = await ev(read);
-    // Undo steps differ from a textarea's by design, and the native undo stack is not a
-    // dependable reference, so only nullpad is checked: undoing everything gives back ''.
     let undone = null;
     if (kind === 'nullpad') {
       for (let i = 0; i < keys.length + 5; i++) pending.push(send('Control+z'));
@@ -223,11 +189,6 @@ async function open(browser, url, kind, errors) {
 const differ = (a, b) =>
   b.anchorMoves?.length ? 'anchor moved on a Shift key' : sign(a.state) !== sign(b.state) ? 'text, cursor or selection' : b.undone !== '' ? 'undo everything' : null;
 
-/**
- * Remove chunks of keys, halving the chunk size, while the script still fails. `comparable`
- * leaves out of each shorter script the keys known.mjs cannot compare there: a key that was
- * comparable in the whole script may not be once the keys before it are gone.
- */
 async function shrink(keys, fails, comparable = async (candidate) => candidate) {
   for (let size = Math.ceil(keys.length / 2); size >= 1; size = size === 1 ? 0 : Math.ceil(size / 2)) {
     for (let at = 0; at < keys.length; ) {
@@ -260,8 +221,6 @@ async function main() {
       const [a, b] = await Promise.all([pair.plain(keys), pair.nullpad(keys, pace, closeAtOnce)]);
       return { a, b, why: differ(a, b) };
     };
-    // A race does not always happen, so a repro that names `tries` is run that often and
-    // counts as still differing if any run differs.
     const differs = async (pair, keys, pace, tries = 1, closeAtOnce = false) => {
       let last;
       for (let t = 0; t < tries; t++) {
@@ -282,7 +241,6 @@ async function main() {
     const paceOfScript = (i) => (args.script ? (forcedPace ?? 'burst') : paceOf(i));
     if (process.env.TYPIST_TRACE) console.log(`pages up at ${((performance.now() - t0) / 1000).toFixed(1)}s`);
     const made = args.script ? [JSON.parse(args.script)] : makeScripts(count, length, seed).map((s, i) => (useKnown ? sanitize(paceOfScript(i) === 'slow' ? s.slice(0, slowKeys) : s, paceOfScript(i)) : s));
-    // The plain textarea decides which vertical keys can be compared, so it has to type each script first.
     const scripts = args.script || !useKnown ? made : [];
     if (scripts.length === 0) {
       await Promise.all(
@@ -308,7 +266,6 @@ async function main() {
     const run = performance.now() - ready;
     if (process.env.TYPIST_TRACE) console.log(`scripts done at ${((performance.now() - t0) / 1000).toFixed(1)}s`);
 
-    // Open bugs must still fail, and intended differences must still be there.
     const stale = [];
     if (useKnown && !args.script)
       await Promise.all(

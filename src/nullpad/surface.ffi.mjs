@@ -11,17 +11,6 @@ export function writeControl(id, text, start, end, backward) {
   }
 }
 
-// A key pressed before the next render acts on the field as it is laid out.
-// Written with other rows, or typed into as another kind of block, it takes
-// their type at once, and keeps the line
-// height and margins of the rows it was drawn with, as a row typed as another
-// kind of block does, so nothing around it moves until the render. The
-// render sets the classes only when they changed since the last one, so
-// held classes it did not replace go back to the ones it drew, which are
-// the ones a render put in place of held classes since. The held marker
-// width has its own property for the same reason. A field drawn out of
-// sight takes the type of its rows at once, so a key measures it as it
-// will be drawn.
 let drawnRows = "";
 let held = null;
 
@@ -96,9 +85,6 @@ export function focusControl(id, liveClass, paintedClass) {
   revealOnPage(page, top, top + line);
 }
 
-// Scrolls the page just enough to show what is drawn from `top` to `bottom`
-// in the window, and on the first or last row also the page's padding, as a
-// text field does.
 function revealOnPage(page, top, bottom) {
   const view = page.getBoundingClientRect();
   const style = getComputedStyle(page);
@@ -133,8 +119,7 @@ export function focusInPlace(id) {
 
 // A textarea cannot be told that its caret sits at the end of a wrapped
 // line rather than at the start of the next, which share an offset. Moving
-// to the line's end does tell it, and setting the offset again puts it at
-// the start of the next. A painted field is not where it is drawn.
+// to the line's end does tell it. A painted field is not where it is drawn.
 export function placeCaret(id, paintedClass, x, y) {
   const control = document.getElementById(id);
   if (!control || document.activeElement !== control || control.closest("." + paintedClass)) return;
@@ -225,9 +210,6 @@ function edgeSpeed(y, top, bottom) {
   return up > down ? -speed(up) : speed(down);
 }
 
-// How many rows the note had when the page was last drawn. Lustre draws once
-// a frame, after the effects of every message since the last. Once drawn,
-// the page has placed the field a press put rows in.
 let drawnCount = 0;
 
 export function noteDrawn(rows) {
@@ -235,9 +217,6 @@ export function noteDrawn(rows) {
   pressed = null;
 }
 
-// A step the page must draw before it is taken, and the editor that asked
-// for it. Only that editor's paint takes it: the paint of an earlier step in
-// the same frame starts from a head the editor has since left.
 let heldStep = null;
 
 export function holdStep(held, editor) {
@@ -250,11 +229,6 @@ export function takeHeldStep(editor) {
   return true;
 }
 
-// The editor the last message left. The page shows the last frame drawn,
-// which keys pressed since may have left behind, so a key is decided by this
-// editor. The app notes its first editor before any event can come. A held key is replayed from the paint of that editor only, once:
-// the paint of an earlier editor in the same frame would replay it on a
-// field the editor has since left.
 let latest = null;
 let current = null;
 
@@ -274,8 +248,6 @@ export function takeReplay(editor) {
   return true;
 }
 
-// A held key as the field's keydown handlers read it, pressed in the field
-// as it is now.
 export function heldKeyEvent(id, key, code, shiftKey, ctrlKey, metaKey, altKey, timeStamp) {
   const target = document.getElementById(id);
   return { key, code, shiftKey, ctrlKey, metaKey, altKey, isComposing: false, keyCode: 0, timeStamp, target };
@@ -285,10 +257,6 @@ export function pastedText(paste) {
   return paste.clipboardData?.getData("text/plain") ?? "";
 }
 
-// What the browser does in a text field for a key, as the editor names it,
-// done for a held key the field's handlers left to the browser.
-// Selection.modify takes the steps a key takes, as the browser does, so
-// words and lines are its own.
 export function actOnField(id, act, text, extend, direction, granularity) {
   const control = document.getElementById(id);
   if (!control) return;
@@ -391,7 +359,6 @@ export function drawnInPage(id, liveClass) {
   return document.getElementById(id)?.closest("." + liveClass) != null;
 }
 
-// Whether the head is on the first line of the field, and on its last.
 export function caretLine(id) {
   const control = document.getElementById(id);
   if (!control) return [false, false];
@@ -436,10 +403,6 @@ function atLineEnd(control, head, place) {
   return moved;
 }
 
-// The field as the last aim left it, and who aimed it, so that aiming again
-// can tell whether a key, or a later aim, has moved the caret since. A key
-// that moves the caret along a line, or a press, may bring it back to the
-// same offset on the other side of a wrap, so each forgets it.
 let aimed = new WeakMap();
 let forgetting = false;
 const ALONG = ["ArrowLeft", "ArrowRight", "Home", "End"];
@@ -448,10 +411,6 @@ function forgetAims(event) {
   if (event.type === "pointerdown" || ALONG.includes(event.key)) aimed = new WeakMap();
 }
 
-// The last aim, while the field is as it left it. An aim puts the head on
-// the line it aims at, where a row wraps at its start or its end as it
-// chose, as a text field's line moves do, though the browser draws the end
-// of a selection there at the end of the line before and says so.
 function aimedHere(control) {
   const last = aimed.get(control);
   if (!last) return null;
@@ -459,15 +418,6 @@ function aimedHere(control) {
   return last.shown.join("\u0000") === now.join("\u0000") ? last : null;
 }
 
-// `line` is 0 for the first drawn line of the head's row, 1 for its last, 2
-// or 3 for the drawn line above or below the head's, and 4 for the head's
-// own. Aimed again, a step to the line beside stays on the line it reached.
-// `x` is from the left of the page's text, as `headLine` measures it. With
-// `select` the anchor stays, and without it a caret moves. With `rowStart`
-// the head goes to the start of the line. The answer starts
-// with whether the field was aimed: a key that moved the caret since the
-// field was written, or aimed, keeps its place and its own column. `by`
-// names the aim: only the last one made is made again.
 export function aimControl(id, ...args) {
   try {
     return aimFrom(id, ...args);
@@ -506,7 +456,6 @@ function aimFrom(id, liveClass, paintedClass, text, start, end, backward, x, lin
   return [true, ...shown()];
 }
 
-// Notes how an aim, `by` an editor or by a step, left the field.
 function noteAim(control, by, atEnd) {
   if (!forgetting) {
     forgetting = true;
@@ -521,9 +470,6 @@ function noteAim(control, by, atEnd) {
   aimed.set(control, { by, shown, atEnd });
 }
 
-// Moves the head of the field's selection to the place nearest `x` on a
-// line of the field, numbered as for `aimControl`, and answers whether it
-// is at the end of a line that wraps, or null when there was no such line.
 function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
   const text = control.value;
   const { selectionStart: start, selectionEnd: end } = control;
@@ -536,8 +482,6 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
     while (offset + step >= 0 && offset + step <= text.length && place(offset + step).top === top) offset += step;
     return offset;
   };
-  // A head at the end of a wrapped line is drawn on that line, though its
-  // offset starts the next.
   const wrapEnd = headCaret(control, place).top !== place(head).top;
   const headStart = wrapEnd ? lineFrom(head - 1, -1) : lineFrom(head, -1);
   let from;
@@ -563,11 +507,7 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
       best = offset;
     }
   }
-  // A run from the start of a row starts the line, before the marks a
-  // heading hangs left of its text.
   if (rowStart) best = from;
-  // The end of a line that wraps shares its offset with the start of the
-  // next, and only a move to the line's end puts the caret there.
   const lastOnLine = offset - 1;
   const wraps = !rowStart && offset <= text.length && text[lastOnLine] !== "\n" && document.activeElement === control;
   const atEnd = wraps && Math.abs(left + place(lastOnLine).right - x) < gap;
@@ -583,18 +523,12 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
   return atEnd;
 }
 
-// How far from the left of the text the field draws its head, `caretX`
-// from the field's left, with the start of a row at 0, as in a text field.
 function fieldAcross(control, liveClass, paintedClass, caretX) {
   const at = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
   if (at === 0 || control.value[at - 1] === "\n") return 0;
   return fieldLeft(control, liveClass, paintedClass) + caretX;
 }
 
-// How far right of the left of the page's text the field is, by the margin
-// the page sets it with and how far its marks hang, as a field written since
-// the last render may not yet be where its rows are drawn. A field painted
-// over, out of the page's flow, is measured from its own left.
 function fieldLeft(control, liveClass, paintedClass) {
   if (!control.closest("." + liveClass) || control.closest("." + paintedClass)) return 0;
   const margin = parseFloat(getComputedStyle(control.parentElement).marginLeft) || 0;
@@ -746,10 +680,6 @@ function placeOfPoint(point, rowMark, pointer = Infinity, fromRowStart = false) 
   after.setEnd(cell, cell.childNodes.length);
   const rest = after.toString();
   let next = rest !== "" ? characterAt(rest, 0) : cell === holder ? "\n" : "";
-  // At the start of a row, a pointer left of its text is on a list item's
-  // marker, and a step from the start of a row that lands no further right
-  // stays before the marks the page hides, as in a text field. A table row
-  // starts in its first cell.
   const rowStart = visible === "" || visible.endsWith("\n");
   const margin = fromRowStart && cell === holder ? 1 : holder.closest("li") ? -1 : null;
   let before = false;
@@ -758,8 +688,6 @@ function placeOfPoint(point, rowMark, pointer = Infinity, fromRowStart = false) 
     before = box ? pointer < box.left + margin : fromRowStart;
   }
   if (before) next = "";
-  // Otherwise an element that draws no text, such as a fence with no code,
-  // has no place before its text: the press lands at the end of its row.
   return [Number(holder.dataset[rowMark]), visible, holder.textContent === "" && !before, next];
 }
 
@@ -1101,9 +1029,6 @@ function caretBox(node, offset) {
   return new DOMRect(box.left, box.top, 0, Math.min(box.height, lineHeight(element)));
 }
 
-// Whether the page shows the field painted over. A key steps over the paint
-// only when this and the editor the last message left both say so, and the
-// field takes it otherwise.
 export function paintedOnPage(id, paintedClass) {
   return document.getElementById(id)?.closest("." + paintedClass) != null;
 }
@@ -1125,11 +1050,6 @@ function fieldCaret(control) {
   return { box: new DOMRect(box.left + caret.x, top, 0, caret.height), line: lineHeight(control) };
 }
 
-// Where the head of the selection is drawn: on the first line of the field,
-// on its last line, and how far from the left of the text, where the start
-// of every row is, as in a text field. A painted head is on both, so every
-// step is taken on the drawn page. `painted` is whether the head is painted
-// over, by the editor and on the page.
 export function headLine(id, liveClass, paintedClass, painted) {
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
@@ -1144,11 +1064,6 @@ export function headLine(id, liveClass, paintedClass, painted) {
   return [first, last, across];
 }
 
-// A press puts rows in the field that the page has not yet set it for, so
-// until the frame that draws them the field's caret is not where it will be
-// drawn. A step taken in that frame starts from the caret once drawn. A key
-// that takes the caret out of the field cannot wait for that, and aims from
-// where the press landed on the page, from the left of the text.
 let pressed = null;
 
 export function notePress(id, liveClass, x, y) {
@@ -1163,9 +1078,6 @@ export function notePress(id, liveClass, x, y) {
   });
 }
 
-// The answer ends with whether the key aims from where the press landed:
-// only while the field holds rows the page has not drawn it with, as a
-// field that shows the rows it was drawn with is measured as it is.
 export function pressLanding(id) {
   const control = document.getElementById(id);
   const landed = pressed?.x != null && control != null && undrawn(control);
@@ -1179,34 +1091,6 @@ function undrawn(control) {
   return mirror != null && mirror.data.slice(0, -1) !== control.value;
 }
 
-// The head steps over the drawn page as the browser moves a caret over it,
-// so tables, the lines of code and wrapped lines are stepped as they are
-// drawn. It is stepped from where it is drawn, or from the edge of the field
-// when it is in the field, and a step of a line then goes to the place on
-// that line nearest `x` from the left of the text, or nearest where the head
-// is drawn when `x` is below 0. A line step into the rows the field holds,
-// which the browser does not step into, lands on the line of the field's
-// mirror that it reaches, also with nothing drawn past the field: the mirror
-// holds the field's text as last drawn.
-// The browser's selection is put back in the field after. A step returns
-// the place it reaches and the `x` it aimed at, or a row of -1 for no page,
-// -2 for nothing past the head, -3 when the page must be drawn first, as
-// the field holds other rows than it was drawn with, the rows drawn are
-// numbered as the note was then, or a press in this frame put the field
-// where the page has not placed it, and -4 when the head was in
-// the field and the field took the step: a step of a letter or a line
-// boundary, or of a line from any line of the field but the last it steps
-// past. A `page` step scrolls the page by a window and takes the place that
-// is then where the head was. A step back to the start of a line that starts
-// a row lands before the row's marks, as Home does in a text field, and so
-// does a line step when `rowStart` says it is aimed at 0, as from a head at
-// the start of a row. A field typed in since it was drawn still starts on
-// the row it was drawn on, and the rows typed into it or out of it move the
-// rows drawn past it, so it is stepped from as it is.
-//
-// A step the browser fails to take is no step, so the keys that wait for it
-// are not held for ever. So is an aim, and a held key the browser fails to
-// act on.
 export function stepHead(...args) {
   try {
     return stepFrom(...args);
@@ -1413,10 +1297,8 @@ function beside(marks, part, forward) {
   return { node: text, offset: text.data.length - (text.data.endsWith("\n") ? 1 : 0) };
 }
 
-// The place a window up or down the page from `box`, `left` from the left
-// of the window, or null past the first or last row. The head is first kept
-// two lines inside the page, because the browser names no place off the
-// screen.
+// The head is first kept two lines inside the page, because the browser
+// names no place off the screen.
 function pageStep(page, rowMark, box, forward, left) {
   const line = box.height || lineHeight(page);
   const view = page.getBoundingClientRect();
@@ -1451,12 +1333,10 @@ function crosses(part, from, to) {
   return after(part, from) !== after(part, to) || part.contains(from.node) || part.contains(to.node);
 }
 
-// A task runs after the browser's own action for the event being handled.
 export function afterDefault(run) {
   setTimeout(run, 0);
 }
 
-// Scrolls the page just enough to show the caret of the focused field.
 export function revealCaret(id, liveClass, paintedClass) {
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);

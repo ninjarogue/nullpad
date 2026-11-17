@@ -4,8 +4,6 @@ import { fast } from './guards.ts';
 import { test } from './nullpad.ts';
 import { differences, drawnKinds, endOf, openEmptyNote, pressFast, report, typeAndMeasure, typedBlocks } from './stability.ts';
 
-/** Types notes with code, tables, rules, marks put in front of rows and edits in the middle of a note, one key at a time. The rule they are held to is in `stability.ts`. */
-
 for (const group of typedBlocks) {
   test(`typing ${group.name} changes only the caret's row`, async ({ app, browser, disk, page }) => {
     await app.open('/');

@@ -1,7 +1,3 @@
-//// Keys pressed before the page has drawn what the editor asked of it: they
-//// wait behind the steps of the head the page has not taken, and are replayed
-//// one at a time, in the order they were pressed, once it has.
-
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/order
@@ -53,7 +49,6 @@ fn ctrl(name: String) -> Held {
   )
 }
 
-/// Shift and Down, which the page takes.
 fn step_down(ed: Editor) -> Editor {
   let shown = editor.field_buffer(ed)
   let Outcome(editor: ed, sync:, ..) =
@@ -65,7 +60,6 @@ fn step_down(ed: Editor) -> Editor {
   ed
 }
 
-/// The page took the step down from the first row to the blank row.
 fn stepped(ed: Editor) -> Editor {
   editor.update(
     ed,
@@ -167,7 +161,6 @@ pub fn a_replayed_letter_types_over_what_the_step_selected_test() {
   assert !editor.is_waiting(ed)
 }
 
-/// The field once `text` is typed over its selection.
 fn typed_over(ed: Editor, text: String) -> buffer.Buffer {
   let field = editor.field_buffer(ed)
   let #(anchor, head) = buffer.selection(field)
@@ -296,7 +289,6 @@ pub fn a_replayed_key_steers_the_head_the_way_it_moved_it_test() {
   assert editor.direction(ed) == order.Lt
 }
 
-/// `field` with `text` put over its selection, as an IME composes it there.
 fn over(field: buffer.Buffer, text: String) -> buffer.Buffer {
   let #(anchor, head) = buffer.selection(field)
   let #(from, to) = case buffer.compare(anchor, head) {
@@ -306,9 +298,6 @@ fn over(field: buffer.Buffer, text: String) -> buffer.Buffer {
   buffer.replace(field, from:, to:, with: text)
 }
 
-/// Every held key replayed, as the surface replays them once the page has
-/// caught up: a letter or a text typed over the field's selection, an undo
-/// or a redo asked again.
 fn drain(ed: Editor) -> Editor {
   let typed = fn(text) {
     editor.update(
@@ -329,10 +318,6 @@ fn drain(ed: Editor) -> Editor {
   }
 }
 
-/// An IME begins to compose while the page is behind: a text field would
-/// have done the step and the key first, so what it composes goes in after
-/// them, over what they leave selected. The field is the IME's until it
-/// ends, so the step waits too, and the field is put back once it ends.
 pub fn text_an_ime_composes_behind_a_held_key_goes_in_after_it_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let field = editor.field_buffer(ed)
@@ -386,8 +371,6 @@ pub fn text_an_ime_composes_before_a_held_key_is_replayed_goes_in_after_it_test(
   assert !editor.is_waiting(ed)
 }
 
-/// Chrome sends `select` while an IME composes, which the surface reports as
-/// a change of the field.
 pub fn a_select_while_an_ime_composes_behind_a_key_does_not_end_it_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let field = editor.field_buffer(ed)
@@ -450,8 +433,6 @@ pub fn an_undo_after_a_composition_behind_a_key_takes_back_the_composition_test(
   assert !editor.is_waiting(ed)
 }
 
-/// An IME may convert text before the caret again, past the selection it
-/// began in: what it leaves is kept where it left it.
 pub fn text_an_ime_converts_again_behind_a_held_key_is_kept_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let converted =
@@ -577,8 +558,6 @@ pub fn cmd_and_option_move_by_lines_and_words_on_a_mac_test() {
   assert editor.browser_act(ctrl("ArrowLeft"), editor.AppleKeyboard) == None
 }
 
-/// Off a Mac, Control with ArrowUp or ArrowDown moves by paragraphs in a
-/// text field, so it is held behind the steps like any key the replay does.
 pub fn control_and_up_or_down_is_held_off_a_mac_test() {
   let up =
     editor.HeldKey(
@@ -599,9 +578,6 @@ pub fn control_and_up_or_down_is_held_off_a_mac_test() {
     == Some(editor.MoveCaret(False, editor.Forward, editor.ByParagraph))
 }
 
-/// Off a Mac, Control with Home or End goes to the start or the end of the
-/// note in a text field, so it is held. On a Mac, Option with them does
-/// nothing there, so it goes on to the browser.
 pub fn control_and_home_or_end_is_held_off_a_mac_test() {
   assert editor.holds(ctrl("Home"), editor.WindowsKeyboard)
   assert editor.browser_act(ctrl("Home"), editor.WindowsKeyboard)
@@ -613,8 +589,6 @@ pub fn control_and_home_or_end_is_held_off_a_mac_test() {
   assert !editor.holds(option_home, editor.AppleKeyboard)
 }
 
-/// The focus comes back while an IME composes behind a held key: it still
-/// composes, so what it composes still goes in after the key.
 pub fn the_focus_coming_back_leaves_a_composition_behind_a_key_composing_test() {
   let ed = opened() |> step_down |> hold(key("z"))
   let field = editor.field_buffer(ed)

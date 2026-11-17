@@ -115,9 +115,6 @@ pub fn moving_the_selection_takes_it_to_a_place_and_selects_it_there_test() {
   assert buffer.selection(across) == #(Position(1, 1), Position(2, 1))
 }
 
-/// gleam_stdlib's `string.drop_start` counts what it drops in UTF-8 bytes
-/// and drops UTF-16 units on JavaScript, so it drops too much after a
-/// letter outside ASCII.
 pub fn replace_counts_graphemes_after_letters_outside_ascii_test() {
   let note = buffer.from_text("かな ab\n日本")
   let typed =

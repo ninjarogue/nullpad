@@ -1,29 +1,3 @@
-// Every known difference between nullpad and a plain textarea, in one place.
-//
-//   intended  nullpad differs on purpose. The typist never types the keys that show it.
-//   open      a bug we know about. The typist leaves out the keys that show it, so the
-//             rest of the run stays green and keeps looking. Its repro must still differ:
-//             when it stops differing the run fails (like test.fixme failing once the test
-//             passes) and the entry is deleted, which brings its keys back.
-//
-// repro     a short script that shows the difference. Open entries have one.
-// pace      how fast the repro is typed at: 'burst' (the default), 'frame' or 'slow'.
-// closeAtOnce  the repro is typed with the Ctrl+E that shows the source sent with its last keys, not a frame after them.
-// tries     how often a repro that is a race is typed before it counts as fixed.
-// finding   the id of the review finding behind an open entry (F: Opus, X: Fable, B: blind).
-// skip      says whether a key of a generated script is left out, given the script so far typed
-//           into a plain textarea (its text and where its selection is) and the pace. Open
-//           entries skip the keys that show their bug, so the rest of the run stays green.
-// sanitize  returns the script without the keys this entry cannot compare, or with a frame
-//           waited for where it cannot be typed at speed. It runs on generated scripts only,
-//           never on --script or --scripts. It gets the pace.
-//
-// `node typist/run.mjs --no-known` types everything and reports every difference.
-
-/** @typedef {string | { paste: string } | { wait: true }} Key */
-/** @typedef {{ value: string, anchor: number, head: number }} Caret The plain textarea's text and selection before a key. */
-
-/** A key whose result depends on where the caret is drawn across the page: Up and Down, with Shift or Ctrl, Page Up and Page Down. */
 export const isVertical = (k) => /^(Control\+)?(Shift\+)?Arrow(Up|Down)$|^(Shift\+)?Page(Up|Down)$/.test(k);
 const isPage = (k) => /Page(Up|Down)$/.test(k);
 const isShiftHorizontal = (k) => /^(Control\+)?Shift\+(Arrow(Left|Right)|Home|End)$/.test(k);
@@ -37,7 +11,6 @@ const rows = (c) => c.value.split('\n');
 const anyMark = /[#\-*>`|[\]~_=]/;
 const inlineMark = /[*_~`[\]]/;
 
-/** Whether every font lands a vertical key at the same column: from the start of a row, onto an empty row, or onto a row that shares the text left of the caret. */
 const fontFree = (k, c) => {
   const all = rows(c);
   const row = rowAt(c.value, c.head);
@@ -51,21 +24,12 @@ const fontFree = (k, c) => {
 };
 
 
-/** Whether a key may be left out, so that the text before it is worth reading. */
 export const judged = (k) => isVertical(k) || isShiftHorizontal(k);
 
-/**
- * Whether a key is left out of the comparison, given what the plain textarea holds before it.
- * @param {string} k
- * @param {Key[]} script
- * @param {Caret} c
- * @param {string} pace
- */
 export function skips(k, script, c, pace) {
   return known.some((entry) => entry.skip?.(k, c, pace));
 }
 
-/** @type {{ id: string, kind: 'intended' | 'open', finding?: string, reason: string, repro?: Key[], closeAtOnce?: boolean, pace?: 'burst' | 'frame' | 'slow', tries?: number, skip?: (k: string, c: Caret, pace: string) => boolean, sanitize: (script: Key[], pace: string) => Key[] }[]} */
 export const known = [
   {
     id: 'undo-steps',

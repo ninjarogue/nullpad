@@ -4,31 +4,6 @@ import { ctrl, Editing } from './editing.ts';
 import { cursorAt, cursorStartsLine, selectionOf } from './guards.ts';
 import { pause, test } from './nullpad.ts';
 
-/**
- * Two checklists of movement, each compared with a plain text field holding the
- * same markdown, and each pressed where `movement-keys.e2e.ts` does not press:
- *
- * - every key that moves the caret, pressed on a selection that already exists:
- *   inside one block, forward and backward, painted across blocks, forward and
- *   backward, from column 0 and from the middle of a row, and after Ctrl+A;
- * - runs of keys, vertical ones above all, that keep a column across presses:
- *   through short rows, wrapped rows, rows whose marks the page hides, list
- *   items, code blocks, setext underlines and rules; each press is looked at,
- *   and then the same run is pressed with no frame between its keys.
- *
- * A key that goes up or down keeps the caret's place across the page, and the
- * page draws proportional type and larger headings, so its column is not the
- * plain field's, except where the caret starts a row or the rows are plain text.
- * Those are held to the plain field to the letter. The others are held to its
- * row, and to the pixel the caret was at, within half a wide letter, or to the
- * end of a row too short to reach it.
- *
- * A case that fails today is marked with `test.fail` and the id of the finding
- * of the review it shows (F: Opus, X: Fable, B: blind, N: found while writing
- * this). Once the app is fixed the case passes, the mark fails it as an
- * unexpected pass, and the mark is deleted.
- */
-
 type Cell = [number, number];
 
 const pixelSlack = 16;
@@ -70,7 +45,6 @@ const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
 
 type Plain = { value: string; anchor: Cell; head: Cell };
 
-/** A plain text field holding `body` with `anchor` to `head` selected, after each of `keys`. Runs on the blank page. */
 async function plainPresses(editor: Editing, body: string, anchor: Cell, head: Cell, keys: string[]) {
   const { browser } = editor.fixtures;
   const [from, to] = [offsetOfCell(body, anchor), offsetOfCell(body, head)];
@@ -108,7 +82,6 @@ async function plainPresses(editor: Editing, body: string, anchor: Cell, head: C
   return states;
 }
 
-/** The page draws the selection over the page, with no text field in sight. */
 function paintedNow() {
   const highlights = globalThis.CSS?.highlights;
   const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
@@ -118,10 +91,8 @@ function paintedNow() {
   };
 }
 
-/** `lineStart` is whether the caret starts a line as it is drawn, so that it cannot go further left. */
 type Look = { anchor: Cell; head: Cell; x: number; y: number; lineStart?: boolean };
 
-/** Waits for the page to draw what was pressed, then reads the selection and where the caret is drawn. */
 async function look(editor: Editing, lines: string[]): Promise<Look | { problem: string }> {
   const { browser, page } = editor.fixtures;
   await page.nextFrame();
@@ -136,7 +107,6 @@ type Follow = 'plain field' | 'row and pixel' | 'row' | 'wrapped';
 const isVertical = (key: string) => /Arrow(Up|Down)$|Page(Up|Down)$/.test(key);
 const isPage = (key: string) => /Page(Up|Down)$/.test(key);
 
-/** What is wrong with where a key left the caret and the selection, given where the plain field left them. */
 function judge(follow: Follow, want: Plain, got: Look, goalX: number, lineLength: number) {
   const ends = (cell: Cell, other: Cell) => (same(cell, other) ? `the caret at ${show(cell)}` : `the selection from ${show(other)} to ${show(cell)}`);
   const wantSaw = `the plain field ends with ${ends(want.head, want.anchor)}, the page with ${ends(got.head, got.anchor)}`;
@@ -153,10 +123,7 @@ function judge(follow: Follow, want: Plain, got: Look, goalX: number, lineLength
   return [`${wantSaw} (${how})`];
 }
 
-/**
- * Every key that moves the caret or the selection, with and without Shift and Ctrl.
- * Ctrl with Page Up or Page Down switches tabs, so it is not pressed.
- */
+/** Ctrl with Page Up or Page Down switches tabs, so it is not pressed. */
 const moving = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].flatMap((name) => [
   name,
   `Shift+${name}`,
@@ -190,7 +157,6 @@ async function setUp(editor: Editing, body: string, keys: string[]) {
   }
 }
 
-/** Where the state of a case puts the selection, and where a plain field goes from there with each key. Asked once for each state. */
 function planOf(editor: Editing, state: State) {
   let found = plans.get(state.name);
   if (!found) {
@@ -213,7 +179,6 @@ function planOf(editor: Editing, state: State) {
   return found;
 }
 
-/** The cases that fail today, by state and key: the id of the finding of the review that shows it. None do. */
 const failing = new Map<string, string>();
 
 for (const state of states) {
@@ -243,36 +208,21 @@ type Step = string | { key: string; follow: Follow };
 type Run = {
   name: string;
   body: string;
-  /** Keys that put the caret where the run starts, from the start of the note. */
   start: Step[];
   steps: Step[];
-  /** How the vertical keys are held: to the letter where the caret starts a row or the rows are plain text. */
   follow: Follow;
-  /** The finding that shows when the run fails today, for the paced press and for the held one. */
   fail?: { paced?: string; held?: string };
-  /** Milliseconds between presses of the paced run, as a person types, or where the page needs time to settle a painted selection. */
   pace?: number;
-  /** The held run is pressed this many times, for a race that does not always happen. */
   repeat?: number;
-  /** The run is also pressed with every key sent at once, where the keys do not wait for the page and so share its frames. */
   burst?: boolean;
-  /** How many times slower the page's thread is made, so that keys pile up and share frames whatever the load of the machine. */
   throttle?: number;
-  /** A frame is waited for between the keys that put the caret where the run starts and the keys of the run, when the keys are sent at once. */
   frameBeforeSteps?: boolean;
-  /** Only the run with the keys sent at once is made: its keys compare a column the page and a plain field place differently. */
   burstOnly?: boolean;
-  /** The run is also pressed with Ctrl+E, which shows the source, sent with its keys. */
   viewSwitch?: boolean;
-  /** The page's thread is held this many milliseconds while the keys of the run are sent, so that they all arrive before it draws. */
   stall?: number;
-  /** The page's frames are held while the keys of the run are sent, from before the note is pasted, or from the frame before the steps, so that every key arrives before the page draws again, whatever the load of the machine. */
   holdRedraw?: boolean;
-  /** The keys sent at once are held to the same keys pressed a frame apart on the page, not to the plain field: its vertical keys land where the page's type puts them. */
   againstPaced?: boolean;
-  /** The run is not pressed with no frame between its keys: whether the page has drawn between two keys of the harness's keyboard depends on the load of the machine. */
   noHeld?: boolean;
-  /** The offsets of the first and the last mark of each pair of marks the page hides, as `**bold**`. A painted end never cuts one. */
   pairs?: [number, number][];
 };
 
@@ -570,12 +520,6 @@ async function runPlan(editor: Editing, run: Run) {
   return found;
 }
 
-/**
- * The plain field's states as the page holds them. The head of a selection
- * across blocks, which the page paints, never stops inside a pair of marks the
- * page hides, as Delete would then leave half of it: such a stop is passed over.
- * The anchor stays where it was put, as in a plain field.
- */
 function wholePairs(run: Run, states: Plain[]): Plain[] {
   const pairs = run.pairs;
   if (!pairs) return states;
@@ -597,12 +541,6 @@ async function begin(editor: Editing, run: Run) {
   await editor.fixtures.page.nextFrame();
 }
 
-/**
- * The wrapped rows have no plain field to follow: the caret goes down a row of
- * the page at a time, keeping its pixel, or to the end of the row it is on, or
- * its start going up, when no row of the page is past it. `rowLength` is the
- * length of the row the head is on.
- */
 function judgeWrapped(step: string, before: Look, after: Look, first: Look, rowLength: number) {
   const down = /Down/.test(step);
   const problems: string[] = [];
@@ -622,7 +560,6 @@ const virtualKeys: Record<string, number> = { Enter: 13, Backspace: 8, Delete: 4
 const modifierBits: Record<string, number> = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 const modifierKeys: Record<string, [string, number]> = { Control: ['ControlLeft', 17], Shift: ['ShiftLeft', 16], Alt: ['AltLeft', 18], Meta: ['MetaLeft', 91] };
 
-/** One key press as Chrome DevTools key events, modifiers included. Letters and the named keys of the runs. */
 function keyEvents(spec: string) {
   const parts = spec.replace('ControlOrMeta', 'Control').split('+');
   const main = parts.pop()!;
@@ -647,7 +584,6 @@ function keyEvents(spec: string) {
   return events;
 }
 
-/** Holds the page's animation frames, so that Lustre draws nothing until they are let go. */
 function holdFrames() {
   const page = window as unknown as { heldFrames?: FrameRequestCallback[]; letFrame?: typeof requestAnimationFrame };
   page.heldFrames = [];
@@ -658,20 +594,12 @@ function holdFrames() {
   };
 }
 
-/** Lets the held frames go, in the order they were asked for. */
 function releaseFrames() {
   const page = window as unknown as { heldFrames: FrameRequestCallback[]; letFrame: typeof requestAnimationFrame };
   window.requestAnimationFrame = page.letFrame;
   for (const callback of page.heldFrames) page.letFrame(callback);
 }
 
-/**
- * Pastes the note into a page of its own, then sends every key of the run to the
- * browser at once, as a held key or a fast hand does, and reads the note and its selection
- * once the page has drawn and Ctrl+E has shown the source, where the text field
- * can be read. With `withViewSwitch` Ctrl+E goes with the keys. The harness's own keyboard waits for the page to
- * handle each key, which keeps two keys from sharing a frame.
- */
 async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, times: number, paced = false) {
   const browser = await chromium.launch();
   try {
@@ -790,8 +718,6 @@ for (const run of runs) {
     if (pending?.held) test.fail(pending.held);
     const wanted = wholePairs(run, plan.states).at(-1)!;
     const problems: string[] = [];
-    // A plain field does not wrap where the page does, so wrapped rows end
-    // where the same keys pressed a frame apart end.
     let paced: Look | null = null;
     if (run.follow === 'wrapped') {
       await begin(editor, run);

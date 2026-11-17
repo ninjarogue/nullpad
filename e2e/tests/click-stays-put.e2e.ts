@@ -5,23 +5,6 @@ import type { Box } from './guards.ts';
 import { test } from './nullpad.ts';
 import { everyKind } from './stability.ts';
 
-/**
- * Did the word move when I clicked? A click on a drawn word opens its block
- * in the text field, and the word under the pointer has to stay under the
- * pointer: a double click lands its second click where the first one was, and
- * a hand does not follow a word that jumps away. Every word of every sample is
- * clicked, with the whole note drawn each time, and the word's box is
- * measured before the click and in the text field after it. Words of links are
- * not clicked, because a click on a link follows the link.
- *
- * The same words are then double clicked, which must select the word, and
- * pressed with a hand that moves a pixel or two before it lets go, which must
- * select nothing.
- *
- * Every word of a sample appears once in its note, so that it can be found by
- * its text, and `draws` names the kinds of block and mark the sample draws.
- */
-
 type Sample = { name: string; draws: string[]; note: string };
 
 const samples: Sample[] = [
@@ -60,7 +43,6 @@ const samples: Sample[] = [
 
 const near = (box: Box) => `${box.left.toFixed(1)}, ${box.top.toFixed(1)}`;
 
-/** Draws the whole note and lists the words that can be clicked. */
 async function drawWholeNote(editor: Editing, sample: Sample) {
   const { browser, page } = editor.fixtures;
   await editor.open(sample.note);
@@ -73,7 +55,6 @@ async function drawWholeNote(editor: Editing, sample: Sample) {
   return { words, links };
 }
 
-/** Whether a click shows the marks it reveals, and so moves the words after them, waits on a decision about how hidden marks reveal. */
 const pendingReveal = 'pending the decision on how hidden marks reveal on a click';
 
 for (const sample of samples) {
@@ -182,11 +163,6 @@ test('the samples between them draw every kind of block and inline the parser ma
   expect(everyKind.filter((kind) => !claimed.has(kind))).toEqual([]);
 });
 
-/**
- * A heading in the field hangs its marks left of its words, as far as the
- * margin lets them, so its words wrap where the page draws them. A click on a
- * heading that wraps over lines leaves every word of it where it was drawn.
- */
 for (const marks of ['#', '###', '######']) {
   test(`a click on a heading of "${marks}" that wraps over lines leaves its words where the page drew them`, async (fixtures) => {
     const { browser, page } = fixtures;

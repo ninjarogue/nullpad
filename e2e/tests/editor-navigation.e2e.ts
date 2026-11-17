@@ -4,14 +4,6 @@ import { cursorAt } from './guards.ts';
 import type { Spot } from './editing.ts';
 import { test } from './nullpad.ts';
 
-/**
- * What any text editor does when the caret is moved, in the page view
- * (Markdown off): with keys, with the pointer, and when the note is longer
- * than the window. Where a plain text field holding the whole note has one
- * right answer, the page is held to it: the same keys must leave the caret in
- * the same place, which is seen by typing a letter there.
- */
-
 const note = 'alpha one\n\nbravo two words\n\ncharlie three';
 
 function likeAPlainField(name: string, body: string, at: Spot, keys: string[]) {
@@ -348,14 +340,6 @@ test('a block the caret reaches with the keys is where the caret is when typed i
   await expect(fixtures.page.text).toBeFocused();
 });
 
-/**
- * A run of Up and Down keeps the place across the page that it started from,
- * as a plain text field keeps the caret's x: through rows too short to reach
- * it, wrapped rows and rows of other kinds, until another key or a click moves
- * the caret. The page draws proportional type, so the plain field it is held to
- * is set as the page sets a paragraph (`pageField`), and holds the markdown, as
- * the text field shows the rows it holds.
- */
 function keepsTheColumn(name: string, body: string, at: Spot, keys: string[]) {
   test(name, async (fixtures) => {
     const editor = new Editing(fixtures);
@@ -369,7 +353,6 @@ function keepsTheColumn(name: string, body: string, at: Spot, keys: string[]) {
   });
 }
 
-/** Where a plain text field holding the markdown in monospace type agrees with the page: the start of a row, and type that is monospace on the page too. */
 function keepsTheColumnOfAPlainField(name: string, body: string, at: Spot, keys: string[]) {
   test(name, async (fixtures) => {
     const editor = new Editing(fixtures);
@@ -426,7 +409,6 @@ keepsTheColumn('ArrowDown keeps the column through list items with short ones be
 keepsTheColumnOfAPlainField('ArrowDown keeps the column through the short rows of a code block', '```\nxxxxxxxxxxa\nxb\n\nxxxxxxxxxxc\n```', { word: 'xxxxxxxxxxa', at: 8 }, repeat('ArrowDown', 3));
 keepsTheColumnOfAPlainField('ArrowDown keeps the column through the rows of a table', '| xxxxxxxxa | xxxxxxxxxxb |\n| - | - |\n| xc | xd |\n| xxxxxxxxe | xxxxxxxxxxf |', { word: 'xxxxxxxxxxb', at: 8 }, repeat('ArrowDown', 3));
 
-/** The start of a row is the same column on every row, before the marks the page hides, as in a plain field holding the markdown. */
 const fromTheStart: [string, string, Spot, string[]][] = [
   ['ArrowUp twice from the start of a list item lands at the start of a heading, before its marks', '# alpha\n\n- one', { word: 'one', at: 0 }, ['Home', 'ArrowUp', 'ArrowUp']],
   ['ArrowUp twice from the start of a list item lands at the start of a quote, before its marks', '> alpha\n\n- one', { word: 'one', at: 0 }, ['Home', 'ArrowUp', 'ArrowUp']],
@@ -453,7 +435,6 @@ test('PageUp from the start of a list item lands at the start of a row, before i
 /**
  * An IME owns the keys it is composing with, such as an arrow that picks a
  * candidate, which Chrome on a Mac sends with keyCode 229 and isComposing.
- * The page moves the caret for none of them, also at the edge of the field.
  */
 const composingKeys: { key: string; code: string; ctrlKey?: boolean }[] = [
   { key: 'ArrowUp', code: 'ArrowUp' },
@@ -478,13 +459,6 @@ for (const chord of composingKeys) {
   });
 }
 
-/**
- * Where a row wraps, the end of one line and the start of the next share an
- * offset. A long word that does not fit leaves a short line before it, where
- * an arrow from the end of a longer line lands at the end. A click at the
- * start of the line below then puts the caret on that line, which the next
- * keys go from.
- */
 test('a click at the start of the line below the end of a line an arrow went to is where the keys after it go from', async (fixtures) => {
   const { browser, page } = fixtures;
   const editor = new Editing(fixtures);
@@ -535,7 +509,6 @@ test('A click where the caret already is ends a run: ArrowDown takes the column 
   const expected = await editor.pageField(body, offsetOf(body, { word: 'xb', at: 2 }), ['ArrowDown'], 'X');
   await editor.click({ word: 'xxxxxxxxxa', at: 8 });
   await editor.press('ArrowDown');
-  // A person sees where the caret went before clicking on it.
   await fixtures.page.nextFrame();
   await editor.click({ word: 'xb', at: 2 });
   await editor.press('ArrowDown');
@@ -547,11 +520,6 @@ test('A click where the caret already is ends a run: ArrowDown takes the column 
 keepsTheColumn('End where the caret already is moves nothing and keeps the run', 'xxxxxxxxxa\nxb\nxxxxxxxxxc', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'End', 'ArrowDown']);
 keepsTheColumn('ArrowRight at the end of the note moves nothing and keeps the run', 'xxxxxxxxxa\nxb', { word: 'xxxxxxxxxa', at: 8 }, ['ArrowDown', 'ArrowRight', 'ArrowUp']);
 
-/**
- * A key that moves the caret past the rows the text field holds, by a letter
- * or to an end of the note, moves it without the whole note being written
- * into the field: on a long note that costs a frame and more.
- */
 const longNote = Array.from({ length: 60 }, (_, row) => `row ${row} of the note`).join('\n\n');
 
 function movesWithoutTheWholeNote(name: string, at: Spot, keys: string[]) {

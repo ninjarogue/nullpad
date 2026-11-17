@@ -188,7 +188,6 @@ type Kind {
 
 type Break {
   Break(kind: Kind, name: String, path: String, change: fn(String) -> String)
-  /// A break that edits more than one file.
   Breaks(kind: Kind, name: String, edits: List(#(String, fn(String) -> String)))
 }
 
@@ -225,11 +224,8 @@ const view =
   "pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
 "
 
-/// An attribute of the text field, in the view, where the editor is drawn.
 const view_attribute = "        attribute.aria_label(\"Note text\"),\n"
 
-/// Where the view has the field's handlers made. It hands them no editor:
-/// they read the one the last message left when the event comes.
 const field_events = "..field_events(on_event)"
 
 fn breaks() -> List(Break) {
@@ -835,9 +831,6 @@ fn second_round() -> List(Break) {
   ]
 }
 
-/// From a third attacker, who had not read the breaks above: decoders made
-/// where no function is named a decoder, closures over the drawn editor, a
-/// measure that hands back app state, and an import alias.
 fn third_round() -> List(Break) {
   let surface = "nullpad/surface.gleam"
   let inline_decoder =
@@ -959,12 +952,6 @@ fn third_round() -> List(Break) {
   ]
 }
 
-/// From a fourth attacker, who had not read the breaks above, ported to
-/// the code as it now stands: the field's handlers are made in `field_events`
-/// and `page_events`, and app's in small functions that take no model. A
-/// handler is handed no editor and reads the record when its event comes, so
-/// the callbacks for the editor these first went through are gone, and a
-/// closure over app state handed to a maker is caught however it is bound.
 fn fourth_round() -> List(Break) {
   let app = "nullpad/app.gleam"
   let surface = "nullpad/surface.gleam"
@@ -1425,10 +1412,6 @@ fn fourth_round() -> List(Break) {
   ]
 }
 
-/// From a fifth attacker, who had not read the breaks above, ported to
-/// handlers that are handed no editor: each name starts with the attacker's
-/// script. Most of these got past the rule that let a maker take a callback
-/// for the editor, or raised it over code that was right.
 fn fifth_round() -> List(Break) {
   [
     Break(
@@ -2125,9 +2108,6 @@ fn fifth_round() -> List(Break) {
   ]
 }
 
-/// The sixth attacker's: a name a function binds hid every call to a
-/// function of that name anywhere in it, and an effect's callback read the
-/// record as if when the handlers are made.
 fn sixth_round() -> List(Break) {
   let guarded =
     "fn(task, checked) {\n            case editor.is_waiting(model.editor) {\n              True -> UserClosedMenu\n              False -> UserTickedTask(task, checked)\n            }\n          }"

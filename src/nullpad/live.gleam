@@ -52,7 +52,6 @@ fn item_last_row(item: Item) -> Int {
 
 pub type Kind {
   Body
-  /// `marks` are the typed marks before the words of a heading of one row.
   Title(level: Level, marks: String)
   Mono
   ListItem(task: Bool, marker: String)
@@ -94,8 +93,6 @@ pub fn kind(
   }
 }
 
-/// The column where the text of the innermost list item holding `row`
-/// starts, past its indentation and marker, or `None` outside every item.
 pub fn text_col(blocks: List(Block), row: Int) -> Option(Int) {
   let holding =
     list.find(blocks, fn(block) {
@@ -260,14 +257,6 @@ pub fn follows_hidden(
   }
 }
 
-/// Where `at` lands when it is among or beside marks the page hides between
-/// two drawn characters, which all draw at one place: the place among them
-/// nearest `at` where the line, cut there and at `other` when it is on the
-/// same row, draws what it draws whole. A selection between the two then
-/// holds both marks of a pair or neither, as the parser pairs them. Moving
-/// `toward` a side, it takes the first such place that way among the hidden
-/// marks of the row instead, so a step never settles back where it began.
-/// With no such place, `at` stays. `row` and `visible` are as for `drawn`.
 pub fn settle(
   lines: List(String),
   row row: Int,
@@ -316,9 +305,6 @@ pub fn settle(
   }
 }
 
-/// The first column from `col` on, a step of `by` at a time, that is beside
-/// a hidden character and `fine`. `shown` holds whether each character from
-/// `col` that way is drawn, and `by_hidden` whether the one behind is not.
 fn beside_hidden(
   shown: List(Bool),
   col: Int,
