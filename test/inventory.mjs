@@ -10,7 +10,7 @@ import { bindings, registeredCalls } from "./e2e_discovery.mjs";
  * what a branch took away from, or changed in, the judges it inherited.
  */
 
-const excluded = (path) => path === "test/test_counts.json" || path === "test/pick_map.json" || /^e2e\/(?:node_modules|\.e2e)\//.test(path) || /^e2e\/package(?:-lock)?\.json$/.test(path);
+const excluded = (path) => /\.md$/.test(path) || path === "test/test_counts.json" || path === "test/pick_map.json" || /^e2e\/(?:node_modules|\.e2e)\//.test(path) || /^e2e\/package(?:-lock)?\.json$/.test(path);
 
 export const judged = (path) => /^(?:test|tools|e2e|\.githooks|\.github)\//.test(path) && !excluded(path);
 
@@ -179,7 +179,7 @@ function jsFile({ path, text, program, calls, names }) {
     });
     return found;
   };
-  const visit = (node, scope) => {
+  const visit = (node, scope, inherited = []) => {
     if (registering(node)) {
       const segments = spell(node.callee).split(".");
       const mods = [...segments.filter((word) => modWords.has(word)), ...optionMods(node.arguments)];
@@ -187,25 +187,26 @@ function jsFile({ path, text, program, calls, names }) {
       const title = titleOf(node.arguments[0], text);
       if (segments.some((word) => groupWords.has(word))) {
         const inner = [...scope, title];
+        const passed = [...inherited, ...mods];
         if (callback?.body.type === "BlockStatement") {
           const setup = callback.body.body.filter((statement) => !holdsRegistration(statement));
           if (setup.length > 0) {
             const id = `${path} > ${inner.join(" > ")} (setup)`;
             add(tests, { id, mods: [], setup: true, statements: setup.map((statement) => inspectStatement(statement, text, names)) }, id);
           }
-          for (const statement of callback.body.body) visit(statement, inner);
+          for (const statement of callback.body.body) visit(statement, inner, passed);
         }
         return;
       }
       const id = `${path} > ${[...scope, title].join(" > ")}`;
       const statements = bodyStatements(callback, text, names);
-      add(tests, { id, mods, setup: false, statements }, id);
+      add(tests, { id, mods: [...inherited, ...mods], setup: false, statements }, id);
       return;
     }
-    for (const child of kids(node)) visit(child, scope);
+    for (const child of kids(node)) visit(child, scope, inherited);
   };
   for (const statement of program.body) {
-    if (holdsRegistration(statement)) visit(statement, []);
+    if (holdsRegistration(statement)) visit(statement, [], []);
     else for (const unit of declUnits(statement, text, names)) add(decls, unit, unit.key);
   }
   for (const unit of tests.values()) unit.bodyKey = JSON.stringify(unit.statements.map((statement) => statement.key));
@@ -367,8 +368,9 @@ export function compare(base, branch) {
   for (const [path, was] of base) {
     const now = branch.get(path);
     if (now === undefined) {
-      const count = was.tests.size;
-      items.push({ file: path, id: path, what: "removed-file", why: count > 0 ? `the file is gone, with ${count} test${count === 1 ? "" : "s"}` : "the file is gone" });
+      const lost = [...was.tests.values()].filter((unit) => unit.setup || !bodies.has(unit.bodyKey)).length;
+      const asserting = [...was.decls.values()].some((unit) => unit.asserts);
+      if (was.role === "gate" || lost > 0 || asserting) items.push({ file: path, id: path, what: "removed-file", why: lost > 0 ? `the file is gone, with ${lost} test${lost === 1 ? "" : "s"}` : "the file is gone" });
       continue;
     }
     if (now.unreadable !== null) {

@@ -226,5 +226,5 @@ export const e2e = (config, args = []) => step({
 });
 
 export function gateSteps() {
-  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), nodeTest("e2e-server", "test/serve.test.mjs"), nodeTest("e2e-discovery-tool", "test/e2e_discovery.test.mjs"), nodeTest("pick", "test/pick.test.mjs"), e2eTypes, e2eDiscovery, ...e2eConfigs().map((config) => e2e(config))];
+  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), nodeTest("e2e-server", "test/serve.test.mjs"), nodeTest("e2e-discovery-tool", "test/e2e_discovery.test.mjs"), nodeTest("judges", "test/judges.test.mjs"), nodeTest("pick", "test/pick.test.mjs"), e2eTypes, e2eDiscovery, ...e2eConfigs().map((config) => e2e(config))];
 }
