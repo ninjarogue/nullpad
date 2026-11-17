@@ -78,13 +78,13 @@ export const known = [
     sanitize: (script) => script,
   },
   {
-    id: 'setext-underline-row',
+    id: 'setext-underline-select-all',
     kind: 'open',
     reason:
-      'A setext heading is drawn on one row and its underline row is hidden, so when the cursor enters it the field opens the underline row at the heading\'s size, and the blocks below move down by that row. With the cursor on its first row, the rows below are drawn as blocks of their own, not as the underline.',
-    repro: [{ paste: 'Setext\n======\n\nlast' }, 'Control+Home'],
+      'A setext heading whose underline row was just typed is drawn as a paragraph above the text field, and select all takes that paragraph into the field, or draws it as the heading, without changing the text: the blocks below move 25.63px for "c" over "=" and 5.63px for "c" over "-".',
+    repro: ['c', 'Enter', '=', 'Control+a'],
     pace: 'frame',
-    shift: (problem) => fieldText(problem).some((text) => /[^\n]\n(=+|-+) *(?=\n|\u200b|$)/.test(text)),
+    shift: (problem) => fieldText(problem).some((text) => /^(=+|-+)\u200b|[^\n]\n(=+|-+) *(?=\n|\u200b|$)/.test(text)),
     sanitize: (script) => script,
   },
   {
@@ -133,15 +133,6 @@ export const known = [
     repro: [{ paste: '- a\n\nb' }, 'Control+Home'],
     pace: 'frame',
     shift: (problem) => (near(problem.change, 4) || near(problem.change, 8)) && problem.blocks.some((b) => b.kind === 'ul' || b.kind === 'ol'),
-    sanitize: (script) => script,
-  },
-  {
-    id: 'heading-in-quote',
-    kind: 'open',
-    reason: 'A heading inside a quote is drawn at the heading\'s size, but the quote\'s row in the text field is a body line, so the blocks below move by the difference when the cursor enters it.',
-    repro: [{ paste: 'top\n\n> #\n\nlast' }, 'ArrowUp', 'ArrowUp'],
-    pace: 'frame',
-    shift: (problem) => fieldText(problem).some((text) => /^>\s*#/m.test(text)),
     sanitize: (script) => script,
   },
   {
