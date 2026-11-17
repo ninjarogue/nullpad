@@ -326,7 +326,6 @@ function gleamWalk(value, visit) {
 const spanOf = (value) => value?.location ?? value?.[0]?.location;
 
 function gleamFile({ path, text, module }) {
-  const bytes = Buffer.from(text);
   const should = new Set();
   for (const definition of module.imports) {
     const found = definition.definition;
@@ -350,7 +349,7 @@ function gleamFile({ path, text, module }) {
     printer.parameters(parameters);
     const statements = [...body].map((statement) => {
       const span = spanOf(statement);
-      return { key: printer.print(statement), show: span ? brief(bytes.subarray(span.start, span.end).toString()) : "?", asserts: asserting(statement), suspicious: guarding(statement) };
+      return { key: printer.print(statement), show: span ? brief(text.slice(span.start, span.end)) : "?", asserts: asserting(statement), suspicious: guarding(statement) };
     });
     return { statements, refs: printer.refs };
   };

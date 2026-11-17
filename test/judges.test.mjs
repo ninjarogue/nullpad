@@ -219,6 +219,12 @@ pub fn subtracts_test() {
     const hidden = swap(body, "pub fn subtracts_test", "fn subtracts_test");
     assert.deepEqual(weakened(hidden), [`removed-test: ${file}::subtracts_test`]);
   });
+
+  test("the statement it shows is the one that changed, even after text that is not ascii", () => {
+    const accented = swap(body, "  assert helper(1) == 2\n", "  assert \"caf\u00e9 \u2713\" == \"caf\u00e9 \u2713\"\n  assert helper(1) == 2\n");
+    const [item] = changes({ [file]: accented }, { [file]: swap(accented, "assert helper(1) == 2", "assert helper(1) > 0") }).items;
+    assert.match(item.why, /assert helper\(1\) == 2/);
+  });
 });
 
 describe("what is not a change", () => {
