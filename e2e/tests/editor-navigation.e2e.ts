@@ -527,6 +527,8 @@ const foxes = `${fox}\n${fox}\n${fox}`;
 for (const at of [1, 4, 8, 25, 29]) {
   keepsTheColumn(`ArrowDown from letter ${at} of a wrapped row lands where a plain field does`, foxes, { word: 'The quick brown fox jumps over', at, row: 0 }, ['ArrowDown']);
 }
+keepsTheColumn('ArrowUp from a selected first line, then ArrowDown, goes down from where ArrowUp left the caret', foxes, { word: 'The quick', at: 0, row: 0 }, ['Shift+End', 'ArrowUp', 'ArrowDown']);
+keepsTheColumn('ArrowDown from a selected last line, then ArrowUp, goes up from where ArrowDown left the caret', fox, { word: 'again and again', at: 15 }, ['Shift+Home', 'ArrowDown', 'ArrowUp']);
 
 const longNote = Array.from({ length: 60 }, (_, row) => `row ${row} of the note`).join('\n\n');
 
