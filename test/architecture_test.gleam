@@ -215,7 +215,6 @@ fn instead(old: String, new: String) -> fn(String) -> String {
 
 const edge_decoder =
   "fn edge_decoder(
-  paints: fn() -> Bool,
   on_event: fn(editor.Event) -> msg,
 ) -> Decoder(event.Handler(msg)) {
 "
@@ -227,9 +226,9 @@ const view =
 /// An attribute of the text field, in the view, where the editor is drawn.
 const view_attribute = "        attribute.aria_label(\"Note text\"),\n"
 
-/// Where the view hands the field's handlers the editor the last message
-/// left.
-const field_events = "..field_events(fn() { current_editor(editor) }, on_event)"
+/// Where the view has the field's handlers made. It hands them no editor:
+/// they read the one the last message left when the event comes.
+const field_events = "..field_events(on_event)"
 
 fn breaks() -> List(Break) {
   let surface = "nullpad/surface.gleam"
@@ -371,20 +370,31 @@ fn breaks() -> List(Break) {
     ),
     Break(
       Caught(rules.DecoderState),
-      "a decoder reads the editor the last message left from JavaScript",
+      "a decoder reads the editor the last message left from JavaScript before the event comes",
       surface,
-      after(
-        edge_decoder,
-        "  let _ = editor.is_painted(current_editor(blank))\n",
-      ),
+      after(edge_decoder, "  let _ = editor.is_painted(current_editor())\n"),
     ),
     Break(
       Caught(rules.DecoderState),
-      "a decoder reads a JavaScript record through a helper",
+      "a decoder reads a JavaScript record through a helper before the event comes",
       surface,
       both(
         last(
-          "fn waiting_now() -> Bool {\n  editor.is_waiting(current_editor(blank))\n}",
+          "fn waiting_now() -> Bool {\n  editor.is_waiting(current_editor())\n}",
+        ),
+        after(
+          "fn hold_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
+          "  let _ = waiting_now()\n",
+        ),
+      ),
+    ),
+    Break(
+      Clean,
+      "a decoder reads a JavaScript record through a helper when the event comes",
+      surface,
+      both(
+        last(
+          "fn waiting_now() -> Bool {\n  editor.is_waiting(current_editor())\n}",
         ),
         after(
           "  use key_code <- decode.optional_field(\"keyCode\", 0, decode.int)\n",
@@ -397,7 +407,7 @@ fn breaks() -> List(Break) {
       "a callback made outside the decoders reads a JavaScript record",
       surface,
       last(
-        "fn waits_now(blank: Editor) -> fn() -> Bool {\n  fn() { editor.is_waiting(current_editor(blank)) }\n}",
+        "fn waits_now() -> fn() -> Bool {\n  fn() { editor.is_waiting(current_editor()) }\n}",
       ),
     ),
     Break(
@@ -675,7 +685,7 @@ fn second_round() -> List(Break) {
       "a decoder hidden behind a type alias",
       surface,
       last(
-        "type Handling(msg) =\n  Decoder(event.Handler(msg))\n\nfn shortcut(editor: Editor, on_event: fn(editor.Event) -> msg) -> Handling(msg) {\n  key_decoder(editor, on_event)\n}",
+        "type Handling(msg) =\n  Decoder(event.Handler(msg))\n\nfn shortcut(editor: Editor, on_event: fn(editor.Event) -> msg) -> Handling(msg) {\n  let _ = editor.is_idle(editor)\n  key_decoder(on_event)\n}",
       ),
     ),
     Break(
@@ -690,7 +700,13 @@ fn second_round() -> List(Break) {
       Caught(rules.DecoderState),
       "a decoder takes the notes",
       surface,
-      after("fn key_decoder(\n", "  notes: Library,\n"),
+      both(
+        after(
+          "import nullpad/live\n",
+          "import nullpad/library.{type Library}\n",
+        ),
+        after("fn key_decoder(\n", "  notes: Library,\n"),
+      ),
     ),
     Break(
       Caught(rules.SkipsOutcome),
@@ -836,7 +852,7 @@ fn third_round() -> List(Break) {
       "a decoder is handed a closure over the editor outside the view",
       surface,
       last(
-        "fn painted_edge(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"keydown\", edge_decoder(fn() { editor.is_painted(editor) }, on_event))\n}",
+        "fn painted_edge(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"keydown\", edge_decoder(fn(event) {\n    case editor.is_painted(editor) {\n      True -> on_event(event)\n      False -> on_event(editor.Released)\n    }\n  }))\n}",
       ),
     ),
     Break(
@@ -844,7 +860,7 @@ fn third_round() -> List(Break) {
       "a decoder is handed a capture of an editor function over the editor",
       surface,
       last(
-        "fn claimed(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"keydown\", key_decoder(editor.claims(editor, _), on_event))\n}",
+        "fn claimed(editor: Editor, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"keydown\", key_decoder(released_unless(editor.claims(editor, vim.Escape), on_event, _)))\n}",
       ),
     ),
     Break(
@@ -905,14 +921,14 @@ fn third_round() -> List(Break) {
     ),
     Break(
       Clean,
-      "the view hands the field's handlers a callback that reads the record through a helper",
+      "the field's handlers read the record through a helper when the event comes",
       surface,
       both(
         instead(
-          field_events,
-          "..field_events(fn() { latest(editor) }, on_event)",
+          "      _, False -> on_event(editor.ControlChanged(shown:, at:))\n",
+          "      _, False if latest() == latest() -> on_event(editor.ControlChanged(shown:, at:))\n      _, False -> on_event(editor.Released)\n",
         ),
-        last("fn latest(drawn: Editor) -> Editor {\n  current_editor(drawn)\n}"),
+        last("fn latest() -> Editor {\n  current_editor()\n}"),
       ),
     ),
     Break(
@@ -963,30 +979,33 @@ fn fourth_round() -> List(Break) {
     "event.on(\"dblclick\", case editor.is_painted(editor) {\n        True -> decode.success(on_event(editor.Released))\n        False -> decode.failure(on_event(editor.Released), expected: \"painted\")\n      }), "
   [
     Break(
-      Escapes,
+      Caught(rules.DecoderState),
       "a01: the view reads the record while it draws and hands on a callback over the value",
       surface,
       both(
-        after(view, "  let latest = current_editor(editor)\n"),
-        instead(field_events, "..field_events(fn() { latest }, on_event)"),
+        after(view, "  let latest = current_editor()\n"),
+        instead(
+          field_events,
+          "..field_events(fn(event) {\n          case editor.is_waiting(latest) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
+        ),
       ),
     ),
     Break(
       Caught(rules.DecoderState),
-      "a01b: a handler's maker calls the editor callback before its decoder",
+      "a01b: a handler's maker reads the record before its decoder",
       surface,
       instead(
         moved,
-        "  let moved = {\n    let latest = now()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(latest)\n",
+        "  let moved = {\n    let latest = current_editor()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(latest)\n",
       ),
     ),
     Break(
       Clean,
-      "a01c: a decoder calls the editor callback when the event comes",
+      "a01c: a decoder reads the record when the event comes",
       surface,
       after(
         moved,
-        "    let composing = composing || editor.is_waiting(now())\n",
+        "    let composing = composing || editor.is_waiting(current_editor())\n",
       ),
     ),
     Break(
@@ -994,17 +1013,20 @@ fn fourth_round() -> List(Break) {
       "a02: the view shadows the editor with the record and hands on a callback over it",
       surface,
       both(
-        after(view, "  let editor = current_editor(editor)\n"),
-        instead(field_events, "..field_events(fn() { editor }, on_event)"),
+        after(view, "  let editor = current_editor()\n"),
+        instead(
+          field_events,
+          "..field_events(fn(event) {\n          case editor.is_waiting(editor) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
+        ),
       ),
     ),
     Break(
       Caught(rules.DecoderState),
-      "a02b: a handler's maker shadows the editor with the callback before its decoder",
+      "a02b: a handler's maker shadows the editor with the record before its decoder",
       surface,
       instead(
         moved,
-        "  let moved = {\n    let editor = now()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(editor)\n",
+        "  let moved = {\n    let editor = current_editor()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(editor)\n",
       ),
     ),
     Break(
@@ -1149,7 +1171,7 @@ fn fourth_round() -> List(Break) {
       ),
     ),
     Break(
-      Escapes,
+      Caught(rules.DecoderState),
       "a13b: a note row hands its button a callback a case made over the model",
       app,
       instead(
@@ -1193,26 +1215,29 @@ fn fourth_round() -> List(Break) {
       Caught(rules.DecoderState),
       "c01: the view hands the field's handlers a capture over the editor it draws",
       surface,
-      instead(field_events, "..field_events(drawn(editor, _), on_event)"),
+      instead(field_events, "..field_events(drawn(editor, on_event, _))"),
     ),
     Break(
-      Escapes,
+      Caught(rules.DecoderState),
       "c02: the view hands the field's handlers a callback a helper made over the editor",
       surface,
       both(
-        instead(field_events, "..field_events(drawn_of(editor), on_event)"),
+        instead(field_events, "..field_events(drawn_of(editor, on_event))"),
         last(
-          "fn drawn_of(editor: Editor) -> fn() -> Editor {\n  fn() { editor }\n}",
+          "fn drawn_of(editor: Editor, on_event: fn(editor.Event) -> msg) -> fn(editor.Event) -> msg {\n  fn(event) {\n    case editor.is_idle(editor) {\n      True -> on_event(editor.Released)\n      False -> on_event(event)\n    }\n  }\n}",
         ),
       ),
     ),
     Break(
-      Escapes,
+      Caught(rules.DecoderState),
       "c03: the view hands on a callback over a tuple that holds the editor",
       surface,
       both(
         after(view, "  let drawn = #(editor, 0)\n"),
-        instead(field_events, "..field_events(fn() { drawn.0 }, on_event)"),
+        instead(
+          field_events,
+          "..field_events(fn(event) {\n          case editor.is_idle(drawn.0) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
+        ),
       ),
     ),
     Break(
@@ -1221,7 +1246,7 @@ fn fourth_round() -> List(Break) {
       surface,
       instead(
         field_events,
-        "..field_events(fn() { list.fold([editor], editor, fn(_, one) { one }) }, on_event)",
+        "..field_events(fn(event) { list.fold([editor], on_event(event), fn(message, _) { message }) })",
       ),
     ),
     Break(
@@ -1230,8 +1255,8 @@ fn fourth_round() -> List(Break) {
       surface,
       both(
         instead(
-          "fn field_events(\n  now: fn() -> Editor,\n",
-          "fn field_events(\n  drawn: Editor,\n  now: fn() -> Editor,\n",
+          "fn field_events(\n  on_event",
+          "fn field_events(\n  drawn: Editor,\n  on_event",
         ),
         after(
           moved,
@@ -1301,43 +1326,49 @@ fn fourth_round() -> List(Break) {
     ),
     Break(
       Caught(rules.DecoderState),
-      "c12: a decoder reads the record through the callback it is handed",
+      "c12: a decoder is handed a callback for the editor",
       surface,
       both(
         instead(
-          "fn hold_decoder(\n  waits: fn() -> Bool,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
-          "fn hold_decoder(\n  drawn: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let waits = fn() { editor.is_waiting(current_editor(drawn())) }\n",
+          "fn hold_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
+          "fn hold_decoder(\n  drawn: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let waits = fn() { editor.is_waiting(drawn()) }\n",
         ),
         instead(
-          "decode.one_of(hold_decoder(waits, on_event), [",
-          "decode.one_of(hold_decoder(now, on_event), [",
+          "decode.one_of(hold_decoder(on_event), [",
+          "decode.one_of(hold_decoder(current_editor, on_event), [",
         ),
       ),
     ),
     Break(
-      Escapes,
+      Caught(rules.DecoderState),
       "c13: the view hands on a callback over a let that holds the editor",
       surface,
       both(
         after(view, "  let drawn = editor\n"),
-        instead(field_events, "..field_events(fn() { drawn }, on_event)"),
+        instead(
+          field_events,
+          "..field_events(fn(event) {\n          case editor.is_idle(drawn) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
+        ),
       ),
     ),
     Break(
-      Escapes,
+      Caught(rules.DecoderState),
       "c14: the view hands on a callback over the editor that a let holds",
       surface,
       both(
-        after(view, "  let now = fn() { editor }\n"),
-        instead(field_events, "..field_events(now:, on_event:)"),
+        after(
+          view,
+          "  let pick = fn(event) {\n    case editor.is_idle(editor) {\n      True -> on_event(editor.Released)\n      False -> on_event(event)\n    }\n  }\n",
+        ),
+        instead(field_events, "..field_events(on_event: pick)"),
       ),
     ),
     Break(
-      Clean,
+      Caught(rules.DecoderState),
       "f02: a key handler's maker takes a callback for the editor",
       surface,
       last(
-        "fn on_keydown(\n  now: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> attribute.Attribute(msg) {\n  event.advanced(\n    \"keydown\",\n    decode.one_of(hold_decoder(fn() { editor.is_waiting(now()) }, on_event), [\n      key_decoder(fn(key) { editor.claims(now(), key) }, on_event),\n      undo_key_decoder(on_event),\n      edge_decoder(fn() { editor.is_painted(now()) }, on_event),\n      escape_decoder(on_event),\n    ]),\n  )\n}",
+        "fn on_keydown(\n  now: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> attribute.Attribute(msg) {\n  let _ = now\n  event.advanced(\"keydown\", keydown_decoder(on_event))\n}",
       ),
     ),
     Break(
