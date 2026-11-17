@@ -467,6 +467,14 @@ test('reads', async ({ app }) => {
     assert.equal(result.notes.length, 1);
   });
 
+  test("a const that a test is registered with, as its options, is read by it", () => {
+    const optioned = swap(code, "test('reads', async ({ app }) => {", "const slow = { timeout: 300_000 };\ntest('reads', slow, async ({ app }) => {");
+    const both = { ...files, [spec]: optioned };
+    const after = (text) => named(changes(both, { ...both, [spec]: text })).sort();
+    assert.deepEqual(after(swap(optioned, "{ timeout: 300_000 }", "{ timeout: 300_000, skip: true }")), [`changed-input: ${spec}::var:slow`]);
+    assert.deepEqual(after(swap(optioned, "{ timeout: 300_000 }", "{ timeout: 300_000 }; // same")), []);
+  });
+
   test("what no test reads may change, and what is new is free", () => {
     assert.deepEqual(flagged(edited("const unread = 1;", "const unread = 2;")), []);
     assert.deepEqual(flagged(edited("async unused() {\n    return 7;", "async unused() {\n    return 8;")), []);
@@ -627,6 +635,14 @@ pub fn adds_test() {
       assert.deepEqual(flagged(swap(body, "  assert helper(1) == 2\n", "  use <- skip\n  assert helper(1) == 2\n").concat("\nfn skip(_rest: fn() -> Nil) -> Nil {\n  Nil\n}\n")), [`weakened-test: ${file}::adds_test`]);
       assert.deepEqual(flagged(swap(body, "  assert helper(1) == 2\n", "  use <- bool.guard(True, Nil)\n  assert helper(1) == 2\n")), [`weakened-test: ${file}::adds_test`]);
       assert.deepEqual(flagged(swap(body, "  assert helper(1) == 2\n", "  use x <- result.try(Error(Nil))\n  assert helper(1) == 2\n")), [`weakened-test: ${file}::adds_test`]);
+    });
+
+    test("an attribute put on a test, which can take it off the target the tests run on, is a change", () => {
+      assert.deepEqual(flagged(swap(body, "pub fn adds_test", "@target(erlang)\npub fn adds_test")), [`weakened-test: ${file}::adds_test`]);
+      assert.deepEqual(flagged(swap(body, "pub fn adds_test", "@deprecated(\"old\")\npub fn adds_test")), [`weakened-test: ${file}::adds_test`]);
+      const marked = swap(body, "pub fn adds_test", "@target(erlang)\npub fn adds_test");
+      assert.deepEqual(named(changes({ [file]: marked }, { [file]: body })), [`weakened-test: ${file}::adds_test`]);
+      assert.deepEqual(named(changes({ [file]: marked }, { [file]: swap(marked, "@target(erlang)\npub fn adds_test", "pub fn first_test() {\n  assert 1 == 1\n}\n\n@target(erlang)\npub fn adds_test") })), []);
     });
 
     test("a new local that takes the name of the module the test asserts through is a change", () => {

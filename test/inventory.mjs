@@ -223,7 +223,8 @@ function declUnits(statement, text, names) {
       if (table === null) return whole;
       const printer = jsPrinter();
       const rows = table.rows.map((row) => printer.print(row));
-      return { ...whole, rows, print: JSON.stringify([wrapper, inner.kind, printer.unit({ ...declarator, init: table.rebuild() })]), refs: printer.refs };
+      const switching = table.rows.flatMap((row, at) => (row.type === "Property" && !row.computed && (weakWords.has(nameOf(row.key) ?? "") || nameOf(row.key) === "only") ? [rows[at]] : []));
+      return { ...whole, rows, switching, print: JSON.stringify([wrapper, inner.kind, printer.unit({ ...declarator, init: table.rebuild() })]), refs: printer.refs };
     });
   }
   if (/^TS(?:TypeAlias|Interface|Enum)Declaration$/.test(inner.type)) return [unit(`type:${inner.id.name}`, inner)];
@@ -295,7 +296,10 @@ function jsFile({ path, text, program, calls, names }) {
         return;
       }
       const id = `${path} > ${[...scope, title].join(" > ")}`;
-      const { statements, refs } = bodyStatements(callback, text, names, shared ?? jsPrinter());
+      const printer = shared ?? jsPrinter();
+      const { statements, refs } = bodyStatements(callback, text, names, printer);
+      const [, given] = printer.collect(() => node.arguments.filter((arg) => arg !== callback).map((arg) => printer.print(arg)));
+      for (const name of given) refs.add(name);
       add(tests, { id, mods: [...inherited, ...mods], setup: false, statements, refs }, id);
       return;
     }
@@ -362,6 +366,8 @@ function gleamFile({ path, text, module }) {
     const { statements, refs } = statementsOf(found.body, found.parameters);
     if (runs && found.name.endsWith("_test") && found.publicity.constructor.name === "Public") {
       const id = `${path}::${found.name}`;
+      const attributes = [...definition.attributes];
+      if (attributes.length > 0) statements.unshift({ key: `attributes:${printGleam(attributes)}`, show: attributes.map((attribute) => `@${attribute.name}`).join(" "), asserts: false, suspicious: true });
       tests.set(id, { id, mods: [], setup: false, statements, refs, bodyKey: JSON.stringify(statements.map((statement) => statement.key)) });
     } else {
       const printer = gleamPrinter();
@@ -521,6 +527,7 @@ function changed(unit, next, strict) {
   if (next === undefined || next.print !== unit.print) return true;
   if (unit.rows === undefined) return false;
   if (next.rows === undefined) return true;
+  if (next.switching?.some((row) => !unit.rows.includes(row))) return true;
   if (strict) return unit.rows.length !== next.rows.length || unit.rows.some((row, at) => row !== next.rows[at]);
   let at = 0;
   for (const row of next.rows) if (at < unit.rows.length && row === unit.rows[at]) at++;
