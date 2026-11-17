@@ -1,6 +1,7 @@
 :root {
   --gutter: 2rem;
   --task-pad: 0;
+  --row: 1.7rem;
   color-scheme: light dark;
   --paper: #fbfaf7;
   --panel: #f1efe9;
@@ -12,6 +13,13 @@
   --text-font: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
     monospace;
   --ui-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --h1: 2rem;
+  --h2: 1.5rem;
+  --h3: 1.25rem;
+  --h4: 1.125rem;
+  --h5: 1rem;
+  --h6: 0.875rem;
+  --h6-tracking: 0.05em;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -342,7 +350,7 @@ button[aria-pressed="true"] {
    sets top-level blocks apart. A block then takes the same room drawn as it
    does in the field, and the words do not move when the cursor arrives. */
 .page.live .preview .blank {
-  height: 1.7rem;
+  height: var(--row);
 }
 
 .page.live .preview li.blank {
@@ -370,6 +378,53 @@ button[aria-pressed="true"] {
   margin-top: 0;
 }
 
+.page.live .preview :is(li, blockquote) :is(li, ul, ol, blockquote) {
+  margin-block: 0;
+}
+
+.page.live .preview blockquote > * {
+  margin-block: 0;
+}
+
+.page.live .preview blockquote.set-as-body :is(h1, h2, h3, h4, h5, h6) {
+  --over: min(0px, var(--rows, 1) * var(--row) - 1lh);
+  margin-block: 0;
+  min-height: calc(var(--rows, 1) * var(--row));
+}
+
+.page.live .preview blockquote.set-as-body :is(h1, h2, h3, h4, h5, h6):has(+ .blank),
+.page.live .preview blockquote.set-as-body :has(+ .blank) > :is(h1, h2, h3, h4, h5, h6):last-child,
+.page.live .preview blockquote.set-as-body :has(+ .blank) > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child,
+.page.live .preview blockquote.set-as-body :has(+ .blank) > :last-child > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child {
+  margin-bottom: var(--over);
+}
+
+.page.live .preview blockquote.set-as-body .blank + :is(h1, h2, h3, h4, h5, h6):not(:has(+ .blank)),
+.page.live .preview blockquote.set-as-body .blank + * > :is(h1, h2, h3, h4, h5, h6):first-child:not(:last-child):not(:has(+ .blank)),
+.page.live .preview blockquote.set-as-body .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):only-child,
+.page.live .preview blockquote.set-as-body .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):only-child {
+  margin-top: var(--over);
+}
+
+.page.live .preview :is(h1, h2, h3, h4, h5, h6) {
+  min-height: 1lh;
+}
+
+.page.live .preview > :is(h1, h2, h3, h4, h5, h6) {
+  min-height: calc(var(--rows, 1) * 1lh);
+}
+
+.page.live .preview li blockquote:not(.set-as-body) > :is(h1, h2, h3, h4, h5, h6):last-child {
+  margin-bottom: calc(var(--title) / 2);
+}
+
+/* An item's marker is outside its words, on their first line. With the
+   height of a line of body text it would push down a smaller heading there,
+   which the field cannot do. */
+.page.live .preview li::marker {
+  line-height: 0;
+}
+
 /* The two fence rows of a code block are its top and bottom padding. */
 .page.live .preview > pre {
   margin-block: 0;
@@ -377,8 +432,34 @@ button[aria-pressed="true"] {
   padding-block: calc(0.875rem * 1.5 - 1px);
 }
 
+.page.live .preview blockquote.set-as-body > pre {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: calc(var(--rows, 1) * var(--row));
+  justify-content: center;
+  overflow-y: hidden;
+  padding-block: 0;
+}
+
+.page.live .preview blockquote.set-as-body > pre > code {
+  line-height: var(--row);
+}
+
 .page.live .preview > hr {
   margin-block: calc(0.85rem - 1px);
+}
+
+.page.live .preview blockquote > hr {
+  align-items: center;
+  border: 0;
+  display: grid;
+  height: var(--row);
+}
+
+.page.live .preview blockquote > hr::before {
+  border-top: 2px solid var(--line);
+  content: "";
 }
 
 .editor.part {
@@ -423,7 +504,7 @@ button[aria-pressed="true"] {
    the focus and the selected rows out of sight, one line tall: a field with
    no height copies only line breaks and loses what an IME composes. */
 .page.live > .editor.part.painted {
-  height: 1.7rem;
+  height: var(--row);
   left: 0;
   margin: 0;
   opacity: 0;
@@ -489,12 +570,37 @@ button[aria-pressed="true"] {
   padding-block: var(--task-pad);
 }
 
+.editor.part.h1 {
+  --title: var(--h1);
+}
+
+.editor.part.h2 {
+  --title: var(--h2);
+}
+
+.editor.part.h3 {
+  --title: var(--h3);
+}
+
+.editor.part.h4 {
+  --title: var(--h4);
+}
+
+.editor.part.h5 {
+  --title: var(--h5);
+}
+
+.editor.part.h6 {
+  --title: var(--h6);
+}
+
 .editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
+  font-size: var(--title);
   font-weight: bold;
   line-height: 1.25;
 }
 
-.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
+.editor.part:not(.item, .quote):is(.h1, .h2, .h3, .h4, .h5, .h6) > * {
   --hang: min(
     var(--held-marker, var(--marker, 0px)),
     max(1.25rem, (100cqw - 46rem) / 2)
@@ -504,31 +610,26 @@ button[aria-pressed="true"] {
   text-indent: calc(-1 * var(--hang));
 }
 
-.editor.part:is(.h1, .h2, .h3, .h4, .h5, .h6) textarea {
+.editor.part:not(.item, .quote):is(.h1, .h2, .h3, .h4, .h5, .h6) textarea {
   left: calc(-1 * var(--hang));
   margin-left: 0;
   width: calc(100% + var(--hang));
 }
 
-.editor.part.h1 > * {
-  font-size: 2rem;
-}
-
-.editor.part.h2 > * {
-  font-size: 1.5rem;
-}
-
-.editor.part.h3 > * {
-  font-size: 1.25rem;
-}
-
-.editor.part.h4 > * {
-  font-size: 1.125rem;
-}
-
 .editor.part.h6 > * {
-  font-size: 0.875rem;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--h6-tracking);
+}
+
+.editor.part.quote {
+  margin: 0;
+}
+
+.editor.part.item:is(.h1, .h2, .h3, .h4, .h5, .h6) {
+  margin-block: 0.25rem max(0.25rem, var(--title) / 2);
+}
+
+.editor.part.quoted-item:is(.h1, .h2, .h3, .h4, .h5, .h6) {
+  margin-block: 0 calc(var(--title) / 2);
 }
 
 .editor.part:is(.framed, .held) {
@@ -541,7 +642,7 @@ button[aria-pressed="true"] {
 }
 
 .editor.part:is(.framed-body, .framed-item, .framed-task) {
-  --frame-line: 1.7rem;
+  --frame-line: var(--row);
 }
 
 .editor.part:is(.framed-item, .framed-task) {
@@ -554,52 +655,6 @@ button[aria-pressed="true"] {
 
 .editor.part.framed-mono {
   --frame-line: 1.3125rem;
-}
-
-.editor.part:is(.framed-h1, .framed-h2, .framed-h3, .framed-h4, .framed-h5, .framed-h6) {
-  margin-top: 0.4rem;
-}
-
-.editor.part.framed-h1 {
-  --frame-line: 2.5rem;
-}
-
-.editor.part.framed-h2 {
-  --frame-line: 1.875rem;
-}
-
-.editor.part.framed-h3 {
-  --frame-line: 1.5625rem;
-}
-
-.editor.part.framed-h4 {
-  --frame-line: 1.40625rem;
-}
-
-.editor.part.framed-h5 {
-  --frame-line: 1.25rem;
-}
-
-.editor.part.framed-h6 {
-  --frame-line: 1.09375rem;
-}
-
-/* A heading typed on such a row is as large as the row lets it be, because
-   the text field clips what reaches past its lines. */
-.editor.part.framed.h1 > * {
-  font-size: min(2rem, var(--frame-line) / 1.25);
-}
-
-.editor.part.framed.h2 > * {
-  font-size: min(1.5rem, var(--frame-line) / 1.25);
-}
-
-.editor.part.framed.h3 > * {
-  font-size: min(1.25rem, var(--frame-line) / 1.25);
-}
-
-.editor.part.framed.h4 > * {
-  font-size: min(1.125rem, var(--frame-line) / 1.25);
 }
 
 .page.live > .editor.part:first-child,
@@ -638,24 +693,34 @@ button[aria-pressed="true"] {
 }
 
 .preview h1 {
-  font-size: 2rem;
+  --title: var(--h1);
+  font-size: var(--title);
 }
 
 .preview h2 {
-  font-size: 1.5rem;
+  --title: var(--h2);
+  font-size: var(--title);
 }
 
 .preview h3 {
-  font-size: 1.25rem;
+  --title: var(--h3);
+  font-size: var(--title);
 }
 
 .preview h4 {
-  font-size: 1.125rem;
+  --title: var(--h4);
+  font-size: var(--title);
+}
+
+.preview h5 {
+  --title: var(--h5);
+  font-size: var(--title);
 }
 
 .preview h6 {
-  font-size: 0.875rem;
-  letter-spacing: 0.05em;
+  --title: var(--h6);
+  font-size: var(--title);
+  letter-spacing: var(--h6-tracking);
 }
 
 .preview code {

@@ -34,7 +34,7 @@ const painted_class = "painted"
 /// frame after any event from the element. With "" it wipes what was typed.
 /// With the model's text it is a second writer beside `sync`.
 pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
-  let kind = editor.kind(editor)
+  let setting = editor.setting(editor)
   let drawn_whole = editor.is_idle(editor) || editor.is_painted(editor)
   let first_row = case editor.region(editor), drawn_whole {
     Some(live.Region(first_row:, ..)), False ->
@@ -47,7 +47,7 @@ pub fn view(editor: Editor, on_event: fn(editor.Event) -> msg) -> Element(msg) {
       "anchor",
       int.to_string(anchor.row) <> ":" <> int.to_string(anchor.col),
     )
-  html.div([attribute.class(classes(editor, kind)), marker(kind)], [
+  html.div([attribute.class(classes(editor, setting)), marker(setting)], [
     mirror(editor),
     element.element(
       "textarea",
@@ -177,8 +177,8 @@ fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
 }
 
 /// CSS cannot measure typed text, so the marker is measured here.
-fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
-  case marker_width(kind) {
+fn marker(setting: Option(editor.Setting)) -> attribute.Attribute(msg) {
+  case marker_width(option.map(setting, fn(setting) { setting.kind })) {
     "" -> attribute.none()
     width -> attribute.style("--marker", width)
   }
@@ -187,11 +187,13 @@ fn marker(kind: Option(live.Kind)) -> attribute.Attribute(msg) {
 fn marker_width(kind: Option(live.Kind)) -> String {
   case kind {
     Some(live.ListItem(marker:, ..)) ->
-      float.to_string(text_width(marker)) <> "px"
+      float.to_string(body_text_width(marker)) <> "px"
+    Some(live.ItemTitle(level, marker:)) ->
+      float.to_string(heading_text_width(marker, level)) <> "px"
     Some(live.Title(marks: "", ..)) -> ""
     Some(live.Title(level:, marks:)) ->
       float.to_string(bold_width(marks) +. spacing(level, marks)) <> "em"
-    Some(live.Body) | Some(live.Mono) | None -> ""
+    Some(live.Body) | Some(live.Mono) | Some(live.QuoteTitle(..)) | None -> ""
   }
 }
 
@@ -202,17 +204,12 @@ fn spacing(level: markdown.Level, marks: String) -> Float {
   }
 }
 
-fn classes(editor: Editor, kind: Option(live.Kind)) -> String {
-  case
-    kind,
-    editor.frame(editor),
-    editor.is_idle(editor),
-    editor.is_painted(editor)
-  {
-    None, _, _, _ | _, None, _, _ -> "editor"
-    Some(_), Some(_), True, _ -> "editor part idle"
-    Some(_), Some(_), False, True -> "editor part " <> painted_class
-    Some(kind), Some(frame), False, False ->
+fn classes(editor: Editor, setting: Option(editor.Setting)) -> String {
+  case setting, editor.is_idle(editor), editor.is_painted(editor) {
+    None, _, _ -> "editor"
+    Some(_), True, _ -> "editor part idle"
+    Some(_), False, True -> "editor part " <> painted_class
+    Some(editor.Setting(kind:, frame:)), False, False ->
       case rows_of(frame) == rows_of(kind) {
         True -> set_as(kind)
         False -> set_as(kind) <> " framed framed-" <> rows_of(frame)
@@ -227,12 +224,10 @@ fn rows_of(kind: live.Kind) -> String {
     live.Mono -> "mono"
     live.ListItem(task: False, ..) -> "item"
     live.ListItem(task: True, ..) -> "task"
-    live.Title(level: markdown.H1, ..) -> "h1"
-    live.Title(level: markdown.H2, ..) -> "h2"
-    live.Title(level: markdown.H3, ..) -> "h3"
-    live.Title(level: markdown.H4, ..) -> "h4"
-    live.Title(level: markdown.H5, ..) -> "h5"
-    live.Title(level: markdown.H6, ..) -> "h6"
+    live.Title(level:, ..) -> heading_class(level)
+    live.ItemTitle(level, ..) -> "item-" <> heading_class(level)
+    live.QuoteTitle(level, in_item:) ->
+      "quote-" <> heading_class(level) <> bool.to_string(in_item)
   }
 }
 
@@ -242,12 +237,23 @@ fn set_as(kind: live.Kind) -> String {
     live.Mono -> "editor part mono"
     live.ListItem(task: False, ..) -> "editor part item"
     live.ListItem(task: True, ..) -> "editor part item task"
-    live.Title(level: markdown.H1, ..) -> "editor part h1"
-    live.Title(level: markdown.H2, ..) -> "editor part h2"
-    live.Title(level: markdown.H3, ..) -> "editor part h3"
-    live.Title(level: markdown.H4, ..) -> "editor part h4"
-    live.Title(level: markdown.H5, ..) -> "editor part h5"
-    live.Title(level: markdown.H6, ..) -> "editor part h6"
+    live.Title(level:, ..) -> "editor part " <> heading_class(level)
+    live.ItemTitle(level, ..) -> "editor part item " <> heading_class(level)
+    live.QuoteTitle(level, in_item: False) ->
+      "editor part quote " <> heading_class(level)
+    live.QuoteTitle(level, in_item: True) ->
+      "editor part quote quoted-item " <> heading_class(level)
+  }
+}
+
+fn heading_class(level: markdown.Level) -> String {
+  case level {
+    markdown.H1 -> "h1"
+    markdown.H2 -> "h2"
+    markdown.H3 -> "h3"
+    markdown.H4 -> "h4"
+    markdown.H5 -> "h5"
+    markdown.H6 -> "h6"
   }
 }
 
@@ -1357,8 +1363,15 @@ fn write_control(
   backward: Bool,
 ) -> Nil
 
+fn heading_text_width(text: String, level: markdown.Level) -> Float {
+  measure_heading(text, heading_class(level))
+}
+
 @external(javascript, "./surface.ffi.mjs", "textWidth")
-fn text_width(text: String) -> Float
+fn body_text_width(text: String) -> Float
+
+@external(javascript, "./surface.ffi.mjs", "textWidth")
+fn measure_heading(text: String, heading: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "boldWidth")
 fn bold_width(text: String) -> Float

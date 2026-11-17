@@ -650,7 +650,7 @@ function placeOn(page, target, x, y, rowMark, press) {
     const beside = drawnAt(Math.min(Math.max(x, box.left + 1), box.right - 1), y, rowMark, x);
     if (beside) return beside;
   }
-  if (above) return [Number(nearest.dataset[rowMark]), "", false, characterAt(nearest.textContent, 0)];
+  if (above) return [Number(nearest.dataset[rowMark]), "", false, graphemeAt(nearest.textContent, 0)];
   const drawn = nearest.textContent;
   return [Number(nearest.dataset[rowMark]), drawn.endsWith("\n") ? drawn.slice(0, -1) : drawn, true, "\n"];
 }
@@ -679,7 +679,7 @@ function placeOfPoint(point, rowMark, pointer = Infinity, fromRowStart = false) 
   after.setStart(point.node, point.offset);
   after.setEnd(cell, cell.childNodes.length);
   const rest = after.toString();
-  let next = rest !== "" ? characterAt(rest, 0) : cell === holder ? "\n" : "";
+  let next = rest !== "" ? graphemeAt(rest, 0) : cell === holder ? "\n" : "";
   const rowStart = visible === "" || visible.endsWith("\n");
   const margin = fromRowStart && cell === holder ? 1 : holder.closest("li") ? -1 : null;
   let before = false;
@@ -707,8 +707,10 @@ function letterAfter(holder, node, offset) {
   return null;
 }
 
-function characterAt(text, offset) {
-  return offset < text.length ? String.fromCodePoint(text.codePointAt(offset)) : "\n";
+const graphemes = new Intl.Segmenter();
+
+export function graphemeAt(text, offset) {
+  return offset < text.length ? graphemes.segment(text.slice(offset)).containing(0).segment : "\n";
 }
 
 // A point level with a line of the field, even beside it, is on that line.
@@ -726,7 +728,7 @@ function inField(press, x, y, field, band, rowMark) {
     press?.target === field &&
     (press.detail > 2 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
   if (kept) return none;
-  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, characterAt(value, point.offset)];
+  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, graphemeAt(value, point.offset)];
 }
 
 // The offset in the field where a plain release lands on its selection, or -1.
@@ -751,10 +753,26 @@ function caretAt(x, y) {
 
 let pen = null;
 
-export function textWidth(text) {
+function lengthIn(root, name, unit) {
+  const value = root.getPropertyValue(name).trim();
+  if (value === "") return null;
+  const number = value.endsWith(unit) ? Number(value.slice(0, -unit.length)) : NaN;
+  if (Number.isNaN(number)) throw new Error(`${name} is "${value}", not a number of ${unit}`);
+  return number;
+}
+
+export function textWidth(text, heading) {
   const root = getComputedStyle(document.documentElement);
+  const rem = parseFloat(root.fontSize);
+  const scale = heading ? lengthIn(root, `--${heading}`, "rem") : null;
+  if (heading && scale === null) throw new Error(`--${heading} is not set`);
+  const size = heading ? scale * rem : rem;
+  const tracking = heading ? lengthIn(root, `--${heading}-tracking`, "em") ?? 0 : 0;
   pen ??= document.createElement("canvas").getContext("2d");
-  pen.font = `${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
+  pen.font = `${heading ? "bold " : ""}${size}px ${root.getPropertyValue("--ui-font")}`;
+  pen.letterSpacing = `${tracking * size}px`;
+  // As the text field does: a canvas's "auto" leaves out kerning such as ". ".
+  pen.fontKerning = "normal";
   return pen.measureText(text).width;
 }
 
@@ -762,6 +780,7 @@ export function boldWidth(text) {
   const root = getComputedStyle(document.documentElement);
   pen ??= document.createElement("canvas").getContext("2d");
   pen.font = `bold ${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
+  pen.letterSpacing = "0px";
   return pen.measureText(text).width / parseFloat(root.fontSize);
 }
 

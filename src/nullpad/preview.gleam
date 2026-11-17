@@ -26,7 +26,7 @@ pub fn view(
 ) -> Element(msg) {
   html.div(
     [attribute.class("preview"), attribute.data("test-id", "preview")],
-    list.map(blocks, block(_, Unmarked, on_task)),
+    list.map(blocks, block(_, Unmarked, Outside, on_task)),
   )
 }
 
@@ -34,8 +34,9 @@ pub fn view(
 /// as in the whole list. Any other block the run cuts is left out and its
 /// rows are blank.
 ///
-/// A row outside every block is blank, and is drawn as one empty line
-/// (`div.blank`), so every row of the note has a place on the page.
+/// A row outside every block, or between the blocks of an item or a quote,
+/// is blank, and is drawn as one empty line (`div.blank`), so every row of
+/// the note has a place on the page.
 pub fn part(
   blocks: List(Block),
   rows rows: Int,
@@ -48,7 +49,7 @@ pub fn part(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
     inside(blocks, from: first_row, to:)
       |> spaced(from: first_row, to:, rows: Marked, draw: fn(shown) {
-        [block(shown, Marked, on_task)]
+        [block(shown, Marked, Outside, on_task)]
       }),
   )
 }
@@ -143,6 +144,23 @@ type Rows {
   Marked
 }
 
+fn set_as_body_text(
+  shown: Block,
+  rows: Rows,
+) -> List(attribute.Attribute(msg)) {
+  case rows, shown.first_row < shown.last_row {
+    Marked, True -> [attribute.class("set-as-body")]
+    Marked, False | Unmarked, _ -> []
+  }
+}
+
+fn rows_style(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
+  case rows, shown.last_row - shown.first_row + 1 {
+    Unmarked, _ | Marked, 1 -> []
+    Marked, count -> [attribute.style("--rows", int.to_string(count))]
+  }
+}
+
 fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
@@ -150,9 +168,15 @@ fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   }
 }
 
+type Within {
+  InQuote
+  Outside
+}
+
 fn block(
   shown: Block,
   rows: Rows,
+  within: Within,
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let here = at(rows, shown.first_row)
@@ -160,18 +184,19 @@ fn block(
     items(listed, spacing, shown.last_row + 1, rows, on_task)
   }
   case shown.content {
-    Heading(level, text) -> heading(level, here, inlines(text))
+    Heading(level, text) ->
+      heading(level, list.append(here, rows_style(shown, rows)), inlines(text))
     Paragraph(text) -> html.p(here, inlines(text))
     Rule -> html.hr(here)
     Quote(blocks) ->
       html.blockquote(
-        here,
+        list.append(set_as_body_text(shown, rows), here),
         spaced(
           blocks,
           from: shown.first_row,
           to: shown.last_row + 1,
           rows:,
-          draw: fn(child) { [block(child, rows, on_task)] },
+          draw: fn(child) { [block(child, rows, InQuote, on_task)] },
         ),
       )
     BulletList(spacing, items) -> html.ul(here, list_items(items, spacing))
@@ -186,7 +211,13 @@ fn block(
         Some(word) -> [attribute.class("language-" <> word)]
         None -> []
       }
-      html.pre(at(rows, code_row), [html.code(class, [element.text(code)])])
+      let count = case within {
+        InQuote -> rows_style(shown, rows)
+        Outside -> []
+      }
+      html.pre(list.append(at(rows, code_row), count), [
+        html.code(class, [element.text(code)]),
+      ])
     }
     Table(columns, table_rows) ->
       table(shown.first_row, rows, columns, table_rows)
@@ -299,7 +330,7 @@ fn item(
     spaced(shown.blocks, from: shown.row, to: end, rows:, draw: fn(child) {
       case child.content, spacing {
         Paragraph(text), Tight -> inlines(text)
-        _, _ -> [block(child, rows, on_task)]
+        _, _ -> [block(child, rows, Outside, on_task)]
       }
     })
   case shown.task {

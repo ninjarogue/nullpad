@@ -121,7 +121,11 @@ pub fn a_heading_of_one_row_holds_the_marks_before_its_words_test() {
   let marks = fn(text) {
     case kind_of(text) {
       live.Title(marks:, ..) -> marks
-      live.Body | live.Mono | live.ListItem(..) -> "not a heading"
+      live.Body
+      | live.Mono
+      | live.ListItem(..)
+      | live.ItemTitle(..)
+      | live.QuoteTitle(..) -> "not a heading"
     }
   }
   assert marks("# Trip") == "# "
@@ -133,8 +137,9 @@ pub fn a_heading_of_one_row_holds_the_marks_before_its_words_test() {
 
 fn marker(field_text: String) -> String {
   case kind_of(field_text) {
-    live.ListItem(marker:, ..) -> marker
-    live.Body | live.Mono | live.Title(..) -> "not an item"
+    live.ListItem(marker:, ..) | live.ItemTitle(marker:, ..) -> marker
+    live.Body | live.Mono | live.Title(..) | live.QuoteTitle(..) ->
+      "not an item"
   }
 }
 
@@ -431,6 +436,15 @@ pub fn a_place_at_the_start_of_a_table_cell_lands_past_the_marks_that_start_it_t
   assert at("1 | 2", "", "1") == 0
   assert at("a **b**", "a ", "b") == 2
   assert at("a \\| b", "a ", "|") == 2
+}
+
+pub fn a_place_at_the_start_of_a_table_cell_after_letters_written_in_more_than_one_byte_lands_in_that_cell_test() {
+  let at = fn(line, visible, next) {
+    live.position([line], row: 0, visible:, at_end: False, next:).col
+  }
+  assert at("| 日本 | 語 |", "日本", "語") == 7
+  assert at("| café | thé |", "café", "t") == 9
+  assert at("| 👍 | ok |", "👍", "o") == 6
 }
 
 fn settle(lines: List(String), visible: String, row: Int, col: Int) -> Int {

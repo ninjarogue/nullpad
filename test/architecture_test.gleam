@@ -120,6 +120,43 @@ pub fn every_rule_has_a_break_that_proves_it_test() {
   }
 }
 
+pub fn a_written_ahead_test_that_was_renamed_is_a_fault_test() {
+  let renamed =
+    rules.read(Source(
+      "test/editor_test.gleam",
+      "pub fn pending_dd_deletes_the_cursor_line_test() {\n  assert 1 == 1\n}\n",
+    ))
+  let report = rules.judge([renamed])
+  assert list.any(report.faults, string.contains(_, "written-ahead test"))
+  assert list.any(report.faults, string.contains(
+    _,
+    "pending_dd_deletes_the_cursor_line",
+  ))
+}
+
+pub fn a_written_ahead_test_is_not_flagged_while_it_is_not_named_test() {
+  let ahead =
+    rules.read(Source(
+      "test/editor_test.gleam",
+      "pub fn pending_dd_deletes_the_cursor_line() {\n  assert 1 == 2\n}\n",
+    ))
+  let report = rules.judge([ahead])
+  assert report.broken == []
+  assert !list.any(report.faults, string.contains(
+    _,
+    "pending_dd_deletes_the_cursor_line",
+  ))
+}
+
+pub fn the_same_function_in_another_file_is_flagged_test() {
+  let other =
+    rules.read(Source(
+      "test/other_test.gleam",
+      "pub fn pending_dd_deletes_the_cursor_line() {\n  assert 1 == 2\n}\n",
+    ))
+  assert list.length(rules.judge([other]).broken) == 1
+}
+
 fn all_breaks() -> List(Break) {
   list.flatten([
     breaks(),
@@ -129,6 +166,7 @@ fn all_breaks() -> List(Break) {
     fourth_round(),
     fifth_round(),
     sixth_round(),
+    test_breaks(),
   ])
 }
 
@@ -163,15 +201,22 @@ fn describe(report: Report) -> String {
 
 fn source() -> List(File) {
   let assert Ok(paths) = simplifile.get_files("src")
-  paths
-  |> list.map(fn(path) {
-    let assert Ok(text) = simplifile.read(path)
-    rules.read(Source(string.drop_start(path, 4), text))
-  })
+  let assert Ok(tests) = simplifile.get_files("test")
+  list.append(
+    list.map(paths, fn(path) {
+      let assert Ok(text) = simplifile.read(path)
+      rules.read(Source(path, text))
+    }),
+    list.filter(tests, string.ends_with(_, ".gleam"))
+      |> list.map(fn(path) {
+        let assert Ok(text) = simplifile.read(path)
+        rules.read(Source(path, text))
+      }),
+  )
 }
 
 fn read_text(path: String) -> String {
-  case simplifile.read("src/" <> path) {
+  case simplifile.read(path) {
     Ok(text) -> text
     Error(_) -> ""
   }
@@ -229,48 +274,48 @@ const view_attribute = "        attribute.aria_label(\"Note text\"),\n"
 const field_events = "..field_events(on_event)"
 
 fn breaks() -> List(Break) {
-  let surface = "nullpad/surface.gleam"
+  let surface = "src/nullpad/surface.gleam"
   [
     Break(
       Caught(rules.CoreImports),
       "core imports Lustre",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       first("import lustre/effect\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports Lustre under an alias",
-      "nullpad/live.gleam",
+      "src/nullpad/live.gleam",
       first("import lustre/element as el\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports the shell",
-      "nullpad/vim.gleam",
+      "src/nullpad/vim.gleam",
       first("import nullpad/surface\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports storage, which imports Lustre",
-      "nullpad/buffer.gleam",
+      "src/nullpad/buffer.gleam",
       first("import nullpad/storage\n"),
     ),
     Break(
       Caught(rules.CoreImports),
       "core imports a package",
-      "nullpad/markdown.gleam",
+      "src/nullpad/markdown.gleam",
       first("import plinth/browser/window\n"),
     ),
     Break(
       Caught(rules.JavaScriptFile),
       "a core module gets a JavaScript file",
-      "nullpad/vim.ffi.mjs",
+      "src/nullpad/vim.ffi.mjs",
       first("export const now = () => Date.now();\n"),
     ),
     Break(
       Caught(rules.CallsJavaScript),
       "editor calls JavaScript",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       last(
         "@external(javascript, \"./surface.ffi.mjs\", \"focusControl\")\nfn poke(id: String) -> Nil",
       ),
@@ -278,7 +323,7 @@ fn breaks() -> List(Break) {
     Break(
       Caught(rules.CallsJavaScript),
       "app calls JavaScript",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       last(
         "@external(javascript, \"./platform.ffi.mjs\", \"below\")\nfn poke(id: String) -> Nil",
       ),
@@ -286,13 +331,13 @@ fn breaks() -> List(Break) {
     Break(
       Caught(rules.BackendImport),
       "app imports a storage backend",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       first("import nullpad/storage/indexeddb\n"),
     ),
     Break(
       Caught(rules.BackendImport),
       "library imports a storage backend",
-      "nullpad/library.gleam",
+      "src/nullpad/library.gleam",
       first("import nullpad/storage/indexeddb as db\n"),
     ),
     Break(
@@ -345,7 +390,7 @@ fn breaks() -> List(Break) {
     Break(
       Caught(rules.ChangesPage),
       "app draws and saves a setting at once",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       fn(rest) {
         string.replace(
           rest,
@@ -430,13 +475,13 @@ fn breaks() -> List(Break) {
     Break(
       Clean,
       "a commented-out import",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       first("// import lustre/effect\n"),
     ),
     Break(
       Clean,
       "a core module imports another core module",
-      "nullpad/vim.gleam",
+      "src/nullpad/vim.gleam",
       first("import nullpad/markdown\n"),
     ),
     Break(
@@ -450,7 +495,7 @@ fn breaks() -> List(Break) {
     Break(
       Escapes,
       "logic added to app instead of a pure module",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       last("fn decide(count: Int) -> Bool {\n  count > 3 && count % 2 == 0\n}"),
     ),
   ]
@@ -459,9 +504,9 @@ fn breaks() -> List(Break) {
 /// Found by an attacker who had not seen `breaks`. The check as first
 /// written missed every `Caught` here and raised every `Clean` here.
 fn outside_breaks() -> List(Break) {
-  let app = "nullpad/app.gleam"
-  let surface = "nullpad/surface.gleam"
-  let preview = "nullpad/preview.gleam"
+  let app = "src/nullpad/app.gleam"
+  let surface = "src/nullpad/surface.gleam"
+  let preview = "src/nullpad/preview.gleam"
   [
     Break(
       Caught(rules.Annotated),
@@ -490,7 +535,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.Listed),
       "a new settings module nobody listed",
-      "nullpad/settings.gleam",
+      "src/nullpad/settings.gleam",
       first(
         "import lustre/element.{type Element}\nimport lustre/element/html\nimport nullpad/platform\n\npub fn view() -> Element(msg) {\n  let _ = platform.focus(\"nullpad-control\")\n  html.div([], [element.text(\"Settings\")])\n}\n",
       ),
@@ -498,7 +543,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.ChangesPage),
       "a new settings module focuses while drawing",
-      "nullpad/settings.gleam",
+      "src/nullpad/settings.gleam",
       first(
         "import lustre/element.{type Element}\nimport lustre/element/html\nimport nullpad/platform\n\npub fn view() -> Element(msg) {\n  let _ = platform.focus(\"nullpad-control\")\n  html.div([], [element.text(\"Settings\")])\n}\n",
       ),
@@ -506,7 +551,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.Listed),
       "a new search module imports Lustre and platform",
-      "nullpad/search.gleam",
+      "src/nullpad/search.gleam",
       first(
         "import lustre/effect.{type Effect}\nimport nullpad/platform\n\npub fn jump(id: String) -> Effect(msg) {\n  platform.focus(id)\n}\n",
       ),
@@ -538,7 +583,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.JavaScriptFile),
       "JavaScript in a plain .js file",
-      "nullpad/extra.js",
+      "src/nullpad/extra.js",
       first(
         "export function wipe() {\n  document.querySelector(\"textarea\").value = \"\";\n}\n",
       ),
@@ -546,7 +591,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.CallsJavaScript),
       "platform calls another file's JavaScript",
-      "nullpad/platform.gleam",
+      "src/nullpad/platform.gleam",
       last(
         "@external(javascript, \"./extra.js\", \"wipe\")\npub fn wipe() -> Nil",
       ),
@@ -554,7 +599,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Caught(rules.SkipsOutcome),
       "a public editor function hands back a bare Editor",
-      "nullpad/editor.gleam",
+      "src/nullpad/editor.gleam",
       last("pub fn shout(editor: Editor) -> Editor {\n  editor\n}"),
     ),
     Break(
@@ -568,7 +613,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Clean,
       "a second storage backend",
-      "nullpad/storage/localstorage.gleam",
+      "src/nullpad/storage/localstorage.gleam",
       first(
         "@external(javascript, \"./localstorage.ffi.mjs\", \"count\")\npub fn count() -> Int\n",
       ),
@@ -576,7 +621,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Clean,
       "a second storage backend's JavaScript",
-      "nullpad/storage/localstorage.ffi.mjs",
+      "src/nullpad/storage/localstorage.ffi.mjs",
       first("export function count() {\n  return localStorage.length;\n}\n"),
     ),
     Break(
@@ -590,7 +635,7 @@ fn outside_breaks() -> List(Break) {
     Break(
       Clean,
       "a new effect in platform that scrolls",
-      "nullpad/platform.gleam",
+      "src/nullpad/platform.gleam",
       last(
         "pub fn scroll_to(id: String) -> Effect(msg) {\n  effect.from(fn(_) { focus_element(id) })\n}",
       ),
@@ -626,11 +671,11 @@ fn outside_breaks() -> List(Break) {
 /// from a rule to review: the JavaScript text rules and the marker rule let
 /// most of that attacker's breaks through and flagged ordinary code.
 fn second_round() -> List(Break) {
-  let app = "nullpad/app.gleam"
-  let surface = "nullpad/surface.gleam"
-  let editor = "nullpad/editor.gleam"
-  let platform_js = "nullpad/platform.ffi.mjs"
-  let surface_js = "nullpad/surface.ffi.mjs"
+  let app = "src/nullpad/app.gleam"
+  let surface = "src/nullpad/surface.gleam"
+  let editor = "src/nullpad/editor.gleam"
+  let platform_js = "src/nullpad/platform.ffi.mjs"
+  let surface_js = "src/nullpad/surface.ffi.mjs"
   [
     Break(
       Caught(rules.ChangesPage),
@@ -659,7 +704,7 @@ fn second_round() -> List(Break) {
     Break(
       Caught(rules.FieldWrite),
       "a second text field through element.element",
-      "nullpad/preview.gleam",
+      "src/nullpad/preview.gleam",
       last(
         "fn second_field(text: String) -> Element(msg) {\n  element.element(\"textarea\", [], [element.text(text)])\n}",
       ),
@@ -717,7 +762,7 @@ fn second_round() -> List(Break) {
     Break(
       Caught(rules.Listed),
       "a backend placed outside src/nullpad",
-      "storage/memory.gleam",
+      "src/storage/memory.gleam",
       first("pub fn size() -> Int {\n  1\n}\n"),
     ),
     Break(
@@ -781,7 +826,7 @@ fn second_round() -> List(Break) {
     Break(
       Escapes,
       "a storage backend's JavaScript changes the page",
-      "nullpad/storage/indexeddb.ffi.mjs",
+      "src/nullpad/storage/indexeddb.ffi.mjs",
       last("export function announce(text) {\n  document.title = text;\n}"),
     ),
     Break(
@@ -825,14 +870,14 @@ fn second_round() -> List(Break) {
     Break(
       Escapes,
       "core JavaScript reads the document",
-      "nullpad/markdown.ffi.mjs",
+      "src/nullpad/markdown.ffi.mjs",
       last("export const w = () => document.title;"),
     ),
   ]
 }
 
 fn third_round() -> List(Break) {
-  let surface = "nullpad/surface.gleam"
+  let surface = "src/nullpad/surface.gleam"
   let inline_decoder =
     "event.on(\"dblclick\", decode.success(on_event(editor.FocusChanged(editor.is_idle(editor))))),\n"
   [
@@ -953,8 +998,8 @@ fn third_round() -> List(Break) {
 }
 
 fn fourth_round() -> List(Break) {
-  let app = "nullpad/app.gleam"
-  let surface = "nullpad/surface.gleam"
+  let app = "src/nullpad/app.gleam"
+  let surface = "src/nullpad/surface.gleam"
   let moved =
     "  let moved = {\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n"
   let page_some =
@@ -1172,7 +1217,7 @@ fn fourth_round() -> List(Break) {
       "a14: the page takes the editor under an alias from the editor module",
       [
         #(
-          "nullpad/editor.gleam",
+          "src/nullpad/editor.gleam",
           instead(
             "pub opaque type Editor {",
             "pub type Drawn =\n  Editor\n\npub opaque type Editor {",
@@ -1417,7 +1462,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a00, b00: the view hands a copy handler a message callback over the editor it draws",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view_attribute,
@@ -1431,7 +1476,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a01, b01: the callback over the drawn editor is chosen by a case written as the argument",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view_attribute,
@@ -1445,7 +1490,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a02, b02: the callback over the drawn editor is written inside a tuple",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view_attribute,
@@ -1459,7 +1504,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a03, b03: the callback over the drawn editor is written inside Some",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view_attribute,
@@ -1473,7 +1518,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "b04: the callback over the drawn editor is a field of a record",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         first(
           "type Copying(msg) {\n  Copying(on_event: fn(editor.Event) -> msg, rows: Int)\n}\n\n",
@@ -1492,7 +1537,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "b05: the callback over the drawn editor is one of a list",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view_attribute,
@@ -1506,7 +1551,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a18, b07: the view binds the callback over the drawn editor with let and hands it on",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view,
@@ -1523,7 +1568,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a20, b08: a helper makes the callback over the drawn editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         both(
           after(
@@ -1542,7 +1587,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a23, b09: the view reads the record while it draws and hands on a callback over the value",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(view, "  let latest = current_editor()\n"),
         both(
@@ -1559,7 +1604,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "b11: a handler's maker calls a closure bound with let that reads the record",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(view_attribute, "        on_copy(on_event),\n"),
         last(
@@ -1570,7 +1615,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "b11c: a handler's maker reads the record before its decoder",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(view_attribute, "        on_copy(on_event),\n"),
         last(
@@ -1581,7 +1626,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "b12: the view binds the editor with let under another name and hands on a callback over it",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(view, "  let drawn = editor\n"),
         both(
@@ -1598,7 +1643,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "b13: a handler's maker is handed a callback that hands back a Bool",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view_attribute,
@@ -1612,7 +1657,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a05: the field's handlers are chosen by a closure bound with let that reads the record",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
@@ -1627,7 +1672,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a06: the field's handlers hand the record to a helper that reads it at once",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         instead(
           "    event.advanced(\"keydown\", keydown_decoder(on_event)),\n",
@@ -1641,7 +1686,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a07: the field's handlers take a record that holds a callback for the editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         instead(
           "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
@@ -1656,7 +1701,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a08: the field's handlers take a tuple that holds a callback for the editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         instead(
           "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
@@ -1673,14 +1718,14 @@ fn fifth_round() -> List(Break) {
       "a12: the field's handlers take a callback for the editor under an alias from the editor module",
       [
         #(
-          "nullpad/editor.gleam",
+          "src/nullpad/editor.gleam",
           instead(
             "pub type Mode {",
             "pub type Latest =\n  fn() -> Editor\n\npub type Mode {",
           ),
         ),
         #(
-          "nullpad/surface.gleam",
+          "src/nullpad/surface.gleam",
           instead(
             "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
             "fn field_events(\n  now: editor.Latest,\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
@@ -1691,7 +1736,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a12b: the field's handlers take a callback for the editor under a local alias",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         first("type Latest =\n  fn() -> Editor\n\n"),
         instead(
@@ -1703,7 +1748,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a13: sync hands the drag listener a release callback that calls a closure over the editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       instead(
         "            fn() { dispatch(on_event(editor.Released)) },\n          )\n        })\n      effect.batch([placed, followed, painted])",
         "            fn() {\n              draw(dispatch)\n              dispatch(on_event(editor.Released))\n            },\n          )\n        })\n      effect.batch([placed, followed, painted])",
@@ -1712,7 +1757,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a13b: sync hands the drag listener a release callback that paints the editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       instead(
         "            fn() { dispatch(on_event(editor.Released)) },\n          )\n        })\n      effect.batch([placed, followed, painted])",
         "            fn() {\n              paint(editor)\n              dispatch(on_event(editor.Released))\n            },\n          )\n        })\n      effect.batch([placed, followed, painted])",
@@ -1721,7 +1766,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a14: app maps a storage answer through a closure over the model",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       instead(
         "      storage.load(model.storage, id, answer(library.StorageLoaded)),\n",
         "      storage.load(model.storage, id, answer(library.StorageLoaded))\n        |> effect.map(fn(loaded) {\n          case editor.mode(model.editor) {\n            editor.Plain -> loaded\n            editor.Normal | editor.Insert -> loaded\n          }\n        }),\n",
@@ -1730,7 +1775,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a16: the sidebar makes a handler in a closure bound with let, with the model in scope",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       instead(
         "fn sidebar(model: Model) -> Element(Msg) {\n",
         "fn sidebar(model: Model) -> Element(Msg) {\n  let _new_note = fn() {\n    html.button([event.on_click(ToLibrary(library.UserAskedForNewNote))], [])\n  }\n",
@@ -1739,7 +1784,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a17: a decoder takes a callback for the editor and calls it before the event comes",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       instead(
         "fn edge_decoder(\n  on_event",
         "fn edge_decoder(\n  now: fn() -> Editor,\n  on_event",
@@ -1748,7 +1793,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a19: the field's handlers take a record of callbacks written over the drawn editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         instead(
           "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
@@ -1763,7 +1808,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a29: the title field's callback over the model is chosen by a case written as the argument",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       both(
         instead(
           "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n      ),",
@@ -1784,7 +1829,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a29c: the title field is handed a callback over the model",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       both(
         instead(
           "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n      ),",
@@ -1805,7 +1850,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a31: the toolbar binds the editor with let and hands the title field a callback over it",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       both(
         after(
           "fn toolbar(model: Model) -> Element(Msg) {\n",
@@ -1832,7 +1877,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a32: the toolbar takes the editor out of the model with let and hands the title field a callback over it",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       both(
         after(
           "fn toolbar(model: Model) -> Element(Msg) {\n",
@@ -1861,14 +1906,14 @@ fn fifth_round() -> List(Break) {
       "a33: a copy handler's maker takes the editor under an alias from the editor module",
       [
         #(
-          "nullpad/editor.gleam",
+          "src/nullpad/editor.gleam",
           instead(
             "pub type Mode {",
             "pub type Drawn =\n  Editor\n\npub type Mode {",
           ),
         ),
         #(
-          "nullpad/surface.gleam",
+          "src/nullpad/surface.gleam",
           both(
             after(view_attribute, "        on_copy(editor, on_event),\n"),
             last(
@@ -1883,14 +1928,14 @@ fn fifth_round() -> List(Break) {
       "a34: a copy handler's maker takes a new type that holds the editor",
       [
         #(
-          "nullpad/editor.gleam",
+          "src/nullpad/editor.gleam",
           instead(
             "pub type Mode {",
             "pub type Shown {\n  Shown(rows: Int, of: Option(Editor))\n}\n\npub type Mode {",
           ),
         ),
         #(
-          "nullpad/surface.gleam",
+          "src/nullpad/surface.gleam",
           both(
             after(
               view_attribute,
@@ -1906,7 +1951,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a35: the view hands a handler's maker the rest of its block, which names the editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           "  html.div([attribute.class(classes(editor, kind)), marker(kind)], [\n",
@@ -1926,7 +1971,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "a36: app takes the editor out of the model with let and hands the field a callback over it",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       instead(
         "fn page(model: Model) -> Element(Msg) {\n",
         "fn page(model: Model) -> Element(Msg) {\n  let Model(editor: note, ..) = model\n  let _ = surface.view(note, fn(event) {\n    case editor.is_idle(note) {\n      True -> EditorSent(event)\n      False -> EditorSent(editor.Released)\n    }\n  })\n",
@@ -1937,14 +1982,14 @@ fn fifth_round() -> List(Break) {
       "a15, b06: a new record in the editor module copies what a handler needs from the drawn editor",
       [
         #(
-          "nullpad/editor.gleam",
+          "src/nullpad/editor.gleam",
           instead(
             "pub type Mode {",
             "pub type Keyboard {\n  Keyboard(waiting: Bool, painted: Bool)\n}\n\npub fn keyboard(editor: Editor) -> Keyboard {\n  Keyboard(waiting: is_waiting(editor), painted: is_painted(editor))\n}\n\npub type Mode {",
           ),
         ),
         #(
-          "nullpad/surface.gleam",
+          "src/nullpad/surface.gleam",
           both(
             after(
               view_attribute,
@@ -1960,7 +2005,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Escapes,
       "a21, b10: the view hands a copy handler a plain value read from the drawn editor",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           view_attribute,
@@ -1974,7 +2019,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Escapes,
       "a25: app sets a timer whose message carries the buffer of the editor it has now",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       instead(
         "      #(model, effect.batch([synced, remembered]))\n",
         "      let reread =\n        platform.after(\n          50,\n          EditorSent(editor.ControlChanged(shown: editor.buffer(model.editor), at: 0)),\n        )\n      #(model, effect.batch([synced, remembered, reread]))\n",
@@ -1983,7 +2028,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Clean,
       "a04: a handler's maker writes a capture that reads the record each time it is called",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       after(
         "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
         "  let _claims = editor.claims(current_editor(), _)\n",
@@ -1992,7 +2037,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Clean,
       "a09: app maps the field's messages through a constructor",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       instead(
         "  let field = #(\"field\", surface.view(model.editor, EditorSent))",
         "  let field = #(\n    \"field\",\n    surface.view(model.editor, fn(event) { event }) |> element.map(EditorSent),\n  )",
@@ -2001,7 +2046,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Clean,
       "a10: a view helper in app takes a render callback over the model and calls it at once",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       both(
         instead(
           "fn sidebar(model: Model) -> Element(Msg) {\n  html.nav([attribute.class(\"sidebar\"), attribute.aria_label(\"Notes\")], [\n",
@@ -2015,7 +2060,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Clean,
       "a11: a decoder takes a record of its own that is named like a type in the editor module",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       last(
         "type Keys {\n  Keys(ctrl: Bool, meta: Bool)\n}\n\nfn claimed_decoder(\n  keys: Keys,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let Keys(ctrl:, ..) = keys\n  case ctrl {\n    True -> decode.success(on_event(editor.Released) |> event.handler(prevent_default: False, stop_propagation: False))\n    False -> decode.failure(on_event(editor.Released) |> event.handler(prevent_default: False, stop_propagation: False), \"ctrl\")\n  }\n}",
       ),
@@ -2025,14 +2070,14 @@ fn fifth_round() -> List(Break) {
       "a12: the field's handlers take a message callback under an alias from the editor module",
       [
         #(
-          "nullpad/editor.gleam",
+          "src/nullpad/editor.gleam",
           instead(
             "pub type Mode {",
             "pub type OnEvent(msg) =\n  fn(Event) -> msg\n\npub type Mode {",
           ),
         ),
         #(
-          "nullpad/surface.gleam",
+          "src/nullpad/surface.gleam",
           instead(
             "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
             "fn field_events(\n  on_event: editor.OnEvent(msg),\n) -> List(attribute.Attribute(msg)) {\n",
@@ -2043,7 +2088,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Clean,
       "a27: a decoder reads a record bound under a second name when the event comes",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           "  use key_code <- decode.optional_field(\"keyCode\", 0, decode.int)\n",
@@ -2057,7 +2102,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Clean,
       "a28: sync moves an effect that acts on its editor at once into a helper",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         instead(
           "  let noted =\n    effect.from(fn(_) {\n",
@@ -2071,7 +2116,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Clean,
       "b00b: a copy handler reads the record when the copy comes",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(view_attribute, "        on_copy(on_event),\n"),
         last(
@@ -2082,7 +2127,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Escapes,
       "the author's: a handler's maker hands a closure that reads the record to a helper that calls it at once",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       both(
         after(
           "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
@@ -2094,7 +2139,7 @@ fn fifth_round() -> List(Break) {
     Break(
       Escapes,
       "the author's: app maps the field's messages through a callback a helper made over the model",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       both(
         instead(
           "  let field = #(\"field\", surface.view(model.editor, EditorSent))",
@@ -2115,7 +2160,7 @@ fn sixth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "e1: app hands the page a task callback that reads the model",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       instead(
         "          on_task: UserTickedTask,\n",
         "          on_task: " <> guarded <> ",\n",
@@ -2124,7 +2169,7 @@ fn sixth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "e1b: app hands the whole page a task callback that reads the model",
-      "nullpad/app.gleam",
+      "src/nullpad/app.gleam",
       both(
         instead(
           "    note_menu(model.menu),",
@@ -2140,7 +2185,7 @@ fn sixth_round() -> List(Break) {
       "h1: a maker of handlers called before a pattern binds a name like it",
       [
         #(
-          "nullpad/surface.gleam",
+          "src/nullpad/surface.gleam",
           last(
             "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.on(\"keyup\", decode.success(on_event(editor.Released)))
@@ -2148,7 +2193,7 @@ fn sixth_round() -> List(Break) {
           ),
         ),
         #(
-          "nullpad/app.gleam",
+          "src/nullpad/app.gleam",
           both(
             instead(
               "    note_menu(model.menu),",
@@ -2164,7 +2209,7 @@ fn sixth_round() -> List(Break) {
     Break(
       Clean,
       "h1b: a function calls a closure it binds under the name of a maker of handlers",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       last(
         "fn shadowed(on_event: fn(editor.Event) -> msg) -> Int {\n  let field_events = fn(count: Int) { count + 1 }\n  let _ = on_event\n  field_events(1)\n}",
       ),
@@ -2172,7 +2217,7 @@ fn sixth_round() -> List(Break) {
     Break(
       Clean,
       "k1: a maker of handlers reads the record inside an effect it makes, when the effect runs",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       last(
         "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.on(\"keyup\", decode.success(on_event(editor.Released)))
@@ -2182,7 +2227,7 @@ fn sixth_round() -> List(Break) {
     Break(
       Caught(rules.DecoderState),
       "k1b: a maker of handlers reads the record before the effect it makes",
-      "nullpad/surface.gleam",
+      "src/nullpad/surface.gleam",
       last(
         "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"keyup\", decode.success(on_event(editor.Released)))\n}\n\npub fn peek_early(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    let waiting = editor.is_waiting(current_editor())\n    use dispatch <- effect.from\n    case waiting {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
       ),
@@ -2192,13 +2237,13 @@ fn sixth_round() -> List(Break) {
       "h1c: a maker of handlers called before a let binds a name like it",
       [
         #(
-          "nullpad/surface.gleam",
+          "src/nullpad/surface.gleam",
           last(
             "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"keyup\", decode.success(on_event(editor.Released)))\n}\n\npub fn v(on_event: fn(editor.Event) -> msg) -> List(attribute.Attribute(msg)) {\n  let made = keyup_with(on_event)\n  let keyup_with = fn(_: Int) { made }\n  [keyup_with(1)]\n}",
           ),
         ),
         #(
-          "nullpad/app.gleam",
+          "src/nullpad/app.gleam",
           both(
             instead(
               "    note_menu(model.menu),",
@@ -2210,6 +2255,379 @@ fn sixth_round() -> List(Break) {
           ),
         ),
       ],
+    ),
+  ]
+}
+
+fn test_breaks() -> List(Break) {
+  let file = "test/nullpad_test.gleam"
+  let buffer = "test/buffer_test.gleam"
+  [
+    Break(
+      Caught(rules.TestRuns),
+      "a module of test/ whose name does not end in _test has a public _test function",
+      "test/zz_attack2.gleam",
+      last("pub fn d1_test() -> Nil {\n  assert 1 == 1\n}"),
+    ),
+    Break(
+      Clean,
+      "a helper module of test/ with no _test function",
+      "test/zz_helper.gleam",
+      last("pub fn check(a: Int) -> Nil {\n  assert a == 1\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that is only a comparison",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_0_test() -> Nil {\n  1 + 1 == 2\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that is only a call and a comparison",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_1_test() -> Nil {\n  string.length(\"a\") == 1\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that binds a value and gives Nil",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last("pub fn nothing_2_test() -> Nil {\n  { let _ = 1\n  Nil }\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that calls list.each with a closure that checks nothing",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last(
+          "pub fn nothing_3_test() -> Nil {\n  list.each([1], fn(_) { Nil })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test that binds a call",
+      file,
+      both(
+        first("import gleam/list\nimport gleam/string\n"),
+        last(
+          "pub fn nothing_4_test() -> Nil {\n  { let _ = string.length(\"abc\") }\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments asserts, and is not named _test",
+      file,
+      last("pub fn forgotten() -> Nil {\n  assert 1 == 2\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments uses let assert, and is not named _test",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  let assert Ok(_) = Error(Nil)\n  Nil\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments panics, and is not named _test",
+      file,
+      last("pub fn forgotten() -> Nil {\n  panic as \"not run\"\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments is todo, and is not named _test",
+      file,
+      last("pub fn forgotten() -> Nil {\n  todo as \"later\"\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "the assert is inside a closure",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  list.each([1], fn(x) { assert x == 2 })\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "the assert is in a branch of a case",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  case 1 {\n    1 -> {\n      assert False\n    }\n    _ -> Nil\n  }\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a test for the Erlang target, which the JavaScript runner never loads",
+      buffer,
+      last(
+        "@target(erlang)\npub fn on_erlang_only_test() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "an Erlang-only helper in a project that runs on JavaScript",
+      buffer,
+      last("@target(erlang)\nfn helper() -> Nil {\n  Nil\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a private function named _test, which is never called",
+      file,
+      last("fn hidden_test() -> Nil {\n  assert 1 == 2\n}"),
+    ),
+    Break(
+      Clean,
+      "a public function with arguments that asserts, as a helper does",
+      file,
+      last("pub fn same(a: Int, b: Int) -> Nil {\n  assert a == b\n}"),
+    ),
+    Break(
+      Clean,
+      "a public function with no arguments that neither asserts nor panics",
+      file,
+      last("pub fn fixture() -> String {\n  \"text\"\n}"),
+    ),
+    Break(
+      Clean,
+      "a private helper that asserts",
+      file,
+      last("fn same(a: Int) -> Nil {\n  assert a == 1\n}"),
+    ),
+    Break(
+      Clean,
+      "a test for the JavaScript target",
+      file,
+      last(
+        "@target(javascript)\npub fn on_javascript_only_test() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "the words assert and panic in a comment and in a string",
+      file,
+      last(
+        "pub fn note() -> String {\n  // assert 1 == 2, or panic\n  \"assert 1 == 2 panic\"\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "one more test, public and named _test",
+      file,
+      last("pub fn one_more_test() -> Nil {\n  assert 1 == 1\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function with no arguments calls a private one that asserts",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  check()\n}\n\nfn check() -> Nil {\n  assert 1 == 2\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function pipes into should.equal",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn x() -> Nil {\n  1 |> should.equal(2)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls should.be_true",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn forgotten() -> Nil {\n  should.be_true(False)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls a should function imported by name",
+      file,
+      both(
+        first("import gleeunit/should.{equal}\n"),
+        last("pub fn forgotten() -> Nil {\n  equal(1, 2)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls should under another name",
+      file,
+      both(
+        first("import gleeunit/should as expect\n"),
+        last("pub fn forgotten() -> Nil {\n  expect.be_true(False)\n}"),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls a public helper of the module that asserts",
+      file,
+      last(
+        "pub fn parses_headings() -> Nil {\n  check(1, 2)\n}\n\npub fn check(a: Int, b: Int) -> Nil {\n  assert a == b\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function calls a helper that checks with should",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last(
+          "pub fn parses_headings() -> Nil {\n  check(1, 2)\n}\n\nfn check(a: Int, b: Int) -> Nil {\n  a |> should.equal(b)\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a misnamed public function reaches an assert through two helpers",
+      file,
+      last(
+        "pub fn forgotten() -> Nil {\n  outer()\n}\n\nfn outer() -> Nil {\n  inner(1)\n}\n\nfn inner(a: Int) -> Nil {\n  assert a == 2\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function named _test takes an argument, and gleeunit calls it with none",
+      file,
+      last("pub fn takes_one_test(a: Int) -> Nil {\n  assert a == 1\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function named _test whose body is just Nil",
+      file,
+      last("pub fn checks_nothing_test() -> Nil {\n  Nil\n}"),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public function named _test with an empty body",
+      file,
+      last("pub fn empty_test() -> Nil {\n}"),
+    ),
+    Break(
+      Clean,
+      "a test that checks with should",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn one_more_test() -> Nil {\n  1 |> should.equal(1)\n}"),
+      ),
+    ),
+    Break(
+      Clean,
+      "a public function with arguments that checks with should, as a helper does",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last("pub fn same(a: Int, b: Int) -> Nil {\n  a |> should.equal(b)\n}"),
+      ),
+    ),
+    Break(
+      Clean,
+      "a public function with no arguments that calls a helper that checks nothing",
+      file,
+      last(
+        "pub fn fixture() -> Int {\n  double(2)\n}\n\nfn double(a: Int) -> Int {\n  a * 2\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "a private function that calls a helper that asserts",
+      file,
+      last(
+        "fn again() -> Nil {\n  check()\n}\n\nfn check() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "a public function with no arguments that binds a name a helper that asserts also has",
+      file,
+      last(
+        "pub fn fixture() -> Int {\n  let check = 2\n  check\n}\n\nfn check() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Caught(rules.TestRuns),
+      "a public main that asserts itself",
+      buffer,
+      last("pub fn main() -> Nil {\n  assert 1 == 1\n}"),
+    ),
+    Break(
+      Clean,
+      "a public main that only reaches an assert through another function, as the entry of a program does",
+      buffer,
+      last(
+        "pub fn main() -> Nil {\n  check()\n}\n\nfn check() -> Nil {\n  assert 1 == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "a test that asserts and then gives Nil",
+      file,
+      last("pub fn asserts_then_nil_test() -> Nil {\n  assert 1 == 1\n  Nil\n}"),
+    ),
+    Break(
+      Clean,
+      "a test that calls a helper of the module that asserts",
+      file,
+      last(
+        "pub fn through_a_helper_test() -> Nil {\n  check(1)\n}\n\nfn check(a: Int) -> Nil {\n  assert a == 1\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "should in a comment and in a string",
+      file,
+      both(
+        first("import gleeunit/should\n"),
+        last(
+          "pub fn note() -> String {\n  // should.equal(1, 2)\n  \"should.equal(1, 2)\"\n}",
+        ),
+      ),
+    ),
+    Break(
+      Escapes,
+      "a test that asserts only inside a closure nobody calls",
+      file,
+      last(
+        "pub fn closed_over_test() -> Nil {\n  let _check = fn() { assert 1 == 2 }\n  Nil\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a test that returns before its assert",
+      file,
+      last(
+        "pub fn returns_first_test() -> Nil {\n  use <- bool.guard(True, Nil)\n  assert 1 == 2\n}",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a test that is an @external function whose JavaScript checks nothing",
+      file,
+      last(
+        "@external(javascript, \"./nullpad_test_ffi.mjs\", \"nothing\")\npub fn outside_test() -> Nil",
+      ),
+    ),
+    Break(
+      Escapes,
+      "a misnamed public function calls a helper of another test module that asserts",
+      file,
+      both(
+        first("import support\n"),
+        last("pub fn forgotten() -> Nil {\n  support.check(1, 2)\n}"),
+      ),
     ),
   ]
 }

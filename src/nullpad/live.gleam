@@ -55,6 +55,15 @@ pub type Kind {
   Title(level: Level, marks: String)
   Mono
   ListItem(task: Bool, marker: String)
+  ItemTitle(Level, marker: String)
+  QuoteTitle(Level, in_item: Bool)
+}
+
+pub fn is_title(kind: Kind) -> Bool {
+  case kind {
+    Title(..) | ItemTitle(..) | QuoteTitle(..) -> True
+    Body | Mono | ListItem(..) -> False
+  }
 }
 
 pub fn kind(
@@ -83,13 +92,63 @@ pub fn kind(
     | [Block(content: OrderedList(items:, ..), ..)] ->
       case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
         Ok(first) ->
-          ListItem(
-            task: option.is_some(first.task),
-            marker: marker(lines, first),
-          )
+          case first.task, lone_heading(first.blocks, field, False) {
+            None, Ok(LoneHeading(level:, ..)) ->
+              ItemTitle(level, marker: marker(lines, first))
+            Some(_), _ | None, Error(Nil) ->
+              ListItem(
+                task: option.is_some(first.task),
+                marker: marker(lines, first),
+              )
+          }
         Error(Nil) -> Body
       }
-    _ -> Body
+    [Block(content: Quote(blocks:), ..)] ->
+      case lone_heading(blocks, field, False) {
+        Ok(LoneHeading(level:, inside_item:)) ->
+          QuoteTitle(level, in_item: inside_item)
+        Error(Nil) -> Body
+      }
+    [Block(content: Paragraph(..), ..)] | [Block(content: Rule, ..)] | [] ->
+      Body
+    [_, _, ..] -> Body
+  }
+}
+
+type LoneHeading {
+  LoneHeading(level: Level, inside_item: Bool)
+}
+
+fn lone_heading(
+  blocks: List(Block),
+  field: Region,
+  inside_item: Bool,
+) -> Result(LoneHeading, Nil) {
+  let held = fn(first_row, last_row) {
+    first_row <= field.last_row && last_row >= field.first_row
+  }
+  case
+    list.filter(blocks, fn(block) { held(block.first_row, block.last_row) })
+  {
+    [Block(content: Heading(level:, ..), first_row:, last_row:)] ->
+      case first_row == last_row && field == Region(first_row, last_row) {
+        True -> Ok(LoneHeading(level:, inside_item:))
+        False -> Error(Nil)
+      }
+    [Block(content: Quote(blocks:), ..)] ->
+      lone_heading(blocks, field, inside_item)
+    [Block(content: BulletList(items:, ..), ..)]
+    | [Block(content: OrderedList(items:, ..), ..)] ->
+      case list.find(items, fn(item) { held(item.row, item_last_row(item)) }) {
+        Ok(item) -> lone_heading(item.blocks, field, True)
+        Error(Nil) -> Error(Nil)
+      }
+    [Block(content: Paragraph(..), ..)]
+    | [Block(content: CodeBlock(..), ..)]
+    | [Block(content: Table(..), ..)]
+    | [Block(content: Rule, ..)]
+    | []
+    | [_, _, ..] -> Error(Nil)
   }
 }
 
@@ -171,7 +230,7 @@ pub fn position(
         _ ->
           case closes(before, next) {
             True -> skip_to(rest, next, col)
-            False -> col + cell_start(string.drop_start(line, col), next)
+            False -> col + cell_start(buffer.rest_of(line, from: col), next)
           }
       }
       Position(row:, col:)
