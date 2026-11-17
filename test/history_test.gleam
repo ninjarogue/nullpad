@@ -409,3 +409,160 @@ fn texts_on_the_way(history: History) -> List(String) {
     Error(Nil) -> []
   }
 }
+
+pub fn a_run_of_backspaces_after_letters_written_in_more_than_one_byte_is_one_step_test() {
+  let accented =
+    history.new(at("café latte", 5))
+    |> record_all([at("cafélatte", 4), at("caflatte", 3)])
+  assert history.present(undone(accented)) == at("café latte", 5)
+  assert history.undo(undone(accented)) == Error(Nil)
+
+  let cjk =
+    history.new(at("日本語 abc", 4))
+    |> record_all([at("日本語abc", 3), at("日本abc", 2)])
+  assert shown(undone(cjk)) == "日本語 abc"
+
+  let emoji =
+    history.new(at("I 👍 it", 4))
+    |> record_all([at("I 👍it", 3), at("I it", 2)])
+  assert shown(undone(emoji)) == "I 👍 it"
+}
+
+pub fn a_run_of_deletes_after_or_over_letters_written_in_more_than_one_byte_is_one_step_test() {
+  let after_accent =
+    history.new(at("café abc def", 5))
+    |> record_all([at("café bc def", 5), at("café c def", 5)])
+  assert history.present(undone(after_accent)) == at("café abc def", 5)
+  assert history.undo(undone(after_accent)) == Error(Nil)
+
+  let over_cjk =
+    history.new(at("abc 日本語 def", 4))
+    |> record_all([at("abc 本語 def", 4), at("abc 語 def", 4)])
+  assert shown(undone(over_cjk)) == "abc 日本語 def"
+
+  let over_emoji =
+    history.new(at("go 👍👍 now", 3))
+    |> record_all([at("go 👍 now", 3), at("go  now", 3)])
+  assert shown(undone(over_emoji)) == "go 👍👍 now"
+}
+
+pub fn a_run_of_typing_after_an_accented_letter_is_one_step_test() {
+  let typed =
+    history.new(at("café latte", 5))
+    |> record_all([
+      at("café blatte", 6),
+      at("café bilatte", 7),
+      at("café biglatte", 8),
+    ])
+  assert history.present(undone(typed)) == at("café latte", 5)
+  assert history.undo(undone(typed)) == Error(Nil)
+}
+
+pub fn typing_over_a_selected_accented_letter_is_one_step_with_the_typing_after_it_test() {
+  let selected =
+    buffer.from_text("abc é def")
+    |> buffer.select(anchor: Position(0, 4), head: Position(0, 5))
+  let typed =
+    history.new(selected)
+    |> record_all([at("abc x def", 5), at("abc xy def", 6)])
+
+  assert history.present(undone(typed)) == selected
+  assert history.undo(undone(typed)) == Error(Nil)
+}
+
+pub fn a_code_point_typed_onto_the_letter_before_the_caret_joins_the_run_of_typing_test() {
+  let accent =
+    history.new(at("", 0))
+    |> record_all([
+      at("c", 1),
+      at("ca", 2),
+      at("caf", 3),
+      at("cafe", 4),
+      at("cafe\u{301}", 4),
+    ])
+  assert history.present(undone(accent)) == at("", 0)
+  assert history.undo(undone(accent)) == Error(Nil)
+  assert history.present(redone(undone(accent))) == at("cafe\u{301}", 4)
+
+  let flags =
+    history.new(at("", 0))
+    |> record_all([
+      at("🇯", 1),
+      at("🇯🇵", 1),
+      at("🇯🇵🇺", 2),
+      at("🇯🇵🇺🇸", 2),
+    ])
+  assert shown(undone(flags)) == ""
+
+  let family =
+    history.new(at("", 0))
+    |> record_all([
+      at("👨", 1),
+      at("👨\u{200d}", 1),
+      at("👨\u{200d}👩", 1),
+      at("👨\u{200d}👩\u{200d}", 1),
+      at("👨\u{200d}👩\u{200d}👧", 1),
+    ])
+  assert shown(undone(family)) == ""
+}
+
+pub fn a_letter_changed_into_another_before_the_caret_is_a_step_of_its_own_test() {
+  let changed =
+    history.new(at("", 0))
+    |> record_all([at("a", 1), at("ab", 2), at("abe", 3), at("abx", 3)])
+  assert shown(undone(changed)) == "abe"
+  assert shown(undone(undone(changed))) == ""
+}
+
+pub fn a_backspace_that_takes_only_an_accent_off_joins_the_run_of_backspaces_test() {
+  let letters = "e\u{301}e\u{301}e\u{301}"
+  let erased =
+    history.new(at(letters, 3))
+    |> record_all([
+      at("e\u{301}e\u{301}e", 3),
+      at("e\u{301}e\u{301}", 2),
+      at("e\u{301}e", 2),
+    ])
+  assert history.present(undone(erased)) == at(letters, 3)
+  assert history.undo(undone(erased)) == Error(Nil)
+}
+
+pub fn a_mark_added_while_the_text_after_the_caret_changes_is_a_step_of_its_own_test() {
+  let changed =
+    history.new(at("x", 0))
+    |> record_all([at("ex", 1), at("e\u{301}y", 1)])
+  assert history.present(undone(changed)) == at("ex", 1)
+  assert history.present(undone(undone(changed))) == at("x", 0)
+}
+
+pub fn a_letter_replaced_in_place_by_a_longer_one_is_a_step_of_its_own_test() {
+  let replaced =
+    history.new(at("", 0))
+    |> record_all([at("a", 1), at("\u{e9}", 1)])
+  assert history.present(undone(replaced)) == at("a", 1)
+  assert history.present(undone(undone(replaced))) == at("", 0)
+}
+
+pub fn a_word_deleted_after_a_run_of_deletes_is_a_step_of_its_own_test() {
+  let deleted =
+    history.new(at("ab cd ef gh", 3))
+    |> record_all([at("ab d ef gh", 3), at("ab  ef gh", 3), at("ab  gh", 3)])
+  assert shown(undone(deleted)) == "ab  ef gh"
+  assert shown(undone(undone(deleted))) == "ab cd ef gh"
+}
+
+pub fn a_mark_typed_onto_a_letter_after_a_multi_byte_letter_joins_the_run_test() {
+  let typed =
+    history.new(at("日x", 1))
+    |> record_all([at("日ex", 2), at("日e\u{301}x", 2)])
+  assert history.present(undone(typed)) == at("日x", 1)
+  assert history.undo(undone(typed)) == Error(Nil)
+}
+
+pub fn text_put_before_a_caret_that_stays_at_the_start_of_a_row_is_a_step_of_its_own_test() {
+  let put =
+    history.new(at("ab", 0))
+    |> record_all([at("bab", 0), at("xbab", 1)])
+  assert shown(undone(put)) == "bab"
+  assert shown(undone(undone(put))) == "ab"
+}

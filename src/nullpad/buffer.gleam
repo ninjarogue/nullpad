@@ -83,7 +83,7 @@ pub fn replace(
 ) -> Buffer {
   let #(from, to) = in_order(clamp(buffer.lines, from), clamp(buffer.lines, to))
   let before = string.slice(line(buffer.lines, from.row), 0, from.col)
-  let after = string.drop_start(line(buffer.lines, to.row), to.col)
+  let after = rest_of(line(buffer.lines, to.row), from: to.col)
   let inserted_end = end_of(before <> new)
   let end = Position(row: from.row + inserted_end.row, col: inserted_end.col)
   let lines =
@@ -124,12 +124,19 @@ fn moved(
     list.drop(buffer.lines, start.row)
     |> list.take(end.row - start.row + 1)
     |> string.join("\n")
-    |> string.drop_start(start.col)
+    |> rest_of(from: start.col)
   let text =
     string.drop_end(text, string.length(line(buffer.lines, end.row)) - end.col)
   let taken = replace(buffer, from: start, to: end, with: "")
   let put = replace(taken, from: to, to: to, with: text)
   Buffer(..put, anchor: to)
+}
+
+/// What is left of `text` after its first `col` graphemes. The standard
+/// library's `string.drop_start` cuts the wrong place on JavaScript once a
+/// letter before `col` takes more than one byte.
+pub fn rest_of(text: String, from col: Int) -> String {
+  string.slice(text, int.max(col, 0), string.length(text))
 }
 
 pub fn end_of(text: String) -> Position {
