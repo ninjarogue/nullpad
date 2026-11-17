@@ -1089,8 +1089,18 @@ test('Shift and an arrow left or right change what is painted, over every kind o
     ]);
   // A head steps a letter at a time through the marks the page hides, as in a
   // text field, and the page draws every place among them at one place, as it
-  // draws a row it does not draw at the end of the block before. So a press
-  // that paints nothing new has only taken or given back marks or a break.
+  // draws a row it does not draw at the end of the block before. So each press
+  // paints something new, unless all it took or gave back is hidden: the marks
+  // of the table, the fence, the quote, the list item and the heading, and the
+  // rows of the table and the fence the page does not draw.
+  const rows = note.split('\n');
+  const undrawn = new Set([3, 6, 10]);
+  const hidden = rows.flatMap((row, index) => {
+    const marker = row.startsWith('|') ? 0 : (/^(?:> |>|- |# )/.exec(row)?.[0].length ?? 0);
+    const marks = [...row].map((letter, at) => undrawn.has(index) || (row.startsWith('|') ? letter === '|' || letter === ' ' : at < marker));
+    return index === rows.length - 1 ? marks : [...marks, undrawn.has(index) || undrawn.has(index + 1)];
+  });
+  const anchor = note.indexOf('\n');
   const walk = async (key: string, done: (selected: string) => boolean) => {
     let last = await seen();
     for (let press = 0; press < 80; press++) {
@@ -1102,8 +1112,15 @@ test('Shift and an arrow left or right change what is painted, over every kind o
       await page.nextFrame();
       const now = await seen();
       const selected = (await page.selection()).selected;
-      const crossed = selected.length > before.length ? selected.slice(before.length) : before.slice(selected.length);
-      if (now === last) expect({ press, key, crossed }).toEqual({ press, key, crossed: expect.stringMatching(/^[-|`>#* \n]+$/) });
+      const from = anchor + Math.min(before.length, selected.length);
+      const to = anchor + Math.max(before.length, selected.length);
+      const shown = note.slice(from, to).split('').filter((_, at) => !hidden[from + at]).join('');
+      expect({ press, key, crossed: note.slice(from, to), moved: now !== last || shown === '' }).toEqual({
+        press,
+        key,
+        crossed: note.slice(from, to),
+        moved: true,
+      });
       last = now;
     }
     throw new Error(`${key} did not get there`);
