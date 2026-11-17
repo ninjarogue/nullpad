@@ -26,7 +26,7 @@ pub fn view(
 ) -> Element(msg) {
   html.div(
     [attribute.class("preview"), attribute.data("test-id", "preview")],
-    list.map(blocks, block(_, Unmarked, False, on_task)),
+    list.map(blocks, block(_, Unmarked, Outside, on_task)),
   )
 }
 
@@ -49,7 +49,7 @@ pub fn part(
     [attribute.class("preview part"), attribute.data("test-id", test_id)],
     inside(blocks, from: first_row, to:)
       |> spaced(from: first_row, to:, rows: Marked, draw: fn(shown) {
-        [block(shown, Marked, False, on_task)]
+        [block(shown, Marked, Outside, on_task)]
       }),
   )
 }
@@ -168,10 +168,15 @@ fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   }
 }
 
+type Within {
+  InQuote
+  Outside
+}
+
 fn block(
   shown: Block,
   rows: Rows,
-  in_quote: Bool,
+  within: Within,
   on_task: fn(Task, Bool) -> msg,
 ) -> Element(msg) {
   let here = at(rows, shown.first_row)
@@ -191,7 +196,7 @@ fn block(
           from: shown.first_row,
           to: shown.last_row + 1,
           rows:,
-          draw: fn(child) { [block(child, rows, True, on_task)] },
+          draw: fn(child) { [block(child, rows, InQuote, on_task)] },
         ),
       )
     BulletList(spacing, items) -> html.ul(here, list_items(items, spacing))
@@ -206,9 +211,9 @@ fn block(
         Some(word) -> [attribute.class("language-" <> word)]
         None -> []
       }
-      let count = case in_quote {
-        True -> rows_style(shown, rows)
-        False -> []
+      let count = case within {
+        InQuote -> rows_style(shown, rows)
+        Outside -> []
       }
       html.pre(list.append(at(rows, code_row), count), [
         html.code(class, [element.text(code)]),
@@ -325,7 +330,7 @@ fn item(
     spaced(shown.blocks, from: shown.row, to: end, rows:, draw: fn(child) {
       case child.content, spacing {
         Paragraph(text), Tight -> inlines(text)
-        _, _ -> [block(child, rows, False, on_task)]
+        _, _ -> [block(child, rows, Outside, on_task)]
       }
     })
   case shown.task {
