@@ -1,11 +1,11 @@
 import type { E2EConfig } from 'e2e';
-import { engine } from './engine.ts';
+import { nullpadEngine } from './engine.ts';
 
 export default {
   tests: ['tests/**/*.e2e.ts', '!tests/dpr2/**'],
   targets: [
     {
-      engine,
+      engine: nullpadEngine(),
       app: {
         url: 'http://127.0.0.1:0',
         permissions: { 'clipboard-read': 'grant', 'clipboard-write': 'grant' },

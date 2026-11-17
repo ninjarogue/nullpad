@@ -1,7 +1,6 @@
-import { surfaceOf } from '@e2e-dev/web';
 import type { Locator } from 'e2e';
 import type { CDPSession } from 'playwright-core';
-import { engine } from '../engine.ts';
+import { live } from '../engine.ts';
 
 export const phone = { width: 390, height: 844, pixelRatio: 3 };
 
@@ -21,7 +20,7 @@ export class Finger {
   ) {}
 
   static async onPhone(nextFrame: () => Promise<unknown>) {
-    const tab = surfaceOf(engine)!.page();
+    const tab = live().page();
     const session = await tab.context().newCDPSession(tab);
     await session.send('Emulation.setDeviceMetricsOverride', {
       width: phone.width,

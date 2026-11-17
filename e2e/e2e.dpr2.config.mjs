@@ -3,8 +3,8 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { web } from '@e2e-dev/web';
 import { chromium } from 'playwright-core';
+import { nullpadEngine } from './engine.ts';
 
 const twice = {
   name: 'chromium at device pixel ratio 2',
@@ -51,7 +51,7 @@ export default {
   targets: [
     {
       name: 'dpr2',
-      engine: web({ testIdAttribute: 'data-test-id', browser: twice, viewport: null }),
+      engine: nullpadEngine({ browser: twice, viewport: null }),
       app: {
         url: 'http://127.0.0.1:0',
         command: {

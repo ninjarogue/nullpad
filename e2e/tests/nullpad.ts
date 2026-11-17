@@ -1,10 +1,10 @@
-import { surfaceOf, test as base } from '@e2e-dev/web';
+import { test as base } from '@e2e-dev/web';
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import type { App, Locator, Screen } from 'e2e';
 import type { BrowserContext, Page as Tab } from 'playwright-core';
 import { listen } from '../browser-problems.mjs';
-import { engine } from '../engine.ts';
+import { live } from '../engine.ts';
 import { Finger } from './finger.ts';
 
 export type Note = { key: string; title: string | null; body: string };
@@ -718,7 +718,7 @@ export const test = base.extend<{ disk: Disk; page: Page }>({
     await use(new Disk(app, browser));
   },
   page: async ({ screen, browser }, use) => {
-    const reports = new Reports(surfaceOf(engine)!.context());
+    const reports = new Reports(live().context());
     // Most tests type and read whole notes, so they start with Markdown on.
     await browser.addInitScript(() => {
       try {
