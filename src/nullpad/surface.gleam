@@ -701,7 +701,14 @@ pub fn sync(
           write_now(buffer)
           blur_control(control_id)
         }),
-        effect.before_paint(fn(_, _) { blur_control(control_id) }),
+        // Text an IME puts in the field before the frame takes the focus
+        // back, and the keys after it go to the field.
+        effect.before_paint(fn(_, _) {
+          case editor.is_idle(current_editor()) {
+            True -> blur_control(control_id)
+            False -> Nil
+          }
+        }),
         painted,
       ])
     editor.Press(write: written, x:, y:) -> {
