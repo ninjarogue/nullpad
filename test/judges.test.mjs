@@ -286,6 +286,39 @@ pub fn second_test() {
   });
 });
 
+describe("what an honest edit of the real helpers and specs does", () => {
+  const paths = ["e2e/tests/nullpad.ts", "e2e/tests/headings.e2e.ts", "e2e/tests/layout.e2e.ts", "e2e/tests/writing.e2e.ts"];
+  const files = Object.fromEntries(paths.map((path) => [path, readFileSync(join(root, path), "utf8")]));
+  const edited = (path, from, to) => {
+    const text = files[path].replace(from, to);
+    assert.notEqual(text, files[path], `${from} is not in ${path}`);
+    return { ...files, [path]: text };
+  };
+
+  test("a locator and its field put in the Page constructor, a type, an export, a method and a new loop row change nothing", () => {
+    const page = "e2e/tests/nullpad.ts";
+    const cases = [
+      edited(page, /(class Page \{[\s\S]*?constructor\([\s\S]*?\) \{\n[\s\S]*?\n)(  \}\n)/, "$1    this.footer = screen.getByTestId('footer');\n$2"),
+      edited(page, "export const pause = (ms: number) =>", "export const pause = (ms: number): Promise<unknown> =>"),
+      edited(page, "function recordCrashes", "export function recordCrashes"),
+      edited(page, "  /** How far down the page of the note is scrolled. */", "  extra() {\n    return 1;\n  }\n\n  /** How far down the page of the note is scrolled. */"),
+      edited("e2e/tests/layout.e2e.ts", "const widths = [390, 1280];", "const widths = [390, 1280, 2560];"),
+      edited("e2e/tests/layout.e2e.ts", "for (const width of widths) {\n", "for (const width of widths) {\n  const label = `at ${width}`;\n"),
+      edited("e2e/tests/headings.e2e.ts", "for (const block of ['Hello\\n===', 'Hello\\n---', 'Hello\\nworld\\n===']) {", "for (const block of ['Hello\\n===', 'Hello\\n---', 'Hello\\nworld\\n===', 'x\\n===']) {"),
+      edited("e2e/tests/writing.e2e.ts", "const typed = performance.now();", "const typed: number = performance.now();"),
+    ];
+    for (const after of cases) assert.deepEqual(named(changes(files, after)), []);
+  });
+
+  test("a locator of the Page constructor changed, a loop row taken out, and a hook put at the top are changes", () => {
+    const page = "e2e/tests/nullpad.ts";
+    const flagged = (after) => named(changes(files, after)).length;
+    assert.equal(flagged(edited(page, "this.rows = browser.locator('[data-test-id=\"note-list\"] [data-test-id^=\"note-\"]');", "this.rows = browser.locator('[data-test-id=\"note-list\"] [data-test-id^=\"note-\"]:first-child');")), 1);
+    assert.equal(flagged(edited("e2e/tests/layout.e2e.ts", "const widths = [390, 1280];", "const widths = [1280];")), 1);
+    assert.equal(flagged(edited("e2e/tests/writing.e2e.ts", "\ntest('the first visit", "\nbeforeEach(async () => {});\n\ntest('the first visit")), 1);
+  });
+});
+
 describe("a renamed local variable is not a change", () => {
   const rename = (text, from, to) => text.replace(new RegExp(`\\b${from}\\b`, "g"), to);
 
@@ -384,10 +417,10 @@ pub fn locals_test() {
       assert.deepEqual(named(changes({ [spec]: twins }, { [spec]: swap(twins, "expect(a).toBe(b)", "expect(a).toBe(a)") })), [`weakened-test: ${spec} > locals`]);
     });
 
-    test("a local named in a type (`keyof typeof it`) is renamed with it, and a type of another local is a change", () => {
+    test("a local named in a type (`keyof typeof it`) is renamed with it, and another type is no change at all", () => {
       const typed = swap(code, "  expect(sum).toBe(3);\n", "  const edge = { top: 1, below: 2 };\n  const moved = (side: keyof typeof edge) => edge[side] > 0;\n  expect(moved('top')).toBe(true);\n  expect(sum).toBe(3);\n");
       assert.deepEqual(named(changes({ [spec]: typed }, { [spec]: rename(rename(typed, "edge", "box"), "moved", "shifted") })), []);
-      assert.deepEqual(named(changes({ [spec]: typed }, { [spec]: swap(typed, "keyof typeof edge", "keyof typeof sum") })), [`weakened-test: ${spec} > locals`]);
+      assert.deepEqual(named(changes({ [spec]: typed }, { [spec]: swap(typed, "keyof typeof edge", "keyof typeof sum") })), []);
     });
 
     test("a local named in the first words of a statement at the top of a helper a test loads is renamed with it", () => {
@@ -737,6 +770,268 @@ describe("the files that decide", () => {
   test("the pick map, the lock file, the e2e dependencies and its output and the readmes are not judges, and the rest of test, tools and e2e are", () => {
     for (const path of ["test/pick_map.json", "e2e/package-lock.json", "e2e/node_modules/x/index.js", "e2e/.e2e/out/report.json", "tools/mutants/README.md", "test/commonmark/README.md"]) assert.ok(!judged(path), path);
     for (const path of ["test/test_counts.json", "e2e/package.json", "test/steps.mjs", "tools/mutants/mutants.mjs", "e2e/serve.mjs", "e2e/e2e.config.ts", "e2e/tests/undo.e2e.ts", ".githooks/pre-push", ".github/workflows/test.yml"]) assert.ok(judged(path), path);
+  });
+});
+
+describe("a class a test builds, and what its constructor gains", () => {
+  const helper = "e2e/tests/page.ts";
+  const page = `export class Page {
+  readonly text: Locator;
+  readonly rows: Locator;
+  constructor(screen: Screen, private readonly browser: Browser) {
+    this.text = screen.getByLabel('Note text');
+    this.rows = browser.locator('[data-test-id="note-list"] [data-test-id^="note-"]');
+  }
+  async typed() {
+    return this.text;
+  }
+}
+`;
+  const reader = e2e(`import { Page } from './page.ts';
+test('reads', async ({ app }) => {
+  const page = new Page(app, app);
+  await expect(page.rows).toHaveText(['a']);
+});`);
+  const files = { [spec]: reader, [helper]: page };
+  const flagged = (text) => named(changes(files, { ...files, [helper]: text })).sort();
+  const constructed = `changed-input: ${helper}::class:Page.constructor`;
+
+  test("a locator added to the constructor, with its field and a method, is free", () => {
+    const grown = swap(swap(page, "  readonly rows: Locator;\n", "  readonly rows: Locator;\n  readonly footer: Locator;\n"), "    this.rows =", "    this.footer = screen.getByTestId('footer');\n    this.rows =");
+    assert.deepEqual(flagged(grown), []);
+    assert.deepEqual(flagged(`${swap(grown, "  async typed() {", "  async more() {\n    return 1;\n  }\n  async typed() {")}`), []);
+    assert.deepEqual(flagged(swap(page, "  }\n  async typed", "    this.footer = this.inside('footer');\n  }\n  async typed")), []);
+  });
+
+  test("a constructor line changed or removed, set again, or any other statement put in it, is a change", () => {
+    assert.deepEqual(flagged(swap(page, '[data-test-id^="note-"]', '[data-test-id^="note-"]:first-child')), [constructed]);
+    assert.deepEqual(flagged(swap(page, "    this.text = screen.getByLabel('Note text');\n", "")), [constructed]);
+    assert.deepEqual(flagged(swap(page, "  }\n  async typed", "    this.rows = browser.locator('li:first-child');\n  }\n  async typed")), [constructed]);
+    assert.deepEqual(flagged(swap(page, "  }\n  async typed", "    this.text.fill('x');\n  }\n  async typed")), [constructed]);
+    assert.deepEqual(flagged(swap(page, "  }\n  async typed", "    if (browser) return;\n  }\n  async typed")), [constructed]);
+    assert.deepEqual(flagged(swap(page, "private readonly browser: Browser", "private readonly browser: Browser, extra: Browser")), [constructed]);
+  });
+
+  test("export put in front of a class, a function or a const is free, and so is taking it off", () => {
+    const hidden = `class Page {\n  constructor(screen: Screen) {\n    this.text = screen.getByLabel('Note text');\n  }\n}\nconst note = 'a';\nfunction shown() {\n  return 1;\n}\n`;
+    const user = e2e("import { Page, note, shown } from './page.ts';\ntest('reads', async () => {\n  const page = new Page(1);\n  expect(note + shown()).toBe('a1');\n});");
+    const before = { [spec]: user, [helper]: hidden };
+    assert.deepEqual(named(changes(before, { ...before, [helper]: hidden.replace(/^(class|const|function) /gm, "export $1 ") })), []);
+    assert.deepEqual(named(changes({ ...before, [helper]: hidden.replace(/^(class|const|function) /gm, "export $1 ") }, before)), []);
+  });
+
+  test("a method a test calls is still a change", () => {
+    const called = swap(reader, "await expect(page.rows)", "await page.typed();\n  await expect(page.rows)");
+    const both = { [spec]: called, [helper]: page };
+    assert.deepEqual(named(changes(both, { ...both, [helper]: swap(page, "return this.text;", "return null;") })), [`changed-input: ${helper}::class:Page.typed`]);
+  });
+});
+
+describe("a type is not a statement", () => {
+  const helper = "e2e/tests/clock.ts";
+  const clock = "export const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));\nexport function twice(n) {\n  return n * 2;\n}\nexport class Box {\n  size = 1;\n  grow(by) {\n    return this.size + by;\n  }\n}\n";
+  const reader = e2e("import { Box, pause, twice } from './clock.ts';\ntest('reads', async () => {\n  const typed = performance.now();\n  const seen = new Map();\n  await pause(twice(1));\n  expect(new Box().grow(1)).toBe(2);\n  expect(typed).toBeGreaterThan(0);\n  expect(seen.size).toBe(0);\n});");
+  const files = { [spec]: reader, [helper]: clock };
+
+  test("a type put on a const, a parameter, a return, a generic argument, a class field or a cast changes nothing", () => {
+    const typedHelper = "export const pause = (ms: number): Promise<unknown> => new Promise<void>((resolve) => setTimeout(resolve, ms));\nexport function twice(n: number): number {\n  return n * 2;\n}\nexport class Box {\n  size: number = 1;\n  grow(by: number): number {\n    return (this.size as number) + by;\n  }\n}\n";
+    assert.deepEqual(named(changes(files, { ...files, [helper]: typedHelper })), []);
+    const typedTest = swap(swap(swap(reader, "const typed = performance.now();", "const typed: number = performance.now();"), "new Map()", "new Map<string, number>()"), "expect(typed)", "expect(typed as number)");
+    assert.deepEqual(named(changes(files, { ...files, [spec]: typedTest })), []);
+    const typedFile = `export const widths: number[] = [1, 2];\nexport interface Row { id: string }\n`;
+    assert.deepEqual(named(changes({ [helper]: typedFile.replace(": number[]", "") }, { [helper]: typedFile })), []);
+  });
+
+  test("a value, a name or a call changed next to a type is still a change", () => {
+    assert.deepEqual(named(changes(files, { ...files, [helper]: swap(clock, "n * 2", "n * 3") })), [`changed-input: ${helper}::fn:twice`]);
+    assert.deepEqual(named(changes(files, { ...files, [spec]: swap(reader, "const typed = performance.now();", "const typed: number = performance.timeOrigin;") })), [`weakened-test: ${spec} > reads`]);
+  });
+});
+
+describe("the options a test is registered with", () => {
+  const before = { [spec]: sums };
+  const flagged = (text) => named(changes(before, { [spec]: text }));
+
+  test("an option other than skip, fixme, fail or todo put on a test is a change", () => {
+    for (const option of ["{ retries: 10 }", "{ timeout: 600000 }", "{ platforms: ['ios'] }", "{ requires: ['nothing'] }", "{ only: true }", "{ tag: '@slow' }"]) {
+      assert.deepEqual(flagged(swap(sums, "test('adds', async", `test('adds', ${option}, async`)), [`weakened-test: ${spec} > adds`], option);
+    }
+  });
+
+  test("an option put on a describe reaches the tests under it", () => {
+    const grouped = e2e("test.describe('math', () => {\n  test('adds', async () => {\n    expect(add(1, 2)).toBe(3);\n  });\n});");
+    const optioned = swap(grouped, "test.describe('math', () =>", "test.describe('math', { retries: 5 }, () =>");
+    assert.deepEqual(named(changes({ [spec]: grouped }, { [spec]: optioned })), [`weakened-test: ${spec} > math > adds`]);
+  });
+
+  test("an option changed or removed is a change, and the same options written otherwise are not", () => {
+    const optioned = swap(sums, "test('adds', async", "test('adds', { retries: 1, tag: '@a' }, async");
+    const after = (text) => named(changes({ [spec]: optioned }, { [spec]: text }));
+    assert.deepEqual(after(swap(optioned, "retries: 1", "retries: 9")), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(after(sums), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(after(swap(optioned, "{ retries: 1, tag: '@a' }", '{\n    retries: 1,\n    tag: "@a",\n  }')), []);
+    assert.deepEqual(after(`${optioned}test('new', { retries: 3 }, async () => { expect(1).toBe(1); });\n`), []);
+  });
+
+  test("a skip taken off a test, or its reason changed, is free, and one that is left beside another option is not a change of that option", () => {
+    const skipped = swap(sums, "test('adds', async", "test('adds', { skip: 'M2: not yet', retries: 1 }, async");
+    const after = (text) => named(changes({ [spec]: skipped }, { [spec]: text }));
+    assert.deepEqual(after(swap(skipped, "skip: 'M2: not yet', ", "")), []);
+    assert.deepEqual(after(swap(skipped, "'M2: not yet'", "'M3: later'")), []);
+    assert.deepEqual(after(swap(skipped, "retries: 1", "retries: 2")), [`weakened-test: ${spec} > adds`]);
+    const alone = swap(sums, "test('adds', async", "test('adds', { skip: 'M2: not yet' }, async");
+    assert.deepEqual(named(changes({ [spec]: alone }, { [spec]: sums })), []);
+  });
+
+  test("a const used as the options of a test may not gain a key, though a table of rows may", () => {
+    const slow = "const slow = { timeout: 300_000 };\nconst rows = [1, 2];\ntest('slow', slow, async () => {\n  for (const row of rows) expect(row).toBeGreaterThan(0);\n});\n";
+    const base = e2e(slow);
+    const after = (from, to) => named(changes({ [spec]: base }, { [spec]: swap(base, from, to) }));
+    assert.deepEqual(after("{ timeout: 300_000 }", "{ timeout: 300_000, retries: 9 }"), [`changed-input: ${spec}::var:slow`]);
+    assert.deepEqual(after("[1, 2]", "[1, 2, 3]"), []);
+  });
+});
+
+describe("a table that lists what is let through is as strict as a script", () => {
+  const helper = "e2e/tests/lists.ts";
+  const lists = "export const expectedFailures = [1, 2];\nexport const widths = [390, 1280];\nexport const knownLimits = { a: 1 };\n";
+  const reader = e2e("import { expectedFailures, knownLimits, widths } from './lists.ts';\ntest('reads', async () => {\n  expect(expectedFailures.length + widths.length + knownLimits.a).toBe(5);\n});");
+  const files = { [spec]: reader, [helper]: lists };
+  const flagged = (from, to) => named(changes(files, { ...files, [helper]: swap(lists, from, to) }));
+
+  test("a row added to a list named expected, known, allow, exempt, failures or skip is a change, and to any other table is not", () => {
+    assert.deepEqual(flagged("[1, 2]", "[1, 2, 3]"), [`changed-input: ${helper}::var:expectedFailures`]);
+    assert.deepEqual(flagged("{ a: 1 }", "{ a: 1, b: 2 }"), [`changed-input: ${helper}::var:knownLimits`]);
+    assert.deepEqual(flagged("[390, 1280]", "[390, 1280, 2560]"), []);
+  });
+
+  test("in gleam, a row added to expected_failures is a change, and to any other list is not", () => {
+    const file = "test/listed_test.gleam";
+    const body = "const expected_failures = [#(A, [1, 2])]\n\nconst corpus = [1, 2]\n\npub fn listed_test() {\n  assert expected_failures != []\n  assert corpus != []\n}\n";
+    const gleam = (from, to) => named(changes({ [file]: body }, { [file]: swap(body, from, to) }));
+    assert.deepEqual(gleam("[#(A, [1, 2])]", "[#(A, [1, 2]), #(B, [3])]"), [`changed-input: ${file}::const:expected_failures`]);
+    assert.deepEqual(gleam("[#(A, [1, 2])]", "[#(A, [1, 2, 3])]"), [`changed-input: ${file}::const:expected_failures`]);
+    assert.deepEqual(gleam("[1, 2]\n\npub", "[1, 2, 3]\n\npub"), []);
+  });
+});
+
+describe("the code around a test is judged with it", () => {
+  const looped = e2e(`const widths = [390, 1280];
+for (const width of widths) {
+  test(\`fits at \${width}\`, async () => {
+    expect(width).toBeGreaterThan(0);
+  });
+}
+for (const block of ['a', 'b']) {
+  test(\`reads \${block}\`, async () => {
+    expect(block.length).toBe(1);
+  });
+}
+test.describe('math', () => {
+  for (const scheme of ['light', 'dark']) {
+    test(\`paints \${scheme}\`, async () => {
+      expect(scheme.length).toBeGreaterThan(0);
+    });
+  }
+});`);
+  const flagged = (text) => named(changes({ [spec]: looped }, { [spec]: text })).sort();
+  const rename = (text, from, to) => text.replace(new RegExp(`\\b${from}\\b`, "g"), to);
+
+  test("a loop over a list that gets emptied, filtered or narrowed is a change", () => {
+    assert.deepEqual(flagged(swap(looped, "for (const width of widths) {", "for (const width of widths.filter(() => false)) {")), [`weakened-test: ${spec} > fits at \${width}`]);
+    assert.deepEqual(flagged(swap(looped, "for (const block of ['a', 'b'])", "for (const block of ['a'])")), [`weakened-test: ${spec} > reads \${block}`]);
+    assert.deepEqual(flagged(swap(looped, "const widths = [390, 1280];", "const widths = [1280];")), [`changed-input: ${spec}::var:widths`]);
+  });
+
+  test("a loop over a list that gets a row is free, and so is a renamed loop variable", () => {
+    assert.deepEqual(flagged(swap(looped, "['a', 'b']", "['a', 'b', 'c']")), []);
+    assert.deepEqual(flagged(swap(looped, "const widths = [390, 1280];", "const widths = [390, 1280, 2560];")), []);
+    assert.deepEqual(flagged(rename(rename(looped, "block", "text"), "width", "w")), []);
+  });
+
+  test("a test wrapped in a condition, or one that a continue, a break or a return skips, is a change", () => {
+    assert.deepEqual(flagged(swap(looped, "for (const block of ['a', 'b']) {\n", "for (const block of ['a', 'b']) {\n  if (block === 'b') continue;\n")), [`weakened-test: ${spec} > reads \${block}`]);
+    assert.deepEqual(flagged(swap(looped, "for (const scheme of ['light', 'dark']) {\n", "for (const scheme of ['light', 'dark']) {\n    if (scheme === 'dark') break;\n")), [`weakened-test: ${spec} > math > paints \${scheme}`]);
+    const wrapped = swap(swap(looped, "for (const width of widths) {", "if (process.env.SLOW) {\nfor (const width of widths) {"), "\n}\nfor (const block", "\n}\n}\nfor (const block");
+    assert.deepEqual(flagged(wrapped), [`weakened-test: ${spec} > fits at \${width}`]);
+    assert.deepEqual(flagged(swap(looped, "test.describe('math', () => {", "if (false) test.describe('math', () => {")), [`weakened-test: ${spec} > math > paints \${scheme}`]);
+  });
+
+  test("a loop put around a test, or a call that runs it for each item, is a change", () => {
+    const plain = e2e("test('adds', async () => {\n  expect(add(1, 2)).toBe(3);\n});");
+    const around = e2e("for (const _ of []) {\ntest('adds', async () => {\n  expect(add(1, 2)).toBe(3);\n});\n}");
+    assert.deepEqual(named(changes({ [spec]: plain }, { [spec]: around })), [`weakened-test: ${spec} > adds`]);
+    const each = e2e("[1].forEach((n) => {\n  test(`adds ${n}`, async () => {\n    expect(add(n, 2)).toBe(3);\n  });\n});");
+    assert.deepEqual(named(changes({ [spec]: each }, { [spec]: swap(each, "[1].forEach", "[].forEach") })), [`weakened-test: ${spec} > adds \${n}`]);
+  });
+
+  test("a statement put in the loop before the test is free unless it can skip the test", () => {
+    assert.deepEqual(flagged(swap(looped, "for (const block of ['a', 'b']) {\n", "for (const block of ['a', 'b']) {\n  const shout = block.toUpperCase();\n")), []);
+  });
+});
+
+describe("a test moved to another file", () => {
+  const first = "test/first_test.gleam";
+  const second = "test/second_test.gleam";
+  const test_ = (rows) => `const rows = ${rows}\n\nfn shown() -> Int {\n  1\n}\n\npub fn listed_test() {\n  assert shown() == 1\n  assert rows != []\n}\n`;
+  const files = { [first]: test_("[1, 2]"), [second]: test_("[3, 4]") };
+
+  test("a test deleted that another file has a copy of, which reads other things, is a removal", () => {
+    const gone = { ...files, [second]: "const rows = [3, 4]\n\nfn shown() -> Int {\n  1\n}\n" };
+    assert.deepEqual(named(changes(files, gone)), [`removed-test: ${second}::listed_test`]);
+  });
+
+  test("a test moved to a file that has the same helpers, or a file renamed whole, is free", () => {
+    const moved = { [first]: test_("[1, 2]"), [second]: "const rows = [3, 4]\n\nfn shown() -> Int {\n  1\n}\n", "test/third_test.gleam": test_("[3, 4]") };
+    assert.deepEqual(named(changes(files, moved)), []);
+    assert.deepEqual(named(changes({ [first]: files[first] }, { "test/renamed_test.gleam": files[first] })), []);
+  });
+
+  test("a test moved to a file where a helper it calls is another one is a removal", () => {
+    const helpers = "const rows = [1, 2]\n\nfn shown() -> Int {\n  1\n}\n";
+    const stubbed = swap(test_("[1, 2]"), "  1\n}", "  2\n}");
+    assert.deepEqual(named(changes({ [first]: files[first] }, { [first]: helpers, "test/third_test.gleam": stubbed })), [`removed-test: ${first}::listed_test`]);
+    assert.deepEqual(named(changes({ [first]: files[first] }, { [first]: helpers, "test/third_test.gleam": test_("[1, 2]") })), []);
+  });
+
+  test("in typescript, a test deleted that a copy in another file stands for is a removal", () => {
+    const other = "e2e/tests/other.e2e.ts";
+    const body = (rows) => e2e(`const rows = ${rows};\ntest('lists', async () => {\n  expect(rows.length).toBe(2);\n});`);
+    const both = { [spec]: body("[1, 2]"), [other]: body("[3, 4]") };
+    assert.deepEqual(named(changes(both, { [spec]: body("[1, 2]"), [other]: e2e("const rows = [3, 4];") })), [`removed-test: ${other} > lists`]);
+  });
+});
+
+describe("a hook or a statement put at the top of a test file, or a shared fixture changed by a test", () => {
+  const before = { [spec]: `${sums}const shared = { body: 'a' };\n` };
+  const flagged = (text) => named(changes(before, { [spec]: text }));
+  const added = (statement) => flagged(swap(before[spec], "test('adds'", `${statement}\ntest('adds'`));
+
+  test("a hook, a call, an assignment or a condition added at the top of a test file is a change", () => {
+    assert.deepEqual(added("beforeEach(async () => { await Promise.resolve(); });").length, 1);
+    assert.deepEqual(added("test.use({ viewport: { width: 1 } });").length, 1);
+    assert.deepEqual(added("shared.body = 'b';").length, 1);
+    assert.deepEqual(added("if (process.env.CI) { shared.body = 'c'; }").length, 1);
+  });
+
+  test("a const, a helper, a type or an import added at the top is free", () => {
+    assert.deepEqual(added("const more = 3;\nfunction helper() { return 1; }\ntype Row = { id: string };"), []);
+  });
+
+  test("a hook added in a describe is a change", () => {
+    const grouped = e2e("test.describe('math', () => {\n  test('adds', async () => {\n    expect(add(1, 2)).toBe(3);\n  });\n});");
+    const hooked = swap(grouped, "  test('adds'", "  test.beforeEach(async () => {});\n  test('adds'");
+    assert.equal(named(changes({ [spec]: grouped }, { [spec]: hooked })).length, 1);
+  });
+
+  test("a new statement in a test that assigns into a name tests share is a change, and into a local or a fixture is not", () => {
+    const body = (line) => swap(before[spec], "const sum = add(1, 2);", `${line}\n  const sum = add(1, 2);`);
+    assert.deepEqual(flagged(body("shared.body = 'b';")), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(flagged(body("shared.count++;")), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(flagged(body("const local = { n: 1 };\n  local.n = 2;")), []);
+    const fixture = swap(before[spec], "test('adds', async () => {", "test('adds', async ({ page }) => {");
+    assert.deepEqual(named(changes({ [spec]: fixture }, { [spec]: swap(fixture, "const sum = add(1, 2);", "page.title = 'x';\n  const sum = add(1, 2);") })), []);
+    assert.deepEqual(flagged(body("await page.evaluate(() => { document.title = 'x'; });")), []);
   });
 });
 

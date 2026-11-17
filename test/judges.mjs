@@ -15,6 +15,10 @@ import { compare, inventoryOf, judged, loadParsers, ofValues, roleOf } from "./i
  * off, a script that runs the tests that changed, and a count lower than main's, unless a commit
  * on the branch carries `Changes-test: <file or test id> — <reason>` naming it. The hook runs
  * the copy of this file that main has, so a branch cannot edit the judge to let itself through.
+ *
+ * Known escapes, listed in AGENTS.md: a bump or override of a dependency, `gleam.toml`, the test
+ * API reached by another name (`const t = test; t.skip()`, a cast, a computed key), which the count
+ * gate backstops, and `--no-verify`. A helper extracted from a test, or renamed, reads as a change.
  */
 
 export const root = fileURLToPath(new URL("..", import.meta.url));
@@ -108,6 +112,7 @@ const reasons = {
   "weakened-test": "is a test of main's that this branch made check less",
   "weakened-helper": "is a helper of main's tests that this branch made check less",
   disabled: "is a statement, test or group that this branch added and that switches checks off or leaves the others out",
+  "added-setup": "is a statement or hook that this branch put at the top of a test file, where it runs with every test in it",
   "lowered-count": "is a count of tests that this branch lowered",
   "changed-input": "is a const, table, helper or import that a test of main's reads, and this branch changed it",
   "changed-gate": "is a script or file that decides, and this branch changed it",

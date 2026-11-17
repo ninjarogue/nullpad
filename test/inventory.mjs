@@ -63,6 +63,9 @@ const weakWords = new Set(["skip", "fixme", "fail", "todo"]);
 const groupWords = new Set(["describe", "suite", "group"]);
 const modWords = new Set(["skip", "fixme", "fail", "todo", "only", "slow"]);
 
+/** A property that marks a test or a row: it says skip, fixme, fail, todo or only. */
+const isMark = (property) => property.type === "Property" && !property.computed && (weakWords.has(nameOf(property.key) ?? "") || nameOf(property.key) === "only");
+
 function titleOf(node, text) {
   if (node?.type === "Literal" && typeof node.value === "string") return node.value;
   if (node?.type === "TemplateLiteral") return text.slice(node.start + 1, node.end - 1);
@@ -75,7 +78,7 @@ function optionMods(args) {
     if (arg.type !== "ObjectExpression") continue;
     for (const property of arg.properties) {
       const key = property.type === "Property" ? nameOf(property.key) : null;
-      if (key !== null && weakWords.has(key)) found.push(key);
+      if (key !== null && (weakWords.has(key) || key === "only")) found.push(key);
     }
   }
   return found;
@@ -105,6 +108,13 @@ const exiting = new Set(["skip", "fixme", "fail", "slow"]);
 const switches = new Set([...exiting, "only", "configure"]);
 const testRoots = new Set(["test", "it", "describe", "suite"]);
 const ofTestApi = (node) => testRoots.has(rootName(node) ?? "");
+const hookNames = new Set(["beforeEach", "afterEach", "beforeAll", "afterAll"]);
+
+/** A call that runs around every test of its file or group: a hook, or `test.use`. */
+const hooks = (node) =>
+  node.type === "CallExpression" &&
+  ((node.callee.type === "Identifier" && hookNames.has(node.callee.name)) ||
+    (node.callee.type === "MemberExpression" && !node.callee.computed && (hookNames.has(nameOf(node.callee.property) ?? "") || nameOf(node.callee.property) === "use") && ofTestApi(node.callee.object)));
 
 /** A statement that, anywhere in it, takes a skip, a fixme, an only or a configure out of the test API. */
 function switchesOff(node) {
@@ -131,12 +141,13 @@ function inspectStatement(node, text, names, printer, how = "print") {
     node,
     (inner) => {
       if (inner.type === "CallExpression" && inner.callee.type === "MemberExpression" && exiting.has(nameOf(inner.callee.property) ?? "") && ofTestApi(inner.callee.object)) suspicious = true;
-      if (inner.type === "ReturnStatement" || inner.type === "TryStatement") suspicious = true;
+      if (inner.type === "ReturnStatement" || inner.type === "TryStatement" || hooks(inner)) suspicious = true;
     },
     (child) => !fn.has(child.type),
   );
   const key = printer[how](node);
-  const { reads, writes } = printer.touched();
+  const { reads, writes, shares } = printer.touched();
+  if (shares.size > 0) suspicious = true;
   return { key, show: brief(text.slice(node.start, node.end)), asserts, suspicious, off, reads, writes };
 }
 
@@ -189,10 +200,34 @@ function tableOf(node) {
   return null;
 }
 
+const isFieldInit = (statement) => {
+  const left = statement.type === "ExpressionStatement" && statement.expression.type === "AssignmentExpression" && statement.expression.operator === "=" ? statement.expression.left : null;
+  return left?.type === "MemberExpression" && left.object.type === "ThisExpression" && !left.computed && left.property.type === "Identifier" ? left.property.name : null;
+};
+
+/**
+ * A constructor is a table of its statements. One may gain `this.name = value` for a field that no
+ * other statement sets, which a new locator is. Any other statement put in it, and a field set twice, switch to a change.
+ */
+function constructorRows(member) {
+  const body = member.value.body.body;
+  const printer = jsPrinter();
+  const rows = printer.within(() => {
+    printer.bindParams(member.value.params);
+    printer.hoist(body);
+    return body.map((statement) => printer.print(statement));
+  });
+  const sets = body.map(isFieldInit);
+  const switching = body.flatMap((statement, at) => (sets[at] !== null && sets.filter((name) => name === sets[at]).length === 1 ? [] : [rows[at]]));
+  const frame = jsPrinter();
+  const emptied = { ...member, value: { ...member.value, body: { ...member.value.body, body: [] } } };
+  return { rows, switching, print: JSON.stringify([null, null, frame.unit(emptied)]) };
+}
+
 function declUnits(statement, text, names) {
   const exported = statement.type.startsWith("Export") && statement.declaration ? statement.declaration : null;
   const inner = exported ?? statement;
-  const wrapper = exported ? statement.type : "";
+  const wrapper = exported && statement.type === "ExportDefaultDeclaration" ? statement.type : "";
   const unit = (key, node, extra, more = {}) => {
     const printer = jsPrinter();
     const found = inspectStatement(node, text, names, printer, "unit");
@@ -211,9 +246,11 @@ function declUnits(statement, text, names) {
     const name = inner.id?.name ?? "default";
     const members = inner.body.body.map((member, at) => {
       const own = !member.computed && nameOf(member.key) !== null ? [`.${nameOf(member.key)}`] : [];
-      return unit(`class:${name}.${nameOf(member.key) ?? `#${at}`}${member.static ? ":static" : ""}`, member, undefined, { binds: own });
+      const found = unit(`class:${name}.${nameOf(member.key) ?? `#${at}`}${member.static ? ":static" : ""}`, member, undefined, { binds: own });
+      return member.type === "MethodDefinition" && member.kind === "constructor" ? { ...found, ...constructorRows(member) } : found;
     });
-    return [{ ...unit(`class:${name}`, { ...inner, body: null }, undefined, { binds: [name] }), asserts: false }, ...members];
+    const built = members.filter((member) => member.key.endsWith(".constructor")).map((member) => member.key);
+    return [{ ...unit(`class:${name}`, { ...inner, body: null }, undefined, { binds: [name] }), asserts: false, alongside: built }, ...members];
   }
   if (inner.type === "FunctionDeclaration") return [unit(`fn:${inner.id?.name ?? "default"}`, inner, undefined, { binds: inner.id ? [inner.id.name] : [] })];
   if (inner.type === "VariableDeclaration") {
@@ -223,7 +260,7 @@ function declUnits(statement, text, names) {
       if (table === null) return whole;
       const printer = jsPrinter();
       const rows = table.rows.map((row) => printer.print(row));
-      const switching = table.rows.flatMap((row, at) => (row.type === "Property" && !row.computed && (weakWords.has(nameOf(row.key) ?? "") || nameOf(row.key) === "only") ? [rows[at]] : []));
+      const switching = table.rows.flatMap((row, at) => (isMark(row) ? [rows[at]] : []));
       return { ...whole, rows, switching, print: JSON.stringify([wrapper, inner.kind, printer.unit({ ...declarator, init: table.rebuild() })]), refs: printer.refs };
     });
   }
@@ -250,6 +287,92 @@ function nodeTestCalls(program) {
   return calls;
 }
 
+const exits = new Set(["ContinueStatement", "BreakStatement", "ReturnStatement", "ThrowStatement"]);
+
+/** A statement that, outside any function in it, can leave the code after it undone. */
+function leaves(node) {
+  let found = false;
+  walk(
+    node,
+    (inner) => {
+      if (exits.has(inner.type)) found = true;
+    },
+    (child) => !fn.has(child.type),
+  );
+  return found;
+}
+
+/**
+ * What a test is run inside: the loops, conditions and calls that enclose its registration, as
+ * headers, and the statements before it in each block it is in. A header that changes is a change,
+ * a header over an array may gain rows, and a statement may be added unless it can skip the test.
+ * Printing binds the locals that the headers declare, so the test body reads them as locals.
+ */
+function aroundOf(node, child, text, printer) {
+  const [made, refs] = printer.collect(() => {
+    const table = (expression) => {
+      const found = tableOf(expression);
+      return found === null ? { frame: printer.print(expression) } : { frame: printer.print(found.rebuild()), rows: found.rows.map((row) => printer.print(row)) };
+    };
+    const head = (parts, rows) => ({ key: parts.join("|"), rows });
+    switch (node.type) {
+      case "ForStatement":
+        return child === node.body ? head(["for", printer.print(node.init), printer.print(node.test), printer.print(node.update)]) : null;
+      case "ForOfStatement":
+      case "ForInStatement": {
+        if (child !== node.body) return null;
+        const left = printer.print(node.left);
+        const right = table(node.right);
+        return head([node.type, node.await ?? false, left, right.frame], right.rows);
+      }
+      case "WhileStatement":
+      case "DoWhileStatement":
+        return child === node.body ? head([node.type, printer.print(node.test)]) : null;
+      case "IfStatement":
+      case "ConditionalExpression":
+        return child === node.test ? null : head([node.type, printer.print(node.test), child === node.consequent ? "then" : "else"]);
+      case "LogicalExpression":
+        return child === node.right ? head([node.type, node.operator, printer.print(node.left)]) : null;
+      case "SwitchStatement":
+        return child === node.discriminant ? null : head([node.type, printer.print(node.discriminant)]);
+      case "SwitchCase":
+        return child === node.test ? null : head([node.type, printer.print(node.test)]);
+      case "CallExpression": {
+        if (!fn.has(child.type)) return null;
+        const callee = node.callee.type === "MemberExpression" && !node.callee.computed ? { object: table(node.callee.object), property: nameOf(node.callee.property) } : { object: { frame: printer.print(node.callee) }, property: "" };
+        const others = node.arguments.filter((arg) => arg !== child).map((arg) => printer.print(arg));
+        return head([node.type, callee.object.frame, callee.property, ...others], callee.object.rows);
+      }
+      default:
+        return null;
+    }
+  });
+  printer.touched();
+  if (made === null) return [];
+  return [{ key: made.key, rows: made.rows, show: brief(text.slice(node.start, child.start)), suspicious: true, refs }];
+}
+
+function statementEntry(statement, text, names, printer) {
+  const [found, refs] = printer.collect(() => inspectStatement(statement, text, names, printer));
+  return { key: found.key, show: found.show, suspicious: found.suspicious || leaves(statement), refs };
+}
+
+/**
+ * What a test or group is given besides its title and its callback, printed, and the names that it
+ * reads. The marks (`skip`, `fixme`, `fail`, `todo`, `only`) are left out, because the test's marks say them.
+ */
+function optionsOf(args, callback, printer) {
+  const given = [];
+  for (const arg of args) {
+    if (arg === callback) continue;
+    const marks = arg.type === "ObjectExpression" ? arg.properties.filter(isMark) : [];
+    if (marks.length > 0 && marks.length === arg.properties.length) continue;
+    given.push(marks.length > 0 ? { ...arg, properties: arg.properties.filter((property) => !isMark(property)) } : arg);
+  }
+  const [printed, refs] = printer.collect(() => given.map((arg) => printer.print(arg)));
+  return { given: printed, refs };
+}
+
 function jsFile({ path, text, program, calls, names }) {
   const tests = new Map();
   const decls = new Map();
@@ -261,25 +384,32 @@ function jsFile({ path, text, program, calls, names }) {
     map.set(times === 1 ? key : `${key}#${times}`, unit);
   };
   const registering = (node) => calls.has(node);
+  const holds = new WeakMap();
   const holdsRegistration = (node) => {
-    let found = false;
-    walk(node, (inner) => {
-      if (registering(inner)) found = true;
-    });
-    return found;
+    if (!holds.has(node)) {
+      let found = false;
+      walk(node, (inner) => {
+        if (registering(inner)) found = true;
+      });
+      holds.set(node, found);
+    }
+    return holds.get(node);
   };
-  const visit = (node, scope, inherited, shared) => {
+  const visit = (node, scope, inherited, printer, around) => {
     if (registering(node)) {
       const segments = spell(node.callee).split(".");
       const mods = [...segments.filter((word) => modWords.has(word)), ...optionMods(node.arguments)];
       const callback = [...node.arguments].reverse().find((arg) => fn.has(arg.type));
       const title = titleOf(node.arguments[0], text);
+      const options = optionsOf(node.arguments.slice(1), callback, printer);
+      const [, titleRefs] = printer.collect(() => (node.arguments[0] === callback ? [] : [printer.print(node.arguments[0])]));
+      const optionRefs = options.refs;
+      printer.touched();
       if (segments.some((word) => groupWords.has(word))) {
         const inner = [...scope, title];
-        const passed = [...inherited, ...mods];
+        const passed = { mods: [...inherited.mods, ...mods], given: [...inherited.given, ...options.given], optionRefs: new Set([...inherited.optionRefs, ...optionRefs]) };
         groups.set(`${path} > ${inner.join(" > ")}`, mods);
         if (callback?.body.type === "BlockStatement") {
-          const printer = shared ?? jsPrinter();
           printer.within(() => {
             const setup = callback.body.body.filter((statement) => !holdsRegistration(statement));
             if (setup.length > 0) {
@@ -288,28 +418,46 @@ function jsFile({ path, text, program, calls, names }) {
                 printer.hoist(setup);
                 return setup.map((statement) => inspectStatement(statement, text, names, printer));
               });
-              add(tests, { id, mods: [], setup: true, statements, refs }, id);
+              add(tests, { id, mods: [], setup: true, statements, refs, given: [], around: [] }, id);
             }
-            for (const statement of callback.body.body) visit(statement, inner, passed, printer);
+            for (const statement of callback.body.body) visit(statement, inner, passed, printer, around);
           });
         }
         return;
       }
       const id = `${path} > ${[...scope, title].join(" > ")}`;
-      const printer = shared ?? jsPrinter();
       const { statements, refs } = bodyStatements(callback, text, names, printer);
-      const [, given] = printer.collect(() => node.arguments.filter((arg) => arg !== callback).map((arg) => printer.print(arg)));
-      for (const name of given) refs.add(name);
-      add(tests, { id, mods: [...inherited, ...mods], setup: false, statements, refs }, id);
+      for (const name of [...titleRefs, ...optionRefs]) refs.add(name);
+      for (const entry of around) for (const name of entry.refs) refs.add(name);
+      add(tests, { id, mods: [...inherited.mods, ...mods], setup: false, statements, refs, given: [...inherited.given, ...options.given], optionRefs: new Set([...inherited.optionRefs, ...optionRefs]), around }, id);
       return;
     }
-    for (const child of kids(node)) visit(child, scope, inherited, shared);
+    descend(node, scope, inherited, printer, around);
+  };
+  const descend = (node, scope, inherited, printer, around) => {
+    if (node.type === "BlockStatement") {
+      printer.within(() => {
+        printer.hoist(node.body);
+        const before = [];
+        for (const statement of node.body) {
+          if (holdsRegistration(statement)) visit(statement, scope, inherited, printer, [...around, ...before]);
+          else before.push(statementEntry(statement, text, names, printer));
+        }
+      });
+      return;
+    }
+    for (const child of kids(node).filter(holdsRegistration)) {
+      printer.within(() => {
+        if (fn.has(node.type) && child === node.body) printer.bindParams(node.params);
+        visit(child, scope, inherited, printer, [...around, ...aroundOf(node, child, text, printer)]);
+      });
+    }
   };
   for (const statement of program.body) {
-    if (holdsRegistration(statement)) visit(statement, [], [], null);
+    if (holdsRegistration(statement)) visit(statement, [], { mods: [], given: [], optionRefs: new Set() }, jsPrinter(), []);
     else for (const unit of declUnits(statement, text, names)) add(decls, unit, unit.key);
   }
-  for (const unit of tests.values()) unit.bodyKey = JSON.stringify(unit.statements.map((statement) => statement.key));
+  for (const unit of tests.values()) unit.bodyKey = JSON.stringify([unit.statements.map((statement) => statement.key), unit.given, unit.around.map((entry) => [entry.key, entry.rows])]);
   return { tests, decls, groups };
 }
 
@@ -465,95 +613,133 @@ function moduleFile(inventory, path, from) {
 }
 
 /**
- * Every top-level declaration that a test reads, as `path::key`: what its statements name, what those
- * name in turn, through imports into other judged files, and the methods of a class that a test
- * calls (a call on an object is followed by the name of the method). A statement at the top of a
- * test file, or of a file that a test reaches, runs with the tests and is read by them.
+ * What the code of a set of tests reads: every top-level declaration that they name, what those
+ * name in turn, through imports into other judged files, and the methods of a class that they
+ * call (a call on an object is followed by the name of the method). A statement at the top of a
+ * test file, or of a file that a test reaches, runs with the tests and is read by them, and a class
+ * that is reached is reached with its constructor. A name given to a test as its options is
+ * `strict`: a const behind it may not gain a row.
  */
-export function readBy(inventory) {
+export function reader(inventory) {
   const members = new Map();
   for (const [path, entry] of inventory) for (const [key, unit] of entry.decls) for (const bound of unit.binds ?? []) if (bound.startsWith(".")) members.set(bound, [...(members.get(bound) ?? []), [path, key]]);
-  const reached = new Set();
-  const loaded = new Set();
-  const queue = [];
-  const load = (path) => {
-    if (loaded.has(path)) return;
-    loaded.add(path);
-    for (const [key, unit] of inventory.get(path).decls) if (unit.effect) reach(path, key);
-  };
-  const reach = (path, key) => {
-    if (reached.has(`${path}::${key}`)) return;
-    reached.add(`${path}::${key}`);
-    queue.push([path, key]);
-    load(path);
-  };
-  const follow = (path, refs) => {
-    const entry = inventory.get(path);
-    for (const ref of refs) {
-      if (ref.startsWith(".")) {
-        for (const [where, key] of members.get(ref) ?? []) reach(where, key);
-        continue;
-      }
-      const dot = ref.indexOf(".");
-      for (const key of entry.byName.get(dot < 0 ? ref : ref.slice(0, dot)) ?? []) {
-        if (dot < 0) reach(path, key);
-        else if (entry.decls.get(key).from?.namespace) {
-          const target = moduleFile(inventory, path, entry.decls.get(key).from);
-          for (const inside of target === null ? [] : (inventory.get(target).byName.get(ref.slice(dot + 1)) ?? [])) reach(target, inside);
+  return (seeds) => {
+    const reached = new Set();
+    const strict = new Set();
+    const loaded = new Set();
+    const queue = [];
+    const load = (path) => {
+      if (loaded.has(path)) return;
+      loaded.add(path);
+      for (const [key, unit] of inventory.get(path).decls) if (unit.effect) reach(path, key);
+    };
+    const reach = (path, key, tight = false) => {
+      if (tight) strict.add(`${path}::${key}`);
+      if (reached.has(`${path}::${key}`)) return;
+      reached.add(`${path}::${key}`);
+      queue.push([path, key]);
+      load(path);
+      for (const other of inventory.get(path).decls.get(key)?.alongside ?? []) reach(path, other);
+    };
+    const follow = (path, refs, tight = false) => {
+      const entry = inventory.get(path);
+      for (const ref of refs) {
+        if (ref.startsWith(".")) {
+          for (const [where, key] of members.get(ref) ?? []) reach(where, key);
+          continue;
+        }
+        const dot = ref.indexOf(".");
+        for (const key of entry.byName.get(dot < 0 ? ref : ref.slice(0, dot)) ?? []) {
+          if (dot < 0) reach(path, key, tight);
+          else if (entry.decls.get(key).from?.namespace) {
+            const target = moduleFile(inventory, path, entry.decls.get(key).from);
+            for (const inside of target === null ? [] : (inventory.get(target).byName.get(ref.slice(dot + 1)) ?? [])) reach(target, inside, tight);
+          }
         }
       }
+    };
+    for (const { path, test } of seeds) {
+      load(path);
+      follow(path, test?.refs ?? []);
+      follow(path, test?.optionRefs ?? [], true);
     }
+    for (let at = 0; at < queue.length; at++) {
+      const [path, key] = queue[at];
+      const unit = inventory.get(path).decls.get(key);
+      follow(path, unit.refs ?? []);
+      if (unit.from === undefined) continue;
+      const target = moduleFile(inventory, path, unit.from);
+      if (target === null) continue;
+      load(target);
+      if (!unit.from.namespace) for (const inside of inventory.get(target).byName.get(unit.from.imported) ?? []) reach(target, inside);
+    }
+    return { reached, strict };
   };
-  for (const [path, entry] of inventory) {
-    if (entry.role !== "test") continue;
-    load(path);
-    for (const test of entry.tests.values()) follow(path, test.refs ?? []);
-  }
-  for (let at = 0; at < queue.length; at++) {
-    const [path, key] = queue[at];
-    const unit = inventory.get(path).decls.get(key);
-    follow(path, unit.refs ?? []);
-    if (unit.from === undefined) continue;
-    const target = moduleFile(inventory, path, unit.from);
-    if (target === null) continue;
-    load(target);
-    if (!unit.from.namespace) for (const inside of inventory.get(target).byName.get(unit.from.imported) ?? []) reach(target, inside);
-  }
-  return reached;
 }
 
-/** A unit changed when it is gone or prints otherwise. A table may gain rows unless `strict`. */
+/** What every test of every test file reads. */
+export function readBy(inventory) {
+  const seeds = [];
+  for (const [path, entry] of inventory) if (entry.role === "test") seeds.push({ path, test: null }, ...[...entry.tests.values()].map((test) => ({ path, test })));
+  return reader(inventory)(seeds);
+}
+
+/** What one test stands on, apart from where it is: the declarations it reads, as what they say. */
+function standsOn(inventory, find, path, test) {
+  const { reached } = find([{ path, test }]);
+  return [...reached]
+    .map((id) => {
+      const at = id.indexOf("::");
+      const unit = inventory.get(id.slice(0, at)).decls.get(id.slice(at + 2));
+      return `${id.slice(at + 2)}|${unit.print}|${JSON.stringify(unit.rows ?? null)}`;
+    })
+    .sort()
+    .join("\n");
+}
+
+/** The rows of a table that lists what is let through: a row added to it is as much a change as a row removed. */
+const lets = /expected|known|allow|exempt|failures|skip/i;
+
+/** Every row of `was` is in `now`, in order, though `now` may have more. */
+function holdsRows(was, now) {
+  let at = 0;
+  for (const row of now) if (at < was.length && row === was[at]) at++;
+  return at >= was.length;
+}
+
+/** A unit changed when it is gone or prints otherwise. A table may gain rows unless `strict`, or it lists what is let through. */
 function changed(unit, next, strict) {
   if (next === undefined || next.print !== unit.print) return true;
   if (unit.rows === undefined) return false;
   if (next.rows === undefined) return true;
   if (next.switching?.some((row) => !unit.rows.includes(row))) return true;
-  if (strict) return unit.rows.length !== next.rows.length || unit.rows.some((row, at) => row !== next.rows[at]);
-  let at = 0;
-  for (const row of next.rows) if (at < unit.rows.length && row === unit.rows[at]) at++;
-  return at < unit.rows.length;
+  if (strict || (unit.binds ?? []).some((name) => lets.test(name))) return unit.rows.length !== next.rows.length || unit.rows.some((row, at) => row !== next.rows[at]);
+  return !holdsRows(unit.rows, next.rows);
 }
 
 const rank = (mods) => mods.filter((word) => weakWords.has(word)).length;
 const marked = (mods) => mods.filter((word) => word === "skip" || word === "fixme" || word === "only");
 
-function weaker(base, branch) {
-  const reasons = [];
+/** The places of `branch` that carry on `base` in order and the ones that are added, and the first item of `base` that is not carried on. */
+function aligned(base, branch, same = (was, now) => was.key === now.key) {
   let at = 0;
   const kept = [];
   const added = [];
-  branch.statements.forEach((statement, index) => {
-    if (at < base.statements.length && statement.key === base.statements[at].key) {
+  branch.forEach((item, index) => {
+    if (at < base.length && same(base[at], item)) {
       at++;
       kept.push(index);
     } else added.push(index);
   });
-  if (at < base.statements.length) {
-    const lost = base.statements[at];
-    reasons.push(`${lost.asserts ? "an assertion" : "a statement"} was removed or changed: ${lost.show}`);
-  }
+  return { lost: at < base.length ? base[at] : null, kept, added };
+}
+
+function weaker(base, branch) {
+  const reasons = [];
+  const { lost, kept, added } = aligned(base.statements, branch.statements);
+  if (lost) reasons.push(`${lost.asserts ? "an assertion" : "a statement"} was removed or changed: ${lost.show}`);
   const exit = added.map((index) => branch.statements[index]).find((statement) => statement.suspicious);
-  if (exit) reasons.push(`a new early exit, skip, use or switch-off was added: ${exit.show}`);
+  if (exit) reasons.push(`a new early exit, skip, use, hook, switch-off or write to a name tests share was added: ${exit.show}`);
   const lastRead = new Map();
   for (const index of kept) for (const id of branch.statements[index].reads?.keys() ?? []) lastRead.set(id, index);
   for (const index of added) {
@@ -563,6 +749,11 @@ function weaker(base, branch) {
   }
   if (rank(branch.mods) > rank(base.mods)) reasons.push(`it is now marked ${branch.mods.filter((word) => weakWords.has(word)).join(", ")}`);
   if (branch.mods.includes("only") && !base.mods.includes("only")) reasons.push("it is now marked only, so no other test of the run runs");
+  if (JSON.stringify(base.given ?? []) !== JSON.stringify(branch.given ?? [])) reasons.push("the options it is registered with changed");
+  const around = aligned(base.around ?? [], branch.around ?? [], (was, now) => was.key === now.key && (was.rows === undefined || (now.rows !== undefined && holdsRows(was.rows, now.rows))));
+  if (around.lost) reasons.push(`code around it was removed or changed: ${around.lost.show}`);
+  const wrapped = around.added.map((index) => branch.around[index]).find((entry) => entry.suspicious);
+  if (wrapped) reasons.push(`code that can leave it out was added around it: ${wrapped.show}`);
   return reasons.join("; ");
 }
 
@@ -623,16 +814,24 @@ function pairedUnits(was, now) {
 export function compare(base, branch) {
   const items = [];
   const notes = [];
-  const bodies = new Set([...branch.values()].flatMap((entry) => [...entry.tests.values()].map((unit) => unit.bodyKey)));
   const copies = new Map();
-  for (const entry of branch.values()) for (const unit of entry.tests.values()) copies.set(unit.bodyKey, [...(copies.get(unit.bodyKey) ?? []), unit.mods]);
+  for (const [path, entry] of branch) for (const unit of entry.tests.values()) copies.set(unit.bodyKey, [...(copies.get(unit.bodyKey) ?? []), { path, unit }]);
   const baseBodies = new Set([...base.values()].flatMap((entry) => [...entry.tests.values()].map((unit) => unit.bodyKey)));
-  const read = readBy(base);
+  const { reached: read, strict } = readBy(base);
+  const findBase = reader(base);
+  const findBranch = reader(branch);
+  const standing = new Map();
+  const stands = (inventory, find, path, unit) => {
+    if (!standing.has(unit)) standing.set(unit, standsOn(inventory, find, path, unit));
+    return standing.get(unit);
+  };
+  /** The tests of the branch that are this test of main's, wherever they are: the same body in the same file, or in another that gives its names the same meaning. */
+  const movedTo = (path, unit) => (copies.get(unit.bodyKey) ?? []).filter((copy) => copy.path === path || stands(base, findBase, path, unit) === stands(branch, findBranch, copy.path, copy.unit));
   const kept = new Set([...branch.values()].flatMap((entry) => [...entry.decls].map(([key, unit]) => `${key}|${unit.print}`)));
   for (const [path, was] of base) {
     const now = branch.get(path);
     if (now === undefined) {
-      const lost = [...was.tests.values()].filter((unit) => unit.setup || !bodies.has(unit.bodyKey)).length;
+      const lost = [...was.tests.values()].filter((unit) => unit.setup || movedTo(path, unit).length === 0).length;
       const asserting = [...was.decls].some(([key, unit]) => (unit.asserts || read.has(`${path}::${key}`)) && !kept.has(`${key}|${unit.print}`));
       if (was.role === "gate" || was.data || lost > 0 || asserting) items.push({ file: path, id: path, what: "removed-file", why: lost > 0 ? `the file is gone, with ${lost} test${lost === 1 ? "" : "s"}` : "the file is gone" });
       continue;
@@ -670,7 +869,7 @@ export function compare(base, branch) {
     for (const unit of was.tests.values()) {
       const next = now.tests.get(unit.id);
       if (next === undefined) {
-        const same = copies.get(unit.bodyKey) ?? [];
+        const same = unit.setup ? [] : movedTo(path, unit).map((copy) => copy.unit.mods);
         if (!unit.setup && same.some((mods) => rank(mods) <= rank(unit.mods) && marked(mods).length <= marked(unit.mods).length)) continue;
         if (!unit.setup && same.length > 0) items.push({ file: path, id: unit.id, what: "weakened-test", why: "its copy under another name is marked skip, fixme or only" });
         else items.push({ file: path, id: unit.id, what: unit.setup ? "weakened-test" : "removed-test", why: unit.setup ? "the setup of the group is gone" : "no test of this name is left in the file" });
@@ -681,7 +880,10 @@ export function compare(base, branch) {
     }
     const fresh = [];
     for (const [id, unit] of now.tests) {
-      if (was.tests.has(id) || unit.setup || baseBodies.has(unit.bodyKey)) continue;
+      if (was.tests.has(id)) continue;
+      const exit = unit.setup && was.groups.has(id.replace(/ \(setup\)$/, "")) ? unit.statements.find((statement) => statement.suspicious) : undefined;
+      if (exit) fresh.push({ file: path, id, what: "added-setup", why: `${exit.show} is new in a group that had no setup, where it runs with every test in it` });
+      if (unit.setup || baseBodies.has(unit.bodyKey)) continue;
       const bad = marked(unit.mods);
       if (bad.length > 0) fresh.push({ file: path, id, what: "disabled", why: `is a new test marked ${bad.join(", ")}` });
     }
@@ -691,11 +893,13 @@ export function compare(base, branch) {
     }
     items.push(...fresh);
     for (const [key, unit] of now.decls) {
-      if (!was.decls.has(key) && !taken.has(key) && unit.disables) items.push({ file: path, id: `${path}::${key}`, what: "disabled", why: `${unit.show ?? key} is new, and it can switch checks off` });
+      if (was.decls.has(key) || taken.has(key)) continue;
+      if (unit.disables) items.push({ file: path, id: `${path}::${key}`, what: "disabled", why: `${unit.show ?? key} is new, and it can switch checks off` });
+      else if (was.role === "test" && unit.effect) items.push({ file: path, id: `${path}::${key}`, what: "added-setup", why: `${unit.show ?? key} is new at the top of a test file, so it runs with every test in it` });
     }
     for (const [key, unit] of was.decls) {
       const next = pairs.get(key);
-      if (!changed(unit, next, false)) continue;
+      if (!changed(unit, next, strict.has(`${path}::${key}`))) continue;
       const what = next === undefined ? "gone" : "changed";
       const id = `${path}::${key}`;
       if (unit.asserts) items.push({ file: path, id, what: "weakened-helper", why: `${unit.show ?? key}, which asserts, is ${what}` });

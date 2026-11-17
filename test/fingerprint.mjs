@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
 /**
- * What a piece of code says, as a string that a comment, a blank line, a position or the name of
- * a local variable cannot change. Gleam is printed from glance's tree and JavaScript and
+ * What a piece of code says, as a string that a comment, a blank line, a position, a type or the
+ * name of a local variable cannot change. Gleam is printed from glance's tree and JavaScript and
  * TypeScript from oxc's. A local is printed as what defined it (its pattern and the value it was
  * bound to), never as its name, so renaming it changes nothing, while reading another local,
  * or one that shadows a global, does. Names that are not local are the ones a unit reads from
@@ -10,7 +10,15 @@ import { createHash } from "node:crypto";
  */
 
 export const hidden = new Set(["start", "end", "range", "loc", "raw", "location"]);
-export const printNode = (node) => JSON.stringify(node, (key, value) => (hidden.has(key) ? undefined : typeof value === "bigint" ? `${value}n` : value));
+
+/** What TypeScript adds and a run does not read: types, and the modifiers that only the type checker uses. */
+const typeKeys = new Set(["typeAnnotation", "typeArguments", "typeParameters", "returnType", "superTypeArguments", "implements", "definite", "accessibility", "override", "readonly"]);
+
+export const printNode = (node) =>
+  JSON.stringify(node, function (key, value) {
+    if (hidden.has(key) || typeKeys.has(key) || (key === "optional" && this?.type === "Identifier")) return undefined;
+    return typeof value === "bigint" ? `${value}n` : value;
+  });
 
 const hash = (text) => createHash("sha1").update(text).digest("hex").slice(0, 8);
 
@@ -174,8 +182,6 @@ export function gleamPrinter() {
 /** What a Gleam value says. Each call is its own scope, so what it reads from outside is by name. */
 export const printGleam = (value) => gleamPrinter().print(value);
 
-const rawKeys = new Set(["typeAnnotation", "typeArguments", "typeParameters", "returnType", "superTypeArguments", "implements"]);
-const typeWrappers = new Set(["TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion", "TSInstantiationExpression"]);
 const keyName = (key) => (key.type === "Identifier" ? key.name : String(key.value ?? key.name));
 
 export function jsPrinter() {
@@ -184,6 +190,8 @@ export function jsPrinter() {
   let top = null;
   let reads = new Map();
   let writes = new Map();
+  let shares = new Map();
+  let depth = 0;
 
   const within = (build) => {
     const mark = scope.mark();
@@ -200,39 +208,31 @@ export function jsPrinter() {
     if (typeof node !== "object") return JSON.stringify(node);
     if (Array.isArray(node)) return `[${node.map(print).join(",")}]`;
     if (typeof node.type !== "string") return `{${Object.entries(node).filter(([key]) => !hidden.has(key)).map(([key, inner]) => `${key}:${print(inner)}`).join(",")}}`;
-    if (node.type.startsWith("TS") && !typeWrappers.has(node.type) && !handlers[node.type]) return typeText(node);
+    if (node.type.startsWith("TS") && !handlers[node.type]) return printNode(node);
     return (handlers[node.type] ?? generic)(node);
   };
 
   const generic = (node, over = {}) =>
     `{${Object.entries(node)
-      .filter(([key]) => !hidden.has(key))
-      .map(([key, inner]) => `${key}:${key in over ? over[key] : rawKeys.has(key) ? typeText(inner) : print(inner)}`)
+      .filter(([key]) => !hidden.has(key) && !typeKeys.has(key))
+      .map(([key, inner]) => `${key}:${key in over ? over[key] : print(inner)}`)
       .join(",")}}`;
-
-  /** A type is printed as it is written, except `typeof it`, where `it` is a value and renames with its binding. */
-  const queried = (name) => (name.type === "Identifier" ? print(name) : name.type === "TSQualifiedName" ? `${queried(name.left)}.${name.right.name}` : printNode(name));
-  const typeText = (node) =>
-    JSON.stringify(node, (key, value) => {
-      if (hidden.has(key)) return undefined;
-      if (typeof value === "bigint") return `${value}n`;
-      return value?.type === "TSTypeQuery" ? { type: value.type, exprName: queried(value.exprName), typeArguments: value.typeArguments } : value;
-    });
 
   const target = (key, computed) => (computed ? print(key) : printNode(key));
 
   const pattern = (node, origin, path = "") => {
-    const annotated = (text) => (node.typeAnnotation ? `${text}${typeText(node.typeAnnotation)}` : text);
     switch (node?.type) {
+      case "TSParameterProperty":
+        return pattern(node.parameter, origin, path);
       case "Identifier":
         scope.bind(node.name, `${origin}${path}`);
-        return annotated("#");
+        return "#";
       case "ObjectPattern": {
         const properties = node.properties.map((property) => (property.type === "RestElement" ? pattern(property, origin, `${path}/...`) : `${target(property.key, property.computed)}:${pattern(property.value, origin, `${path}/${keyName(property.key)}`)}`));
-        return annotated(`{${properties.join(",")}}`);
+        return `{${properties.join(",")}}`;
       }
       case "ArrayPattern":
-        return annotated(`[${node.elements.map((element, index) => (element === null ? "-" : pattern(element, origin, `${path}[${index}]`))).join(",")}]`);
+        return `[${node.elements.map((element, index) => (element === null ? "-" : pattern(element, origin, `${path}[${index}]`))).join(",")}]`;
       case "AssignmentPattern": {
         const right = print(node.right);
         return `(${pattern(node.left, origin, path)}=${right})`;
@@ -258,13 +258,31 @@ export function jsPrinter() {
 
   const callable = (node) =>
     within(() => {
-      if (node.type === "FunctionExpression" && node.id) scope.bind(node.id.name, "function expression name");
-      const params = node.params.map((param, index) => pattern(param, `parameter ${index}`));
-      const id = node.id ? (node.type === "FunctionDeclaration" && node !== top ? print(node.id) : printNode(node.id)) : "-";
-      return generic(node, { id, params: `[${params.join(",")}]`, body: print(node.body) });
+      depth++;
+      try {
+        if (node.type === "FunctionExpression" && node.id) scope.bind(node.id.name, "function expression name");
+        const params = node.params.map((param, index) => pattern(param, `parameter ${index}`));
+        const id = node.id ? (node.type === "FunctionDeclaration" && node !== top ? print(node.id) : printNode(node.id)) : "-";
+        return generic(node, { id, params: `[${params.join(",")}]`, body: print(node.body) });
+      } finally {
+        depth--;
+      }
     });
 
+  /** The name at the root of `a.b.c`, when it is not a local: what every test in the file shares. */
+  const shared = (target) => {
+    let at = target;
+    while (at.type === "MemberExpression") at = at.object;
+    if (target.type === "MemberExpression" && at.type === "Identifier" && depth === 0 && scope.lookup(at.name) === null) shares.set(at.name, true);
+  };
+
   const handlers = {
+    ParenthesizedExpression: (node) => print(node.expression),
+    TSAsExpression: (node) => print(node.expression),
+    TSSatisfiesExpression: (node) => print(node.expression),
+    TSNonNullExpression: (node) => print(node.expression),
+    TSTypeAssertion: (node) => print(node.expression),
+    TSInstantiationExpression: (node) => print(node.expression),
     Identifier(node) {
       const id = scope.lookup(node.name);
       reads.set(id ?? node.name, node.name);
@@ -274,10 +292,12 @@ export function jsPrinter() {
     },
     AssignmentExpression(node) {
       if (node.left.type === "Identifier") writes.set(scope.lookup(node.left.name) ?? node.left.name, node.left.name);
+      shared(node.left);
       return generic(node);
     },
     UpdateExpression(node) {
       if (node.argument.type === "Identifier") writes.set(scope.lookup(node.argument.name) ?? node.argument.name, node.argument.name);
+      shared(node.argument);
       return generic(node);
     },
     MemberExpression(node) {
@@ -330,11 +350,12 @@ export function jsPrinter() {
     }
   };
 
-  /** The locals and names read, and assigned to, since the last call. */
+  /** The locals and names read, and assigned to, and the shared names a member of was assigned, since the last call. */
   const touched = () => {
-    const found = { reads, writes };
+    const found = { reads, writes, shares };
     reads = new Map();
     writes = new Map();
+    shares = new Map();
     return found;
   };
 
