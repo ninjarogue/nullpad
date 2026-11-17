@@ -64,9 +64,10 @@ type Choice {
 /// drew it, so the key is replayed, in the order it was pressed, once the
 /// page has drawn the editor as it is.
 ///
-/// Keys still held when the focus leaves, a press comes or Escape is pressed
-/// are dropped with the steps they wait behind: typed where the selection is
-/// without those steps, they would land where the user did not aim them.
+/// Keys still held when the focus leaves, a press comes, another note is
+/// chosen or Escape is pressed are dropped with the steps they wait behind:
+/// typed where the selection is without those steps, or into the other note,
+/// they would land where the user did not aim them.
 type Page {
   CaughtUp
   /// `steps` of the head wait for the page to take them, and only the first
@@ -662,8 +663,7 @@ pub fn open(editor: Editor, text: String) -> Outcome {
 /// it.
 pub fn set_choosing(editor: Editor, choosing: Bool) -> Outcome {
   let editor = case editor.choice, choosing {
-    Chosen, True ->
-      Editor(..editor, page: CaughtUp, choice: Choosing(held_keys(editor)))
+    Chosen, True -> Editor(..editor, page: CaughtUp, choice: Choosing([]))
     Choosing(keys:), False ->
       Editor(..editor, page: behind(steps(editor), keys), choice: Chosen)
     Chosen, False | Choosing(..), True -> editor
