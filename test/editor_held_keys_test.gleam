@@ -567,6 +567,24 @@ pub fn cmd_and_option_move_by_lines_and_words_on_a_mac_test() {
   assert editor.browser_act(ctrl("ArrowLeft"), editor.AppleKeyboard) == None
 }
 
+/// Off a Mac, Control with ArrowUp or ArrowDown moves by paragraphs in a
+/// text field, so it is held behind the steps like any key the replay does.
+pub fn control_and_up_or_down_is_held_off_a_mac_test() {
+  let up =
+    editor.HeldKey(
+      key: "ArrowUp",
+      code: "",
+      shift: True,
+      ctrl: True,
+      meta: False,
+      alt: False,
+      at: 0,
+    )
+  assert editor.holds(up, editor.OtherKeyboard)
+  assert editor.holds(ctrl("ArrowDown"), editor.WindowsKeyboard)
+  assert !editor.holds(ctrl("ArrowUp"), editor.AppleKeyboard)
+}
+
 /// The focus comes back while an IME composes behind a held key: it still
 /// composes, so what it composes still goes in after the key.
 pub fn the_focus_coming_back_leaves_a_composition_behind_a_key_composing_test() {

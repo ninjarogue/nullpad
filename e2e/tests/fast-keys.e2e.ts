@@ -790,3 +790,34 @@ for (const { name, key, typed } of appleKeys) {
     await expect(page.text).toHaveValue(`${note}\n${typed}`);
   });
 }
+
+const paragraphKeys = [
+  { name: 'Control and ArrowUp goes to the start of the paragraph', key: 'Control+ArrowUp', typed: 'one\n\nXtwo' },
+  { name: 'Control, Shift and ArrowUp selects to the start of the paragraph', key: 'Control+Shift+ArrowUp', typed: 'one\n\nX' },
+];
+
+for (const { name, key, typed } of paragraphKeys) {
+  test(`off a Mac, ${name}, also while the page is behind`, async ({ app, browser, disk, page }) => {
+    await disk.seed([{ key: 'live', title: null, body: note }]);
+    await app.open('/');
+    await expect(page.text).toHaveValue(note);
+    await page.markdown.tap();
+    await browser.keyboard.press('Control+End');
+    await page.nextFrame();
+    await page.beforeRedraw(async () => {
+      await browser.keyboard.press('Enter');
+      await browser.keyboard.press('Shift+ArrowUp');
+      await browser.keyboard.press('Shift+ArrowDown');
+      await browser.keyboard.type('one');
+      await browser.keyboard.press('Enter');
+      await browser.keyboard.press('Enter');
+      await browser.keyboard.type('two');
+      await browser.keyboard.press(key);
+    });
+    await page.nextFrame();
+    await browser.keyboard.type('X');
+    await page.nextFrame();
+    await page.markdown.tap();
+    await expect(page.text).toHaveValue(`${note}\n${typed}`);
+  });
+}
