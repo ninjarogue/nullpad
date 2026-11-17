@@ -478,6 +478,41 @@ for (const chord of composingKeys) {
   });
 }
 
+/**
+ * Where a row wraps, the end of one line and the start of the next share an
+ * offset. A long word that does not fit leaves a short line before it, where
+ * an arrow from the end of a longer line lands at the end. A click at the
+ * start of the line below then puts the caret on that line, which the next
+ * keys go from.
+ */
+test('a click at the start of the line below the end of a line an arrow went to is where the keys after it go from', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  const words = `${'word '.repeat(24)}${'x'.repeat(70)} ${'tail '.repeat(40)}end`;
+  const body = `${words}\n\nlast`;
+  const typed = async (aimFirst: boolean) => {
+    await editor.open(body);
+    if (aimFirst) await editor.press('End', 'ArrowDown');
+    const line = await browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      const box = field.getBoundingClientRect();
+      const style = getComputedStyle(field);
+      const height = parseFloat(style.lineHeight);
+      return { x: box.left + parseFloat(style.paddingLeft) + 1, y: box.top + parseFloat(style.paddingTop) + 2.5 * height };
+    });
+    await editor.clickAt(line.x, line.y);
+    await page.nextFrame();
+    await editor.press('ArrowDown', 'End');
+    await editor.type('X');
+    await page.markdown.tap();
+    return page.text.inputValue();
+  };
+  const clicked = await typed(false);
+  expect(clicked.indexOf('X'), 'X is past the third line').toBeGreaterThan(words.length / 3);
+
+  expect(await typed(true)).toBe(clicked);
+});
+
 test('ArrowUp into a heading lands straight above the caret, where the heading draws its bigger letters, not at the same count of letters', async (fixtures) => {
   const body = '# xxxxxxxxxxxxxxxxxxxxa\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxb';
   const editor = new Editing(fixtures);
