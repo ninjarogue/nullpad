@@ -207,7 +207,8 @@ pub fn subtracts_test() {
     const asserting = swap(body, "  x + 1\n", "  assert x > 0\n  x + 1\n");
     const result = changes({ [file]: asserting }, { [file]: swap(asserting, "  assert x > 0\n", "") });
     assert.deepEqual(named(result), [`weakened-helper: ${file}::fn:helper`]);
-    assert.deepEqual(changes({ [file]: body }, { [file]: swap(body, "x + 1", "x + 2") }).items.map((item) => item.what), []);
+    const plain = swap(body, "pub fn subtracts_test", "fn unread(x: Int) -> Int {\n  x + 1\n}\n\npub fn subtracts_test");
+    assert.deepEqual(changes({ [file]: plain }, { [file]: swap(plain, "  x + 1\n}\n\npub fn subtracts_test", "  x + 2\n}\n\npub fn subtracts_test") }).items, []);
   });
 
   test("a test added, and an assertion added, are free", () => {
@@ -380,6 +381,149 @@ pub fn locals_test() {
     test("a renamed key of an object that carries a local is a change, because it names a property", () => {
       const keyed = swap(code, "  expect(sum).toBe(3);\n", "  expect({ sum }).toEqual({ sum: 3 });\n");
       assert.deepEqual(named(changes({ [spec]: keyed }, { [spec]: rename(keyed, "sum", "total") })), [`weakened-test: ${spec} > locals`]);
+    });
+  });
+});
+
+describe("what a test reads is judged with it", () => {
+  const helper = "e2e/tests/helpers.ts";
+  const helpers = `export const widths = [390, 1280];
+export const long = 'long '.repeat(80);
+const unread = 1;
+export function rows(part: string) {
+  return part.split('\\n');
+}
+export function shown(part: string) {
+  return rows(part).length + widths.length;
+}
+export class Editing {
+  async saved() {
+    return this.shown();
+  }
+  async shown() {
+    return rows('a').length;
+  }
+  async unused() {
+    return 7;
+  }
+}
+export const table = [{ id: 'a', holds: () => 1 }, { id: 'b', holds: () => 2 }];
+`;
+  const code = e2e(`import { long, shown, table, widths } from './helpers.ts';
+import * as h from './helpers.ts';
+const own = 'owned';
+const apart = 5;
+test('reads', async ({ app }) => {
+  expect(shown(long)).toBe(3);
+  expect(own).toBe('owned');
+  expect(await app.editing.saved()).toBe(1);
+  for (const width of widths) expect(width).toBeGreaterThan(0);
+  expect(table.length).toBe(2);
+  expect(h.rows('x\\ny')).toEqual(['x', 'y']);
+});`);
+  const files = { [spec]: code, [helper]: helpers };
+  const flagged = (changed) => named(changes(files, { ...files, ...changed })).sort();
+  const edited = (from, to, path = helper) => ({ [path]: swap(files[path], from, to) });
+
+  test("a const, a table or a reader that a test reads, changed in the same file or in a helper, is a change", () => {
+    assert.deepEqual(flagged(edited("'long '.repeat(80)", "'long '.repeat(2)")), [`changed-input: ${helper}::var:long`]);
+    assert.deepEqual(flagged(edited("[390, 1280]", "[1280]")), [`changed-input: ${helper}::var:widths`]);
+    assert.deepEqual(flagged(edited("rows(part).length + widths.length", "rows(part).length")), [`changed-input: ${helper}::fn:shown`]);
+  });
+
+  test("a reader that a reader calls is read too, and a method a test calls is a change", () => {
+    assert.deepEqual(flagged(edited("part.split('\\n')", "part.split(',')")), [`changed-input: ${helper}::fn:rows`]);
+    assert.deepEqual(flagged(edited("return rows('a').length;", "return 0;")), [`changed-input: ${helper}::class:Editing.shown`]);
+    assert.deepEqual(flagged(edited("return this.shown();", "return 1;")), [`changed-input: ${helper}::class:Editing.saved`]);
+  });
+
+  test("a const in the test file that the test reads is a change, and one it does not read is not", () => {
+    assert.deepEqual(flagged({ [spec]: swap(code, "const own = 'owned';", "const own = 'changed';") }), [`changed-input: ${spec}::var:own`]);
+    const result = changes(files, { ...files, [spec]: swap(code, "const apart = 5;", "const apart = 6;") });
+    assert.deepEqual(named(result), []);
+    assert.equal(result.notes.length, 1);
+  });
+
+  test("what no test reads may change, and what is new is free", () => {
+    assert.deepEqual(flagged(edited("const unread = 1;", "const unread = 2;")), []);
+    assert.deepEqual(flagged(edited("async unused() {\n    return 7;", "async unused() {\n    return 8;")), []);
+    assert.deepEqual(flagged({ [helper]: `${helpers}export const more = 3;\nexport function extra() {\n  return 1;\n}\n` }), []);
+  });
+
+  test("a rename of a local, a reformat or a comment inside what a test reads is not a change", () => {
+    assert.deepEqual(flagged(edited("export function rows(part: string) {\n  return part.split('\\n');\n}", "// split\nexport function rows(text: string) {\n    return text.split('\\n');\n}")), []);
+  });
+
+  test("a row added to a table is free, and a row removed or changed is a change", () => {
+    assert.deepEqual(flagged(edited("{ id: 'b', holds: () => 2 }];", "{ id: 'b', holds: () => 2 }, { id: 'c', holds: () => 3 }];")), []);
+    assert.deepEqual(flagged(edited("{ id: 'a', holds: () => 1 }, ", "")), [`changed-input: ${helper}::var:table`]);
+    assert.deepEqual(flagged(edited("holds: () => 2", "holds: () => null")), [`changed-input: ${helper}::var:table`]);
+  });
+
+  test("a helper file gone, or an import of a test pointed at another file, is a change", () => {
+    assert.deepEqual(named(changes(files, { [spec]: code })), [`removed-file: ${helper}`]);
+    assert.deepEqual(flagged({ [spec]: swap(code, "from './helpers.ts';\nimport * as h", "from './other.ts';\nimport * as h") }), ["long", "shown", "table", "widths"].map((name) => `changed-input: ${spec}::import:${name}`));
+  });
+
+  test("a data file next to the tests that changes is a change", () => {
+    const data = "e2e/tests/note.json";
+    assert.deepEqual(named(changes({ [data]: '{"a": 1}' }, { [data]: '{"a":1}' })), []);
+    assert.deepEqual(named(changes({ [data]: '{"a": 1}' }, { [data]: '{"a":2}' })), [`changed-gate: ${data}`]);
+  });
+
+  describe("in gleam", () => {
+    const module = "test/helpers.gleam";
+    const gleamHelpers = `pub const gap = 150
+
+pub fn read(row: Int) -> Int {
+  row + gap
+}
+
+pub fn unused() -> Int {
+  1
+}
+`;
+    const test_ = "test/gap_test.gleam";
+    const gleamTest = `import helpers.{read as read_it}
+import gleeunit/should
+
+const corpus = [1, 2, 3]
+
+const apart = 9
+
+fn total(rows: List(Int)) -> Int {
+  case rows {
+    [] -> 0
+    [first, ..rest] -> first + total(rest)
+  }
+}
+
+pub fn reads_test() {
+  assert total(corpus) == 6
+  assert helpers.read(1) == 151
+  assert read_it(2) == 152
+  helpers.gap |> should.equal(150)
+}
+`;
+    const gleamFiles = { [test_]: gleamTest, [module]: gleamHelpers };
+    const gleamFlagged = (changed) => named(changes(gleamFiles, { ...gleamFiles, ...changed })).sort();
+
+    test("a const, a table and a helper that a test reads are a change", () => {
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "const corpus = [1, 2, 3]", "const corpus = []") }), [`changed-input: ${test_}::const:corpus`]);
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "[] -> 0", "[] -> 1") }), [`changed-input: ${test_}::fn:total`]);
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "const apart = 9", "const apart = 9\n\nconst unread = helpers.gap") }), []);
+    });
+
+    test("a row added to a table is free, a row removed is a change, what no test reads is free, and a module of the tests that is no test is as strict as a script", () => {
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "[1, 2, 3]", "[1, 2, 3, 4]") }), []);
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "[1, 2, 3]", "[1, 3]") }), [`changed-input: ${test_}::const:corpus`]);
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "const apart = 9", "const apart = 10") }), []);
+      assert.deepEqual(gleamFlagged({ [module]: swap(gleamHelpers, "pub const gap = 150", "pub const gap = 999") }), [`changed-gate: ${module}::const:gap`]);
+    });
+
+    test("an import that a test uses, pointed at another module, is a change, and an added unqualified import is not", () => {
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "import gleeunit/should", "import other/should") }), [`changed-input: ${test_}::import:should`]);
+      assert.deepEqual(gleamFlagged({ [test_]: swap(gleamTest, "import helpers.{read as read_it}", "import helpers.{read as read_it, unused}") }), []);
     });
   });
 });

@@ -105,6 +105,7 @@ const reasons = {
   "removed-file": "is a file of main's judges that this branch no longer has",
   "weakened-test": "is a test of main's that this branch made check less",
   "weakened-helper": "is a helper of main's tests that this branch made check less",
+  "changed-input": "is a const, table, helper or import that a test of main's reads, and this branch changed it",
   "changed-gate": "is a script or file that decides, and this branch changed it",
   unreadable: "is a judge that cannot be read",
   "fails-on-branch": "is a test of main's that fails on this branch's code",
@@ -115,7 +116,7 @@ export function describeFailure(item) {
 }
 
 const MOST_SHOWN = 10;
-const rank = { "changed-gate": 2, "weakened-helper": 1, unreadable: 1, "removed-file": 1 };
+const rank = { "changed-gate": 2, "weakened-helper": 1, "changed-input": 1, unreadable: 1, "removed-file": 1 };
 
 /**
  * The failures as lines. The tests that were removed, weakened or fail come first, and the parts of one

@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { pathToFileURL } from "node:url";
 import { bindings, registeredCalls } from "./e2e_discovery.mjs";
 import { gleamPrinter, hidden, jsPrinter, printGleam, printNode } from "./fingerprint.mjs";
@@ -117,36 +117,94 @@ function inspectStatement(node, text, names, print) {
   return { key: print(node), show: brief(text.slice(node.start, node.end)), asserts, suspicious };
 }
 
-function bodyStatements(callback, text, names) {
-  if (callback === undefined) return [];
-  const printer = jsPrinter();
-  printer.bindParams(callback.params);
-  const body = callback.body.type === "BlockStatement" ? callback.body.body : [callback.body];
-  printer.hoist(body);
-  return body.map((statement) => inspectStatement(statement, text, names, printer.print));
+function bodyStatements(callback, text, names, printer) {
+  if (callback === undefined) return { statements: [], refs: new Set() };
+  return printer.within(() => {
+    const [statements, refs] = printer.collect(() => {
+      printer.bindParams(callback.params);
+      const body = callback.body.type === "BlockStatement" ? callback.body.body : [callback.body];
+      printer.hoist(body);
+      return body.map((statement) => inspectStatement(statement, text, names, printer.print));
+    });
+    return { statements, refs };
+  });
 }
 
 const bindingName = (pattern) => (pattern.type === "Identifier" ? pattern.name : squash(printNode(pattern)).slice(0, 60));
+
+function boundNames(pattern) {
+  switch (pattern?.type) {
+    case "Identifier":
+      return [pattern.name];
+    case "ObjectPattern":
+      return pattern.properties.flatMap((property) => boundNames(property.type === "RestElement" ? property.argument : property.value));
+    case "ArrayPattern":
+      return pattern.elements.flatMap(boundNames);
+    case "AssignmentPattern":
+      return boundNames(pattern.left);
+    case "RestElement":
+      return boundNames(pattern.argument);
+    default:
+      return [];
+  }
+}
+
+const unwrapped = new Set(["TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression"]);
+
+/** The rows of a table: an array, an object, or a call that ends in one. A row may be added, and none may go or change. */
+function tableOf(node) {
+  if (node?.type === "ArrayExpression") return { rows: node.elements, rebuild: () => ({ ...node, elements: [] }) };
+  if (node?.type === "ObjectExpression") return { rows: node.properties, rebuild: () => ({ ...node, properties: [] }) };
+  if (unwrapped.has(node?.type)) {
+    const inner = tableOf(node.expression);
+    return inner && { rows: inner.rows, rebuild: () => ({ ...node, expression: inner.rebuild() }) };
+  }
+  if (node?.type === "CallExpression" && node.arguments.length > 0) {
+    const inner = tableOf(node.arguments.at(-1));
+    return inner && { rows: inner.rows, rebuild: () => ({ ...node, arguments: [...node.arguments.slice(0, -1), inner.rebuild()] }) };
+  }
+  return null;
+}
 
 function declUnits(statement, text, names) {
   const exported = statement.type.startsWith("Export") && statement.declaration ? statement.declaration : null;
   const inner = exported ?? statement;
   const wrapper = exported ? statement.type : "";
-  const unit = (key, node, extra) => {
+  const unit = (key, node, extra, more = {}) => {
     const printer = jsPrinter();
     const found = inspectStatement(node, text, names, printer.unit);
-    return { ...found, key, print: JSON.stringify([wrapper, extra ?? null, found.key]) };
+    return { ...found, key, print: JSON.stringify([wrapper, extra ?? null, found.key]), refs: printer.refs, binds: [], ...more };
   };
-  if (inner.type === "ImportDeclaration") return [unit(`import:${inner.source.value}`, inner)];
+  if (inner.type === "ImportDeclaration") {
+    const source = String(inner.source.value);
+    const here = (key, node, imported, binds) => ({ key, print: `${source}|${imported}|${inner.importKind}|${node.importKind ?? ""}`, show: brief(text.slice(node.start, node.end)), asserts: false, suspicious: false, refs: new Set(), binds, from: { source, imported, namespace: imported === "*" } });
+    if (inner.specifiers.length === 0) return [{ ...here(`side-effect-import:${source}`, inner, "", []), effect: true }];
+    return inner.specifiers.map((specifier) => {
+      const imported = specifier.type === "ImportNamespaceSpecifier" ? "*" : specifier.type === "ImportDefaultSpecifier" ? "default" : nameOf(specifier.imported);
+      return here(`import:${specifier.local.name}`, specifier, imported, [specifier.local.name]);
+    });
+  }
   if (inner.type === "ClassDeclaration") {
     const name = inner.id?.name ?? "default";
-    const members = inner.body.body.map((member, at) => unit(`class:${name}.${nameOf(member.key) ?? `#${at}`}${member.static ? ":static" : ""}`, member));
-    return [{ ...unit(`class:${name}`, { ...inner, body: null }), asserts: false }, ...members];
+    const members = inner.body.body.map((member, at) => {
+      const own = !member.computed && nameOf(member.key) !== null ? [`.${nameOf(member.key)}`] : [];
+      return unit(`class:${name}.${nameOf(member.key) ?? `#${at}`}${member.static ? ":static" : ""}`, member, undefined, { binds: own });
+    });
+    return [{ ...unit(`class:${name}`, { ...inner, body: null }, undefined, { binds: [name] }), asserts: false }, ...members];
   }
-  if (inner.type === "FunctionDeclaration") return [unit(`fn:${inner.id?.name ?? "default"}`, inner)];
-  if (inner.type === "VariableDeclaration") return inner.declarations.map((declarator) => unit(`var:${bindingName(declarator.id)}`, declarator, inner.kind));
+  if (inner.type === "FunctionDeclaration") return [unit(`fn:${inner.id?.name ?? "default"}`, inner, undefined, { binds: inner.id ? [inner.id.name] : [] })];
+  if (inner.type === "VariableDeclaration") {
+    return inner.declarations.map((declarator) => {
+      const whole = unit(`var:${bindingName(declarator.id)}`, declarator, inner.kind, { binds: boundNames(declarator.id) });
+      const table = tableOf(declarator.init);
+      if (table === null) return whole;
+      const printer = jsPrinter();
+      const rows = table.rows.map((row) => printer.print(row));
+      return { ...whole, rows, print: JSON.stringify([wrapper, inner.kind, printer.unit({ ...declarator, init: table.rebuild() })]), refs: printer.refs };
+    });
+  }
   if (/^TS(?:TypeAlias|Interface|Enum)Declaration$/.test(inner.type)) return [unit(`type:${inner.id.name}`, inner)];
-  return [unit(`stmt:${squash(text.slice(inner.start, inner.end)).slice(0, 80)}`, inner)];
+  return [unit(`stmt:${squash(text.slice(inner.start, inner.end)).slice(0, 80)}`, inner, undefined, { effect: true })];
 }
 
 function nodeTestCalls(program) {
@@ -185,7 +243,7 @@ function jsFile({ path, text, program, calls, names }) {
     });
     return found;
   };
-  const visit = (node, scope, inherited = []) => {
+  const visit = (node, scope, inherited, shared) => {
     if (registering(node)) {
       const segments = spell(node.callee).split(".");
       const mods = [...segments.filter((word) => modWords.has(word)), ...optionMods(node.arguments)];
@@ -195,26 +253,31 @@ function jsFile({ path, text, program, calls, names }) {
         const inner = [...scope, title];
         const passed = [...inherited, ...mods];
         if (callback?.body.type === "BlockStatement") {
-          const setup = callback.body.body.filter((statement) => !holdsRegistration(statement));
-          if (setup.length > 0) {
-            const id = `${path} > ${inner.join(" > ")} (setup)`;
-            const printer = jsPrinter();
-            printer.hoist(setup);
-            add(tests, { id, mods: [], setup: true, statements: setup.map((statement) => inspectStatement(statement, text, names, printer.print)) }, id);
-          }
-          for (const statement of callback.body.body) visit(statement, inner, passed);
+          const printer = shared ?? jsPrinter();
+          printer.within(() => {
+            const setup = callback.body.body.filter((statement) => !holdsRegistration(statement));
+            if (setup.length > 0) {
+              const id = `${path} > ${inner.join(" > ")} (setup)`;
+              const [statements, refs] = printer.collect(() => {
+                printer.hoist(setup);
+                return setup.map((statement) => inspectStatement(statement, text, names, printer.print));
+              });
+              add(tests, { id, mods: [], setup: true, statements, refs }, id);
+            }
+            for (const statement of callback.body.body) visit(statement, inner, passed, printer);
+          });
         }
         return;
       }
       const id = `${path} > ${[...scope, title].join(" > ")}`;
-      const statements = bodyStatements(callback, text, names);
-      add(tests, { id, mods: [...inherited, ...mods], setup: false, statements }, id);
+      const { statements, refs } = bodyStatements(callback, text, names, shared ?? jsPrinter());
+      add(tests, { id, mods: [...inherited, ...mods], setup: false, statements, refs }, id);
       return;
     }
-    for (const child of kids(node)) visit(child, scope, inherited);
+    for (const child of kids(node)) visit(child, scope, inherited, shared);
   };
   for (const statement of program.body) {
-    if (holdsRegistration(statement)) visit(statement, [], []);
+    if (holdsRegistration(statement)) visit(statement, [], [], null);
     else for (const unit of declUnits(statement, text, names)) add(decls, unit, unit.key);
   }
   for (const unit of tests.values()) unit.bodyKey = JSON.stringify(unit.statements.map((statement) => statement.key));
@@ -260,31 +323,48 @@ function gleamFile({ path, text, module }) {
   const statementsOf = (body, parameters = []) => {
     const printer = gleamPrinter();
     printer.parameters(parameters);
-    return [...body].map((statement) => {
+    const statements = [...body].map((statement) => {
       const span = spanOf(statement);
       return { key: printer.print(statement), show: span ? brief(bytes.subarray(span.start, span.end).toString()) : "?", asserts: asserting(statement), suspicious: guarding(statement) };
     });
+    return { statements, refs: printer.refs };
   };
   const tests = new Map();
   const decls = new Map();
   const runs = /_test\.gleam$/.test(path);
+  const declare = (key, print, show, more = {}) => decls.set(key, { key, print, show, asserts: false, refs: new Set(), binds: [], ...more });
   for (const definition of module.functions) {
     const found = definition.definition;
-    const statements = statementsOf(found.body, found.parameters);
+    const { statements, refs } = statementsOf(found.body, found.parameters);
     if (runs && found.name.endsWith("_test") && found.publicity.constructor.name === "Public") {
       const id = `${path}::${found.name}`;
-      tests.set(id, { id, mods: [], setup: false, statements, bodyKey: JSON.stringify(statements.map((statement) => statement.key)) });
+      tests.set(id, { id, mods: [], setup: false, statements, refs, bodyKey: JSON.stringify(statements.map((statement) => statement.key)) });
     } else {
-      decls.set(`fn:${found.name}`, { key: `fn:${found.name}`, print: printGleam(found), asserts: statements.some((statement) => statement.asserts), show: found.name });
+      const printer = gleamPrinter();
+      declare(`fn:${found.name}`, printer.print(definition), found.name, { asserts: statements.some((statement) => statement.asserts), refs: printer.refs, binds: [found.name] });
     }
   }
-  const plain = (kind, list, name) => {
-    for (const definition of list) decls.set(`${kind}:${name(definition.definition)}`, { key: `${kind}:${name(definition.definition)}`, print: printGleam(definition), asserts: false, show: name(definition.definition) });
-  };
-  plain("import", module.imports, (found) => found.module);
-  plain("const", module.constants, (found) => found.name);
-  plain("type", module.custom_types, (found) => found.name);
-  plain("alias", module.type_aliases, (found) => found.name);
+  for (const definition of module.imports) {
+    const found = definition.definition;
+    const alias = found.alias;
+    const local = alias === undefined || alias === null || alias[0] === undefined ? found.module.split("/").at(-1) : alias[0][0];
+    declare(`import:${local}`, `${found.module} as ${local}`, found.module, { binds: [local], from: { module: found.module, namespace: true } });
+    for (const value of found.unqualified_values) {
+      const bound = value.alias?.[0] ?? value.name;
+      declare(`import-value:${bound}`, `${found.module}.${value.name}`, `${found.module}.${value.name}`, { binds: [bound], from: { module: found.module, imported: value.name, namespace: false } });
+    }
+  }
+  for (const definition of module.constants) {
+    const found = definition.definition;
+    const printer = gleamPrinter();
+    const whole = printer.print(definition);
+    const listed = found.value?.constructor?.name === "List" && found.value.rest?.[0] === undefined;
+    const rows = listed ? [...found.value.elements].map(printer.print) : undefined;
+    const frame = listed ? `${printer.print(definition.attributes)}|${found.name}|${printer.print(found.publicity)}|${printer.print(found.annotation)}|list` : whole;
+    declare(`const:${found.name}`, frame, found.name, { refs: printer.refs, binds: [found.name], rows });
+  }
+  for (const definition of module.custom_types) declare(`type:${definition.definition.name}`, printGleam(definition), definition.definition.name);
+  for (const definition of module.type_aliases) declare(`alias:${definition.definition.name}`, printGleam(definition), definition.definition.name);
   return { tests, decls };
 }
 
@@ -315,7 +395,7 @@ export function inventoryOf(files, parsers) {
   const resolve = bindings(programs);
   for (const [path, text] of files) {
     const role = roleOf(path);
-    const entry = { path, role, tests: new Map(), decls: new Map(), unreadable: null, text: normalised(path, text) };
+    const entry = { path, role, tests: new Map(), decls: new Map(), unreadable: null, text: normalised(path, text), data: !isCode(path), byName: new Map() };
     found.set(path, entry);
     if (!isCode(path)) continue;
     if (path.endsWith(".gleam")) {
@@ -337,7 +417,90 @@ export function inventoryOf(files, parsers) {
     const calls = new Set(inE2e ? registeredCalls(program, resolve(path.slice("e2e/".length))) : nodeTestCalls(program));
     Object.assign(entry, jsFile({ path, text, program, calls, names }));
   }
+  for (const entry of found.values()) {
+    for (const [key, unit] of entry.decls) for (const bound of unit.binds ?? []) if (!bound.startsWith(".")) entry.byName.set(bound, [...(entry.byName.get(bound) ?? []), key]);
+  }
   return found;
+}
+
+const EXTENSIONS = ["", ".ts", ".mts", ".mjs", ".js", ".tsx", "/index.ts", "/index.mjs", "/index.js"];
+
+/** The judged file that an import names, or null: a Gleam module of `test/`, or a relative path. */
+function moduleFile(inventory, path, from) {
+  if (from.module !== undefined) return inventory.has(`test/${from.module}.gleam`) ? `test/${from.module}.gleam` : null;
+  if (!from.source.startsWith(".")) return null;
+  const joined = posix.normalize(posix.join(posix.dirname(path), from.source));
+  const bare = joined.replace(/\.[cm]?[jt]sx?$/, "");
+  return [...EXTENSIONS.map((extension) => joined + extension), ...EXTENSIONS.slice(1).map((extension) => bare + extension)].find((candidate) => inventory.has(candidate)) ?? null;
+}
+
+/**
+ * Every top-level declaration that a test reads, as `path::key`: what its statements name, what those
+ * name in turn, through imports into other judged files, and the methods of a class that a test
+ * calls (a call on an object is followed by the name of the method). A statement at the top of a
+ * test file, or of a file that a test reaches, runs with the tests and is read by them.
+ */
+export function readBy(inventory) {
+  const members = new Map();
+  for (const [path, entry] of inventory) for (const [key, unit] of entry.decls) for (const bound of unit.binds ?? []) if (bound.startsWith(".")) members.set(bound, [...(members.get(bound) ?? []), [path, key]]);
+  const reached = new Set();
+  const loaded = new Set();
+  const queue = [];
+  const load = (path) => {
+    if (loaded.has(path)) return;
+    loaded.add(path);
+    for (const [key, unit] of inventory.get(path).decls) if (unit.effect) reach(path, key);
+  };
+  const reach = (path, key) => {
+    if (reached.has(`${path}::${key}`)) return;
+    reached.add(`${path}::${key}`);
+    queue.push([path, key]);
+    load(path);
+  };
+  const follow = (path, refs) => {
+    const entry = inventory.get(path);
+    for (const ref of refs) {
+      if (ref.startsWith(".")) {
+        for (const [where, key] of members.get(ref) ?? []) reach(where, key);
+        continue;
+      }
+      const dot = ref.indexOf(".");
+      for (const key of entry.byName.get(dot < 0 ? ref : ref.slice(0, dot)) ?? []) {
+        if (dot < 0) reach(path, key);
+        else if (entry.decls.get(key).from?.namespace) {
+          const target = moduleFile(inventory, path, entry.decls.get(key).from);
+          for (const inside of target === null ? [] : (inventory.get(target).byName.get(ref.slice(dot + 1)) ?? [])) reach(target, inside);
+        }
+      }
+    }
+  };
+  for (const [path, entry] of inventory) {
+    if (entry.role !== "test") continue;
+    load(path);
+    for (const test of entry.tests.values()) follow(path, test.refs ?? []);
+  }
+  for (let at = 0; at < queue.length; at++) {
+    const [path, key] = queue[at];
+    const unit = inventory.get(path).decls.get(key);
+    follow(path, unit.refs ?? []);
+    if (unit.from === undefined) continue;
+    const target = moduleFile(inventory, path, unit.from);
+    if (target === null) continue;
+    load(target);
+    if (!unit.from.namespace) for (const inside of inventory.get(target).byName.get(unit.from.imported) ?? []) reach(target, inside);
+  }
+  return reached;
+}
+
+/** A unit changed when it is gone or prints otherwise. A table may gain rows unless `strict`. */
+function changed(unit, next, strict) {
+  if (next === undefined || next.print !== unit.print) return true;
+  if (unit.rows === undefined) return false;
+  if (next.rows === undefined) return true;
+  if (strict) return unit.rows.length !== next.rows.length || unit.rows.some((row, at) => row !== next.rows[at]);
+  let at = 0;
+  for (const row of next.rows) if (at < unit.rows.length && row === unit.rows[at]) at++;
+  return at < unit.rows.length;
 }
 
 const rank = (mods) => mods.filter((word) => weakWords.has(word)).length;
@@ -370,27 +533,29 @@ export function compare(base, branch) {
   const items = [];
   const notes = [];
   const bodies = new Set([...branch.values()].flatMap((entry) => [...entry.tests.values()].map((unit) => unit.bodyKey)));
+  const read = readBy(base);
+  const kept = new Set([...branch.values()].flatMap((entry) => [...entry.decls].map(([key, unit]) => `${key}|${unit.print}`)));
   for (const [path, was] of base) {
     const now = branch.get(path);
     if (now === undefined) {
       const lost = [...was.tests.values()].filter((unit) => unit.setup || !bodies.has(unit.bodyKey)).length;
-      const asserting = [...was.decls.values()].some((unit) => unit.asserts);
-      if (was.role === "gate" || lost > 0 || asserting) items.push({ file: path, id: path, what: "removed-file", why: lost > 0 ? `the file is gone, with ${lost} test${lost === 1 ? "" : "s"}` : "the file is gone" });
+      const asserting = [...was.decls].some(([key, unit]) => (unit.asserts || read.has(`${path}::${key}`)) && !kept.has(`${key}|${unit.print}`));
+      if (was.role === "gate" || was.data || lost > 0 || asserting) items.push({ file: path, id: path, what: "removed-file", why: lost > 0 ? `the file is gone, with ${lost} test${lost === 1 ? "" : "s"}` : "the file is gone" });
       continue;
     }
     if (now.unreadable !== null) {
       items.push({ file: path, id: path, what: "unreadable", why: `${now.unreadable}, so what it still asserts cannot be told` });
       continue;
     }
+    if (was.data || (was.role === "gate" && was.decls.size === 0 && was.tests.size === 0)) {
+      if (was.text !== now.text) items.push({ file: path, id: path, what: "changed-gate", why: "the file changed" });
+      continue;
+    }
     if (was.role === "gate") {
-      if (was.decls.size === 0 && was.tests.size === 0) {
-        if (was.text !== now.text) items.push({ file: path, id: path, what: "changed-gate", why: "the file changed" });
-        continue;
-      }
       for (const [key, unit] of was.decls) {
         const next = now.decls.get(key);
-        if (next === undefined) items.push({ file: path, id: `${path}::${key}`, what: "changed-gate", why: `${unit.show ?? key} is gone` });
-        else if (next.print !== unit.print) items.push({ file: path, id: `${path}::${key}`, what: "changed-gate", why: `${unit.show ?? key} changed` });
+        if (!changed(unit, next, true)) continue;
+        items.push({ file: path, id: `${path}::${key}`, what: "changed-gate", why: `${unit.show ?? key} ${next === undefined ? "is gone" : "changed"}` });
       }
       continue;
     }
@@ -406,10 +571,12 @@ export function compare(base, branch) {
     }
     for (const [key, unit] of was.decls) {
       const next = now.decls.get(key);
-      if (next !== undefined && next.print === unit.print) continue;
+      if (!changed(unit, next, false)) continue;
       const what = next === undefined ? "gone" : "changed";
-      if (unit.asserts) items.push({ file: path, id: `${path}::${key}`, what: "weakened-helper", why: `${unit.show ?? key}, which asserts, is ${what}` });
-      else notes.push(`${path}::${key} is ${what}`);
+      const id = `${path}::${key}`;
+      if (unit.asserts) items.push({ file: path, id, what: "weakened-helper", why: `${unit.show ?? key}, which asserts, is ${what}` });
+      else if (read.has(id)) items.push({ file: path, id, what: "changed-input", why: `${unit.show ?? key}, which a test of main's reads, is ${what}` });
+      else notes.push(`${id} is ${what}`);
     }
   }
   return { items, notes };

@@ -180,7 +180,7 @@ const keyName = (key) => (key.type === "Identifier" ? key.name : String(key.valu
 
 export function jsPrinter() {
   const scope = scopes();
-  const refs = new Set();
+  let refs = new Set();
   let top = null;
 
   const within = (build) => {
@@ -310,5 +310,16 @@ export function jsPrinter() {
     }
   };
 
-  return { print, unit, refs, bindParams: (params) => params.map((param, index) => pattern(param, `parameter ${index}`)), hoist };
+  /** What `build` returns, with the names it read from outside. */
+  const collect = (build) => {
+    const outer = refs;
+    refs = new Set();
+    try {
+      return [build(), refs];
+    } finally {
+      refs = outer;
+    }
+  };
+
+  return { print, unit, within, collect, bindParams: (params) => params.map((param, index) => pattern(param, `parameter ${index}`)), hoist, get refs() { return refs; } };
 }
