@@ -435,8 +435,16 @@ function atLineEnd(control, head, place) {
 }
 
 // The field as the last aim left it, and who aimed it, so that aiming again
-// can tell whether a key, or a later aim, has moved the caret since.
-const aimed = new WeakMap();
+// can tell whether a key, or a later aim, has moved the caret since. A key
+// that moves the caret along a line, or a press, may bring it back to the
+// same offset on the other side of a wrap, so each forgets it.
+let aimed = new WeakMap();
+let forgetting = false;
+const ALONG = ["ArrowLeft", "ArrowRight", "Home", "End"];
+
+function forgetAims(event) {
+  if (event.type === "pointerdown" || ALONG.includes(event.key)) aimed = new WeakMap();
+}
 
 // The last aim, while the field is as it left it. An aim puts the head on
 // the line it aims at, where a row wraps at its start or its end as it
@@ -498,6 +506,11 @@ function aimFrom(id, liveClass, paintedClass, text, start, end, backward, x, lin
 
 // Notes how an aim, `by` an editor or by a step, left the field.
 function noteAim(control, by, atEnd) {
+  if (!forgetting) {
+    forgetting = true;
+    document.addEventListener("keydown", forgetAims, true);
+    document.addEventListener("pointerdown", forgetAims, true);
+  }
   if (atEnd === null) {
     aimed.delete(control);
     return;
