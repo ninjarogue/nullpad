@@ -1346,7 +1346,6 @@ export const facts: Fact[] = [
   fact({
     id: 'marker-line-height-zero',
     says: 'li::marker { line-height: 0 } stops the marker making a list item taller than its content.',
-    pending: 'the rule is added by the branch of PR #30 and main has no ::marker rule, so no code relies on it here yet',
     relied: [{ file: css, text: 'li::marker' }],
     html:
       '<style>ul{margin:0;padding-left:30px;font:16px/1.7 serif} li h6{font:10px/1.2 serif;margin:0} .zero li::marker{line-height:0}</style>' +
