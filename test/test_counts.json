@@ -4,7 +4,7 @@
   "e2e:e2e.config.ts": 1563,
   "e2e:e2e.config.ts expected-fail": 4,
   "e2e:e2e.dpr2.config.mjs": 118,
-  "gleam-test": 585,
+  "gleam-test": 586,
   "keystroke-cost": 173,
   "mutants-tool": 75,
   "test-cleanup": 10,
