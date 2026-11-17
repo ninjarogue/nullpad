@@ -612,6 +612,52 @@ pub fn adds_test() {
   });
 });
 
+describe("what runs the tests, and how many", () => {
+  const pkg = "e2e/package.json";
+  const manifest = (scripts, extra = {}) => JSON.stringify({ name: "e2e", scripts, ...extra }, null, 2);
+  const scripts = { test: "E2E_TELEMETRY_DISABLED=1 e2e run --retries 0", types: "tsc" };
+  const flagged = (before, after) => named(changes({ [pkg]: manifest(before) }, { [pkg]: manifest(after.scripts ?? before, after.extra) }));
+
+  test("a flag added to a test script, a script removed, or a script changed is a change", () => {
+    assert.deepEqual(flagged(scripts, { scripts: { ...scripts, test: `${scripts.test} --grep-invert undo` } }), [`changed-gate: ${pkg}::scripts.test`]);
+    assert.deepEqual(flagged(scripts, { scripts: { test: scripts.test } }), [`changed-gate: ${pkg}::scripts.types`]);
+    assert.deepEqual(flagged(scripts, { scripts: { ...scripts, test: "e2e run --retries 3" } }), [`changed-gate: ${pkg}::scripts.test`]);
+  });
+
+  test("a script added, or a dependency changed, is free", () => {
+    assert.deepEqual(flagged(scripts, { scripts: { ...scripts, extra: "echo" } }), []);
+    assert.deepEqual(flagged(scripts, { extra: { devDependencies: { typescript: "^5.0.0" } } }), []);
+  });
+
+  test("the config of the runner is judged: a retry count or a filter put in it is a change", () => {
+    const config = "e2e/e2e.config.ts";
+    const text = "import { defineConfig } from 'e2e';\nexport default defineConfig({ retries: 0, tests: ['tests/**/*.e2e.ts'] });\n";
+    assert.deepEqual(named(changes({ [config]: text }, { [config]: swap(text, "retries: 0", "retries: 2") })), [`changed-gate: ${config}::stmt:defineConfig({ retries: 0, tests: ['tests/**/*.e2e.ts'] })`]);
+    assert.deepEqual(named(changes({ [config]: text }, { [config]: swap(text, "['tests/**/*.e2e.ts']", "['tests/**/*.e2e.ts', '!tests/slow/**']") })).length, 1);
+  });
+
+  const counts = "test/test_counts.json";
+  const table = (entries) => JSON.stringify(entries, null, 2);
+  const counted = (before, after) => named(changes({ [counts]: table(before) }, { [counts]: table(after) }));
+
+  test("a count lower than main's, or a step gone from the counts, is a change", () => {
+    assert.deepEqual(counted({ "gleam-test": 476, "e2e:e2e.config.ts": 676 }, { "gleam-test": 475, "e2e:e2e.config.ts": 676 }), [`lowered-count: ${counts}::gleam-test`]);
+    assert.deepEqual(counted({ "gleam-test": 476, judges: 58 }, { "gleam-test": 476 }), [`lowered-count: ${counts}::judges`]);
+    assert.deepEqual(named(changes({ [counts]: table({ a: 1 }) }, {})), [`removed-file: ${counts}`]);
+  });
+
+  test("a count raised, a step added, and a held count that fell are free", () => {
+    assert.deepEqual(counted({ "gleam-test": 476 }, { "gleam-test": 480, "new-step": 3 }), []);
+    assert.deepEqual(counted({ "gleam-test": 476, "e2e todo": 2 }, { "gleam-test": 476 }), []);
+  });
+
+  test("a trailer for the counts file covers a lowered count", () => {
+    const result = changes({ [counts]: table({ a: 5 }) }, { [counts]: table({ a: 4 }) });
+    const trailer = { commit: "abc1234", subject: counts, reason: "a test went", text: `${counts} — a test went` };
+    assert.equal(sort(result.items, [trailer]).failing.length, 0);
+  });
+});
+
 describe("the files that decide", () => {
   const script = "test/steps.mjs";
   const code = "export const a = 1;\nexport function gate() {\n  return 2;\n}\n";
@@ -635,9 +681,9 @@ describe("the files that decide", () => {
     assert.deepEqual(named(changes({ "test/data.json": '{"a": 1}' }, { "test/data.json": '{"a":2}' })), ["changed-gate: test/data.json"]);
   });
 
-  test("the counts file, the pick map, the e2e dependencies and its output and the readmes are not judges, and the rest of test, tools and e2e are", () => {
-    for (const path of ["test/test_counts.json", "test/pick_map.json", "e2e/package.json", "e2e/package-lock.json", "e2e/node_modules/x/index.js", "e2e/.e2e/out/report.json", "tools/mutants/README.md", "test/commonmark/README.md"]) assert.ok(!judged(path), path);
-    for (const path of ["test/steps.mjs", "tools/mutants/mutants.mjs", "e2e/serve.mjs", "e2e/e2e.config.ts", "e2e/tests/undo.e2e.ts", ".githooks/pre-push", ".github/workflows/test.yml"]) assert.ok(judged(path), path);
+  test("the pick map, the lock file, the e2e dependencies and its output and the readmes are not judges, and the rest of test, tools and e2e are", () => {
+    for (const path of ["test/pick_map.json", "e2e/package-lock.json", "e2e/node_modules/x/index.js", "e2e/.e2e/out/report.json", "tools/mutants/README.md", "test/commonmark/README.md"]) assert.ok(!judged(path), path);
+    for (const path of ["test/test_counts.json", "e2e/package.json", "test/steps.mjs", "tools/mutants/mutants.mjs", "e2e/serve.mjs", "e2e/e2e.config.ts", "e2e/tests/undo.e2e.ts", ".githooks/pre-push", ".github/workflows/test.yml"]) assert.ok(judged(path), path);
   });
 });
 
@@ -787,7 +833,24 @@ describe("the pre-push gate on a branch", () => {
     branch.edit(toyTest, 'test("adds negatives", () => {\n  assert.equal(add(-1, -1), -2);\n});\n', "");
     branch.write("test/test_counts.json", '{\n  "toy": 2\n}\n');
     branch.commit("drop a test");
-    caught(branch.push(), /FAIL 1 judge/, new RegExp(`${toyTest} > adds negatives`), /no test of this name is left/, /Changes-test: test\/toy\.test\.mjs > adds negatives — /);
+    caught(branch.push(), /FAIL 2 judges/, new RegExp(`${toyTest} > adds negatives`), /no test of this name is left/, /Changes-test: test\/toy\.test\.mjs > adds negatives — /, /test\/test_counts\.json::toy/, /fell from 3 to 2/);
+  });
+
+  test("a count lowered by hand fails with no test removed", () => {
+    const branch = base.branch();
+    branch.write("test/test_counts.json", '{\n  "toy": 2\n}\n');
+    branch.commit("lower the count");
+    caught(branch.push(), /FAIL 1 judge/, /Changes-test: test\/test_counts\.json::toy — /);
+  });
+
+  test("a test removed with a trailer for it and one for the counts file passes", () => {
+    const branch = base.branch();
+    branch.edit(toyTest, 'test("adds negatives", () => {\n  assert.equal(add(-1, -1), -2);\n});\n', "");
+    branch.write("test/test_counts.json", '{\n  "toy": 2\n}\n');
+    branch.commit("drop a test\n\nChanges-test: test/toy.test.mjs > adds negatives — it moved\nChanges-test: test/test_counts.json — one test fewer");
+    const run = branch.push();
+    assert.equal(run.status, 0, run.out);
+    assert.match(run.out, /2 changed under a trailer/);
   });
 
   test("deleting a gleam test of main's fails and names it", () => {

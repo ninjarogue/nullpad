@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { compare, inventoryOf, judged, loadParsers, roleOf } from "./inventory.mjs";
+import { compare, inventoryOf, judged, loadParsers, ofValues, roleOf } from "./inventory.mjs";
 
 /**
  * Main's tests judge the branch. A pre-push run takes the tests and the gate scripts as the
@@ -106,6 +106,7 @@ const reasons = {
   "weakened-test": "is a test of main's that this branch made check less",
   "weakened-helper": "is a helper of main's tests that this branch made check less",
   disabled: "is a statement, test or group that this branch added and that switches checks off or leaves the others out",
+  "lowered-count": "is a count of tests that this branch lowered",
   "changed-input": "is a const, table, helper or import that a test of main's reads, and this branch changed it",
   "changed-gate": "is a script or file that decides, and this branch changed it",
   unreadable: "is a judge that cannot be read",
@@ -117,7 +118,7 @@ export function describeFailure(item) {
 }
 
 const MOST_SHOWN = 10;
-const rank = { "changed-gate": 2, "weakened-helper": 1, "changed-input": 1, unreadable: 1, "removed-file": 1 };
+const rank = { "changed-gate": 2, "weakened-helper": 1, "changed-input": 1, "lowered-count": 1, unreadable: 1, "removed-file": 1 };
 
 /**
  * The failures as lines. The tests that were removed, weakened or fail come first, and the parts of one
@@ -154,8 +155,9 @@ export function describeTrailers(trailers) {
 function staticJudge({ repo, base, tree, parsers }) {
   const baseFiles = readJudged(tree, filesOf(repo, base));
   const branchFiles = readJudged(repo, trackedAndNew(repo));
-  const differing = [...baseFiles].filter(([path, text]) => branchFiles.get(path) !== text).map(([path]) => path);
-  if (differing.length === 0) return { items: [], notes: [], differing };
+  const differing = [...baseFiles].filter(([path, text]) => branchFiles.get(path) !== text && !ofValues(path)).map(([path]) => path);
+  const valued = [...baseFiles].some(([path, text]) => ofValues(path) && branchFiles.get(path) !== text);
+  if (differing.length === 0 && !valued) return { items: [], notes: [], differing };
   const { items, notes } = compare(inventoryOf(baseFiles, parsers), inventoryOf(branchFiles, parsers));
   return { items, notes, differing };
 }

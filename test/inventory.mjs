@@ -11,7 +11,12 @@ import { gleamPrinter, hidden, jsPrinter, printGleam, printNode } from "./finger
  * what a branch took away from, or changed in, the judges it inherited.
  */
 
-const excluded = (path) => /\.md$/.test(path) || path === "test/test_counts.json" || path === "test/pick_map.json" || /^e2e\/(?:node_modules|\.e2e)\//.test(path) || /^e2e\/package(?:-lock)?\.json$/.test(path);
+const excluded = (path) => /\.md$/.test(path) || path === "test/pick_map.json" || /^e2e\/(?:node_modules|\.e2e)\//.test(path) || /^e2e\/package-lock\.json$/.test(path);
+
+export const COUNTS = "test/test_counts.json";
+
+/** What is judged by what it says, not by the code in it: the counts of tests, and the scripts of a package. */
+export const ofValues = (path) => path === COUNTS || /(?:^|\/)package\.json$/.test(path);
 
 export const judged = (path) => /^(?:test|tools|e2e|\.githooks|\.github)\//.test(path) && !excluded(path);
 
@@ -555,6 +560,33 @@ function weaker(base, branch) {
   return reasons.join("; ");
 }
 
+const parsed = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
+/** A count of tests that is lower than the base's, or gone. A held count (expected-fail, todo) may fall. */
+function loweredCounts(path, was, now) {
+  const before = parsed(was) ?? {};
+  const after = parsed(now);
+  if (after === null) return [{ file: path, id: path, what: "unreadable", why: "it is not JSON, so what it counts cannot be told" }];
+  return Object.entries(before)
+    .filter(([step, count]) => typeof count === "number" && !/ (?:expected-fail|todo)$/.test(step) && !(after[step] >= count))
+    .map(([step, count]) => ({ file: path, id: `${path}::${step}`, what: "lowered-count", why: after[step] === undefined ? `the count of ${step} (${count}) is gone` : `the count of ${step} fell from ${count} to ${after[step]}` }));
+}
+
+/** A script of a package that is gone or says something else. A script added is free. */
+function changedScripts(path, was, now) {
+  const before = parsed(was)?.scripts ?? {};
+  const after = parsed(now)?.scripts ?? {};
+  return Object.entries(before)
+    .filter(([name, command]) => after[name] !== command)
+    .map(([name, command]) => ({ file: path, id: `${path}::scripts.${name}`, what: "changed-gate", why: after[name] === undefined ? `the script ${name} is gone` : `the script ${name} changed from "${command}" to "${after[name]}"` }));
+}
+
 /**
  * What the branch's judges lost or changed since the base's. A test may grow, so new tests,
  * new statements and new assertions are free. It may not shrink: each statement of a base
@@ -580,6 +612,14 @@ export function compare(base, branch) {
     }
     if (now.unreadable !== null) {
       items.push({ file: path, id: path, what: "unreadable", why: `${now.unreadable}, so what it still asserts cannot be told` });
+      continue;
+    }
+    if (path === COUNTS) {
+      items.push(...loweredCounts(path, was.text, now.text));
+      continue;
+    }
+    if (/(?:^|\/)package\.json$/.test(path)) {
+      items.push(...changedScripts(path, was.text, now.text));
       continue;
     }
     if (was.data || (was.role === "gate" && was.decls.size === 0 && was.tests.size === 0)) {
