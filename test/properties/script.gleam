@@ -44,7 +44,7 @@ pub type Action {
   Undo
   Redo
   Compose(at: Int, length: Int, text: String, ends: Bool, gap: Int)
-  Unstep(x: Float)
+  Unstep(x: Option(Float))
   FieldStep(at: Int, length: Int)
   Aim(at: Int)
   StepPast
@@ -156,31 +156,40 @@ fn edge() -> Generator(editor.Edge) {
     editor.JoinAfter,
     editor.Line(up: True, select: False),
     editor.Line(up: False, select: True),
-    editor.Beside(up: False, select: False),
-    editor.Beside(up: True, select: True),
+    editor.LineInField(up: False, select: False),
+    editor.LineInField(up: True, select: True),
     editor.SelectBefore,
     editor.SelectAfter,
     editor.SelectLeft,
     editor.SelectRight,
     editor.SelectLineStart,
     editor.SelectLineEnd,
-    editor.SelectToStart,
-    editor.SelectToEnd,
+    editor.SelectToNoteStart,
+    editor.SelectToNoteEnd,
     editor.SelectAll,
     editor.Page(up: True, select: False),
     editor.Page(up: False, select: True),
-    editor.Row(up: True, select: True),
-    editor.Row(up: False, select: False),
-    editor.Before,
-    editor.After,
-    editor.ToStart,
-    editor.ToEnd,
-    editor.Widen,
+    editor.NextRow(up: True, select: True),
+    editor.NextRow(up: False, select: False),
+    editor.OntoRowBefore,
+    editor.OntoRowAfter,
+    editor.ToNoteStart,
+    editor.ToNoteEnd,
+    editor.WidenToNote,
   ])
 }
 
 fn x() -> Generator(Float) {
   qcheck.bounded_float(-1.0, 300.0)
+}
+
+fn aimed_x() -> Generator(Option(Float)) {
+  qcheck.map(x(), fn(x) {
+    case x >=. 0.0 {
+      True -> Some(x)
+      False -> None
+    }
+  })
 }
 
 fn held() -> Generator(editor.Held) {
@@ -208,8 +217,8 @@ fn held() -> Generator(editor.Held) {
     ),
     [
       #(1, qcheck.map(gen.typed(), editor.HeldPaste(_, 0))),
-      #(1, qcheck.return(editor.HeldUndo)),
-      #(1, qcheck.return(editor.HeldRedo)),
+      #(1, qcheck.return(editor.HeldMenuUndo)),
+      #(1, qcheck.return(editor.HeldMenuRedo)),
     ],
   )
 }
@@ -237,7 +246,7 @@ pub fn anything() -> Generator(Action) {
         Compose,
       ),
     ),
-    #(1, qcheck.map(x(), Unstep)),
+    #(1, qcheck.map(aimed_x(), Unstep)),
     #(1, qcheck.map2(offset(), qcheck.bounded_int(0, 20), FieldStep)),
     #(1, qcheck.map(offset(), Aim)),
     #(1, qcheck.return(StepPast)),
@@ -388,7 +397,7 @@ fn pointer_event(
     PressedOnSelection ->
       editor.SelectionPointed(row:, visible:, at_end:, next:, x: 0.0, y: 0.0)
     Dragged -> editor.Dragged(row:, visible:, at_end:, next:)
-    Stepped -> editor.Stepped(row:, visible:, at_end:, next:, x: 5.0)
+    Stepped -> editor.Stepped(row:, visible:, at_end:, next:, x: Some(5.0))
   }
 }
 
@@ -481,7 +490,7 @@ pub fn run(previous: Run, action: Action) -> Run {
       let selected = select_range(ed, clock, at, length, False)
       plain(send(
         ed,
-        editor.FieldStepped(shown: editor.field_buffer(selected), x: 4.0),
+        editor.FieldStepped(shown: editor.field_buffer(selected), x: Some(4.0)),
       ))
     }
     Aim(at:) -> {
