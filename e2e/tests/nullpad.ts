@@ -1,7 +1,10 @@
-import { test as base } from '@e2e-dev/web';
+import { surfaceOf, test as base } from '@e2e-dev/web';
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import type { App, Locator, Screen } from 'e2e';
+import type { BrowserContext, Page as Tab } from 'playwright-core';
+import { listen } from '../browser-problems.mjs';
+import { engine } from '../engine.ts';
 
 export type Note = { key: string; title: string | null; body: string };
 
@@ -109,13 +112,41 @@ function installTestDisk() {
   };
 }
 
-function recordCrashes() {
-  const record = (event: ErrorEvent | PromiseRejectionEvent) => {
-    const crash = 'reason' in event ? String(event.reason) : event.message;
-    localStorage.setItem('testPage.crash', crash);
-  };
-  addEventListener('error', record);
-  addEventListener('unhandledrejection', record);
+/**
+ * What the browser reports about the pages of one test: uncaught errors, console errors and
+ * warnings, and its own error lines. It listens from outside the page, from the moment a page
+ * exists, so nothing the page does can hide a report from it.
+ */
+export class Reports {
+  private readonly found: string[] = [];
+  private readonly sessions: Promise<{ send(method: string, params?: object): Promise<unknown> } | null>[] = [];
+
+  constructor(context: BrowserContext) {
+    context.on('page', (tab) => this.watch(tab));
+    for (const tab of context.pages()) this.watch(tab);
+  }
+
+  private watch(tab: Tab) {
+    this.sessions.push(
+      (async () => {
+        try {
+          const session = await tab.context().newCDPSession(tab);
+          await listen(session, (problem) => this.found.push(problem));
+          return session;
+        } catch {
+          // A page that closed before it could be watched has nothing left to report.
+          return null;
+        }
+      })(),
+    );
+  }
+
+  /** What was reported so far, which the test now answers for. */
+  async take() {
+    const sessions = await Promise.all(this.sessions);
+    await Promise.all(sessions.map((session) => session?.send('Runtime.evaluate', { expression: '0' })));
+    return this.found.splice(0);
+  }
 }
 
 export class Disk {
@@ -207,6 +238,7 @@ export class Page {
   constructor(
     screen: Screen,
     private readonly browser: Browser,
+    private readonly reports: Reports,
   ) {
     this.text = screen.getByLabel('Note text');
     this.title = screen.getByLabel('Title');
@@ -245,6 +277,11 @@ export class Page {
     this.vimMode = screen.getByTestId('mode');
     this.above = screen.getByTestId('live-above');
     this.below = screen.getByTestId('live-below');
+  }
+
+  /** What the browser reported since the last call: the test answers for it, and the end of the test fails on what it did not take. */
+  takeProblems() {
+    return this.reports.take();
   }
 
   /** An element of the note drawn around the text field. */
@@ -578,7 +615,7 @@ export class Page {
   /** The relative luminance of each CSS colour given, as the eye weighs it. */
   luminances(colors: string[]) {
     return this.browser.evaluate((colors: string[]) => {
-      const canvas = document.createElement('canvas').getContext('2d')!;
+      const canvas = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
       return colors.map((color) => {
         canvas.fillStyle = color;
         canvas.fillRect(0, 0, 1, 1);
@@ -635,7 +672,7 @@ export const test = base.extend<{ disk: Disk; page: Page }>({
     await use(new Disk(app, browser));
   },
   page: async ({ screen, browser }, use) => {
-    await browser.addInitScript(recordCrashes);
+    const reports = new Reports(surfaceOf(engine)!.context());
     // Most tests type and read whole notes, so they start with Markdown on.
     await browser.addInitScript(() => {
       try {
@@ -646,8 +683,7 @@ export const test = base.extend<{ disk: Disk; page: Page }>({
         // A blank page has no storage.
       }
     });
-    await use(new Page(screen, browser));
-    const crash = await browser.evaluate(() => localStorage.getItem('testPage.crash'));
-    expect(crash, 'the page threw an error nothing caught').toBeNull();
+    await use(new Page(screen, browser, reports));
+    expect(await reports.take(), 'the browser reported errors or warnings no test expected').toEqual([]);
   },
 });

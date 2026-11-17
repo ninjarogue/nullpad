@@ -1,10 +1,10 @@
 import type { E2EConfig } from 'e2e';
-import { web } from '@e2e-dev/web';
+import { engine } from './engine.ts';
 
 export default {
   targets: [
     {
-      engine: web({ testIdAttribute: 'data-test-id' }),
+      engine,
       app: {
         url: 'http://127.0.0.1:0',
         permissions: { 'clipboard-read': 'grant', 'clipboard-write': 'grant' },
