@@ -8,10 +8,13 @@ import { compare, inventoryOf, judged, loadParsers, ofValues, roleOf } from "./i
 /**
  * Main's tests judge the branch. A pre-push run takes the tests and the gate scripts as the
  * merge base with `origin/main` has them, lays this branch's `src/` and `assets/` over them in
- * a scratch copy, and runs them there. A test of main's that the branch deleted, loosened or
- * changed fails the gate, and so does one that fails on the branch's code, unless a commit on
- * the branch carries `Changes-test: <file or test id> — <reason>` naming it. The hook runs the
- * copy of this file that main has, so a branch cannot edit the judge to let itself through.
+ * a scratch copy, and runs them there. Both sides are what a commit holds (the base, and HEAD),
+ * never the working tree. A test of main's that the branch deleted, loosened or changed fails
+ * the gate, and so does one that fails on the branch's code, a thing a test reads (a const, a
+ * table, a helper, an import, a data file) that changed, a statement added that switches checks
+ * off, a script that runs the tests that changed, and a count lower than main's, unless a commit
+ * on the branch carries `Changes-test: <file or test id> — <reason>` naming it. The hook runs
+ * the copy of this file that main has, so a branch cannot edit the judge to let itself through.
  */
 
 export const root = fileURLToPath(new URL("..", import.meta.url));
