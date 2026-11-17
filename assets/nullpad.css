@@ -379,23 +379,23 @@ button[aria-pressed="true"] {
   margin-block: 0;
 }
 
-.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6) {
+.page.live .preview blockquote.set-as-body :is(h1, h2, h3, h4, h5, h6) {
   --over: min(0px, var(--rows, 1) * 1.7rem - 1lh);
   margin-block: 0;
   min-height: calc(var(--rows, 1) * 1.7rem);
 }
 
-.page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6):has(+ .blank),
-.page.live .preview blockquote.rows :has(+ .blank) > :is(h1, h2, h3, h4, h5, h6):last-child,
-.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child,
-.page.live .preview blockquote.rows :has(+ .blank) > :last-child > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child {
+.page.live .preview blockquote.set-as-body :is(h1, h2, h3, h4, h5, h6):has(+ .blank),
+.page.live .preview blockquote.set-as-body :has(+ .blank) > :is(h1, h2, h3, h4, h5, h6):last-child,
+.page.live .preview blockquote.set-as-body :has(+ .blank) > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child,
+.page.live .preview blockquote.set-as-body :has(+ .blank) > :last-child > :last-child > :is(h1, h2, h3, h4, h5, h6):last-child {
   margin-bottom: var(--over);
 }
 
-.page.live .preview blockquote.rows .blank + :is(h1, h2, h3, h4, h5, h6):not(:has(+ .blank)),
-.page.live .preview blockquote.rows .blank + * > :is(h1, h2, h3, h4, h5, h6):first-child:not(:last-child):not(:has(+ .blank)),
-.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):only-child,
-.page.live .preview blockquote.rows .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):only-child {
+.page.live .preview blockquote.set-as-body .blank + :is(h1, h2, h3, h4, h5, h6):not(:has(+ .blank)),
+.page.live .preview blockquote.set-as-body .blank + * > :is(h1, h2, h3, h4, h5, h6):first-child:not(:last-child):not(:has(+ .blank)),
+.page.live .preview blockquote.set-as-body .blank + :not(:has(+ .blank)) > :is(h1, h2, h3, h4, h5, h6):only-child,
+.page.live .preview blockquote.set-as-body .blank + :not(:has(+ .blank)) > :only-child > :is(h1, h2, h3, h4, h5, h6):only-child {
   margin-top: var(--over);
 }
 
@@ -407,7 +407,7 @@ button[aria-pressed="true"] {
   min-height: calc(var(--rows, 1) * 1lh);
 }
 
-.page.live .preview li blockquote:not(.rows) > :is(h1, h2, h3, h4, h5, h6):last-child {
+.page.live .preview li blockquote:not(.set-as-body) > :is(h1, h2, h3, h4, h5, h6):last-child {
   margin-bottom: 0.5em;
 }
 
@@ -425,7 +425,7 @@ button[aria-pressed="true"] {
   padding-block: calc(0.875rem * 1.5 - 1px);
 }
 
-.page.live .preview blockquote.rows > pre {
+.page.live .preview blockquote.set-as-body > pre {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -435,7 +435,7 @@ button[aria-pressed="true"] {
   padding-block: 0;
 }
 
-.page.live .preview blockquote.rows > pre > code {
+.page.live .preview blockquote.set-as-body > pre > code {
   line-height: 1.7rem;
 }
 

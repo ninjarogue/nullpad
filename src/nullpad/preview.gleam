@@ -144,9 +144,12 @@ type Rows {
   Marked
 }
 
-fn several_rows(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
+fn set_as_body_text(
+  shown: Block,
+  rows: Rows,
+) -> List(attribute.Attribute(msg)) {
   case rows, shown.first_row < shown.last_row {
-    Marked, True -> [attribute.class("rows")]
+    Marked, True -> [attribute.class("set-as-body")]
     Marked, False | Unmarked, _ -> []
   }
 }
@@ -182,7 +185,7 @@ fn block(
     Rule -> html.hr(here)
     Quote(blocks) ->
       html.blockquote(
-        list.append(several_rows(shown, rows), here),
+        list.append(set_as_body_text(shown, rows), here),
         spaced(
           blocks,
           from: shown.first_row,
