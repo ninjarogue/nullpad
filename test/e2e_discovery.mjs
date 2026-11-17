@@ -44,6 +44,9 @@ function walk(node, visit) {
 const stringOf = (node) => (node?.type === "Literal" && typeof node.value === "string" ? node.value : null);
 
 const registering = new Set(["test", "describe"]);
+const API = Object.freeze({ kind: "api" });
+const CALL = Object.freeze({ kind: "call" });
+const moduleValue = (file) => Object.freeze({ kind: "module", file });
 const wrappers = new Set(["ParenthesizedExpression", "TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion", "TSInstantiationExpression", "ChainExpression"]);
 const untyped = (kind) => kind !== "type";
 const extensions = [".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"];
@@ -67,14 +70,14 @@ function bindings(programs) {
     return [target, ...extensions.map((ext) => bare + ext), ...extensions.map((ext) => target + ext), ...extensions.map((ext) => `${target}/index${ext}`)].find((candidate) => programs.has(candidate)) ?? null;
   };
   const moduleOf = (from, specifier) => {
-    if (fromE2e(specifier)) return "api";
+    if (fromE2e(specifier)) return API;
     const found = find(from, specifier);
-    return found === null ? null : `module:${found}`;
+    return found === null ? null : moduleValue(found);
   };
   const member = (object, key) => {
-    if (object === "api") return registering.has(key) ? "call" : key === "default" ? "api" : null;
-    if (object === "call") return nonRegistering.has(key) ? null : "call";
-    if (object?.startsWith("module:")) return state.get(object.slice(7)).exports.get(key) ?? null;
+    if (object === API) return registering.has(key) ? CALL : key === "default" ? API : null;
+    if (object === CALL) return nonRegistering.has(key) ? null : CALL;
+    if (object?.kind === "module") return state.get(object.file).exports.get(key) ?? null;
     return null;
   };
   const valueOf = (node, file) => {
@@ -93,7 +96,7 @@ function bindings(programs) {
     if (node.type === "CallExpression") {
       const callee = node.callee;
       if (callee.type === "Identifier" && callee.name === "require" && stringOf(node.arguments[0]) !== null) return moduleOf(file, stringOf(node.arguments[0]));
-      if (callee.type === "MemberExpression" && keyOf(callee) === "extend" && valueOf(callee.object, file) === "call") return "call";
+      if (callee.type === "MemberExpression" && keyOf(callee) === "extend" && valueOf(callee.object, file) === CALL) return CALL;
     }
     return null;
   };
@@ -129,7 +132,7 @@ function bindings(programs) {
       for (const specifier of module === null ? [] : node.specifiers) {
         if (!untyped(specifier.importKind)) continue;
         if (specifier.type === "ImportNamespaceSpecifier") set(env, specifier.local.name, module);
-        if (specifier.type === "ImportDefaultSpecifier") set(env, specifier.local.name, module === "api" ? "api" : member(module, "default"));
+        if (specifier.type === "ImportDefaultSpecifier") set(env, specifier.local.name, module === API ? API : member(module, "default"));
         if (specifier.type === "ImportSpecifier") set(env, specifier.local.name, member(module, nameOf(specifier.imported)));
       }
     }
@@ -140,8 +143,8 @@ function bindings(programs) {
       const module = moduleOf(file, stringOf(node.source) ?? "");
       if (module === null) return;
       if (node.exported) set(exports, nameOf(node.exported), module);
-      else if (module === "api") for (const name of registering) set(exports, name, "call");
-      else for (const [name, value] of state.get(module.slice(7)).exports) if (name !== "default") set(exports, name, value);
+      else if (module === API) for (const name of registering) set(exports, name, CALL);
+      else for (const [name, value] of state.get(module.file).exports) if (name !== "default") set(exports, name, value);
     }
     if (node.type === "ExportNamedDeclaration" && untyped(node.exportKind)) {
       const module = node.source ? moduleOf(file, stringOf(node.source) ?? "") : null;
@@ -165,7 +168,7 @@ function bindings(programs) {
 }
 
 const nonRegistering = new Set(["extend", "use", ...hooks]);
-const registeringMembers = new Set(["only", "skip", "fixme", "fail", "todo", "each", "describe", "serial", "parallel", "default"]);
+const registeringMembers = new Set(["only", "skip", "fail", "describe"]);
 const isText = (node) => (node?.type === "Literal" && typeof node.value === "string") || node?.type === "TemplateLiteral";
 
 const spell = (node) => {
@@ -181,12 +184,12 @@ function registrations(program, { valueOf }) {
     if (node.type !== "CallExpression") return;
     const callee = node.callee;
     if (callee.type === "MemberExpression" && nonRegistering.has(keyOf(callee))) return;
-    if (valueOf(callee) !== "call") return;
+    if (valueOf(callee) !== CALL) return;
     const args = node.arguments;
-    if (callee.type === "MemberExpression" && valueOf(callee.object) === "call") {
+    if (callee.type === "MemberExpression" && valueOf(callee.object) === CALL) {
       const key = keyOf(callee);
       if (!registeringMembers.has(key)) return;
-      const inBody = key !== "todo" && key !== "each" && (args.length < 2 || (args.length === 2 && isText(args[1])));
+      const inBody = args.length < 2 || (args.length === 2 && isText(args[1]));
       if (inBody) return;
     }
     found.push(`${spell(callee)}(${stringOf(args[0]) === null ? "..." : JSON.stringify(stringOf(args[0]))}, ...)`);

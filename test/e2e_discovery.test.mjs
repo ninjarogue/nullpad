@@ -89,15 +89,15 @@ const moreStrays = {
   "scripts/conditional.ts": `import { test } from '@e2e-dev/web';\n${run}const t = process.env.X ? test : test.skip;\nt(name, run);\n`,
   "scripts/conditional-alternate.ts": `import { test } from '@e2e-dev/web';\n${run}const t = process.env.X ? 1 : test;\nt(name, run);\n`,
   "scripts/logical.ts": `import { test } from '@e2e-dev/web';\n${run}const t = process.env.X || test;\nt(name, run);\n`,
-  "scripts/describe-serial.ts": `import { test } from '@e2e-dev/web';\n${run}test.describe.serial(name, () => {});\n`,
-  "scripts/fixme-with-title.ts": `import { test } from '@e2e-dev/web';\n${run}test.fixme(name, run);\n`,
-  "scripts/each-style.ts": `import { test } from '@e2e-dev/web';\n${run}test.each([1, 2])(name, run);\n`,
   "tests/x.config.ts": "import { test } from '@e2e-dev/web';\ntest('x', async () => {});\n",
   "tests/nested/y.config.mjs": "import { test } from '@e2e-dev/web';\ntest('y', async () => {});\n",
 };
 
 const moreNotTests = {
   ...helpers,
+  "scripts/describe-serial.ts": `import { test } from '@e2e-dev/web';\n${run}test.describe.serial(name, () => {});\n`,
+  "scripts/fixme-with-title.ts": `import { test } from '@e2e-dev/web';\n${run}test.fixme(name, run);\n`,
+  "scripts/each-style.ts": `import { test } from '@e2e-dev/web';\n${run}test.each([1, 2])(name, run);\n`,
   "tests/in-a-body.ts": "import { test } from '@e2e-dev/web';\nexport function guard(on: boolean): void {\n  test.skip(on, 'a reason');\n  test.fail(on, 'another');\n  test.skip('always');\n  test.fail('known gap');\n}\n",
   "tests/own-registrar.ts": "export function test(title: string, body: () => void): void {\n  body();\n}\ntest('not the e2e one', () => {});\n",
   "tests/alias-not-called.ts": "import { test } from '@e2e-dev/web';\nexport const t = test;\nexport const same = test.extend({});\n",
