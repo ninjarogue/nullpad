@@ -7,13 +7,6 @@ import { fact, locate, noticed, problemsWithTable, sources, takenForNothing, ver
 import type { Fact, Reliance } from './browser-facts.ts';
 import { facts } from './browser-facts-table.ts';
 
-/**
- * Break cases for the machinery under `browser-facts.e2e.ts`: how a fact
- * finds the code that relies on it, how it fails when Chromium changes, and
- * how its own sabotage proves it can fail. Each uses a toy fact on a plain
- * page, so that a fact that is wrong is not hidden by a table that is right.
- */
-
 async function inSource(files: Record<string, string>, run: (root: string) => Promise<void> | void) {
   const root = mkdtempSync(join(tmpdir(), 'facts-'));
   try {
@@ -27,7 +20,6 @@ async function inSource(files: Record<string, string>, run: (root: string) => Pr
   }
 }
 
-/** What the promise failed with. A promise that is kept is itself the failure. */
 async function failure(promise: Promise<unknown>): Promise<string> {
   try {
     await promise;
@@ -203,7 +195,6 @@ test('problemsWithTable: names a repeated id, a fact that cannot be shown to fai
   expect(problems).toHaveLength(4);
 });
 
-/** What `locate` said when it could not name a line. A snippet that is found is itself the failure. */
 function missed(reliance: Reliance, root: string): string {
   try {
     locate(reliance, root);
@@ -213,7 +204,6 @@ function missed(reliance: Reliance, root: string): string {
   throw new Error(`${reliance.file} was found to contain ${reliance.text}`);
 }
 
-/** What a call that must throw said. */
 function thrown(run: () => unknown): string {
   try {
     run();

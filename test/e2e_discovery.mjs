@@ -1,23 +1,3 @@
-// Fails when a file under e2e/ looks like a test and no e2e config discovers
-// it, because the runner never loads such a file and nothing says so.
-//
-//   node test/e2e_discovery.mjs [e2e folder]
-//
-// A file looks like a test when its name says so (`x.e2e.mts`, `y.test.ts`,
-// `z.spec.js`) or when it registers tests with the e2e test API: it calls,
-// with any arguments, a binding that is `test` or `describe` from `e2e` or
-// `@e2e-dev/*`. That is an alias of one (`const t = test`), what `extend`
-// gave back, a default, namespace or dynamic import of the module, or any of
-// these exported from a file of the folder under any name, as
-// `tests/nullpad.ts` does with `extend`, and imported or re-exported from
-// there. A config of the folder is not read, and a `x.config.ts` further down
-// is a file like any other.
-// The files are read with oxc-parser, which e2e itself reads tests with, so a
-// call in a comment or a string is not one. What is discovered is what
-// `e2e list` says each config of the folder selects. Bindings are followed by
-// name through the whole file, not by scope: a parameter that is called `test`
-// is taken for the API.
-
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -31,7 +11,6 @@ const declaration = /\.d\.[cm]?ts$/;
 const hooks = new Set(["beforeAll", "beforeEach", "afterAll", "afterEach"]);
 const fromE2e = (specifier) => specifier === "e2e" || specifier.startsWith("e2e/") || specifier.startsWith("@e2e-dev/");
 
-/** Every file of `dir` the runner could load, as paths from it with `/`, outside node_modules and the folders the runner writes. Declaration files are left out, and so are the configs of the folder itself: a `x.config.ts` further down is a file like any other. */
 export function sourceFiles(dir) {
   const found = [];
   const configs = new Set(e2eConfigs(dir));
@@ -50,7 +29,6 @@ export function sourceFiles(dir) {
   return found.sort();
 }
 
-/** The word of a file's name that says it is a test, or null: `x.e2e.mts` and `y.test.ts` have one, `nullpad.ts` has not. */
 export function testWord(file) {
   const stem = basename(file).replace(source, "");
   return stem.split(/[._-]/).find((word) => ["e2e", "test", "tests", "spec"].includes(word)) ?? null;
@@ -70,18 +48,9 @@ const wrappers = new Set(["ParenthesizedExpression", "TSAsExpression", "TSSatisf
 const untyped = (kind) => kind !== "type";
 const extensions = [".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"];
 
-/** The name a member expression reads, or null when it is computed from something that is not a string. */
 const keyOf = (node) => (node.computed ? stringOf(node.property) : node.property.type === "Identifier" ? node.property.name : null);
 const nameOf = (node) => (node.type === "Identifier" ? node.name : stringOf(node));
 
-/**
- * What every binding of the files holds, as far as it comes from the e2e
- * test API. A value is "api" (the module: `import e2e from 'e2e'`),
- * "call" (a function that registers: `test`, `describe`, what `extend`
- * gave back, an alias of any of them), or "module:<file>" (a helper of the
- * folder, whose exports are followed the same way). Bindings are looked up
- * by name for the whole file, so scopes are not told apart.
- */
 function bindings(programs) {
   const state = new Map([...programs.keys()].map((file) => [file, { env: new Map(), exports: new Map() }]));
   let changed = false;
@@ -196,10 +165,6 @@ function bindings(programs) {
 }
 
 const nonRegistering = new Set(["extend", "use", ...hooks]);
-// Members of `test` and `describe` that register something. `todo` takes a title alone; the rest
-// take a title and a body, and with a condition and a reason (`test.fixme(cond, 'why')`) they are
-// the form called inside a test. `describe.configure`, `test.step`, `slow`, `setTimeout` and
-// `info` register none.
 const registeringMembers = new Set(["only", "skip", "fixme", "fail", "todo", "each", "describe", "serial", "parallel", "default"]);
 const isText = (node) => (node?.type === "Literal" && typeof node.value === "string") || node?.type === "TemplateLiteral";
 
@@ -210,15 +175,6 @@ const spell = (node) => {
   return node.type === "ImportExpression" ? `import(${JSON.stringify(stringOf(node.source) ?? "...")})` : "...";
 };
 
-/**
- * The calls of `program` that register a test or a group: any call through a
- * binding that is the e2e test API, whatever its arguments, as `test(name, run)`,
- * `t(...)` after `const t = test`, `e2e.test(...)`, `(await import('e2e')).test(...)`
- * or a helper's `base.extend({})`. Hooks, `extend` and `use` register none. A
- * `test.skip(condition, reason)`, `test.fixme(condition)` and the like are the form
- * that is called inside a test, and `slow`, `setTimeout`, `info`, `step` and
- * `describe.configure` register nothing.
- */
 function registrations(program, { valueOf }) {
   const found = [];
   walk(program, (node) => {
@@ -238,7 +194,6 @@ function registrations(program, { valueOf }) {
   return found;
 }
 
-/** The files `e2e list` selects for each config of `dir`, as paths from it. Throws what a config that cannot be listed said. */
 export function discovered(dir) {
   const files = new Set();
   for (const name of e2eConfigs(dir)) {
@@ -254,11 +209,6 @@ export function discovered(dir) {
   return files;
 }
 
-/**
- * What is wrong with the files of `dir`: each is `{ file, why }`. `found` is
- * the set of files a config discovers. A file that cannot be parsed is a
- * problem too, because a test could be in it.
- */
 export function problems(dir, found) {
   const { parseSync } = createRequire(join(dir, "package.json"))("oxc-parser");
   const parsed = new Map();

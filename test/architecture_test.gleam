@@ -196,8 +196,6 @@ fn source() -> List(File) {
   )
 }
 
-/// A file of `test/` has its path from the root of the project, and one of
-/// `src/` has it from `src`.
 fn is_test_file(path: String) -> Bool {
   string.starts_with(path, "test/")
 }
@@ -808,9 +806,6 @@ fn second_round() -> List(Break) {
   ]
 }
 
-/// Tests that gleeunit would never run: it calls every public function of a
-/// module in `test/` whose name ends in `_test`, with no arguments, on
-/// JavaScript.
 fn test_breaks() -> List(Break) {
   let file = "test/nullpad_test.gleam"
   let buffer = "test/buffer_test.gleam"

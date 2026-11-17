@@ -1,11 +1,3 @@
-// Break cases for the check that every file under e2e/ that looks like a test
-// is one a config discovers (`test/e2e_discovery.mjs`). Each runs the check on
-// a copy of the e2e folder with the real runner's `e2e list` to say what is
-// discovered, so that a file the runner never loads cannot sit there looking
-// like a test.
-//
-//   node --test test/e2e_discovery.test.mjs
-
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -25,7 +17,6 @@ const registers = (importLine, call) => `${importLine}\nimport { expect } from '
 
 const okTest = registers("import { test } from '@e2e-dev/web';", `test('fine', ${body});`);
 
-// Files that are not tests, and so are never named, whatever they import.
 const notTests = {
   "tests/ok.e2e.ts": okTest,
   "tests/helper.ts": "import { test as base } from '@e2e-dev/web';\nexport const test = base.extend({});\n",
@@ -39,7 +30,6 @@ const notTests = {
   ".e2e/out/y.e2e.ts": okTest,
 };
 
-// Files that look like tests, by name or by what they do, and that the config does not discover.
 const strays = {
   "other/x.e2e.ts": okTest,
   "tests/x.test.ts": okTest,
@@ -60,8 +50,6 @@ const strays = {
 };
 
 
-// Registrations a person writes without a literal title or a function last: each sits in a file
-// that is not named like a test, and no config discovers it. `helpers` are files that are not tests.
 const helpers = {
   "tests/custom.ts": "import { test as base } from '@e2e-dev/web';\nexport const spec = base.extend({});\nexport default base.extend({});\nexport const aliased = base;\n",
   "tests/renamed.ts": "export { test as it } from './helper.ts';\n",
@@ -108,7 +96,6 @@ const moreStrays = {
   "tests/nested/y.config.mjs": "import { test } from '@e2e-dev/web';\ntest('y', async () => {});\n",
 };
 
-// Files that use the e2e API without registering a test.
 const moreNotTests = {
   ...helpers,
   "tests/in-a-body.ts": "import { test } from '@e2e-dev/web';\nexport function guard(on: boolean): void {\n  test.skip(on, 'a reason');\n  test.fail(on, 'another');\n  test.skip('always');\n  test.fail('known gap');\n}\n",
@@ -218,8 +205,6 @@ describe("a registration whatever its arguments, through whatever binds the e2e 
   });
 });
 
-// What the check does not follow. Each file registers a test and no config discovers it, and the
-// check does not say so. The day one is named, this fails: move it to `moreStrays`.
 const escapes = {
   "scripts/escape-destructured-default.ts": `import { test } from '@e2e-dev/web';\n${run}const { it = test } = {} as any;\nit(name, run);\n`,
   "scripts/escape-object-property.ts": `import { test } from '@e2e-dev/web';\n${run}const api = { t: test };\napi.t(name, run);\n`,

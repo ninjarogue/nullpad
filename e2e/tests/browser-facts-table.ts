@@ -2,18 +2,6 @@ import { fact } from './browser-facts.ts';
 import type { Fact } from './browser-facts.ts';
 import type { Page } from 'playwright-core';
 
-/**
- * What nullpad assumes about Chromium, found by reading the `.ffi.mjs` files,
- * the CSS, and the comments in `src` that say the browser forces something.
- * Each fact is looked at on a plain page, and `relied` names the code that
- * stands on it, so a failure says where the damage would be. `breaks` plants
- * the change in Chromium that the fact is there to see.
- *
- * Add a fact when code starts to rely on something the browser does and a
- * spec does not promise. Remove one when nothing relies on it any more: its
- * `relied` text then fails to be found, and says so.
- */
-
 const surface = 'src/nullpad/surface.gleam';
 const ffi = 'src/nullpad/surface.ffi.mjs';
 const platform = 'src/nullpad/platform.ffi.mjs';
@@ -23,7 +11,6 @@ const css = 'assets/nullpad.css';
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const instead = (what: string, expected: unknown, seen: unknown) => `${what} was ${JSON.stringify(seen)}, and the app expects ${JSON.stringify(expected)}`;
 
-/** The operating systems a user agent names, the way navigator.platform names each. The first that the user agent has is its system, so Android and the iPhone come before the Linux and the Mac they say they are. */
 const systems: [agent: RegExp, platform: RegExp, system: string][] = [
   [/iPhone/, /^iPhone/, 'an iPhone'],
   [/iPad/, /^iPad/, 'an iPad'],
@@ -34,7 +21,6 @@ const systems: [agent: RegExp, platform: RegExp, system: string][] = [
   [/Linux/, /^Linux/, 'Linux'],
 ];
 
-/** What is wrong with the answers of matchMedia that a look at the page read, or null when it answers as it should. */
 const mediaAnswers = (seen: { matches: boolean; always: boolean; never: boolean; touchPoints: number } | undefined) => {
   if (typeof seen?.matches !== 'boolean' || typeof seen.always !== 'boolean' || typeof seen.never !== 'boolean' || !finite(seen.touchPoints)) {
     return `matchMedia and the touch points were read as ${JSON.stringify(seen)}`;
@@ -47,7 +33,6 @@ const dragPage =
   '<div id="src" draggable="true" style="position:absolute;left:20px;top:20px;width:100px;height:40px">drag</div>' +
   '<div id="dst" style="position:absolute;left:300px;top:200px;width:200px;height:100px">drop</div>';
 
-/** Drags the source over to the target once for each list of held keys, and says what the drop of each carried. */
 async function dragWith(page: Page, held: string[][]) {
   await page.evaluate(() => {
     const log: { dropped: boolean; text: string; ctrl: boolean; alt: boolean }[] = [];
@@ -81,7 +66,6 @@ async function dragWith(page: Page, held: string[][]) {
 
 const finite = (...values: unknown[]) => values.every((value) => typeof value === 'number' && Number.isFinite(value));
 
-// `Selection.modify` is not in the DOM typings.
 type Modifiable = Selection & { modify(alter: string, direction: string, granularity: string): void };
 
 export const facts: Fact[] = [
@@ -1256,7 +1240,6 @@ export const facts: Fact[] = [
     observe: (page) =>
       page.evaluate(() => ({
         matches: matchMedia('(hover: hover) and (pointer: fine)').matches,
-        // Queries that a page that can ask must answer one way and the other.
         always: matchMedia('(min-width: 1px)').matches,
         never: matchMedia('(min-width: 100000px)').matches,
         touchPoints: navigator.maxTouchPoints,
@@ -1283,7 +1266,6 @@ export const facts: Fact[] = [
     observe: (page) =>
       page.evaluate(() => ({
         matches: matchMedia('(hover: hover) and (pointer: fine)').matches,
-        // Queries that a page that can ask must answer one way and the other.
         always: matchMedia('(min-width: 1px)').matches,
         never: matchMedia('(min-width: 100000px)').matches,
         touchPoints: navigator.maxTouchPoints,

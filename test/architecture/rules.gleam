@@ -50,9 +50,6 @@ const decoders_that_still_read_state = [#("surface.key_decoder", 1)]
 
 const plain_types = ["String", "Int", "Bool", "Float"]
 
-/// Tests written before the code they test, which is why they are not named
-/// _test yet: "<path> <function>". When the code is built, rename the test,
-/// and the check says to take it out of here.
 const written_ahead = [
   "test/editor_test.gleam pending_dd_deletes_the_cursor_line",
   "test/editor_test.gleam pending_one_insert_is_one_undo_step",
@@ -134,7 +131,6 @@ pub type Report {
 pub opaque type File {
   Gleam(path: String, name: String, module: glance.Module)
   JavaScript(path: String, name: String)
-  /// A Gleam file of `test/`, which gleeunit runs.
   GleamTest(path: String, module: glance.Module)
   Other(path: String)
   Unreadable(path: String)
@@ -163,7 +159,6 @@ pub fn read(source: Source) -> File {
   }
 }
 
-/// A file of `test/`, with its path from the root of the project.
 pub fn read_test_file(source: Source) -> File {
   case glance.module(source.text) {
     Ok(module) -> GleamTest(source.path, module)
@@ -777,7 +772,6 @@ type Seen {
   Text(String)
   /// A name the code binds: a `let`, a pattern variable, a closure parameter.
   Bound(String)
-  /// An `assert`, a `let assert`, a `panic` or a `todo`: code that crashes when it is wrong.
   Stops
 }
 
@@ -951,15 +945,6 @@ fn pattern(subject: glance.Pattern) -> List(Seen) {
   }
 }
 
-/// What gleeunit does with a module of `test/` on JavaScript: it calls every
-/// public function whose name ends in `_test`, with no arguments. So a private
-/// `_test` function and one for the Erlang target are never run, and a public
-/// function with no arguments that asserts, panics, calls `gleeunit/should` or
-/// calls a function of the module that does, under any other name, is a test
-/// somebody forgot to name. A helper that takes arguments is not one. Neither
-/// is a `main` that only reaches an assert through other functions, which
-/// `gleam run -m` calls. A `_test` that takes arguments gets none, and one
-/// whose body is just `Nil` checks nothing.
 fn tests_run(
   path: String,
   module: glance.Module,
@@ -1077,14 +1062,10 @@ fn tests_run(
   [Looked(TestRuns, path), ..found]
 }
 
-/// "commonmark/helper" for "test/commonmark/helper.gleam": the name other test
-/// modules import it by.
 fn test_module_name(path: String) -> String {
   path |> strip_prefix("test/") |> string.replace(".gleam", "")
 }
 
-/// Every function of a test module, as its key, what it uses, and whether it
-/// asserts, panics or calls `gleeunit/should` itself.
 fn test_functions(
   path: String,
   module: glance.Module,
@@ -1108,7 +1089,6 @@ fn reach(functions: List(#(String, List(String), Bool))) -> Set(String) {
   |> grow(functions)
 }
 
-/// The test functions that reach a check, across every module of `test/`.
 fn checking_tests(files: List(File)) -> Set(String) {
   list.flat_map(files, fn(file) {
     case file {

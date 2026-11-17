@@ -1,10 +1,3 @@
-// Break cases for the planted-bug harness (`tools/mutants/mutants.mjs`). Each
-// runs the real tool on a small git repository whose checks are scripts that
-// can be told to misbehave, and checks that the tool says no, or says what
-// happened, and leaves the repository as it found it.
-//
-//   node --test tools/mutants/mutants.test.mjs
-
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -104,7 +97,6 @@ function toy({ mode = "", timeoutMs = 20_000 } = {}) {
     outDir,
     checks,
     log,
-    // The checks that ran, in order, while `planted` was in the source. With nothing given, every check that ran.
     ran: (planted = "") =>
       (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [])
         .filter((line) => line.includes(planted))
@@ -478,9 +470,6 @@ describe("the checks the project's own mutants run through", () => {
   });
 });
 
-// The command line, pointed at a git repository that is not the one the tool
-// lives in. The repository has its own test/steps.mjs, which says how its
-// checks are run, and checks that print what the real ones print.
 const stepsUrl = new URL("../../test/steps.mjs", import.meta.url).href;
 
 function otherRepo({ steps = true, root: declared = "new URL('..', import.meta.url)", git = true } = {}) {
@@ -648,9 +637,6 @@ describe("--repo", () => {
   });
 });
 
-// The tool stopped from outside, in the middle of a check, as Ctrl+C, a
-// terminal that is closed, or `kill` do. The bug that was planted has to come
-// out, the folder the check was writing in has to go, and so has the check.
 function hangRepo() {
   const dir = scratch.make("hang-");
   const logDir = scratch.make("hang-log-");

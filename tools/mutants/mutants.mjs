@@ -1,10 +1,3 @@
-// Plants bugs in the source one at a time and runs the project's checks on
-// each, to see which bug no check notices. See README.md.
-//
-//   node tools/mutants/mutants.mjs <mutants.json> [--only M01,M02] [--checks gleam-test,e2e] [--out DIR]
-//                                  [--repo DIR] [--calibration FILE]
-//   node tools/mutants/mutants.mjs --calibrate
-
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -12,7 +5,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import * as ownSteps from "../../test/steps.mjs";
 import { runCheck, stopOnSignals } from "../../test/test_counts.mjs";
 
-/** The tool cannot say what a result means, or the tree is not fit to run in. No result is trusted after one. */
 export class HarnessError extends Error {
   constructor(message, records = []) {
     super(message);
@@ -24,13 +16,9 @@ export class HarnessError extends Error {
 const plain = (text) => text.replace(/\u001b\[[0-9;]*m/g, "");
 const firstLine = (text) => plain(text).split("\n").find((line) => line.trim() !== "")?.trim().slice(0, 160) ?? "";
 
-// What a runner says when it, and not a test, is what broke: the app did not
-// answer, the browser went away, a worker died. A test that failed this way
-// says nothing about the planted bug, and it fails on the clean tree as well.
 const infrastructure =
   /APP_UNREACHABLE|APP_NOT_OPEN|APP_ALREADY_RUNNING|ENGINE_FAILURE|ENGINE_IN_USE|RUN_TIMEOUT|WORKER_(?:CRASH|EXIT|INIT_FAILED|PROTOCOL)|ERR_(?:CONNECTION_\w+|EMPTY_RESPONSE|ADDRESS_UNREACHABLE|NAME_NOT_RESOLVED|NETWORK_CHANGED|INTERNET_DISCONNECTED|TIMED_OUT)|E(?:CONNREFUSED|CONNRESET|ADDRINUSE|HOSTUNREACH)|browser has been closed|Target (?:page, context or browser|closed)|Page crashed|Browser closed/;
 
-/** What a check's result means for the mutant that was planted: pass, caught, caught-by-compile, invalid, or error. */
 export function classify(check, run) {
   const { exitCode, signal, timedOut, output, counts, problem } = run;
   const say = (verdict, reason) => ({ verdict, reason });
@@ -55,16 +43,10 @@ export function classify(check, run) {
   return say("pass", "");
 }
 
-/** The checks a bug has to get past, in order, from the `steps` of a repository. Each e2e run stops at its first failed test. */
 export function defaultChecks(steps = ownSteps) {
   return [steps.gleamBuild, steps.gleamTest, steps.keystrokeCost, ...steps.e2eConfigs().map((config) => steps.e2e(config, ["--max-failures", "1", "--reporter", "list"]))];
 }
 
-/**
- * The repository at `repo` and its `test/steps.mjs`, which says how its checks
- * are run. Throws a `HarnessError` when it is not the top of a git repository,
- * has no steps, or has steps that would run the checks in another directory.
- */
 export async function stepsOf(repo) {
   let dir;
   try {
@@ -110,7 +92,6 @@ function matches(text, find) {
   return count;
 }
 
-/** Every mutant must be an exact string replacement that matches exactly once. Throws with every one that does not. */
 export function validate(dir, mutants) {
   const problems = [];
   const seen = new Set();
@@ -166,14 +147,6 @@ function assertOutputIgnored(dir, outDir) {
   }
 }
 
-/**
- * Plants each mutant of `mutants` in turn and runs `checks` on it, stopping at
- * the first that fails. Before any real mutant, the `calibration` has to
- * come out as it says: every mutant in `caught` CAUGHT by the check named in
- * its `by`, and the `noop` MISSED by all. Gives `{ calibration, results }`,
- * each a list of `{ id, status, check, reason, file }`, and throws a
- * `HarnessError` with the `records` made so far when it cannot trust a result.
- */
 export async function runMutants({
   root: dir,
   mutants,
@@ -213,10 +186,6 @@ export async function runMutants({
     console.error(`${signal}: the planted bug is taken out`);
   });
 
-  // The check that caught a bug, again on the tree with the bug out: the build
-  // first, since the build folder still holds the bug, and then the check, for
-  // only the tests that failed when it can be told which. Gives what is wrong
-  // with the clean tree, or null when the check passes on it.
   async function cleanTreeProblem(mutant, check, failing) {
     const again = check.narrow && failing.length > 0 ? check.narrow(failing) : check;
     const build = checks.find((candidate) => candidate.build);
@@ -306,7 +275,6 @@ export async function runMutants({
         assertClean(dir, `after ${mutant.id}`);
       }
     }
-    // The build directory holds the last bug that was planted until it is built again.
     const build = checks.find((check) => check.build);
     if (build) await runCheck(build, { write: (text) => appendFileSync(join(outDir, "final-build.txt"), text), timeoutMs });
     return { calibration: proven.map(({ id, status, check }) => ({ id, status, check })), results };

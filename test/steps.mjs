@@ -1,8 +1,3 @@
-// How each step of the gate is run, and how a runner says in its own output
-// how many tests it ran. `test/test_counts.mjs` runs the gate with these, and
-// `tools/mutants` runs the same checks against planted bugs, so that a change
-// to how a runner is called or read is made once.
-
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +8,6 @@ const colours = /\u001b\[[0-9;]*m/g;
 const plain = (text) => text.replace(colours, "");
 const none = (runner, expected) => new Error(`no summary line in the output of ${runner} (${expected}): it crashed, or its output changed`);
 
-// A reader takes what a run printed (`output`) and the directory it was told
-// to write its results in (`outDir`), and returns how many tests passed,
-// failed and were skipped. It throws when the run said nothing readable.
 export const readers = {
   gleeunit({ output }) {
     const text = plain(output);
@@ -25,9 +17,6 @@ export const readers = {
     return { passed: Number(found[1]), failed: Number(found[2] ?? 0), skipped: Number(found[3] ?? 0) };
   },
 
-  // An event whose code is still `todo` is not a test that was skipped: the
-  // gate holds the count of checks that are ok, so one that goes back to
-  // `todo` lowers it.
   keystroke({ output }) {
     const found = output.match(/^keystroke_cost: (\d+) ok, (\d+) failed, (\d+) not built yet$/m);
     if (!found) throw none("test/keystroke_cost.mjs", "'keystroke_cost: N ok, N failed, N not built yet'");
@@ -68,13 +57,6 @@ function readReport(outDir) {
   return report.run;
 }
 
-/**
- * What a run held back from its count without failing: tests that are not
- * checks of the code, or that do not say when it breaks. A held reader takes
- * what a reader takes and gives `{ name: count }`. The gate holds each count
- * to the one in `test/test_counts.json` under "<step id> <name>", which is 0
- * when the file has no line for it, and only a hand edit raises it.
- */
 export const heldBack = {
   // A test marked `test.fail` passes by failing, so the passes do not say whether
   // the thing it marks still fails. One that passed instead is a failed test already.
@@ -91,17 +73,11 @@ export const heldBack = {
   },
 };
 
-/** The names a step can hold something back under, as they end a key of `test/test_counts.json`. */
 export const heldNames = ["expected-fail", "todo"];
 
 const collapse = (text) => text.replace(/[│┌┐└┘├┤┬┴┼─']/g, " ").replace(/\s+/g, " ").trim();
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/**
- * Which tests failed, as the runner says: names to show a person and to run
- * again. A reader takes what a reader takes and gives a list of names. It is
- * a best effort, so a run that failed in some way it does not know gives [].
- */
 export const failedTests = {
   gleeunit({ output }) {
     const text = plain(output);
@@ -131,13 +107,6 @@ export const failedTests = {
   },
 };
 
-/**
- * A step is `{ id, cwd, command(outDir) -> argv, counted, read, held?, env?, needs?, hint?, outIn? }`.
- * `outDir` is a new directory for the run's results, inside `outIn` when the
- * runner will not write anywhere else.
- * A counted step reports how many tests it ran, and the gate holds it to the
- * count in `test/test_counts.json`. One that is not counted must exit 0.
- */
 export const gleamTest = {
   id: "gleam-test",
   cwd: root,
@@ -149,7 +118,6 @@ export const gleamTest = {
   compileFailed: (output) => /^error:/m.test(plain(output)) && !/Running .*\.main/.test(plain(output)),
 };
 
-/** What a planted bug has to get through before any test runs. `tools/mutants` counts a failure here as INVALID. */
 export const gleamBuild = { id: "build", cwd: root, counted: false, build: true, command: () => ["gleam", "build"] };
 
 export const keystrokeCost = {
@@ -171,7 +139,6 @@ export const nodeTest = (id, file) => ({
   failing: failedTests.nodeTest,
 });
 
-/** Every `*.test.mjs` under `test/` and `tools/` of `base`, as paths from it, sorted. */
 export function nodeTestFiles(base = root) {
   const found = [];
   const walk = (dir) => {
@@ -192,7 +159,6 @@ const nodeTestName = /\.test\.(?:mjs|cjs|js|mts|cts|ts)$/;
 const neverTests = new Set(["node_modules", ".git"]);
 const madeAtTop = new Set(["build", "dist", ".lustre", ".mutants", ".verify"]);
 
-/** Every file in `base` named like a node test, outside node_modules and what the build and the tools make, as paths from it, sorted. */
 export function nodeTestsNamed(base = root) {
   const found = [];
   const walk = (dir) => {
@@ -210,7 +176,6 @@ export function nodeTestsNamed(base = root) {
   return found.sort();
 }
 
-/** The files named like a node test, anywhere in `base`, that no command of `steps` names, so that nothing runs them. */
 export function strayNodeTests(steps, base = root) {
   const run = new Set(steps.flatMap((step) => step.command("").filter((arg) => nodeTestName.test(arg))));
   return nodeTestsNamed(base).filter((file) => !run.has(file));
@@ -223,10 +188,8 @@ const needsE2e = { outIn: join(e2eDir, ".e2e"), needs: join(e2eDir, "node_module
 
 export const e2eTypes = { id: "e2e-types", cwd: e2eDir, counted: false, command: () => ["npx", "tsc"], ...needsE2e };
 
-/** Every file under e2e/ that looks like a test is one a config discovers, so that none sits there unrun. */
 export const e2eDiscovery = { id: "e2e-discovery", cwd: root, counted: false, command: () => ["node", "test/e2e_discovery.mjs"], ...needsE2e };
 
-/** The e2e configs in `dir`: `e2e.config.ts` and any `e2e.<name>.config.<ext>` beside it. */
 export function e2eConfigs(dir = e2eDir) {
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /\.config\.(?:ts|mts|js|mjs)$/.test(entry.name))
@@ -234,11 +197,6 @@ export function e2eConfigs(dir = e2eDir) {
     .sort();
 }
 
-/**
- * One e2e config, run the way `npm test` runs it, with its results written in
- * the directory it is given. `narrow` is the same step for only the tests
- * named, as `failing` gives them, so that they can be run again alone.
- */
 export const e2e = (config, args = []) => ({
   id: `e2e:${config}`,
   cwd: e2eDir,
@@ -252,7 +210,6 @@ export const e2e = (config, args = []) => ({
   ...needsE2e,
 });
 
-/** Every step of the gate after the format check, in the order it runs. */
 export function gateSteps() {
   return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), nodeTest("e2e-server", "test/serve.test.mjs"), nodeTest("e2e-discovery-tool", "test/e2e_discovery.test.mjs"), e2eTypes, e2eDiscovery, ...e2eConfigs().map((config) => e2e(config))];
 }

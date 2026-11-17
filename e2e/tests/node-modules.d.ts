@@ -1,6 +1,3 @@
-// The few Node modules the browser facts read files with. The tests are typed
-// without @types/node, and these are all they need of it.
-
 declare module 'node:fs' {
   export function readFileSync(path: string, encoding: 'utf8'): string;
   export function writeFileSync(path: string, data: string): void;

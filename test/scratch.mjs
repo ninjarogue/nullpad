@@ -1,11 +1,3 @@
-// Temporary directories for node tests, removed when the test file ends.
-//
-//   const scratch = useScratch();   // at the top of the test file
-//   const dir = scratch.make("name-");
-//
-// `scratch.test.mjs` runs every node test file with a private TMPDIR and fails
-// on what is left there.
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

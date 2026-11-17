@@ -428,9 +428,6 @@ if (perStep > STEP_BYTES) {
   undoHolds = false;
 }
 
-// The count `test/test_counts.mjs` holds this script to: every row above that
-// is within budget, and the undo history, which is one check. A row that is
-// not built yet did not run.
 const verdicts = [...rows, ...every].map((row) => row.verdict);
 const within = verdicts.filter((verdict) => verdict === "ok").length + (undoHolds ? 1 : 0);
 const over = verdicts.filter((verdict) => verdict.startsWith("OVER BUDGET")).length + unlisted + (undoHolds ? 0 : 1);

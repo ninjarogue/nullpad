@@ -5,29 +5,13 @@ import { parseSync } from 'oxc-parser';
 import { chromium } from 'playwright-core';
 import type { BrowserContextOptions, Page } from 'playwright-core';
 
-/**
- * Things the app assumes about Chromium, each a fact that is looked at on a
- * plain page and not in the app, so that when Chromium changes one, the fact
- * fails first and says which, before anything that stands on it does.
- *
- * `holds` takes what `observe` saw and gives null when the fact holds, and
- * otherwise what Chromium did instead. `breaks` plants, on the page, the
- * change in Chromium the fact exists to notice: a fact that still holds
- * after it would not have seen the change either. A fact that no page can
- * be made to break says why in `unbreakable`.
- */
-
-/** Code of the app that a fact lets it rely on: a file under `src/` or `assets/` from the repository root, and text that is in it exactly once. */
 export type Reliance = { file: string; text: string };
 
 export type Fact = {
   id: string;
-  /** What the app assumes, as a sentence. */
   says: string;
   relied: Reliance[];
-  /** Why no code relies on it yet, when it is for a branch that is not merged. */
   pending?: string;
-  /** The page the fact is looked at on. */
   html?: string;
   /** An https address the page is served at, so that it is a secure context, as the clipboard needs. Without one, the page has no address. */
   url?: string;
@@ -40,7 +24,6 @@ export type Fact = {
 
 export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
-/** Types `observe` and `holds` to each other, and lets facts about different things share a table. */
 export function fact<Seen>(
   entry: Omit<Fact, 'observe' | 'holds'> & { observe(page: Page): Promise<Seen>; holds(seen: Seen): string | null },
 ): Fact {
@@ -52,7 +35,6 @@ const indented = (text: string) => text.split('\n').map((line) => `    ${line}`)
 
 type Span = [start: number, end: number];
 
-/** Where in a file the text is not code: comments, strings and regular expressions, and for CSS the rules that code is in. */
 type Reading = { comments: Span[]; strings: Span[]; rules?: Span[]; regexes?: Span[] };
 
 type Node = { type: string; start: number; end: number; value?: unknown; [key: string]: unknown };
@@ -79,7 +61,6 @@ function readScript(file: string, source: string): Reading {
   return { comments: comments.map((comment) => [comment.start, comment.end]), strings, regexes };
 }
 
-/** The end of the string that starts at `at`, after its closing quote. */
 function endOfString(source: string, at: number): number {
   const quote = source[at];
   for (let index = at + 1; index < source.length; index++) {
@@ -141,7 +122,6 @@ function readCss(source: string): Reading {
   return { comments, strings, rules };
 }
 
-/** How to tell code from what is not in `file`, by its kind. */
 function reader(file: string): (source: string) => Reading {
   if (/\.[cm]?[jt]s$/.test(file)) return (source) => readScript(file, source);
   if (file.endsWith('.gleam')) return readGleam;
@@ -149,7 +129,6 @@ function reader(file: string): (source: string) => Reading {
   throw new Error(`${file}: cannot tell code from comments in this kind of file. Rely on a .mjs, .ts, .gleam or .css file.`);
 }
 
-/** `file` as a path from the repository root, or an error when it is not under `src/` or `assets/`, which is where the code of the app is. */
 function inApp(file: string): string {
   const path = posix.normalize(file);
   if (!['src/', 'assets/'].some((folder) => path.startsWith(folder))) {
@@ -165,12 +144,10 @@ type Found = { source: string; code: number[]; elsewhere: string[] };
 
 const nameChar = /[\w$-]/;
 
-/** Whether the match is part of a longer name: text that starts (or ends) with a name character is not preceded (or followed) by one, so `press.detail > 2` is not in `mypress.detail > 2`, nor `margin-top: 0` in `--margin-top: 0`. */
 function startsInName(source: string, start: number, end: number, text: string): boolean {
   return (nameChar.test(text[0]!) && start > 0 && nameChar.test(source[start - 1]!)) || (nameChar.test(text[text.length - 1]!) && end < source.length && nameChar.test(source[end]!));
 }
 
-/** Where `text` is in `file`: the offsets where it is code, and for each place it is not, why not. */
 function find({ file, text }: Reliance, root: string): Found {
   const reading = reader(file);
   const path = inApp(file);
@@ -200,16 +177,6 @@ function find({ file, text }: Reliance, root: string): Found {
 
 const lineOf = (source: string, offset: number) => source.slice(0, offset).split('\n').length;
 
-/**
- * The line, counted from 1, where `text` starts in `file`. It has to be code,
- * and there once: text in a comment, a string or a regular expression, or in
- * CSS outside a rule, is not code that relies on anything, and is not counted.
- * CSS counts as a rule wherever braces make one, so a rule in `@media not all`
- * or in an `@supports` that never matches is counted as one that applies.
- * Text must stand on name boundaries (see `startsInName`). Still counted as
- * code that relies on a fact, and known limits: code that never runs, a CSS
- * declaration that a later rule overrides, and one inside `@media print`.
- */
 export function locate(reliance: Reliance, root = repoRoot): { file: string; line: number } {
   const { file, text } = reliance;
   const { source, code, elsewhere } = find(reliance, root);
@@ -221,11 +188,6 @@ export function locate(reliance: Reliance, root = repoRoot): { file: string; lin
   return { file, line: lineOf(source, code[0]!) };
 }
 
-/**
- * `file:line` of each piece of code that relies on `fact`. A pending fact has
- * none yet, and fails once any code of it is there, because then it is not
- * pending any more.
- */
 export function sources(fact: Fact, root = repoRoot): string[] {
   if (fact.pending) {
     const landed = fact.relied.flatMap((reliance) => {
@@ -271,7 +233,6 @@ async function look(fact: Fact, sabotage: boolean) {
   }
 }
 
-/** Fails, saying what Chromium did instead, when the fact does not hold. A source that moved fails first. */
 export async function verify(fact: Fact, root = repoRoot): Promise<void> {
   const where = sources(fact, root);
   const { version, problem } = await look(fact, false);
@@ -285,7 +246,6 @@ export async function verify(fact: Fact, root = repoRoot): Promise<void> {
   );
 }
 
-/** What the fact says once its sabotage is planted. Fails when it still holds, or when it has no sabotage. */
 export async function noticed(fact: Fact): Promise<string> {
   if (!fact.breaks) {
     throw new Error(`[${fact.id}] has no sabotage to show it can fail${fact.unbreakable ? ` (unbreakable: ${fact.unbreakable})` : ''}`);
@@ -295,10 +255,8 @@ export async function noticed(fact: Fact): Promise<string> {
   return problem;
 }
 
-/** What a look at a page never gives. A `holds` that takes one of these for a fact that holds passes without looking at anything. */
 export const nothingSeen: unknown[] = [undefined, null, {}, [], 0, NaN, '', 'x', false, true, 1, [0], [null], { a: 1 }, { a: [] }, { platform: '', agent: '' }, { platform: 'Linux', agent: 'x' }];
 
-/** The values of `nothingSeen` that the fact's `holds` takes for a fact that holds. One that throws on them does not take them. */
 export function takenForNothing(entry: Fact): string[] {
   return nothingSeen
     .filter((value) => {
@@ -311,7 +269,6 @@ export function takenForNothing(entry: Fact): string[] {
     .map((value) => (typeof value === 'number' && Number.isNaN(value) ? 'NaN' : (JSON.stringify(value) ?? 'undefined')));
 }
 
-/** What is wrong with the table as a whole: the same id twice, a fact that cannot be shown to fail, one that has no code to name or names a file outside `src/` and `assets/`, one that holds for what no look at a page gives. */
 export function problemsWithTable(facts: Fact[]): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();

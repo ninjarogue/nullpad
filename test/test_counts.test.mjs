@@ -1,10 +1,3 @@
-// Break cases for the test-count gate (`test/test_counts.mjs`). Each case
-// plants the failure the gate exists for, with a real subprocess standing in
-// for a test runner, and checks that the gate says no. A run that adds tests
-// raises the known count, and a run that loses tests never lowers it.
-//
-//   node --test test/test_counts.test.mjs
-
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -602,8 +595,6 @@ describe("what the docs tell a clone with no hook to run", () => {
 });
 
 describe("the gate stopped from outside, in the middle of a step", () => {
-  // The real test/test_counts.mjs, in a folder of its own, with a test/steps.mjs
-  // that has one step: a runner that writes in the folder it is given and hangs.
   function hangingGate() {
     const dir = scratch.make("gate-");
     const mark = join(scratch.make("gate-mark-"), "mark");

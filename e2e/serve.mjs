@@ -52,8 +52,6 @@ async function answer(request) {
   return { status: 200, body, type: page ? "text/html" : (types[extname(path)] ?? "application/octet-stream") };
 }
 
-// A request that throws must not stop the server: every test after a dead one
-// is refused its connection and says nothing of why.
 const complain = (what, error) => console.error(`serve: ${what}: ${error?.stack ?? error}`);
 process.on("uncaughtException", (error) => complain("uncaught exception", error));
 process.on("unhandledRejection", (error) => complain("unhandled rejection", error));

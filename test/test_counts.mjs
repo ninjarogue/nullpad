@@ -1,17 +1,3 @@
-// The gate fails when a step runs no tests, or fewer than it last did.
-//
-//   node test/test_counts.mjs run [--no-commit-check] [step ...]
-//
-// With no step it runs every step of the gate (`test/steps.mjs`), the way
-// `.githooks/pre-push` does, and stops at the first that fails. A step's count
-// is read from what its runner prints or writes, never from the source, and is
-// held to `test/test_counts.json`. A run with more tests than the file says
-// raises the file, which is then committed. A run with fewer fails, and the
-// count can only be lowered by editing the file by hand, so that the removal
-// shows in the diff. The run also fails while the file differs from HEAD,
-// because a raise or a hand edit that is not committed holds nothing for the
-// next clone; `--no-commit-check` is for a run kept on one machine.
-
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { constants, tmpdir } from "node:os";
@@ -24,7 +10,6 @@ const COUNTS = "test/test_counts.json";
 
 const tests = (n) => `${n} test${n === 1 ? "" : "s"}`;
 
-/** The known count of every step, by step id. */
 export function loadCounts(file = countsFile) {
   let counts;
   let text;
@@ -49,7 +34,6 @@ export function loadCounts(file = countsFile) {
   return counts;
 }
 
-/** The keys that an object of the JSON `text` has more than once, as the path from the top (`a.b`). `JSON.parse` keeps the last of them and says nothing. `text` is JSON that already parsed. */
 export function keysTwice(text) {
   const found = [];
   let at = 0;
@@ -105,11 +89,6 @@ function saveCounts(file, counts) {
   renameSync(next, file);
 }
 
-/**
- * What a run of a counted step says about the gate. `counts` is what the
- * runner reported, or null with the `problem` that kept it from being read.
- * `raise` is the new count to record, or null.
- */
 export function judge({ id, known, exitCode, signal, counts, problem }) {
   const failures = [];
   if (signal) failures.push(`${id}: the command was killed by ${signal}`);
@@ -139,19 +118,11 @@ const heldReasons = {
   todo: "marked todo, and a todo test that fails fails nothing",
 };
 
-/** The step a key of the counts file belongs to: its id, with the name of what it holds back taken off. */
 export function stepOf(key) {
   const name = heldNames.find((held) => key.endsWith(` ${held}`));
   return name ? key.slice(0, -(name.length + 1)) : key;
 }
 
-/**
- * What a run says about the tests the step held back from its count. `known`
- * is `{ name: count }` as the counts file has it, and `held` what the run
- * reported. More than known fails: only a hand edit allows one more. Fewer is
- * `lower`, the new numbers to record, so that the room that is left cannot be
- * spent on a new one.
- */
 export function judgeHeld({ id, known = {}, held = {} }) {
   const failures = [];
   const lower = {};
@@ -172,7 +143,6 @@ export function judgeHeld({ id, known = {}, held = {} }) {
 const live = new Set();
 const liveDirs = new Set();
 
-/** Kills what `spawnCapture` has started that is still running, with everything it started. */
 export function killAll() {
   for (const child of live) {
     try {
@@ -183,18 +153,11 @@ export function killAll() {
   }
 }
 
-/** Removes the results folders of the runs that are still going, as `runCheck` would when they ended. */
 export function removeLiveDirs() {
   for (const dir of liveDirs) rmSync(dir, { recursive: true, force: true });
   liveDirs.clear();
 }
 
-/**
- * Stops everything that was started when the process is told to stop (Ctrl+C,
- * `kill`, a terminal that is closed): the commands it runs and the folders
- * they write in go, `cleanup(signal)` runs, and the process ends with 128 and
- * the number of the signal. Gives a function that takes the handlers off.
- */
 export function stopOnSignals(cleanup = () => {}) {
   const handlers = ["SIGINT", "SIGTERM", "SIGHUP"].map((signal) => {
     const handler = () => {
@@ -255,13 +218,6 @@ export function spawnCapture(argv, { cwd, env, timeoutMs }, write) {
   });
 }
 
-/**
- * Runs one step in a new results directory, which is removed after, and reads
- * its count and what it held back. Gives the exit code, the signal, whether it
- * timed out, the output, `counts` (null with a `problem` when the runner said
- * nothing readable), `held`, `{ name: count }`, and `failing`, the names of
- * the tests that failed as far as the runner says.
- */
 export async function runCheck(step, { write = () => {}, timeoutMs } = {}) {
   if (step.outIn) mkdirSync(step.outIn, { recursive: true });
   const outDir = mkdtempSync(join(step.outIn ?? tmpdir(), "step-"));
@@ -291,7 +247,6 @@ export async function runCheck(step, { write = () => {}, timeoutMs } = {}) {
   }
 }
 
-/** Runs one step and holds it to its known count, raising the count in `file` when more tests ran. */
 export async function runStep(step, { countsFile: file = countsFile, log = console.log, write = (text) => process.stdout.write(text) } = {}) {
   const all = loadCounts(file);
   if (step.needs && !existsSync(step.needs)) {
@@ -329,11 +284,6 @@ export async function runStep(step, { countsFile: file = countsFile, log = conso
 
 const withoutGitEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"].includes(name)));
 
-/**
- * What to say when `file` is not what HEAD of the repository at `base` has:
- * new, changed, or staged and not committed. Null when it is committed as it
- * is, and a failure of its own when git cannot say.
- */
 export function uncommitted(base = root, file = countsFile) {
   const shown = relative(base, file).split("\\").join("/");
   const name = shown.startsWith("..") || isAbsolute(shown) ? file : shown;
@@ -351,7 +301,6 @@ export function uncommitted(base = root, file = countsFile) {
   );
 }
 
-/** What to say when `git push` in `base` would run no gate: its `core.hooksPath` is not `.githooks`. Null when it is. */
 export function hooksWarning(base = root) {
   let value = "";
   try {
@@ -364,13 +313,6 @@ export function hooksWarning(base = root) {
   );
 }
 
-/**
- * Runs `steps` in order and stops at the first that fails. Given the `base` of
- * a repository, it also warns when a push there would run no gate, and, when
- * every step of the gate ran (not `partial`), fails on a node test file that
- * no step runs. Then too, a known count with no step to run it fails, so a
- * step cannot be dropped from the gate and leave its count behind.
- */
 export async function gate({ steps, countsFile: file = countsFile, partial = false, base, commitCheck = false, ...io }) {
   loadCounts(file);
   const twice = [...new Set(steps.map((step) => step.id).filter((id, at, ids) => ids.indexOf(id) !== at))];
@@ -408,7 +350,6 @@ export async function gate({ steps, countsFile: file = countsFile, partial = fal
 
 const usage = "usage: node test/test_counts.mjs run [--no-commit-check] [step ...]";
 
-/** What the command line asks for: `{ selected, commitCheck }`, or an `error` to print. */
 export function parseArgs(args) {
   const [command, ...rest] = args;
   const flags = rest.filter((arg) => arg.startsWith("--"));

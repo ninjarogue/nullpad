@@ -1,11 +1,3 @@
-// Proof that the node tests of the gate leave nothing in the temp directory.
-// Each test file is run in a process of its own with TMPDIR pointing at a new
-// empty directory, and what is left there afterwards is what the file leaked.
-// The detector is itself tried on a file that leaks on purpose, so that a
-// proof that finds nothing has been shown able to find something.
-//
-//   node --test test/scratch.test.mjs
-
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -28,7 +20,6 @@ const ownDir = (prefix) => {
   return dir;
 };
 
-/** Runs `file` under node's test runner with a private temp directory, and gives what it left there. */
 function leftBehind(file) {
   const tmp = ownDir("scratch-tmp-");
   // Inside a test run this is set, and a nested `node --test` then runs nothing and says so only on stderr.

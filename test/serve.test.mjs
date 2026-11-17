@@ -1,10 +1,3 @@
-// Break cases for the server the e2e tests run the app on (`e2e/serve.mjs`).
-// A request it cannot answer gets an error status, and the server goes on
-// answering, because every test after a dead server fails with a refused
-// connection and says nothing of why.
-//
-//   node --test test/serve.test.mjs
-
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +23,6 @@ const freePort = () =>
     });
   });
 
-/** One request with the path exactly as given. Gives the status, the content type and the body. */
 const get = (port, path) =>
   new Promise((done, fail) => {
     const sent = httpRequest({ host: "127.0.0.1", port, path, method: "GET" }, (response) => {
@@ -44,7 +36,6 @@ const get = (port, path) =>
 
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
-/** Starts `e2e/serve.mjs` as the e2e config does, waits until it answers, and stops it after `use`. */
 async function serving(use) {
   const port = await freePort();
   const child = spawn("node", ["e2e/serve.mjs", String(port)], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
@@ -68,7 +59,6 @@ async function serving(use) {
   }
 }
 
-/** The server still answers: the page and a file, and it has not exited. */
 async function stillAnswers(port, alive, after) {
   await pause(50);
   assert.equal(alive(), "", `after ${after}: ${alive()}`);
