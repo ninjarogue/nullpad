@@ -633,3 +633,81 @@ for (const frames of [false, true]) {
     expect(text).toBe(`\n${note}`);
   });
 }
+
+const breaks = [
+  {
+    name: 'a step of the head over the page',
+    keys: ['Shift+ArrowUp', 'Shift+ArrowUp'],
+    held: false,
+    typed: 'alpha one\n\nbravo two words\nX',
+    fails: () => {
+      const real = Selection.prototype.modify;
+      Selection.prototype.modify = function (alter, direction, granularity) {
+        if (alter === 'move' && granularity === 'line') {
+          localStorage.setItem('thrown', 'yes');
+          throw new Error('the browser could not step');
+        }
+        return real.call(this, alter, direction, granularity);
+      };
+      return () => (Selection.prototype.modify = real);
+    },
+  },
+  {
+    name: 'an aim at the column of a run',
+    keys: ['ArrowUp'],
+    held: false,
+    typed: 'alpha one\n\nbravo two words\nX\ncharlie three',
+    fails: () => {
+      const real = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+      Object.defineProperty(Element.prototype, 'scrollTop', {
+        ...real,
+        set(top: number) {
+          if (this instanceof HTMLTextAreaElement) {
+            localStorage.setItem('thrown', 'yes');
+            throw new Error('the browser could not aim');
+          }
+          real.set!.call(this, top);
+        },
+      });
+      return () => Object.defineProperty(Element.prototype, 'scrollTop', real);
+    },
+  },
+  {
+    name: 'a letter replayed after a step',
+    keys: ['Enter', 'Shift+ArrowUp', 'z'],
+    held: true,
+    typed: 'alpha one\n\nbravo two words\n\nX',
+    fails: () => {
+      const real = HTMLTextAreaElement.prototype.setRangeText;
+      HTMLTextAreaElement.prototype.setRangeText = function () {
+        localStorage.setItem('thrown', 'yes');
+        throw new Error('the browser could not type');
+      };
+      return () => (HTMLTextAreaElement.prototype.setRangeText = real);
+    },
+  },
+];
+
+for (const { name, keys: pressed, held, typed, fails } of breaks) {
+  test(`keys still work after ${name} fails in the browser`, async ({ app, browser, disk, page }) => {
+    await disk.seed([{ key: 'live', title: null, body: note }]);
+    await app.open('/');
+    await expect(page.text).toHaveValue(note);
+    await page.markdown.tap();
+    await expect(page.text).toBeFocused();
+    await browser.keyboard.press('ControlOrMeta+End');
+    await page.nextFrame();
+    await browser.evaluate(`(globalThis.mend = (${fails.toString()})(), null)`);
+    if (held) await page.pressBeforeRedraw(...pressed);
+    else for (const key of pressed) await browser.keyboard.press(key);
+    await page.nextFrame();
+    await page.nextFrame();
+    await browser.evaluate('(globalThis.mend(), null)');
+    expect(await browser.evaluate(() => localStorage.getItem('thrown'))).toBe('yes');
+
+    await browser.keyboard.type('X');
+    await page.nextFrame();
+    await page.markdown.tap();
+    await expect(page.text).toHaveValue(typed);
+  });
+}
