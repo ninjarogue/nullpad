@@ -8,13 +8,16 @@ import type { Disk, Note, Page } from './nullpad.ts';
 const stored = (body: string): Note => ({ key: 'live', title: null, body });
 
 const settings = [
-  { root: '16px', font: null },
-  { root: '12px', font: null },
-  { root: '20px', font: null },
-  { root: '16px', font: 'serif' },
+  { width: 1280, root: '16px', font: null, phone: false },
+  { width: 1280, root: '12px', font: null, phone: false },
+  { width: 1280, root: '20px', font: null, phone: false },
+  { width: 1280, root: '16px', font: 'serif', phone: false },
+  { width: 1024, root: '16px', font: null, phone: false },
+  { width: 412, root: '16px', font: null, phone: true },
 ] as const;
 
 async function set(browser: Browser, setting: (typeof settings)[number]) {
+  await browser.setViewport({ width: setting.width, height: 720 });
   await browser.evaluate((setting: (typeof settings)[number]) => {
     let style = document.getElementById('test-setting');
     if (!style) {
@@ -60,6 +63,10 @@ async function arriveAndLeave(page: Page, browser: Browser, block: string, word:
   const drawn = {
     word: word === null ? null : await expectPlaceOf(page, word),
     below: (await expectPlaceOf(page, 'below')).top,
+    pageLeft: await browser.evaluate(() => {
+      const sheet = document.querySelector('.page')!;
+      return sheet.getBoundingClientRect().left + sheet.clientLeft;
+    }),
   };
   for (const _ of ['', '', ...block.split('\n')]) await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('top');
@@ -67,20 +74,20 @@ async function arriveAndLeave(page: Page, browser: Browser, block: string, word:
 }
 
 const containers = [
-  { what: 'on its own line', prefix: '', hangs: true },
-  { what: 'in a list item', prefix: '- ', hangs: true },
-  { what: 'in an ordered item', prefix: '1. ', hangs: true },
-  { what: 'in an item numbered 10', prefix: '10. ', hangs: true },
-  { what: 'in a nested item', prefix: '- - ', hangs: false },
-  { what: 'in a quote', prefix: '> ', hangs: false },
-  { what: 'in a quoted item', prefix: '> - ', hangs: false },
-  { what: 'in a quote in an item', prefix: '- > ', hangs: false },
+  { what: 'on its own line', prefix: '', hangs: 'marks' },
+  { what: 'in a list item', prefix: '- ', hangs: 'item marker' },
+  { what: 'in an ordered item', prefix: '1. ', hangs: 'item marker' },
+  { what: 'in an item numbered 10', prefix: '10. ', hangs: 'item marker' },
+  { what: 'in a nested item', prefix: '- - ', hangs: null },
+  { what: 'in a quote', prefix: '> ', hangs: null },
+  { what: 'in a quoted item', prefix: '> - ', hangs: null },
+  { what: 'in a quote in an item', prefix: '- > ', hangs: null },
 ] as const;
 
 for (const { what, prefix, hangs } of containers) {
   for (const level of [1, 2, 3, 4, 5, 6]) {
     const marks = '#'.repeat(level);
-    test(`a heading ${level} ${what} is the same size in the field and drawn, and leaving it moves no word, at 12, 16 and 20px and in a second font`, async ({
+    test(`a heading ${level} ${what} is the same size in the field and drawn, and leaving it moves no word, at 12, 16 and 20px, in a second font and 1024px wide, and on a phone only by what the marks need past the margin`, async ({
       app,
       browser,
       disk,
@@ -99,7 +106,30 @@ for (const { what, prefix, hangs } of containers) {
           below: drawn.below,
           top: drawn.word!.top,
         });
-        if (hangs) expect({ setting, left: field.typed.left }).toEqual({ setting, left: drawn.word!.left });
+        if (hangs === 'item marker') {
+          expect({ setting, left: field.typed.left }).toEqual({ setting, left: drawn.word!.left });
+        }
+        if (hangs === 'marks') {
+          expect({ setting, marksEndBeforeWords: field.typed.right <= field.word!.left + 0.5 }).toEqual({
+            setting,
+            marksEndBeforeWords: true,
+          });
+          expect({ setting, marksOnThePage: field.typed.left >= drawn.pageLeft - 0.5 }).toEqual({
+            setting,
+            marksOnThePage: true,
+          });
+          if (!setting.phone) {
+            expect({ setting, left: field.word!.left }).toEqual({ setting, left: drawn.word!.left });
+          } else {
+            const room = drawn.word!.left - drawn.pageLeft;
+            const marksWide = field.word!.left - field.typed.left;
+            const shift = field.word!.left - drawn.word!.left;
+            expect(
+              Math.abs(shift - Math.max(0, marksWide - room)),
+              `words move by what the marks need past the margin: ${JSON.stringify({ setting, room, marksWide, shift })}`,
+            ).toBeLessThanOrEqual(1);
+          }
+        }
       }
     });
   }

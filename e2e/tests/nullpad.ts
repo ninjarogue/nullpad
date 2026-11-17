@@ -317,7 +317,7 @@ export class Page {
         range.setStart(text, at);
         range.setEnd(text, at + word.length);
         const box = range.getClientRects()[0];
-        return { left: box.left, top: box.top - sheet.getBoundingClientRect().top + sheet.scrollTop };
+        return { left: box.left, right: box.right, top: box.top - sheet.getBoundingClientRect().top + sheet.scrollTop };
       }
       return null;
     }, word);

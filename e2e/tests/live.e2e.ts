@@ -1660,7 +1660,7 @@ for (const level of [1, 2, 3, 4, 5, 6]) {
       expect(await belowAt()).toBe(after);
     }
 
-    const typed = { marks: (await page.placeOf('#'))!, hello: (await page.placeOf('Hello'))! };
+    const typed = { marks: (await page.placeOf(marks))!, hello: (await page.placeOf('Hello'))! };
     await browser.keyboard.press('ArrowDown');
     await expect(page.text).toHaveValue('');
     await page.nextFrame();
@@ -1668,8 +1668,9 @@ for (const level of [1, 2, 3, 4, 5, 6]) {
     expect({ below: await belowAt(), top: drawn.top, left: drawn.left }).toEqual({
       below: after,
       top: typed.hello.top,
-      left: typed.marks.left,
+      left: typed.hello.left,
     });
+    expect(typed.marks.right).toBeLessThanOrEqual(typed.hello.left + 0.5);
   });
 }
 
