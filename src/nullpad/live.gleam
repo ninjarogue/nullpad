@@ -58,7 +58,6 @@ pub type Kind {
   QuoteTitle(Level, in_item: Bool)
 }
 
-/// Whether a row of this kind is drawn at a heading's size.
 pub fn is_title(kind: Kind) -> Bool {
   case kind {
     Title(_) | ItemTitle(..) | QuoteTitle(..) -> True
@@ -106,9 +105,6 @@ pub fn kind(
   }
 }
 
-/// The level of the heading that is the field's one row, inside a
-/// quote or an item, and whether an item holds it. A field of several rows is
-/// set as one block in one size, so a heading over two rows is not set as one.
 fn heading_in(
   blocks: List(Block),
   field: Region,

@@ -144,8 +144,6 @@ type Rows {
   Marked
 }
 
-/// The text field sets a block of several rows as body text, and the page
-/// is told which blocks those are.
 fn several_rows(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   case rows, shown.first_row < shown.last_row {
     Marked, True -> [attribute.class("rows")]
@@ -153,8 +151,6 @@ fn several_rows(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   }
 }
 
-/// The text field sets a heading over several rows as body text, a line to
-/// a row, and the page is told how many rows.
 fn rows_of(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   case rows, shown.last_row - shown.first_row + 1 {
     Unmarked, _ | Marked, 1 -> []
@@ -169,8 +165,6 @@ fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   }
 }
 
-/// A code block in a quote is set as body text in the field, a line to a
-/// row, and the page is told how many rows.
 fn block(
   shown: Block,
   rows: Rows,

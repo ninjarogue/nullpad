@@ -12,7 +12,6 @@
   --text-font: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
     monospace;
   --ui-font: system-ui, -apple-system, "Segoe UI", sans-serif;
-  /* In rem and em: `surface` measures a marker in these. */
   --h1: 2rem;
   --h2: 1.5rem;
   --h3: 1.25rem;
@@ -372,22 +371,14 @@ button[aria-pressed="true"] {
   margin-top: 0;
 }
 
-/* The field sets every row of an item or a quote in one line height, so
-   nothing but the field's own margins sets its rows apart on the page. */
 .page.live .preview :is(li, blockquote) :is(li, ul, ol, blockquote) {
   margin-block: 0;
 }
 
-/* In a quote, as at top level, a blank row is one empty line and nothing
-   else sets its blocks apart. */
 .page.live .preview blockquote > * {
   margin-block: 0;
 }
 
-/* The field sets a quote of several rows as body text, a line to a row.
-   There a heading takes at least the lines of its rows (`--rows`, set where
-   it is more than one), and a heading taller than its row gives what it
-   takes over back to a blank row next to it, where nothing is drawn. */
 .page.live .preview blockquote.rows :is(h1, h2, h3, h4, h5, h6) {
   --over: min(0px, var(--rows, 1) * 1.7rem - 1lh);
   margin-block: 0;
@@ -408,17 +399,14 @@ button[aria-pressed="true"] {
   margin-top: var(--over);
 }
 
-/* A heading keeps its line, even with no text or text that draws nothing. */
 .page.live .preview :is(h1, h2, h3, h4, h5, h6) {
   min-height: 1lh;
 }
 
-/* The field sets a setext heading on its own a line to a row. */
 .page.live .preview > :is(h1, h2, h3, h4, h5, h6) {
   min-height: calc(var(--rows, 1) * 1lh);
 }
 
-/* The field sets a heading in a quote in an item as a heading in an item. */
 .page.live .preview li blockquote:not(.rows) > :is(h1, h2, h3, h4, h5, h6):last-child {
   margin-bottom: 0.5em;
 }
@@ -437,8 +425,6 @@ button[aria-pressed="true"] {
   padding-block: calc(0.875rem * 1.5 - 1px);
 }
 
-/* In a quote of several rows, which the field sets as body text, a code
-   block takes its rows, fences among them, with its code in the middle. */
 .page.live .preview blockquote.rows > pre {
   box-sizing: border-box;
   display: flex;
@@ -457,8 +443,6 @@ button[aria-pressed="true"] {
   margin-block: calc(0.85rem - 1px);
 }
 
-/* In a quote two rules in a row would share the room between them. The
-   line is a border, which forced colors and print keep. */
 .page.live .preview blockquote > hr {
   align-items: center;
   border: 0;
@@ -612,9 +596,6 @@ button[aria-pressed="true"] {
   letter-spacing: var(--h6-tracking);
 }
 
-/* A heading in an item or a quote is set as it is drawn there: an item keeps
-   its own margins, with the heading's half-line below it where that is more,
-   an item in a quote has only that half-line, and a quote adds none. */
 .editor.part.quote {
   margin: 0;
 }

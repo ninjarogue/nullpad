@@ -160,8 +160,7 @@ fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
   }
 }
 
-/// CSS cannot measure typed text, so the marker is measured here, in the
-/// font its row is set in.
+/// CSS cannot measure typed text, so the marker is measured here.
 fn marker(setting: Option(editor.Setting)) -> attribute.Attribute(msg) {
   let width = fn(marker, heading) {
     attribute.style(
@@ -989,7 +988,6 @@ fn write_control(
   backward: Bool,
 ) -> Nil
 
-/// `heading` is "" for body text, or the class of a heading's level.
 @external(javascript, "./surface.ffi.mjs", "textWidth")
 fn text_width(text: String, heading: String) -> Float
 

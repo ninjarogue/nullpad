@@ -7,7 +7,6 @@ import type { Disk, Note, Page } from './nullpad.ts';
 
 const stored = (body: string): Note => ({ key: 'live', title: null, body });
 
-/** Root font sizes and a second font: the page must hold still under each. */
 const settings = [
   { root: '16px', font: null },
   { root: '12px', font: null },
@@ -28,10 +27,6 @@ async function set(browser: Browser, setting: (typeof settings)[number]) {
   }, setting);
 }
 
-/**
- * Opens `top`, a blank row, `block`, a blank row and `below words`, with the
- * caret on `top`.
- */
 async function open({ app, disk, page }: { app: App; disk: Disk; page: Page }, block: string) {
   const body = `top\n\n${block}\n\nbelow words`;
   await disk.seed([stored(body)]);
@@ -42,18 +37,12 @@ async function open({ app, disk, page }: { app: App; disk: Disk; page: Page }, b
   await expect(page.text).toHaveValue('top');
 }
 
-/** Where `word` is: in the text field while the caret is in its block, drawn after. */
 async function at(page: Page, word: string) {
   const place = await page.placeOf(word);
   expect(place, `${word} is on the page`).not.toBeNull();
   return place!;
 }
 
-/**
- * Puts the caret in the block on row 2, then moves it to the blank row below,
- * and gives where `word`, the first character of `typed` and the row below
- * were each time, with the field's font size and the drawn heading's.
- */
 async function arriveAndLeave(page: Page, browser: Browser, block: string, word: string | null, typed: string) {
   await browser.keyboard.press('ArrowDown');
   await browser.keyboard.press('ArrowDown');

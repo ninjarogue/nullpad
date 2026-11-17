@@ -1,6 +1,4 @@
-// The heading tests again on a screen with two device pixels to a CSS pixel,
-// where the browser rounds a line's place to half pixels. Playwright resets
-// the scale of a page whose viewport it sets, so the window sets the size.
+// Playwright resets the scale of a page whose viewport it sets, so the window sets the size.
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
