@@ -42,6 +42,14 @@ export class Finger {
     await this.nextFrame();
   }
 
+  /** Touches the screen at `point`, keeps the finger still for longer than a long press takes, and lifts it. */
+  async hold(point: Point, ms = 800) {
+    await this.session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+    await new Promise((done) => setTimeout(done, ms));
+    await this.session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await this.nextFrame();
+  }
+
   /** Taps the middle of `target`, which has to be on the screen. */
   async tapOn(target: Locator) {
     const box = (await target.boundingBox())!;

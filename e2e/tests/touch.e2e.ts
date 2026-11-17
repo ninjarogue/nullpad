@@ -1,6 +1,8 @@
 import { expect } from 'e2e';
+import type { Browser } from '@e2e-dev/web';
 import type { App } from 'e2e';
 import { phone } from './finger.ts';
+import type { Finger, Point } from './finger.ts';
 import { test } from './nullpad.ts';
 import type { Disk, Note, Page } from './nullpad.ts';
 
@@ -166,4 +168,71 @@ test('a tap on a paragraph after the page is scrolled by a swipe puts the caret 
   expect(await page.caret()).toBe(`paragraph number ${target.number} has a |few words in it`);
   expect(await page.scrolled()).toBe(scrolled);
   expect(Math.abs((await page.fieldBox()).top - target.top)).toBeLessThan(1);
+});
+
+type Press = { target: string; trusted: boolean; cancelled: boolean };
+
+/** From now on, notes each mouse press the browser sends, and whether the page cancelled what the browser does with it. */
+async function watchPresses(browser: Browser) {
+  await browser.evaluate(() => {
+    const seen: Press[] = [];
+    (globalThis as { presses?: Press[] }).presses = seen;
+    document.addEventListener('mousedown', (press) => {
+      setTimeout(() => seen.push({ target: (press.target as Element).tagName, trusted: press.isTrusted, cancelled: press.defaultPrevented }), 0);
+    });
+    return null;
+  });
+}
+
+async function pressesSeen(browser: Browser, page: Page) {
+  await page.nextFrame();
+  return browser.evaluate(() => (globalThis as { presses?: Press[] }).presses!);
+}
+
+// Chromium has no touch selection here: a long press ends as a tap and a drag pans the page. What a
+// test can pin is that the page leaves the press to the browser, which is what selecting by finger
+// on a phone needs, and that a drag does not become a selection.
+const gestures: { gesture: string; act: (finger: Finger, at: Point) => Promise<void> }[] = [
+  { gesture: 'a tap', act: (finger, at) => finger.tap(at) },
+  { gesture: 'a long press', act: (finger, at) => finger.hold(at) },
+];
+
+for (const { gesture, act } of gestures) {
+  test(`${gesture} on the text field is left to the browser, which places the caret and owns any selecting that starts there`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    const finger = await openOnPhone({ app, disk, page }, `top\n\n${flights}\n\nlast`);
+    await finger.tap(await page.pointAt('hotel'));
+    await expect(page.text).toHaveValue(flights);
+    await watchPresses(browser);
+
+    const box = (await page.text.boundingBox())!;
+    const at = { x: box.x + 60, y: box.y + 8 };
+    await act(finger, at);
+    expect(await pressesSeen(browser, page)).toEqual([{ target: 'TEXTAREA', trusted: true, cancelled: false }]);
+    expect((await page.selection()).selected).toBe('');
+    const caretAt = (await page.caret()).indexOf('|');
+    expect(caretAt).toBeGreaterThan(3);
+    expect(caretAt).toBeLessThan(20);
+  });
+}
+
+test('a finger drag that starts on the text field scrolls the page and selects nothing', async ({ app, browser, disk, page }) => {
+  const long = Array.from({ length: 80 }, (_, i) => `paragraph number ${i} has a few words in it`).join('\n\n');
+  const finger = await openOnPhone({ app, disk, page }, long);
+  await finger.tap(await page.pointAt('number 0'));
+  await expect(page.text).toHaveValue('paragraph number 0 has a few words in it');
+  await watchPresses(browser);
+  const caret = await page.caret();
+  expect(await page.scrolled()).toBe(0);
+
+  const box = (await page.text.boundingBox())!;
+  await finger.swipeUp({ x: box.x + 60, y: box.y + box.height / 2 }, 600);
+  await expect.poll(() => page.scrolled()).toBeGreaterThan(400);
+  expect(await page.caret()).toBe(caret);
+  expect(await page.painted()).toBeNull();
+  expect(await pressesSeen(browser, page)).toEqual([]);
 });
