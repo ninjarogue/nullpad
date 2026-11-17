@@ -5,7 +5,7 @@ import type { Box } from './guards.ts';
 import { test } from './nullpad.ts';
 import { everyKind } from './stability.ts';
 
-type Sample = { name: string; draws: string[]; note: string };
+type Sample = { name: string; draws: string[]; note: string; revealMoves?: true };
 
 const samples: Sample[] = [
   {
@@ -18,6 +18,7 @@ const samples: Sample[] = [
   },
   {
     name: 'paragraphs and inline marks',
+    revealMoves: true,
     draws: ['p', 'strong', 'em', ':not(pre) > code', 'a', 'del'],
     note: [
       'quail rat **seal toad** urial *vole wolf* xerus `yak zebra` [bat cat](http://x.y) ~~emu fig~~ gull', '',
@@ -26,16 +27,19 @@ const samples: Sample[] = [
   },
   {
     name: 'lists',
+    revealMoves: true,
     draws: ['ul', 'ol', 'li.task'],
     note: ['- mule nene', '- oryx panda', '  - quokka rhea', '', '1. sable tapir', '2. uguisu vervet', '', '- [ ] wombat xenops', '- [x] yapok zorilla'].join('\n'),
   },
   {
     name: 'quotes and code',
+    revealMoves: true,
     draws: ['blockquote', 'pre'],
     note: ['> aphid beetle', '> cicada dingo', '', '```', 'egret finch', 'gecko heron', '```', '', '    impala jackal'].join('\n'),
   },
   {
     name: 'tables and rules',
+    revealMoves: true,
     draws: ['table', 'hr'],
     note: ['| koala | llama |', '|-------|-------|', '| magpie | numbat |', '| ocelot | possum |', '', '---', '', 'raven stoat'].join('\n'),
   },
@@ -58,7 +62,8 @@ async function drawWholeNote(editor: Editing, sample: Sample) {
 const pendingReveal = 'pending the decision on how hidden marks reveal on a click';
 
 for (const sample of samples) {
-  test(`a click on a word in ${sample.name} leaves the word where it was`, { skip: pendingReveal }, async (fixtures) => {
+  test(`a click on a word in ${sample.name} leaves the word where it was`, async (fixtures) => {
+    if (sample.revealMoves) test.fail(pendingReveal);
     const editor = new Editing(fixtures);
     const { browser, page } = fixtures;
     const { words } = await drawWholeNote(editor, sample);
