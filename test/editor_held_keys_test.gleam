@@ -589,6 +589,20 @@ pub fn control_and_up_or_down_is_held_off_a_mac_test() {
     == Some(editor.MoveCaret(False, editor.Forward, editor.ByParagraph))
 }
 
+/// Off a Mac, Control with Home or End goes to the start or the end of the
+/// note in a text field, so it is held. On a Mac, Option with them does
+/// nothing there, so it goes on to the browser.
+pub fn control_and_home_or_end_is_held_off_a_mac_test() {
+  assert editor.holds(ctrl("Home"), editor.WindowsKeyboard)
+  assert editor.browser_act(ctrl("Home"), editor.WindowsKeyboard)
+    == Some(editor.MoveCaret(False, editor.Backward, editor.ByDocument))
+  assert editor.browser_act(ctrl("End"), editor.OtherKeyboard)
+    == Some(editor.MoveCaret(False, editor.Forward, editor.ByDocument))
+  let option_home = pressed("Home", "", ctrl: False, meta: False, alt: True)
+  assert editor.browser_act(option_home, editor.AppleKeyboard) == None
+  assert !editor.holds(option_home, editor.AppleKeyboard)
+}
+
 /// The focus comes back while an IME composes behind a held key: it still
 /// composes, so what it composes still goes in after the key.
 pub fn the_focus_coming_back_leaves_a_composition_behind_a_key_composing_test() {
@@ -625,6 +639,26 @@ pub fn a_drop_ends_the_steps_still_waiting_test() {
     == "alphax beta\n\nsecond para here\nthird row\n\nlast"
   assert !editor.is_stepping(dropped)
   assert !editor.is_waiting(dropped)
+}
+
+pub fn keys_held_behind_the_steps_a_drop_ends_are_still_replayed_test() {
+  let ed = opened() |> step_down |> hold(key("x"))
+  let shown = editor.field_buffer(ed)
+  let Outcome(editor: dropped, ..) =
+    editor.update(
+      ed,
+      editor.Dropped(
+        row: 0,
+        visible: "alpha",
+        at_end: False,
+        next: "",
+        text: "y",
+        copy: True,
+        shown:,
+      ),
+    )
+  assert !editor.is_stepping(dropped)
+  assert editor.replay(dropped) == Some(key("x"))
 }
 
 pub fn a_drag_ends_the_steps_still_waiting_test() {
