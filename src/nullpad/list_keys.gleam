@@ -359,7 +359,14 @@ fn shift(
       }
     }
   }
-  let new_lines = list.index_map(lines, fn(text, row) { moved(row, text) })
+  let new_lines =
+    list.index_map(lines, fn(text, row) { moved(row, text) })
+    |> widen(
+      item.row + 1,
+      last,
+      ItemMarks(..marks, lead: resize(marks.lead, by)),
+      mark,
+    )
   let follow = fn(place: Position) {
     let old_row = line(lines, place.row)
     let new_row = line(new_lines, place.row)

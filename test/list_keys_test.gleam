@@ -229,3 +229,12 @@ pub fn a_number_that_grows_a_digit_keeps_its_items_nested_test() {
     == "8. a\n9. |\n10. b\n    1. c"
   assert press("9. a|\n   1. x", vim.Enter) == "9. a\n10. |\n    1. x"
 }
+
+pub fn tab_and_shift_tab_keep_items_nested_when_a_number_changes_width_test() {
+  assert press("9. i\n   1. kid\n      1. gr|and", vim.BackTab)
+    == "9. i\n   1. kid\n   2. gr|and"
+  assert press("9. i\n   1. k|id\n      1. grand", vim.BackTab)
+    == "9. i\n10. k|id\n    1. grand"
+  assert press("9. i\n10. k|id\n    1. grand", vim.Tab)
+    == "9. i\n   1. k|id\n      1. grand"
+}
