@@ -7,3 +7,4 @@ One line per bug that got past every automatic check. The weekly check review re
 | 2026-11-14 | PR 30 tested on a branch missing PRs 28 and 29 | review | break-it gate | the gate had no base check | stale base |
 | 2026-11-14 | PR 30's agent deleted the test that caught its regression | review | gate | no check for removed or loosened tests | weakened test |
 | 2026-11-16 | A skip-list entry in the robot typist hid a real bug | review | robot typist | skip entries had no reason or expiry | hidden by skip |
+| 2026-11-17 | A lone `-` under a list hung by the dash's width only, so it sat between the bullets and the words and moved when the space was typed | aric | layout browser tests, and the unit test for the hang | the unit test pinned the code's output (`-` hangs as `-`) instead of the promise that typing the space moves nothing, and no browser test measured an item between its marker and its space | pinned output |
