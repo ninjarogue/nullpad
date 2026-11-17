@@ -35,7 +35,7 @@ const indented = (text: string) => text.split('\n').map((line) => `    ${line}`)
 
 type Span = [start: number, end: number];
 
-type Reading = { comments: Span[]; strings: Span[]; rules?: Span[]; regexes?: Span[] };
+type Reading = { comments: Span[]; strings: Span[]; braceBlocks?: Span[]; regexes?: Span[] };
 
 type Node = { type: string; start: number; end: number; value?: unknown; [key: string]: unknown };
 
@@ -91,7 +91,7 @@ function readGleam(source: string): Reading {
 function readCss(source: string): Reading {
   const comments: Span[] = [];
   const strings: Span[] = [];
-  const rules: Span[] = [];
+  const braceBlocks: Span[] = [];
   let depth = 0;
   let statement: number | null = null;
   for (let at = 0; at < source.length; at++) {
@@ -113,13 +113,13 @@ function readCss(source: string): Reading {
       depth++;
     } else if (char === '}' && depth > 0) {
       depth--;
-      if (depth === 0 && statement !== null) rules.push([statement, at + 1]);
+      if (depth === 0 && statement !== null) braceBlocks.push([statement, at + 1]);
       if (depth === 0) statement = null;
     } else if (char === ';' && depth === 0) {
       statement = null;
     }
   }
-  return { comments, strings, rules };
+  return { comments, strings, braceBlocks };
 }
 
 function reader(file: string): (source: string) => Reading {
@@ -144,7 +144,7 @@ type Found = { source: string; code: number[]; elsewhere: string[] };
 
 const nameChar = /[\w$-]/;
 
-function startsInName(source: string, start: number, end: number, text: string): boolean {
+function touchesLongerName(source: string, start: number, end: number, text: string): boolean {
   return (nameChar.test(text[0]!) && start > 0 && nameChar.test(source[start - 1]!)) || (nameChar.test(text[text.length - 1]!) && end < source.length && nameChar.test(source[end]!));
 }
 
@@ -165,9 +165,9 @@ function find({ file, text }: Reliance, root: string): Found {
   const elsewhere = new Set<string>();
   for (const start of at) {
     const end = start + text.length;
-    if (startsInName(source, start, end, text)) elsewhere.add('inside a longer name');
+    if (touchesLongerName(source, start, end, text)) elsewhere.add('inside a longer name');
     else if (overlaps(reads.comments, start, end)) elsewhere.add('in a comment');
-    else if (reads.rules && !within(reads.rules, start, end)) elsewhere.add('where it is not in a rule');
+    else if (reads.braceBlocks && !within(reads.braceBlocks, start, end)) elsewhere.add('where it is not in a braced block');
     else if (within(reads.strings, start, end)) elsewhere.add('in a string');
     else if (reads.regexes && within(reads.regexes, start, end)) elsewhere.add('in a regular expression');
     else code.push(start);

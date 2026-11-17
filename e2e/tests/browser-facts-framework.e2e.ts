@@ -5,7 +5,7 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fact, locate, noticed, problemsWithTable, sources, takenForNothing, verify } from './browser-facts.ts';
 import type { Fact, Reliance } from './browser-facts.ts';
-import { facts } from './browser-facts-table.ts';
+import { facts, systems } from './browser-facts-table.ts';
 
 async function inSource(files: Record<string, string>, run: (root: string) => Promise<void> | void) {
   const root = mkdtempSync(join(tmpdir(), 'facts-'));
@@ -331,8 +331,8 @@ test('locate: CSS that is only in a comment, or in no rule, is not a rule', asyn
     (root) => {
       expect(missed({ file: 'assets/comment.css', text: 'li::marker' }, root)).toMatch(/only in a comment/);
       expect(missed({ file: 'assets/within.css', text: 'li::marker' }, root)).toMatch(/only in a comment/);
-      expect(missed({ file: 'assets/stray.css', text: 'li::marker' }, root)).toMatch(/not in a rule/);
-      expect(missed({ file: 'assets/import.css', text: 'li::marker' }, root)).toMatch(/not in a rule/);
+      expect(missed({ file: 'assets/stray.css', text: 'li::marker' }, root)).toMatch(/not in a braced block/);
+      expect(missed({ file: 'assets/import.css', text: 'li::marker' }, root)).toMatch(/not in a braced block/);
     },
   );
 });
@@ -604,4 +604,19 @@ test('noticed: the sabotage of a fact with a url is planted on the page served t
     },
   });
   expect(await noticed(Object.assign(where, { url: 'https://toy.test/' }))).toBe('the page said 3');
+});
+
+test('systems: each user agent names exactly one system', () => {
+  const agents: Record<string, string> = {
+    'an iPhone': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+    'an iPad': 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+    'a Mac': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+    Android: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36',
+    ChromeOS: 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+    Windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+    Linux: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+  };
+  for (const [name, agent] of Object.entries(agents)) {
+    expect(systems.filter(([inAgent]) => inAgent.test(agent)).map(([, , system]) => system), agent).toEqual([name]);
+  }
 });

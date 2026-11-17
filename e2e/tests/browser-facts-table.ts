@@ -11,14 +11,14 @@ const css = 'assets/nullpad.css';
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const instead = (what: string, expected: unknown, seen: unknown) => `${what} was ${JSON.stringify(seen)}, and the app expects ${JSON.stringify(expected)}`;
 
-const systems: [agent: RegExp, platform: RegExp, system: string][] = [
+export const systems: [agent: RegExp, platform: RegExp, system: string][] = [
   [/iPhone/, /^iPhone/, 'an iPhone'],
   [/iPad/, /^iPad/, 'an iPad'],
   [/Macintosh/, /^Mac/, 'a Mac'],
   [/Android/, /^Linux/, 'Android'],
   [/CrOS/, /^Linux/, 'ChromeOS'],
   [/Windows/, /^Win/, 'Windows'],
-  [/Linux/, /^Linux/, 'Linux'],
+  [/^(?!.*(Android|CrOS)).*Linux/, /^Linux/, 'Linux'],
 ];
 
 const mediaAnswers = (seen: { matches: boolean; always: boolean; never: boolean; touchPoints: number } | undefined) => {
@@ -65,8 +65,6 @@ async function dragWith(page: Page, held: string[][]) {
 }
 
 const finite = (...values: unknown[]) => values.every((value) => typeof value === 'number' && Number.isFinite(value));
-
-type Modifiable = Selection & { modify(alter: string, direction: string, granularity: string): void };
 
 export const facts: Fact[] = [
   fact({
@@ -281,7 +279,7 @@ export const facts: Fact[] = [
     observe: (page) =>
       page.evaluate(() => {
         const field = document.getElementById('t') as HTMLTextAreaElement;
-        const selection = getSelection() as Modifiable;
+        const selection = getSelection()!;
         const now = () => [field.selectionStart, field.selectionEnd, field.selectionDirection];
         field.focus();
         field.setSelectionRange(5, 5);
@@ -297,7 +295,7 @@ export const facts: Fact[] = [
         : instead('the selection after extending by a character back and by a word forward', { backByCharacter: [4, 5, 'backward'], forwardByWord: [5, 11, 'forward'] }, seen),
     breaks: async (page) => {
       await page.evaluate(() => {
-        (Selection.prototype as Modifiable).modify = () => {};
+        Selection.prototype.modify = () => {};
       });
     },
   }),
@@ -313,7 +311,7 @@ export const facts: Fact[] = [
     observe: (page) =>
       page.evaluate(() => {
         const field = document.getElementById('t') as HTMLTextAreaElement;
-        const selection = getSelection() as Modifiable;
+        const selection = getSelection()!;
         const now = () => [field.selectionStart, field.selectionEnd, field.selectionDirection];
         field.focus();
         field.setSelectionRange(0, 0);
@@ -333,8 +331,8 @@ export const facts: Fact[] = [
     },
     breaks: async (page) => {
       await page.evaluate(() => {
-        const real = (Selection.prototype as Modifiable).modify;
-        (Selection.prototype as Modifiable).modify = function (this: Selection, alter: string, direction: string, granularity: string) {
+        const real = Selection.prototype.modify;
+        Selection.prototype.modify = function (this: Selection, alter: string, direction: string, granularity: string) {
           if (granularity !== 'lineboundary') real.call(this, alter, direction, granularity);
         };
       });
@@ -353,7 +351,7 @@ export const facts: Fact[] = [
       '<p id="v" style="margin:0;visibility:hidden">HH</p><p id="e" style="margin:0">ef</p>',
     observe: (page) =>
       page.evaluate(() => {
-        const selection = getSelection() as Modifiable;
+        const selection = getSelection()!;
         const where = () => `${selection.focusNode!.parentElement!.id}:${selection.focusOffset}`;
         const text = (id: string) => document.getElementById(id)!.firstChild!;
         selection.collapse(text('a'), 2);
@@ -388,8 +386,8 @@ export const facts: Fact[] = [
     },
     breaks: async (page) => {
       await page.evaluate(() => {
-        const real = (Selection.prototype as Modifiable).modify;
-        (Selection.prototype as Modifiable).modify = function (this: Selection, alter: string, direction: string, granularity: string) {
+        const real = Selection.prototype.modify;
+        Selection.prototype.modify = function (this: Selection, alter: string, direction: string, granularity: string) {
           const { focusNode, focusOffset } = this;
           real.call(this, alter, direction, granularity);
           if (focusNode && this.focusNode !== focusNode) this.collapse(focusNode, focusOffset);
@@ -1298,8 +1296,9 @@ export const facts: Fact[] = [
       })),
     holds: (seen) => {
       if (typeof seen?.platform !== 'string' || typeof seen?.agent !== 'string') return `navigator.platform and the user agent were read as ${JSON.stringify(seen)}`;
-      const named = systems.find(([inAgent]) => inAgent.test(seen.agent));
+      const [named, ...rest] = systems.filter(([inAgent]) => inAgent.test(seen.agent));
       if (!named) return `the user agent ${JSON.stringify(seen.agent)} names no operating system this knows, so this looked at nothing`;
+      if (rest.length > 0) return `the user agent ${JSON.stringify(seen.agent)} names ${[named, ...rest].map(([, , system]) => system).join(' and ')}, so this cannot tell which system to hold navigator.platform to`;
       const [, byPlatform, system] = named;
       return byPlatform.test(seen.platform) ? null : `navigator.platform is ${JSON.stringify(seen.platform)}, and the user agent names ${system}`;
     },

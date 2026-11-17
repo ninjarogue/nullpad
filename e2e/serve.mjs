@@ -52,9 +52,9 @@ async function answer(request) {
   return { status: 200, body, type: page ? "text/html" : (types[extname(path)] ?? "application/octet-stream") };
 }
 
-const complain = (what, error) => console.error(`serve: ${what}: ${error?.stack ?? error}`);
-process.on("uncaughtException", (error) => complain("uncaught exception", error));
-process.on("unhandledRejection", (error) => complain("unhandled rejection", error));
+const logAndKeepServing = (what, error) => console.error(`serve: ${what}: ${error?.stack ?? error}`);
+process.on("uncaughtException", (error) => logAndKeepServing("uncaught exception", error));
+process.on("unhandledRejection", (error) => logAndKeepServing("unhandled rejection", error));
 
 createServer(async (request, response) => {
   try {
@@ -62,7 +62,7 @@ createServer(async (request, response) => {
     if (body === undefined) response.writeHead(status).end();
     else response.writeHead(status, { "content-type": type }).end(body);
   } catch (error) {
-    complain(`${request.method} ${request.url}`, error);
+    logAndKeepServing(`${request.method} ${request.url}`, error);
     if (!response.headersSent) response.writeHead(500);
     response.end();
   }
