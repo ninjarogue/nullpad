@@ -408,7 +408,7 @@ button[aria-pressed="true"] {
 }
 
 .page.live .preview li blockquote:not(.set-as-body) > :is(h1, h2, h3, h4, h5, h6):last-child {
-  margin-bottom: 0.5em;
+  margin-bottom: calc(var(--title) / 2);
 }
 
 /* An item's marker is outside its words, on their first line. With the
@@ -671,27 +671,33 @@ button[aria-pressed="true"] {
 }
 
 .preview h1 {
-  font-size: var(--h1);
+  --title: var(--h1);
+  font-size: var(--title);
 }
 
 .preview h2 {
-  font-size: var(--h2);
+  --title: var(--h2);
+  font-size: var(--title);
 }
 
 .preview h3 {
-  font-size: var(--h3);
+  --title: var(--h3);
+  font-size: var(--title);
 }
 
 .preview h4 {
-  font-size: var(--h4);
+  --title: var(--h4);
+  font-size: var(--title);
 }
 
 .preview h5 {
-  font-size: var(--h5);
+  --title: var(--h5);
+  font-size: var(--title);
 }
 
 .preview h6 {
-  font-size: var(--h6);
+  --title: var(--h6);
+  font-size: var(--title);
   letter-spacing: var(--h6-tracking);
 }
 
