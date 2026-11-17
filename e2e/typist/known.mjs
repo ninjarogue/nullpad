@@ -14,6 +14,9 @@
 // skip      says whether a key of a generated script is left out, given the script so far typed
 //           into a plain textarea (its text and where its selection is) and the pace. Open
 //           entries skip the keys that show their bug, so the rest of the run stays green.
+// shift     says whether a text shift (see shifts.mjs) is this bug's, given the problem the watcher
+//           found: how far it moved and the blocks it is about. The shift is left out of the run
+//           while the repro, typed a frame at a time, still shows it. Only open entries have one.
 // sanitize  returns the script without the keys this entry cannot compare, or with a frame
 //           waited for where it cannot be typed at speed. It runs on generated scripts only,
 //           never on --script or --scripts. It gets the pace.
@@ -22,6 +25,10 @@
 
 /** @typedef {string | { paste: string } | { wait: true }} Key */
 /** @typedef {{ value: string, anchor: number, head: number }} Caret The plain textarea's text and selection before a key. */
+/** @typedef {import('./shifts.mjs').Problem} Problem */
+
+const near = (n, to) => Math.abs(Math.abs(n) - to) < 0.2;
+const fieldText = (problem) => problem.blocks.filter((b) => b.kind === 'field').map((b) => b.text);
 
 /** A key whose result depends on where the caret is drawn across the page: Up and Down, with Shift or Ctrl, Page Up and Page Down. */
 export const isVertical = (k) => /^(Control\+)?(Shift\+)?Arrow(Up|Down)$|^(Shift\+)?Page(Up|Down)$/.test(k);
@@ -65,7 +72,7 @@ export function skips(k, script, c, pace) {
   return known.some((entry) => entry.skip?.(k, c, pace));
 }
 
-/** @type {{ id: string, kind: 'intended' | 'open', finding?: string, reason: string, repro?: Key[], closeAtOnce?: boolean, pace?: 'burst' | 'frame' | 'slow', tries?: number, skip?: (k: string, c: Caret, pace: string) => boolean, sanitize: (script: Key[], pace: string) => Key[] }[]} */
+/** @type {{ id: string, kind: 'intended' | 'open', finding?: string, reason: string, repro?: Key[], closeAtOnce?: boolean, pace?: 'burst' | 'frame' | 'slow', tries?: number, skip?: (k: string, c: Caret, pace: string) => boolean, shift?: (problem: Problem) => boolean, sanitize: (script: Key[], pace: string) => Key[] }[]} */
 export const known = [
   {
     id: 'undo-steps',
@@ -108,6 +115,61 @@ export const known = [
       const beside = /Right$/.test(k) ? c.value.slice(c.head, c.head + 2) : c.value.slice(Math.max(0, c.head - 2), c.head);
       return anyMark.test(beside);
     },
+    sanitize: (script) => script,
+  },
+  {
+    id: 'setext-underline-row',
+    kind: 'open',
+    reason:
+      'A setext heading is drawn on one row and its underline row is hidden, so when the cursor enters it the field opens the underline row at the heading\'s size, and the blocks below move down by that row. With the cursor on its first row, the rows below are drawn as blocks of their own, not as the underline.',
+    repro: [{ paste: 'Setext\n======\n\nlast' }, 'Control+Home'],
+    pace: 'frame',
+    shift: (problem) => fieldText(problem).some((text) => /[^\n]\n(=+|-+) *(?=\n|\u200b|$)/.test(text)),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'fence-one-pixel',
+    kind: 'open',
+    reason: 'A fenced code block is drawn 1px taller than the rows of its text field, so everything below it moves 1px when the cursor enters or leaves it.',
+    repro: [{ paste: '```\ncode\n```' }, 'Enter', 'ArrowUp'],
+    pace: 'frame',
+    shift: (problem) => near(problem.change, 1) && problem.blocks.some((b) => b.kind === 'pre'),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'unclosed-fence-row',
+    kind: 'open',
+    reason: 'A code fence that is never closed is drawn as an empty block with both fence rows, 21px more than its one row in the text field.',
+    repro: ['3', { paste: '```\ncode\n```' }, 'Control+Home'],
+    pace: 'frame',
+    shift: (problem) => near(problem.change, 21) && problem.blocks.some((b) => b.kind === 'pre' && b.text === ''),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'first-list-four-pixels',
+    kind: 'open',
+    reason: 'A list at the top of the note is drawn 4px lower than the same item in the text field, whose margin the first block gives up, so its text moves 4px when the cursor enters or leaves it.',
+    repro: [{ paste: '- a\n\nb' }, 'Control+Home'],
+    pace: 'frame',
+    shift: (problem) => near(problem.change, 4) && problem.blocks.some((b) => b.kind === 'ul' || b.kind === 'ol'),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'heading-in-quote',
+    kind: 'open',
+    reason: 'A heading inside a quote is drawn at the heading\'s size, but the quote\'s row in the text field is a body line, so the blocks below move by the difference when the cursor enters it.',
+    repro: [{ paste: 'top\n\n> #\n\nlast' }, 'ArrowUp', 'ArrowUp'],
+    pace: 'frame',
+    shift: (problem) => fieldText(problem).some((text) => /^>\s*#/m.test(text)),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'code-span-over-rows',
+    kind: 'open',
+    reason: 'A code span that runs over two rows is drawn on one line, but its text field has two, so the blocks below move one line when the cursor enters it.',
+    repro: ['`', 'Enter', '`', 'Enter', 'Control+ArrowUp'],
+    pace: 'frame',
+    shift: (problem) => fieldText(problem).some((text) => /`[^`]*\n[^`]*`/.test(text)),
     sanitize: (script) => script,
   },
 ];

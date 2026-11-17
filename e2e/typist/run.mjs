@@ -7,13 +7,32 @@
 //   --close-at-once                                               Ctrl+E (source view) sent with the last keys
 //   node typist/run.mjs --scripts '[["a"],["b"]]'               compare several scripts, no shrinking
 //   node typist/run.mjs --no-known                                ignore known.mjs
+//   node typist/run.mjs --no-shifts                               leave the text-shift watcher off
+//
+// Text shift. After every key of a script typed a frame at a time or slowly, nullpad must not move
+// what the key did not touch. The typist reads where the page paints every block of the note and
+// its lines (DOMSnapshot.captureSnapshot, about 2ms) once the page has stopped drawing, and judges
+// the blocks the key left alone. A key touches the cursor's block as it was and as it is, and every
+// block whose text changed.
+//   - A block left alone does not move sideways, and does not move up or down by itself: its lines
+//     stay where they were to within half a pixel, wrapped into the same lines.
+//   - Blocks above the touched ones do not move. Blocks below move together, by exactly the height
+//     the touched blocks gained or lost, so two blocks left alone never drift apart. The first
+//     touched block starts where it started.
+//   - A key that changes no text (an arrow, Home, Shift, Ctrl+A) changes no height. The block the
+//     cursor enters is as tall as it was drawn, so nothing below it moves.
+//   - A key that changes text moves the blocks below by a whole number of lines, when the touched
+//     blocks are all set in one line height. A line that turns into a heading, or a paste of several
+//     kinds of block, changes the line height, and then any height is allowed.
+// A script typed in a burst has no frame between its keys to look in, so it is not watched.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { listen } from '../browser-problems.mjs';
-import { keyEvents, makeScripts } from './keys.mjs';
+import { editsText, keyEvents, makeScripts } from './keys.mjs';
 import { judged, known, sanitize, skips } from './known.mjs';
+import { capture, judge } from './shifts.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] === undefined ? '1' : all[i + 1]] : [])).filter((e) => e.length),
@@ -23,6 +42,7 @@ const seed = Number(args.seed ?? process.env.TYPIST_SEED ?? 1);
 const length = Number(args.length ?? 40);
 const workers = Number(args.workers ?? 3);
 const useKnown = args['no-known'] === undefined;
+const useShifts = args['no-shifts'] === undefined;
 const e2eDir = fileURLToPath(new URL('..', import.meta.url));
 
 const blank = `<textarea aria-label="Note text" style="width:700px;height:400px;font:16px/1.6 monospace"></textarea>`;
@@ -100,6 +120,17 @@ async function open(browser, url, kind, errors) {
   const ev = async (expression) => (await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result.value;
   const send = (spec) => Promise.all(keyEvents(spec).map((e) => cdp.send('Input.dispatchKeyEvent', e)));
   const settle = () => ev(frame);
+  /** Where the page paints each block of the note once it has finished drawing: two reads a frame apart that agree. */
+  const painted = async () => {
+    let was = await capture(cdp);
+    for (let again = 0; again < 8; again++) {
+      await settle();
+      const now = await capture(cdp);
+      if (JSON.stringify(now) === JSON.stringify(was)) return now;
+      was = now;
+    }
+    return was;
+  };
   if (kind === 'textarea') await page.goto(url + '/blank');
   else {
     await page.goto(url + '/');
@@ -166,7 +197,24 @@ async function open(browser, url, kind, errors) {
       pending = [];
     };
     const anchorMoves = [];
-    for (const k of keys) {
+    const shifts = [];
+    const found = [];
+    const watching = kind === 'nullpad' && pace !== 'burst' && useShifts;
+    let drawn = null;
+    if (watching) {
+      await settle();
+      drawn = await painted();
+    }
+    const watch = async (k, step) => {
+      const now = await painted();
+      if (drawn && now)
+        for (const problem of judge(drawn, now, { typed: editsText(k) })) {
+          found.push(problem);
+          if (!useKnown || !known.some((entry) => entry.shift?.(problem))) shifts.push(`key ${step + 1} (${typeof k === 'string' ? k : 'paste'}): ${problem.text}`);
+        }
+      drawn = now ?? drawn;
+    };
+    for (const [step, k] of keys.entries()) {
       if (typeof k === 'object' && k.wait) {
         await drain();
         await settle();
@@ -179,6 +227,7 @@ async function open(browser, url, kind, errors) {
           await settle();
           if (pace === 'slow') await pause(slowMs);
         }
+        if (watching) await watch(k, step);
         continue;
       }
       const watched = kind === 'nullpad' && pace !== 'burst' && movesAnchor(k);
@@ -194,6 +243,7 @@ async function open(browser, url, kind, errors) {
         const after = await ev(anchorOf);
         if (after !== before) anchorMoves.push(`${k} moved the anchor from ${before} to ${after}`);
       }
+      if (watching) await watch(k, step);
     }
     // Ctrl+E shows the source: the text field is only comparable there. The page gets two frames
     // to finish the last key first, so that the end of every script is not a race with Ctrl+E.
@@ -216,13 +266,21 @@ async function open(browser, url, kind, errors) {
       undone = (await ev(read)).v;
       await send('Control+e');
     }
-    return { state, undone, anchorMoves };
+    return { state, undone, anchorMoves, shifts, found };
   };
   return Object.assign(run, { prune });
 }
 
 const differ = (a, b) =>
-  b.anchorMoves?.length ? 'anchor moved on a Shift key' : sign(a.state) !== sign(b.state) ? 'text, cursor or selection' : b.undone !== '' ? 'undo everything' : null;
+  b.anchorMoves?.length
+    ? 'anchor moved on a Shift key'
+    : sign(a.state) !== sign(b.state)
+      ? 'text, cursor or selection'
+      : b.undone !== ''
+        ? 'undo everything'
+        : b.shifts?.length
+          ? 'text shifted'
+          : null;
 
 /**
  * Remove chunks of keys, halving the chunk size, while the script still fails. `comparable`
@@ -315,7 +373,10 @@ async function main() {
       await Promise.all(
         pairs.map(async (pair, w) => {
           const mine = known.filter((k, i) => k.repro && i % workers === w);
-          for (const k of mine) if (!(await differs(pair, k.repro, k.pace ?? 'burst', k.tries, k.closeAtOnce)).why) stale.push(k);
+          for (const k of mine) {
+            const typed = await differs(pair, k.repro, k.pace ?? 'burst', k.tries, k.closeAtOnce);
+            if (k.shift ? !typed.b.found.some(k.shift) : !typed.why) stale.push(k);
+          }
         }),
       );
 
@@ -342,6 +403,7 @@ async function main() {
       console.log(`  textarea ${brief(a)} undone ${JSON.stringify(a.undone)}`);
       console.log(`  nullpad  ${brief(b)} undone ${JSON.stringify(b.undone)}`);
       for (const moved of b.anchorMoves ?? []) console.log(`  ${moved}`);
+      for (const shifted of (b.shifts ?? []).slice(0, 3)) console.log(`  shifted  ${shifted}`);
       console.log(`  replay   ${replayCommand(keys, pace)}`);
     }
     if (failed.length > seen.size) console.log(`\n${failed.length} scripts differ in new ways; ${seen.size} distinct shrunk scripts shown (--shrink N for more)`);

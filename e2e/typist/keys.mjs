@@ -43,6 +43,13 @@ export const classes = {
 
 const times = (n, key) => Array.from({ length: n }, () => key);
 
+/** Whether a key can change the text: a paste, a character, Enter, Backspace and Delete, with Ctrl for a word. */
+export const editsText = (key) => {
+  if (typeof key !== 'string') return key.paste !== undefined;
+  const last = key.split('+').at(-1) || '+';
+  return /^(Enter|Backspace|Delete)$/.test(last) || (last.length === 1 && !/(^|\+)Control\+/.test(key));
+};
+
 /** Notes a script may start from: every kind of block, and plain rows only. */
 const notes = {
   rich: '# Head one\n\nbody text here\nmore body\n\n- item a\n- item b\n\n> quote line\n\n```\ncode\n```\n\nSetext\n======\n\nlast para',
