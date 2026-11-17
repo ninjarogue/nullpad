@@ -31,11 +31,17 @@ Research how others solve it first (Haiku subagents), then put our option next t
 1. Name the failure mode: which check should have caught it, and why it didn't.
 2. Propose counter-measures in plain language. aric picks; nothing is built before that.
 3. A fix commit says what caught the bug: `Caught-by: <check>`.
-4. A mistake that happens twice becomes a check (lint, test or architecture rule), not a reminder.
-5. "Flaky" is never the answer. A test that fails once gets a repro before anything lands.
+4. Add a line to [misses.md](misses.md): date, what found the bug, which check should have caught it, and why it didn't.
+5. A miss class that shows up twice becomes a check (lint, test or architecture rule), not a reminder.
+6. "Flaky" is never the answer. A test that fails once gets a repro before anything lands.
+
+## When a fix keeps failing
+
+If the same check still fails after 3 fix attempts in a row, stop. Send aric the repro (steps, the failing check, what was tried) instead of a fourth attempt. Never loosen or delete the failing test to get green.
 
 ## Checks on checks
 
 - A new check is attacked by someone who did not write it, and the miss count is reported plainly.
 - After two attack rounds, a check changes only when a real mistake gets past it in a real PR.
-- Weekly pruning review: every check is listed with what it caught lately; quiet or duplicate checks are proposed for removal. Nothing is removed without aric's OK.
+- Weekly pruning review: every check is listed with what it caught (Caught-by lines) and missed (misses.md) lately, and whether any miss class repeated. Quiet or duplicate checks are proposed for removal. Nothing is removed without aric's OK.
+- Agent briefs include the recent misses for the files the agent will touch.
