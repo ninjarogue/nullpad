@@ -78,16 +78,6 @@ export const known = [
     sanitize: (script) => script,
   },
   {
-    id: 'setext-underline-select-all',
-    kind: 'open',
-    reason:
-      'A setext heading whose underline row was just typed is drawn as a paragraph above the text field, and select all takes that paragraph into the field, or draws it as the heading, without changing the text: the blocks below move 25.63px for "c" over "=" and 5.63px for "c" over "-".',
-    repro: ['c', 'Enter', '=', 'Control+a'],
-    pace: 'frame',
-    shift: (problem) => fieldText(problem).some((text) => /^(=+|-+)\u200b|[^\n]\n(=+|-+) *(?=\n|\u200b|$)/.test(text)),
-    sanitize: (script) => script,
-  },
-  {
     id: 'fence-one-pixel',
     kind: 'open',
     reason: 'A fenced code block is drawn 1px taller than the rows of its text field, so everything below it moves 1px when the cursor enters or leaves it.',
