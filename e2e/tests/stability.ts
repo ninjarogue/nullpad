@@ -36,6 +36,12 @@ type Snapshot = {
 
 type Rule = 'typing on a row' | 'moving along a row' | 'moving between rows of one block';
 
+function ruleThatHolds(key: { textChanged: boolean; staysOnRow: boolean; inHeldBlock: boolean; commitsTyping: boolean }): Rule | null {
+  if (key.textChanged) return key.staysOnRow ? 'typing on a row' : null;
+  if (key.staysOnRow) return 'moving along a row';
+  return key.inHeldBlock && !key.commitsTyping ? 'moving between rows of one block' : null;
+}
+
 type Hit = { key: number; typed: string; rule: Rule; row: number; text: string; what: string };
 
 const allTyped: { name: string; draws: string[]; samples: Sample[] }[] = [
@@ -351,7 +357,7 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
     lines().slice(0, row).reduce((sum, line) => sum + line.length + 1, 0) + Math.min(col, lines()[row]!.length);
   const rowAt = (index: number) => text.slice(0, index).split('\n').length - 1;
   let caret = 0;
-  let uncommitted = false;
+  let typedSinceRowChange = false;
   let lostCursor = 0;
 
   let was = await browser.evaluate(snapshotInPage, { lines: lines() });
@@ -399,13 +405,11 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
 
     const rowNow = now.caret.row;
     const stays = rowNow === rowBefore;
-    const inBlock = rowNow >= heldBefore.first && rowNow <= heldBefore.last;
-    const commits = !stays && uncommitted;
-    if (text !== before && stays) uncommitted = true;
-    else if (!stays) uncommitted = false;
-    let rule: Rule | null = null;
-    if (text !== before) rule = stays ? 'typing on a row' : null;
-    else rule = stays ? 'moving along a row' : inBlock && !commits ? 'moving between rows of one block' : null;
+    const inHeldBlock = rowNow >= heldBefore.first && rowNow <= heldBefore.last;
+    const commitsTyping = !stays && typedSinceRowChange;
+    if (text !== before && stays) typedSinceRowChange = true;
+    else if (!stays) typedSinceRowChange = false;
+    const rule = ruleThatHolds({ textChanged: text !== before, staysOnRow: stays, inHeldBlock, commitsTyping });
     if (rule === null || lines().length !== was.looks.length) {
       was = now;
       continue;
