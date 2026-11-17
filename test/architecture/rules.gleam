@@ -641,7 +641,7 @@ fn decoder_state(
                     Error(Nil) -> False
                   }
                 },
-                decoding(resolve),
+                runs_later(resolve),
                 bound_names(function),
                 set.new(),
               )
@@ -902,6 +902,23 @@ fn decoding(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
   }
 }
 
+/// A decoder, or an effect, whose callback runs when its event comes or the
+/// effect is run, after the handlers are made.
+fn runs_later(resolve: fn(Seen) -> Result(String, Nil)) -> fn(Seen) -> Bool {
+  fn(seen) {
+    case resolve(seen) {
+      Ok(called) ->
+        list.contains(decodes, called) || list.contains(effect_makers, called)
+      Error(Nil) -> False
+    }
+  }
+}
+
+const effect_makers = [
+  "lustre/effect.from", "lustre/effect.before_paint",
+  "lustre/effect.after_paint",
+]
+
 /// Lustre's functions that call a callback with each message later.
 const mappers = ["lustre/element.map", "lustre/effect.map"]
 
@@ -1131,7 +1148,7 @@ fn state_types(files: List(File)) -> Set(TypeKey) {
 /// The names a function binds itself: its parameters, and every name a
 /// pattern in it binds.
 fn bound_names(function: glance.Function) -> Set(String) {
-  list.filter_map(statements(function.body), fn(one) {
+  list.filter_map(statements(function.body, set.new()), fn(one) {
     case one {
       Bound(name) -> Ok(name)
       Name(_) | Remote(..) | Text(_) -> Error(Nil)
@@ -1149,9 +1166,9 @@ fn bound_names(function: glance.Function) -> Set(String) {
 }
 
 /// The readers `body` calls or names as it runs: outside any closure or
-/// capture, and before any `use` of a decoder, whose rest runs when the event
-/// comes. A reader named, not called, is handed on to be called who knows
-/// when. A closure bound with `let` that reads one counts as a reader.
+/// capture, and before any `use` of a decoder or an effect, whose rest runs
+/// when the event comes or the effect is run. A reader named, not called, is
+/// handed on to be called who knows when. A closure bound with `let` that reads one counts as a reader.
 fn early_reads(
   body: List(glance.Statement),
   reader: fn(Seen) -> Bool,
@@ -1166,11 +1183,12 @@ fn early_reads(
   case body {
     [] -> []
     [glance.Use(function:, ..), ..rest] -> {
-      let later = case function {
-        glance.Call(function: callee, ..) ->
-          option.map(seen_callee(callee), decodes) |> option.unwrap(False)
-        _ -> False
+      let callee = case function {
+        glance.Call(function: callee, ..) -> callee
+        bare -> bare
       }
+      let later =
+        option.map(seen_callee(callee), decodes) |> option.unwrap(False)
       case later {
         True -> early(function)
         False -> list.append(early(function), rest_of(rest, locals))
@@ -1601,11 +1619,15 @@ fn forbidden_calls(
   let in_functions =
     list.map(module.functions, fn(definition) {
       let function = definition.definition
-      #(function.name, statements(function.body), uses(function, resolve))
+      #(
+        function.name,
+        statements(function.body, parameters_of(function)),
+        uses(function, resolve),
+      )
     })
   let in_constants =
     list.map(module.constants, fn(definition) {
-      let seen = expression(definition.definition.value)
+      let seen = expression(definition.definition.value, set.new())
       #(definition.definition.name, seen, list.filter_map(seen, resolve))
     })
   let broken =
@@ -1692,7 +1714,8 @@ fn reaching(
           let constants =
             list.map(module.constants, fn(definition) {
               let constant = definition.definition
-              let used = list.filter_map(expression(constant.value), resolve)
+              let used =
+                list.filter_map(expression(constant.value, set.new()), resolve)
               #(key <> "." <> constant.name, used, False)
             })
           list.append(functions, constants)
@@ -1734,30 +1757,19 @@ fn uses(
   function: glance.Function,
   resolve: fn(Seen) -> Result(String, Nil),
 ) -> List(String) {
-  let seen = statements(function.body)
-  let bound =
-    list.filter_map(function.parameters, fn(parameter) {
-      case parameter.name {
-        glance.Named(name) -> Ok(name)
-        glance.Discarded(_) -> Error(Nil)
-      }
-    })
-    |> list.append(
-      list.filter_map(seen, fn(one) {
-        case one {
-          Bound(name) -> Ok(name)
-          Name(_) | Remote(..) | Text(_) -> Error(Nil)
-        }
-      }),
-    )
-  list.filter(seen, fn(one) {
-    case one {
-      Name(name) -> !list.contains(bound, name)
-      Remote(..) | Text(_) | Bound(_) -> True
-    }
-  })
+  statements(function.body, parameters_of(function))
   |> list.filter_map(resolve)
   |> list.unique
+}
+
+fn parameters_of(function: glance.Function) -> Set(String) {
+  list.filter_map(function.parameters, fn(parameter) {
+    case parameter.name {
+      glance.Named(name) -> Ok(name)
+      glance.Discarded(_) -> Error(Nil)
+    }
+  })
+  |> set.from_list
 }
 
 fn resolver(
@@ -1818,50 +1830,73 @@ type Seen {
   Bound(String)
 }
 
-fn statements(body: List(glance.Statement)) -> List(Seen) {
-  list.flat_map(body, fn(statement) {
-    case statement {
-      glance.Use(function:, patterns:, ..) ->
-        list.append(
-          list.flat_map(patterns, fn(use_pattern) {
-            pattern(use_pattern.pattern)
-          }),
-          expression(function),
-        )
-      glance.Assignment(pattern: assigned, value:, kind:, ..) ->
-        list.flatten([
-          pattern(assigned),
-          expression(value),
-          case kind {
-            glance.LetAssert(message) -> maybe(message)
+/// What `body` names, calls and binds. A name the code has bound by then, in
+/// a scope that holds the use, is the binding's and not another function's.
+fn statements(body: List(glance.Statement), scope: Set(String)) -> List(Seen) {
+  let #(seen, _) =
+    list.fold(body, #([], scope), fn(so_far, statement) {
+      let #(seen, scope) = so_far
+      let #(here, binds) = case statement {
+        glance.Use(function:, patterns:, ..) -> {
+          let binds =
+            list.flat_map(patterns, fn(use_pattern) {
+              pattern(use_pattern.pattern)
+            })
+          #(expression(function, scope), binds)
+        }
+        glance.Assignment(pattern: assigned, value:, kind:, ..) -> #(
+          list.append(expression(value, scope), case kind {
+            glance.LetAssert(message) -> maybe(message, scope)
             glance.Let -> []
-          },
-        ])
-      glance.Assert(expression: asserted, message:, ..) ->
-        list.append(expression(asserted), maybe(message))
-      glance.Expression(inner) -> expression(inner)
+          }),
+          pattern(assigned),
+        )
+        glance.Assert(expression: asserted, message:, ..) -> #(
+          list.append(expression(asserted, scope), maybe(message, scope)),
+          [],
+        )
+        glance.Expression(inner) -> #(expression(inner, scope), [])
+      }
+      #([binds, here, ..seen], within(scope, binds))
+    })
+  list.flatten(list.reverse(seen))
+}
+
+/// `scope` with the names `seen` binds.
+fn within(scope: Set(String), seen: List(Seen)) -> Set(String) {
+  list.fold(seen, scope, fn(scope, one) {
+    case one {
+      Bound(name) -> set.insert(scope, name)
+      Name(_) | Remote(..) | Text(_) -> scope
     }
   })
 }
 
-fn maybe(wrapped: Option(glance.Expression)) -> List(Seen) {
+fn maybe(wrapped: Option(glance.Expression), scope: Set(String)) -> List(Seen) {
   case wrapped {
-    Some(inner) -> expression(inner)
+    Some(inner) -> expression(inner, scope)
     None -> []
   }
 }
 
 fn fields(
   given: List(glance.Field(glance.Expression)),
-  each: fn(glance.Expression) -> List(Seen),
+  scope: Set(String),
 ) -> List(Seen) {
   list.flat_map(given, fn(field) {
     case field {
-      glance.LabelledField(item:, ..) -> each(item)
-      glance.ShorthandField(label:, ..) -> [Name(label)]
-      glance.UnlabelledField(item) -> each(item)
+      glance.LabelledField(item:, ..) -> expression(item, scope)
+      glance.ShorthandField(label:, ..) -> named(label, scope)
+      glance.UnlabelledField(item) -> expression(item, scope)
     }
   })
+}
+
+fn named(name: String, scope: Set(String)) -> List(Seen) {
+  case set.contains(scope, name) {
+    True -> []
+    False -> [Name(name)]
+  }
 }
 
 /// A string literal, or literals joined with `<>`.
@@ -1877,69 +1912,73 @@ fn literal(subject: glance.Expression) -> Option(String) {
   }
 }
 
-fn expression(subject: glance.Expression) -> List(Seen) {
+fn expression(subject: glance.Expression, scope: Set(String)) -> List(Seen) {
+  let inner = expression(_, scope)
   case subject {
     glance.Int(..) | glance.Float(..) -> []
     glance.String(value:, ..) -> [Text(value)]
-    glance.Variable(name:, ..) -> [Name(name)]
-    glance.NegateInt(value:, ..) | glance.NegateBool(value:, ..) ->
-      expression(value)
-    glance.Block(statements: inner, ..) -> statements(inner)
-    glance.Panic(message:, ..) | glance.Todo(message:, ..) -> maybe(message)
-    glance.Tuple(elements:, ..) -> list.flat_map(elements, expression)
+    glance.Variable(name:, ..) -> named(name, scope)
+    glance.NegateInt(value:, ..) | glance.NegateBool(value:, ..) -> inner(value)
+    glance.Block(statements: body, ..) -> statements(body, scope)
+    glance.Panic(message:, ..) | glance.Todo(message:, ..) ->
+      maybe(message, scope)
+    glance.Tuple(elements:, ..) -> list.flat_map(elements, inner)
     glance.List(elements:, rest:, ..) ->
-      list.append(list.flat_map(elements, expression), maybe(rest))
-    glance.Fn(arguments:, body:, ..) ->
-      list.append(
+      list.append(list.flat_map(elements, inner), maybe(rest, scope))
+    glance.Fn(arguments:, body:, ..) -> {
+      let binds =
         list.filter_map(arguments, fn(argument) {
           case argument.name {
             glance.Named(name) -> Ok(Bound(name))
             glance.Discarded(_) -> Error(Nil)
           }
-        }),
-        statements(body),
-      )
+        })
+      list.append(binds, statements(body, within(scope, binds)))
+    }
     glance.RecordUpdate(record:, fields: updated, ..) ->
       list.append(
-        expression(record),
-        list.flat_map(updated, fn(field) { maybe(field.item) }),
+        inner(record),
+        list.flat_map(updated, fn(field) { maybe(field.item, scope) }),
       )
-    glance.FieldAccess(container: glance.Variable(name:, ..), label:, ..) -> [
-      Remote(name, label),
-      Name(name),
-    ]
-    glance.FieldAccess(container:, ..) -> expression(container)
+    glance.FieldAccess(container: glance.Variable(name:, ..), label:, ..) ->
+      case set.contains(scope, name) {
+        True -> []
+        False -> [Remote(name, label), Name(name)]
+      }
+    glance.FieldAccess(container:, ..) -> inner(container)
     glance.Call(function:, arguments:, ..) ->
-      list.append(expression(function), fields(arguments, expression))
-    glance.TupleIndex(tuple:, ..) -> expression(tuple)
+      list.append(inner(function), fields(arguments, scope))
+    glance.TupleIndex(tuple:, ..) -> inner(tuple)
     glance.FnCapture(function:, arguments_before:, arguments_after:, ..) ->
       list.flatten([
-        expression(function),
-        fields(arguments_before, expression),
-        fields(arguments_after, expression),
+        inner(function),
+        fields(arguments_before, scope),
+        fields(arguments_after, scope),
       ])
     glance.BitString(segments:, ..) ->
-      list.flat_map(segments, fn(segment) { expression(segment.0) })
+      list.flat_map(segments, fn(segment) { inner(segment.0) })
     glance.Case(subjects:, clauses:, ..) ->
       list.append(
-        list.flat_map(subjects, expression),
+        list.flat_map(subjects, inner),
         list.flat_map(clauses, fn(clause) {
+          let binds = list.flat_map(list.flatten(clause.patterns), pattern)
+          let scope = within(scope, binds)
           list.flatten([
-            list.flat_map(list.flatten(clause.patterns), pattern),
-            maybe(clause.guard),
-            expression(clause.body),
+            binds,
+            maybe(clause.guard, scope),
+            expression(clause.body, scope),
           ])
         }),
       )
     glance.BinaryOperator(name: glance.Concatenate, left:, right:, ..) ->
       case literal(subject) {
         Some(text) -> [Text(text)]
-        None -> list.append(expression(left), expression(right))
+        None -> list.append(inner(left), inner(right))
       }
     glance.BinaryOperator(left:, right:, ..) ->
-      list.append(expression(left), expression(right))
+      list.append(inner(left), inner(right))
     glance.Echo(expression: echoed, message:, ..) ->
-      list.append(maybe(echoed), maybe(message))
+      list.append(maybe(echoed, scope), maybe(message, scope))
   }
 }
 

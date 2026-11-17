@@ -2199,5 +2199,37 @@ fn sixth_round() -> List(Break) {
 }\n\npub fn peek_effect(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    use dispatch <- effect.from\n    case editor.is_waiting(current_editor()) {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
       ),
     ),
+    Break(
+      Caught(rules.DecoderState),
+      "k1b: a maker of handlers reads the record before the effect it makes",
+      "nullpad/surface.gleam",
+      last(
+        "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"keyup\", decode.success(on_event(editor.Released)))\n}\n\npub fn peek_early(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    let waiting = editor.is_waiting(current_editor())\n    use dispatch <- effect.from\n    case waiting {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
+      ),
+    ),
+    Breaks(
+      Caught(rules.DecoderState),
+      "h1c: a maker of handlers called before a let binds a name like it",
+      [
+        #(
+          "nullpad/surface.gleam",
+          last(
+            "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"keyup\", decode.success(on_event(editor.Released)))\n}\n\npub fn v(on_event: fn(editor.Event) -> msg) -> List(attribute.Attribute(msg)) {\n  let made = keyup_with(on_event)\n  let keyup_with = fn(_: Int) { made }\n  [keyup_with(1)]\n}",
+          ),
+        ),
+        #(
+          "nullpad/app.gleam",
+          both(
+            instead(
+              "    note_menu(model.menu),",
+              "    lone(model),\n    note_menu(model.menu),",
+            ),
+            last(
+              "fn lone(model: Model) -> Element(Msg) {\n  let guarded = fn(event) {\n    case editor.is_waiting(model.editor) {\n      True -> UserClosedMenu\n      False -> EditorSent(event)\n    }\n  }\n  html.div(surface.v(guarded), [])\n}",
+            ),
+          ),
+        ),
+      ],
+    ),
   ]
 }
