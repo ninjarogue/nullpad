@@ -400,12 +400,15 @@ function headCaret(control, place) {
 
 // Where a line wraps, the end of that line and the start of the next share
 // an offset, and the caret may be drawn at either. Only a move to the line's
-// start tells which, and the selection is put back as it was.
+// start tells which, and the selection is put back as it was. The browser
+// moves the head of a selection it made from the start of the next line,
+// and aims for its x there.
 function atLineEnd(control, head, place) {
   const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = control;
   if (head === 0 || control.value[head - 1] === "\n" || document.activeElement !== control) return false;
   const last = aimedHere(control);
   if (last) return last.atEnd;
+  if (start !== end) return false;
   if (place(head - 1).top === place(head).top) return false;
   const anchor = direction === "backward" ? end : start;
   getSelection().modify("extend", "backward", "lineboundary");
