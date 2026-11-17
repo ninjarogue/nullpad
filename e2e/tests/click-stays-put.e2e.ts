@@ -181,3 +181,33 @@ test('the samples between them draw every kind of block and inline the parser ma
   const claimed = new Set(samples.flatMap((sample) => sample.draws));
   expect(everyKind.filter((kind) => !claimed.has(kind))).toEqual([]);
 });
+
+/**
+ * A heading in the field hangs its marks left of its words, as far as the
+ * margin lets them, so its words wrap where the page draws them. A click on a
+ * heading that wraps over lines leaves every word of it where it was drawn.
+ */
+for (const marks of ['#', '###', '######']) {
+  test(`a click on a heading of "${marks}" that wraps over lines leaves its words where the page drew them`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    const words = Array.from({ length: 40 }, (_, index) => `w${index}x`);
+    await editor.open(`${marks} ${words.join(' ')}\n\nbelow`);
+    await editor.press('Escape');
+    await page.nextFrame();
+    const drawn = await Promise.all(words.map((word) => wordAt(browser, word)));
+    const rows = new Set(drawn.map((word) => Math.round(word.drawn!.top)));
+    expect(rows.size, 'lines the heading is drawn over').toBeGreaterThan(1);
+    await editor.clickAt(drawn[0]!.aim!.x, drawn[0]!.aim!.y);
+    await page.nextFrame();
+
+    const moved: string[] = [];
+    for (const [index, word] of words.entries()) {
+      const before = drawn[index]!.drawn!;
+      const now = (await wordAt(browser, word)).typed;
+      if (!now) moved.push(`"${word}" is not in the field`);
+      else if (Math.abs(now.left - before.left) > 1 || Math.abs(now.top - before.top) > 1) moved.push(`"${word}" was at ${near(before)} and is at ${near(now)}`);
+    }
+    expect(moved, 'words that moved when the heading was clicked').toEqual([]);
+  });
+}

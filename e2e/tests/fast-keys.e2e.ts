@@ -250,12 +250,43 @@ for (const { name, note: body, before, at, keys: pressed } of stepsAfterClick) {
 }
 
 /**
+ * With the whole note drawn, a click puts the field in the block it lands in,
+ * which the page has not drawn yet. A step pressed in the same frame waits
+ * for it, and goes a line of the row as the page draws it, as it does a
+ * frame later.
+ */
+test('Shift+ArrowDown in the same frame as a click on a row that wraps, with the whole note drawn, selects one line', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  const words = Array.from({ length: 60 }, (_, index) => `word${index}`).join(' ');
+  const body = `${words}\n\nnext`;
+  const at = { word: 'word3', at: 2 };
+  const typed = async (together: boolean) => {
+    await editor.open(body);
+    await editor.press('Escape');
+    await page.nextFrame();
+    await page.beforeRedraw(async () => {
+      await editor.clickNow(at);
+      if (together) await browser.keyboard.press('Shift+ArrowDown');
+    });
+    if (!together) await page.pressBeforeRedraw('Shift+ArrowDown');
+    await editor.type('X');
+    await page.markdown.tap();
+    return page.text.inputValue();
+  };
+  const apart = await typed(false);
+  expect(apart.includes('word59'), 'a frame later, Shift+ArrowDown selects less than the rest of the row').toBe(true);
+
+  expect(await typed(true)).toBe(apart);
+});
+
+/**
  * Typing changes the field before the page is drawn again, so a step after
  * it in the same frame starts from text the page does not show yet. The
  * keys after the step act where the step took the caret, in that frame or
  * once it is drawn.
  */
-const afterTyping: { name: string; note: string; keys: string[]; typed: string }[] = [
+const afterTyping: { name: string; note: string; at?: Spot; keys: string[]; typed: string }[] = [
   { name: 'a letter, PageUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'PageUp', 'y'], typed: '' },
   { name: 'a letter, Shift+ArrowUp and a letter', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+ArrowUp', 'y'], typed: '' },
   { name: 'Enter and Shift+ArrowUp', note: 'aaaa\n\nbbb\n\nccc', keys: ['Enter', 'Shift+ArrowUp'], typed: 'y' },
@@ -263,13 +294,13 @@ const afterTyping: { name: string; note: string; keys: string[]; typed: string }
   { name: 'a letter, PageUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'PageUp', ctrl('z')], typed: 'Y' },
   { name: 'a letter, Shift+PageUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+PageUp', ctrl('z')], typed: 'Y' },
   { name: 'a letter, Shift+ArrowUp and an undo', note: 'aaaa\n\nbbb', keys: ['x', 'Shift+ArrowUp', ctrl('z')], typed: 'Y' },
+  { name: 'Enter at the start of a row, Shift+ArrowUp, ArrowRight and Ctrl+Backspace', note: 'aaaa\n\nbbb', at: { word: 'bbb', at: 0 }, keys: ['Enter', 'Shift+ArrowUp', 'ArrowRight', ctrl('Backspace')], typed: 'y' },
 ];
 
-for (const { name, note: body, keys: pressed, typed: letters } of afterTyping) {
+for (const { name, note: body, at = { word: 'bbb', at: 3 }, keys: pressed, typed: letters } of afterTyping) {
   test(`${name}, in one frame, act as in a plain field`, async (fixtures) => {
     const { browser, page } = fixtures;
     const editor = new Editing(fixtures);
-    const at = { word: 'bbb', at: 3 };
     await editor.seed(body);
     const expected = await editor.plainField(body, offsetOf(body, at), pressed, letters);
     await editor.show(body);
@@ -280,6 +311,88 @@ for (const { name, note: body, keys: pressed, typed: letters } of afterTyping) {
     await page.markdown.tap();
 
     await expect(page.text).toHaveValue(expected);
+  });
+}
+
+/**
+ * An undo or a redo from a menu, pressed while a step waits, waits behind the
+ * keys pressed before it and is taken once the page has caught up, as it is
+ * a frame later. Chrome reports a menu's undo and redo as input.
+ */
+const fromMenu: { name: string; keys: string[]; asked: 'historyUndo' | 'historyRedo' }[] = [
+  { name: 'an undo from a menu after a letter and a step', keys: ['x', 'Enter', 'Shift+ArrowUp'], asked: 'historyUndo' },
+  { name: 'a redo from a menu after a step and an undo', keys: ['x', 'Enter', 'Shift+ArrowUp', ctrl('z')], asked: 'historyRedo' },
+];
+
+for (const { name, keys: pressed, asked } of fromMenu) {
+  test(`${name}, in one frame, acts as it does a frame later`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    const body = 'aaaa\n\nbbb';
+    const fromTheMenu = () =>
+      browser.evaluate((inputType: string) => {
+        const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+        field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType }));
+        return null;
+      }, asked);
+    const typed = async (together: boolean, menu: boolean) => {
+      await editor.open(body);
+      await editor.click({ word: 'bbb', at: 3 });
+      await editor.type('w');
+      await page.nextFrame();
+      if (together) {
+        await page.beforeRedraw(async () => {
+          for (const key of pressed) await browser.keyboard.press(key);
+          if (menu) await fromTheMenu();
+        });
+      } else {
+        for (const key of pressed) await page.pressBeforeRedraw(key);
+        if (menu) await page.beforeRedraw(async () => void (await fromTheMenu()));
+      }
+      await browser.keyboard.type('Y');
+      await page.nextFrame();
+      await page.markdown.tap();
+      return page.text.inputValue();
+    };
+    const apart = await typed(false, true);
+    expect(apart, 'the menu changes the text').not.toBe(await typed(false, false));
+
+    expect(await typed(true, true)).toBe(apart);
+  });
+}
+
+/**
+ * A click onto another row of a block of several rows writes the field with
+ * them, and until the next frame the page draws the field where it was. An
+ * arrow up or down pressed in that frame goes from where the click put the
+ * caret, one row, as it does a frame later.
+ */
+const arrowsAfterClick: { name: string; at: Spot; key: string }[] = [
+  { name: 'ArrowUp after a click on the last row of a block', at: { word: 'four', at: 2 }, key: 'ArrowUp' },
+  { name: 'ArrowDown after a click on the first row of a block', at: { word: 'bravo', at: 3 }, key: 'ArrowDown' },
+];
+
+for (const { name, at, key } of arrowsAfterClick) {
+  test(`${name}, in the same frame, moves one row from where the click put the caret`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    const body = 'alpha one\n\nbravo two words\ncharlie three words\ndelta four\n\necho';
+    const typed = async (together: boolean) => {
+      await editor.open(body);
+      await page.beforeRedraw(async () => {
+        await editor.clickNow(at);
+        if (together) await browser.keyboard.press(key);
+      });
+      if (!together) await page.pressBeforeRedraw(key);
+      await browser.keyboard.type('X');
+      await page.nextFrame();
+      await page.markdown.tap();
+      return page.text.inputValue();
+    };
+    const apart = await typed(false);
+    expect(apart.split('\n').findIndex((row) => row.includes('X')), 'a frame later, the arrow moves one row').toBe(3);
+
+    expect(await typed(true)).toBe(apart);
   });
 }
 

@@ -450,6 +450,34 @@ test('PageUp from the start of a list item lands at the start of a row, before i
   expect(caret.col, 'the column PageUp went to').toBe(0);
 });
 
+/**
+ * An IME owns the keys it is composing with, such as an arrow that picks a
+ * candidate, which Chrome on a Mac sends with keyCode 229 and isComposing.
+ * The page moves the caret for none of them, also at the edge of the field.
+ */
+const composingKeys: { key: string; code: string; ctrlKey?: boolean }[] = [
+  { key: 'ArrowUp', code: 'ArrowUp' },
+  { key: 'ArrowLeft', code: 'ArrowLeft' },
+  { key: 'Home', code: 'Home', ctrlKey: true },
+];
+
+for (const chord of composingKeys) {
+  test(`${chord.ctrlKey ? 'Ctrl+' : ''}${chord.key} pressed while an IME composes, at the start of a block, leaves the caret to the IME`, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.open(note);
+    await editor.click(startOfBravo);
+    await fixtures.browser.evaluate((init: { key: string; code: string; ctrlKey?: boolean }) => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      field.dispatchEvent(new KeyboardEvent('keydown', { ...init, keyCode: 229, isComposing: true, bubbles: true, cancelable: true }));
+      return null;
+    }, chord);
+    await fixtures.page.nextFrame();
+    await editor.type('X');
+
+    await editor.expectNote('alpha one\n\nXbravo two words\n\ncharlie three');
+  });
+}
+
 test('ArrowUp into a heading lands straight above the caret, where the heading draws its bigger letters, not at the same count of letters', async (fixtures) => {
   const body = '# xxxxxxxxxxxxxxxxxxxxa\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxb';
   const editor = new Editing(fixtures);
