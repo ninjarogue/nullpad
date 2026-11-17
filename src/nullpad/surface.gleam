@@ -1134,7 +1134,7 @@ fn edge_decoder(
     list.drop(lines, head.row)
     |> list.first
     |> result.unwrap("")
-    |> string.drop_start(head.col)
+    |> buffer.rest_of(from: head.col)
     |> is_blank
   let PressLanding(pending:, landed_x:) =
     decode.run(press_landing(control_id), press_landing_decoder())
