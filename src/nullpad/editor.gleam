@@ -177,9 +177,15 @@ pub type Event {
   )
   /// The pointer of a held press, once it has moved off the place pressed.
   Dragged(row: Int, visible: String, at_end: Bool, next: String)
-  Stepped(row: Int, visible: String, at_end: Bool, next: String, x: Float)
-  Unstepped(x: Float)
-  FieldStepped(shown: Buffer, x: Float)
+  Stepped(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Option(Float),
+  )
+  Unstepped(x: Option(Float))
+  FieldStepped(shown: Buffer, x: Option(Float))
   Aimed(shown: Buffer)
   /// A step with nothing drawn past the head: the head goes to the start or
   /// the end of the note, as in a text field.
@@ -419,7 +425,7 @@ pub type Sync {
   Write(Buffer)
   WriteQuietly(Buffer)
   WriteAndAim(Buffer, x: Float, line: Line, select: Bool)
-  WriteAndStep(Buffer, move: Move, select: Bool, x: Float)
+  WriteAndStep(Buffer, move: Move, select: Bool, x: Option(Float))
   WriteAndRead(Buffer)
   WriteAndAct(Buffer, key: Held)
   Release(Buffer)
@@ -1053,7 +1059,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         False -> None
       }
       moved
-      |> begin_run(editor, landing(steps(editor)), -1.0)
+      |> begin_run(editor, landing(steps(editor)), None)
       |> next_step(landed, undrawn)
     }
     Settled(from:, to: #(anchor, head)) ->
@@ -1274,10 +1280,10 @@ fn begin_run(
   editor: Editor,
   before: Editor,
   landed: Option(Bool),
-  x: Float,
+  x: Option(Float),
 ) -> Editor {
-  case landed, editor.vertical_goal {
-    Some(_), None if x >=. 0.0 ->
+  case landed, editor.vertical_goal, x {
+    Some(_), None, Some(x) ->
       Editor(
         ..editor,
         vertical_goal: Some(Goal(
@@ -1285,9 +1291,9 @@ fn begin_run(
           markdown_col: buffer.cursor(before.buffer).col,
         )),
       )
-    None, _ if editor.buffer != before.buffer ->
+    None, _, _ if editor.buffer != before.buffer ->
       Editor(..editor, vertical_goal: None)
-    Some(_), _ | None, _ -> editor
+    Some(_), _, _ | None, _, _ -> editor
   }
 }
 
@@ -1411,13 +1417,13 @@ fn stays(editor: Editor, reached: Position) -> Bool {
   }
 }
 
-fn step_x(editor: Editor, move: Move) -> Float {
+fn step_x(editor: Editor, move: Move) -> Option(Float) {
   case move, editor.vertical_goal {
     LineUp, Some(Goal(page_x: x, ..))
     | LineDown, Some(Goal(page_x: x, ..))
     | PageUp, Some(Goal(page_x: x, ..))
     | PageDown, Some(Goal(page_x: x, ..))
-    -> x
+    -> Some(x)
     LineUp, None
     | LineDown, None
     | PageUp, None
@@ -1426,7 +1432,7 @@ fn step_x(editor: Editor, move: Move) -> Float {
     | LineEnd, _
     | LetterBack, _
     | LetterOn, _
-    -> -1.0
+    -> None
   }
 }
 

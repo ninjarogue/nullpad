@@ -804,7 +804,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       caret("# Trip", 0, 3),
       move: editor.LineDown,
       select: True,
-      x: 12.5,
+      x: Some(12.5),
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 3), Position(row: 0, col: 3))
@@ -824,7 +824,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       caret("- one", 0, 4),
       move: editor.LineUp,
       select: True,
-      x: 7.0,
+      x: Some(7.0),
     )
 }
 
@@ -844,13 +844,19 @@ pub fn an_arrow_up_or_down_stepped_on_the_drawn_page_moves_the_caret_test() {
       caret("- one", 0, 4),
       move: editor.LineDown,
       select: False,
-      x: 7.0,
+      x: Some(7.0),
     )
 
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 5, visible: "tw", at_end: False, next: "", x: 7.0),
+      editor.Stepped(
+        row: 5,
+        visible: "tw",
+        at_end: False,
+        next: "",
+        x: Some(7.0),
+      ),
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 5, col: 4), Position(row: 5, col: 4))
@@ -867,8 +873,12 @@ pub fn an_arrow_up_on_the_first_row_steps_up_the_drawn_page_test() {
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndStep(move: editor.LineUp, select: False, x: 7.0, ..) =
-    sync
+  let assert editor.WriteAndStep(
+    move: editor.LineUp,
+    select: False,
+    x: Some(7.0),
+    ..,
+  ) = sync
 }
 
 pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
@@ -890,20 +900,26 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: True, next: "", x: 12.5),
+      editor.Stepped(row: 1, visible: "", at_end: True, next: "", x: Some(12.5)),
     )
   assert sync
     == editor.WriteAndStep(
       selected("# Trip\n", from: Position(0, 3), to: Position(1, 0)),
       move: editor.LineUp,
       select: True,
-      x: 12.5,
+      x: Some(12.5),
     )
 
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 0, visible: "Tr", at_end: False, next: "", x: 12.5),
+      editor.Stepped(
+        row: 0,
+        visible: "Tr",
+        at_end: False,
+        next: "",
+        x: Some(12.5),
+      ),
     )
   assert sync
     == editor.WriteAndAim(
@@ -939,18 +955,18 @@ pub fn the_keys_that_step_a_painted_head_ask_the_page_for_the_step_test() {
     editor.update(ed, editor.EdgePressed(edge, x: 3.0, shown:)).sync
   }
   assert asks(editor.SelectRight)
-    == editor.WriteAndStep(shown, move: editor.LetterOn, select: True, x: -1.0)
+    == editor.WriteAndStep(shown, move: editor.LetterOn, select: True, x: None)
   assert asks(editor.SelectLeft)
     == editor.WriteAndStep(
       shown,
       move: editor.LetterBack,
       select: True,
-      x: -1.0,
+      x: None,
     )
   assert asks(editor.SelectLineStart)
-    == editor.WriteAndStep(shown, move: editor.LineStart, select: True, x: -1.0)
+    == editor.WriteAndStep(shown, move: editor.LineStart, select: True, x: None)
   assert asks(editor.SelectLineEnd)
-    == editor.WriteAndStep(shown, move: editor.LineEnd, select: True, x: -1.0)
+    == editor.WriteAndStep(shown, move: editor.LineEnd, select: True, x: None)
 }
 
 pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through_them_test() {
@@ -976,7 +992,7 @@ pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through
   let step = fn(ed, visible, next) {
     editor.update(
       ed,
-      editor.Stepped(row: 4, visible:, at_end: False, next:, x: -1.0),
+      editor.Stepped(row: 4, visible:, at_end: False, next:, x: None),
     ).editor
   }
   let head = fn(ed) { buffer.cursor(editor.buffer(ed)) }
@@ -996,14 +1012,14 @@ pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through
   let ed =
     editor.update(
       ed,
-      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: -1.0),
+      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: None),
     ).editor
   assert head(ed) == Position(4, 1)
   let ed = press(ed, editor.SelectLeft)
   let ed =
     editor.update(
       ed,
-      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: -1.0),
+      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: None),
     ).editor
   assert head(ed) == Position(4, 0)
   let ed = press(ed, editor.SelectLeft)
@@ -1054,7 +1070,7 @@ pub fn a_line_step_with_nothing_drawn_past_the_head_stops_on_the_row_past_it_tes
       visible: "",
       at_end: True,
       next: "\n",
-      x: 9.0,
+      x: Some(9.0),
     ))
   let ed = up(ed.editor) |> editor.update(editor.SteppedPast)
   assert buffer.selection(editor.buffer(ed.editor))
@@ -1089,7 +1105,13 @@ pub fn a_press_escape_or_a_blur_ends_the_waiting_steps_test() {
   let Outcome(editor: late, sync:, ..) =
     editor.update(
       moved_on,
-      editor.Stepped(row: 5, visible: "tw", at_end: False, next: "", x: 0.0),
+      editor.Stepped(
+        row: 5,
+        visible: "tw",
+        at_end: False,
+        next: "",
+        x: Some(0.0),
+      ),
     )
   assert sync == editor.InSync
   assert late == moved_on
@@ -1114,7 +1136,13 @@ pub fn a_change_the_editor_did_not_write_ends_the_waiting_steps_test() {
   let Outcome(editor: late, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "Fli", at_end: False, next: "", x: 9.0),
+      editor.Stepped(
+        row: 2,
+        visible: "Fli",
+        at_end: False,
+        next: "",
+        x: Some(9.0),
+      ),
     )
   assert sync == editor.InSync
   assert late == ed
@@ -1227,7 +1255,13 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: False, next: "\n", x: 12.5),
+      editor.Stepped(
+        row: 1,
+        visible: "",
+        at_end: False,
+        next: "\n",
+        x: Some(12.5),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1241,7 +1275,13 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "Fli", at_end: False, next: "", x: 12.5),
+      editor.Stepped(
+        row: 2,
+        visible: "Fli",
+        at_end: False,
+        next: "",
+        x: Some(12.5),
+      ),
     )
 
   assert editor.region(ed) == Some(Region(0, 2))
@@ -1264,7 +1304,7 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
       shown:,
     ))
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.Unstepped(x: 9.0))
+    editor.update(ed, editor.Unstepped(x: Some(9.0)))
   assert sync == editor.Write(shown)
   let Outcome(sync:, ..) =
     editor.update(
@@ -1272,7 +1312,12 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
       editor.EdgePressed(editor.Line(up: False, select: True), x: 9.0, shown:),
     )
   assert sync
-    == editor.WriteAndStep(shown, move: editor.LineDown, select: True, x: 9.0)
+    == editor.WriteAndStep(
+      shown,
+      move: editor.LineDown,
+      select: True,
+      x: Some(9.0),
+    )
 }
 
 pub fn a_step_the_field_took_lets_the_steps_behind_it_go_test() {
@@ -1283,9 +1328,14 @@ pub fn a_step_the_field_took_lets_the_steps_behind_it_go_test() {
   let Outcome(editor: ed, ..) = editor.update(ed, down)
   let took = selected("# Trip", from: Position(0, 3), to: Position(0, 6))
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.FieldStepped(shown: took, x: 9.0))
+    editor.update(ed, editor.FieldStepped(shown: took, x: Some(9.0)))
   assert sync
-    == editor.WriteAndStep(took, move: editor.LineDown, select: True, x: 9.0)
+    == editor.WriteAndStep(
+      took,
+      move: editor.LineDown,
+      select: True,
+      x: Some(9.0),
+    )
   assert editor.buffer(ed)
     |> buffer.selection
     == #(Position(0, 3), Position(0, 6))
@@ -1303,7 +1353,7 @@ fn step_to(
     ed,
     editor.EdgePressed(editor.Line(up: False, select: True), x:, shown:),
   ).editor
-  |> editor.update(editor.Stepped(row:, visible:, at_end:, next: "", x:))
+  |> editor.update(editor.Stepped(row:, visible:, at_end:, next: "", x: Some(x)))
 }
 
 pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() {
@@ -1319,7 +1369,8 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
         shown: editor.field_buffer(ed.editor),
       ),
     )
-  let assert editor.WriteAndStep(_, move: editor.LineDown, x: 40.0, ..) = sync
+  let assert editor.WriteAndStep(_, move: editor.LineDown, x: Some(40.0), ..) =
+    sync
 
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1343,7 +1394,8 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndStep(_, move: editor.LineUp, x: 3.0, ..) = sync
+  let assert editor.WriteAndStep(_, move: editor.LineUp, x: Some(3.0), ..) =
+    sync
 }
 
 pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
@@ -1940,7 +1992,13 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: False, next: "\n", x: 0.0),
+      editor.Stepped(
+        row: 1,
+        visible: "",
+        at_end: False,
+        next: "\n",
+        x: Some(0.0),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1954,7 +2012,7 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: 0.0),
+      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: Some(0.0)),
     )
   assert editor.region(ed) == Some(Region(0, 2))
 
@@ -2294,7 +2352,7 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
         visible: "alpha one\nbrav",
         at_end: False,
         next: "",
-        x: 40.0,
+        x: Some(40.0),
       ),
     )
   let Outcome(editor: ed, ..) =
@@ -2323,10 +2381,10 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
         visible: "alpha one\nbra",
         at_end: False,
         next: "v",
-        x: 0.0,
+        x: Some(0.0),
       ),
     )
-  let assert editor.WriteAndStep(move: editor.LineUp, x: -1.0, ..) = sync
+  let assert editor.WriteAndStep(move: editor.LineUp, x: None, ..) = sync
 }
 
 pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
@@ -2342,7 +2400,10 @@ pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
       ),
     )
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.FieldStepped(shown: caret(note, 1, 4), x: 40.0))
+    editor.update(
+      ed,
+      editor.FieldStepped(shown: caret(note, 1, 4), x: Some(40.0)),
+    )
   let Outcome(sync:, ..) =
     editor.update(
       ed,
@@ -2370,7 +2431,10 @@ pub fn a_run_from_the_start_of_a_row_lands_at_the_start_of_rows_test() {
       )
     let before = editor.run_started_at_row_start(ed)
     let Outcome(editor: ed, ..) =
-      editor.update(ed, editor.FieldStepped(shown: caret(note, 1, col), x: 0.0))
+      editor.update(
+        ed,
+        editor.FieldStepped(shown: caret(note, 1, col), x: Some(0.0)),
+      )
     #(before, editor.run_started_at_row_start(ed))
   }
   assert run(0) == #(True, True)
@@ -2392,7 +2456,13 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: 40.0),
+      editor.Stepped(
+        row: 1,
+        visible: "",
+        at_end: False,
+        next: "",
+        x: Some(40.0),
+      ),
     )
   let Outcome(sync:, ..) =
     editor.update(
@@ -2406,7 +2476,7 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
   let assert editor.WriteAndStep(
     move: editor.LineUp,
     select: False,
-    x: 40.0,
+    x: Some(40.0),
     ..,
   ) = sync
 }
@@ -2426,7 +2496,13 @@ pub fn a_step_that_lands_in_the_field_is_aimed_on_the_line_it_reached_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "brav", at_end: False, next: "", x: 40.0),
+      editor.Stepped(
+        row: 1,
+        visible: "brav",
+        at_end: False,
+        next: "",
+        x: Some(40.0),
+      ),
     )
   assert sync
     == editor.WriteAndAim(
@@ -2519,7 +2595,7 @@ pub fn a_line_step_onto_a_fence_takes_the_runs_column_test() {
       )
     editor.update(
       ed,
-      editor.Stepped(row:, visible: "", at_end: False, next:, x: 20.0),
+      editor.Stepped(row:, visible: "", at_end: False, next:, x: Some(20.0)),
     )
   }
   let Outcome(editor: ed, ..) = down(ed, 1, "")
@@ -2546,7 +2622,7 @@ pub fn a_run_begun_by_a_step_in_the_frame_of_a_press_keeps_the_column_from_befor
   let stepped = fn(ed, row, visible, at_end) {
     editor.update(
       ed,
-      editor.Stepped(row:, visible:, at_end:, next: "", x: 40.0),
+      editor.Stepped(row:, visible:, at_end:, next: "", x: Some(40.0)),
     )
   }
   let Outcome(editor: ed, ..) = down(ed, -1.0) |> stepped(1, "xy", True)
@@ -2577,7 +2653,13 @@ pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
     let Outcome(editor: ed, ..) =
       editor.update(
         ed,
-        editor.Stepped(row: 3, visible: "", at_end: False, next: "c", x: 0.0),
+        editor.Stepped(
+          row: 3,
+          visible: "",
+          at_end: False,
+          next: "c",
+          x: Some(0.0),
+        ),
       )
     buffer.selection(editor.buffer(ed))
   }

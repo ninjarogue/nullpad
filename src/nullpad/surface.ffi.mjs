@@ -1116,18 +1116,21 @@ export function stepHead(...args) {
   try {
     return stepFrom(...args);
   } catch {
-    return [-1, "", false, "", args[11]];
+    return { kind: "nowhere", x: args[11] ?? -1 };
   }
 }
 
 function stepFrom(
   id, liveClass, paintedClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x, fieldFirst, rowCount,
 ) {
+  x ??= -1;
   if (x < 0 && rowStart) x = 0;
-  const answer = (row, place = ["", false, ""]) => [row, ...place, x];
+  const answer = (kind) => ({ kind, x });
+  const landedAt = ([row, visible, atEnd, next]) =>
+    row >= 0 ? { kind: "landed", row, visible, atEnd, next, x } : answer("nowhere");
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
-  if (!page) return answer(-1);
+  if (!page) return answer("nowhere");
   const part = control.parentElement;
   const mirror = part.querySelector(".mirror")?.firstChild;
   const first = control.dataset[rowMark];
@@ -1138,19 +1141,19 @@ function stepFrom(
   const held = first === undefined || !mirror ? null : [Number(first), Number(first) + drawnLines + grown - 1];
   const inField = held !== null && headRow >= held[0] && headRow <= held[1];
   const written = first !== undefined && Number(first) !== fieldFirst;
-  if (!typedIn && (rowCount !== rowsAtLastDraw || written || (inField && undrawn(control)))) return answer(-3);
+  if (!typedIn && (rowCount !== rowsAtLastDraw || written || (inField && undrawn(control)))) return answer("waitsForPage");
   const drawnLast = held ? held[1] - grown : Infinity;
   const moved = (place) => (place[0] > drawnLast ? [place[0] + grown, ...place.slice(1)] : place);
-  if (pressAwaitingDraw !== null && first === undefined) return answer(-3);
+  if (pressAwaitingDraw !== null && first === undefined) return answer("waitsForPage");
   const edge = granularity !== "line" || fieldCaretLine(control)[forward ? 1 : 0];
   if (inField && granularity !== "page" && !edge) {
     if (granularity !== "line") {
       getSelection().modify(select ? "extend" : "move", forward ? "forward" : "backward", granularity);
-      return answer(-4);
+      return answer("inField");
     }
     if (x < 0) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
     noteAim(control, null, aimIn(control, liveClass, paintedClass, x, forward ? "below" : "above", select, rowStart));
-    return answer(-4);
+    return answer("inField");
   }
   const { marks, rows } = drawnMarks(id, liveClass, rowMark);
   if (granularity === "page") {
@@ -1158,13 +1161,13 @@ function stepFrom(
     if (inField) box = fieldCaret(control).box;
     else {
       const holder = marks[lastAtOrBefore(rows, headRow)];
-      if (!holder) return answer(-1);
+      if (!holder) return answer("nowhere");
       box = caretBox(...pointIn(holder, headOffset, onward));
     }
     if (x < 0 && inField) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
     else if (x < 0) x = box.left - columnLeft(page);
     const place = pageStep(page, rowMark, box, forward, columnLeft(page) + x);
-    return place ? [...moved(place), x] : answer(-2);
+    return place ? landedAt(moved(place)) : answer("pastEnd");
   }
   const selection = getSelection();
   const { selectionStart, selectionEnd, selectionDirection } = control;
@@ -1175,7 +1178,7 @@ function stepFrom(
       landed = beside(marks, part, forward);
     } else {
       const holder = marks[lastAtOrBefore(rows, headRow)];
-      if (!holder) return answer(-1);
+      if (!holder) return answer("nowhere");
       const [node, offset] = pointIn(holder, headOffset, onward);
       if (x < 0) x = caretBox(node, offset).left - columnLeft(page);
       selection.collapse(node, offset);
@@ -1183,16 +1186,16 @@ function stepFrom(
       const from = { node, offset };
       const past = landed ? crosses(part, from, landed) : after(part, from) !== forward;
       if (held && granularity === "line" && past) {
-        return [held[0], ...mirrorPlace(mirror, !forward, columnLeft(page) + x), x];
+        return landedAt([held[0], ...mirrorPlace(mirror, !forward, columnLeft(page) + x)]);
       }
     }
-    if (!landed) return answer(-2);
+    if (!landed) return answer("pastEnd");
     const line = granularity === "line";
     if (line) landed = toward(selection, landed, columnLeft(page) + x, rowMark);
     const home = granularity === "lineboundary" && !forward;
     const pointer = line ? columnLeft(page) + x : home ? -Infinity : Infinity;
     const place = placeOfPoint(landed, rowMark, pointer, (line && rowStart) || home);
-    return place ? [...moved(place), x] : answer(-1);
+    return place ? landedAt(moved(place)) : answer("nowhere");
   } finally {
     control.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
   }

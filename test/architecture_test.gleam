@@ -1450,8 +1450,8 @@ fn fourth_round() -> List(Break) {
       "f07: sync runs a decoder that falls back on the editor at once",
       surface,
       instead(
-        "          #(-4, _, _, _, x) -> {\n            case decode.run(find_control(control_id), control_decoder()) {",
-        "          #(-4, _, _, _, x) -> {\n            let shown =\n              decode.one_of(control_decoder(), [\n                decode.success(editor.field_buffer(editor)),\n              ])\n            case decode.run(find_control(control_id), shown) {",
+        "          StepInField(x:) -> {\n            case decode.run(find_control(control_id), control_decoder()) {",
+        "          StepInField(x:) -> {\n            let shown =\n              decode.one_of(control_decoder(), [\n                decode.success(editor.field_buffer(editor)),\n              ])\n            case decode.run(find_control(control_id), shown) {",
       ),
     ),
   ]

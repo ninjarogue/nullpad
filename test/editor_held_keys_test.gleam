@@ -63,7 +63,7 @@ fn step_down(ed: Editor) -> Editor {
 fn stepped(ed: Editor) -> Editor {
   editor.update(
     ed,
-    editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: 0.0),
+    editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: Some(0.0)),
   ).editor
 }
 
@@ -140,7 +140,7 @@ pub fn a_replayed_step_holds_the_keys_behind_it_until_the_page_takes_it_test() {
   let ed =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: 0.0),
+      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: Some(0.0)),
     ).editor
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 0), Position(row: 2, col: 0))

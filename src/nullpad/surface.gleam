@@ -526,7 +526,7 @@ pub fn sync(
           Some(live.Region(first_row:, ..)) -> first_row
           None -> -1
         }
-        let place =
+        let landing =
           step_head(
             control_id,
             live_class,
@@ -539,30 +539,32 @@ pub fn sync(
             granularity,
             forward,
             select,
-            x,
+            x |> option.map(dynamic.float) |> option.unwrap(dynamic.nil()),
             field_first,
             list.length(lines),
           )
-        case place {
-          #(-3, _, _, _, _) -> False
-          #(-2, _, _, _, _) -> {
+          |> decode.run(step_landing_decoder())
+          |> result.unwrap(StepNowhere(x: None))
+        case landing {
+          StepWaitsForPage -> False
+          StepPastEnd -> {
             dispatch(on_event(editor.SteppedPast))
             True
           }
-          #(-4, _, _, _, x) -> {
+          StepInField(x:) -> {
             case decode.run(find_control(control_id), control_decoder()) {
               Ok(shown) -> dispatch(on_event(editor.FieldStepped(shown:, x:)))
               Error(_) -> dispatch(on_event(editor.Unstepped(x:)))
             }
             True
           }
-          #(row, visible, at_end, next, x) if row >= 0 -> {
+          StepLanded(row:, visible:, at_end:, next:, x:) -> {
             dispatch(
               on_event(editor.Stepped(row:, visible:, at_end:, next:, x:)),
             )
             True
           }
-          _ -> {
+          StepNowhere(x:) -> {
             dispatch(on_event(editor.Unstepped(x:)))
             True
           }
@@ -1411,6 +1413,45 @@ fn head_line(
   painted: Bool,
 ) -> #(Bool, Bool, Float)
 
+type StepLanding {
+  StepWaitsForPage
+  StepPastEnd
+  StepInField(x: Option(Float))
+  StepLanded(
+    row: Int,
+    visible: String,
+    at_end: Bool,
+    next: String,
+    x: Option(Float),
+  )
+  StepNowhere(x: Option(Float))
+}
+
+fn step_landing_decoder() -> Decoder(StepLanding) {
+  use kind <- decode.field("kind", decode.string)
+  use x <- decode.optional_field("x", None, decode.map(decode.float, aimed_x))
+  case kind {
+    "waitsForPage" -> decode.success(StepWaitsForPage)
+    "pastEnd" -> decode.success(StepPastEnd)
+    "inField" -> decode.success(StepInField(x:))
+    "landed" -> {
+      use row <- decode.field("row", decode.int)
+      use visible <- decode.field("visible", decode.string)
+      use at_end <- decode.field("atEnd", decode.bool)
+      use next <- decode.field("next", decode.string)
+      decode.success(StepLanded(row:, visible:, at_end:, next:, x:))
+    }
+    _ -> decode.success(StepNowhere(x:))
+  }
+}
+
+fn aimed_x(x: Float) -> Option(Float) {
+  case x >=. 0.0 {
+    True -> Some(x)
+    False -> None
+  }
+}
+
 @external(javascript, "./surface.ffi.mjs", "stepHead")
 fn step_head(
   id: String,
@@ -1424,10 +1465,10 @@ fn step_head(
   granularity: String,
   forward: Bool,
   select: Bool,
-  x: Float,
+  x: Dynamic,
   field_first: Int,
   row_count: Int,
-) -> #(Int, String, Bool, String, Float)
+) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "holdStep")
 fn hold_step(held: Bool, for: Editor) -> Nil
