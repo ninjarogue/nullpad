@@ -47,7 +47,7 @@ const twice = {
 };
 
 export default {
-  tests: ['tests/headings.e2e.ts', 'tests/dpr2/*.e2e.ts'],
+  tests: ['tests/headings.e2e.ts', 'tests/problems.e2e.ts', 'tests/dpr2/*.e2e.ts'],
   targets: [
     {
       name: 'dpr2',
