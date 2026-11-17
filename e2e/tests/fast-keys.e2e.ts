@@ -711,3 +711,82 @@ for (const { name, keys: pressed, held, typed, fails } of breaks) {
     await expect(page.text).toHaveValue(typed);
   });
 }
+
+/**
+ * A key is held while the page is behind only when its replay does what the
+ * browser would have done. A browser shortcut the replay cannot do goes on to
+ * the browser.
+ */
+test('browser shortcuts pressed while the page is behind go on to the browser', async ({ app, browser, disk, page }) => {
+  await disk.seed([{ key: 'live', title: null, body: note }]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(note);
+  await page.markdown.tap();
+  await browser.keyboard.press('ControlOrMeta+End');
+  await page.nextFrame();
+  const shortcuts = ['f', 'p', 's', 'l', 'r', 'd', '=', '+', '-', '0'];
+  let held: Record<string, boolean> = {};
+  await page.beforeRedraw(async () => {
+    await browser.keyboard.press('Enter');
+    await browser.keyboard.press('Shift+ArrowUp');
+    held = await browser.evaluate((shortcuts: string[]) => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      const press = (key: string, modifiers: KeyboardEventInit) => {
+        const pressed = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...modifiers });
+        field.dispatchEvent(pressed);
+        return pressed.defaultPrevented;
+      };
+      const seen: Record<string, boolean> = {};
+      for (const key of shortcuts) {
+        seen[`Control+${key}`] = press(key, { ctrlKey: true });
+        seen[`Meta+${key}`] = press(key, { metaKey: true });
+        seen[`Control+Shift+${key}`] = press(key, { ctrlKey: true, shiftKey: true });
+      }
+      seen['Alt+ArrowLeft'] = press('ArrowLeft', { altKey: true });
+      seen['Control+a'] = press('a', { ctrlKey: true });
+      seen['z'] = press('z', {});
+      return seen;
+    }, shortcuts);
+  });
+  const expected: Record<string, boolean> = {};
+  for (const key of shortcuts) {
+    expected[`Control+${key}`] = false;
+    expected[`Meta+${key}`] = false;
+    expected[`Control+Shift+${key}`] = false;
+  }
+  expected['Alt+ArrowLeft'] = false;
+  expected['Control+a'] = true;
+  expected['z'] = true;
+  expect(held).toEqual(expected);
+});
+
+const appleKeys = [
+  { name: 'Cmd and ArrowLeft goes to the start of the line', key: 'Meta+ArrowLeft', typed: 'Xone two' },
+  { name: 'Option and ArrowLeft goes back a word', key: 'Alt+ArrowLeft', typed: 'one Xtwo' },
+  { name: 'Cmd and Backspace deletes to the start of the line', key: 'Meta+Backspace', typed: 'X' },
+  { name: 'Option and Backspace deletes a word', key: 'Alt+Backspace', typed: 'one X' },
+];
+
+for (const { name, key, typed } of appleKeys) {
+  test(`on a Mac, ${name}, also while the page is behind`, async ({ app, browser, disk, page }) => {
+    await browser.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
+    await disk.seed([{ key: 'live', title: null, body: note }]);
+    await app.open('/');
+    await expect(page.text).toHaveValue(note);
+    await page.markdown.tap();
+    await browser.keyboard.press('Meta+ArrowDown');
+    await page.nextFrame();
+    await page.beforeRedraw(async () => {
+      await browser.keyboard.press('Enter');
+      await browser.keyboard.press('Shift+ArrowUp');
+      await browser.keyboard.press('Shift+ArrowDown');
+      await browser.keyboard.type('one two');
+      await browser.keyboard.press(key);
+    });
+    await page.nextFrame();
+    await browser.keyboard.type('X');
+    await page.nextFrame();
+    await page.markdown.tap();
+    await expect(page.text).toHaveValue(`${note}\n${typed}`);
+  });
+}
