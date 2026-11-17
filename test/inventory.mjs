@@ -632,6 +632,11 @@ export function compare(base, branch) {
         if (!changed(unit, next, true)) continue;
         items.push({ file: path, id: `${path}::${key}`, what: "changed-gate", why: `${unit.show ?? key} ${next === undefined ? "is gone" : "changed"}` });
       }
+      const goneStatements = [...was.decls].filter(([key, unit]) => unit.effect && !now.decls.has(key)).length;
+      const newStatements = [...now.decls].filter(([key, unit]) => unit.effect && !was.decls.has(key));
+      if (newStatements.length > goneStatements) {
+        for (const [key, unit] of newStatements) items.push({ file: path, id: `${path}::${key}`, what: "changed-gate", why: `${unit.show ?? key} is a statement this branch put at the top of a script that decides` });
+      }
       continue;
     }
     for (const unit of was.tests.values()) {

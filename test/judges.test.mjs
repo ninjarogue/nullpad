@@ -672,6 +672,20 @@ describe("the files that decide", () => {
     assert.deepEqual(changes({ [script]: code }, { [script]: "// why\nexport const a = 1;\nexport function gate() { return 2 }\n" }).items, []);
   });
 
+  test("a statement put at the top of a gate script is a change, as a call, an assignment, a condition or a module run for its effects", () => {
+    const keyed = "export const gate = { read: () => 1 };\nexport function run() {\n  return gate.read();\n}\n";
+    const added = (statement) => named(changes({ [script]: keyed }, { [script]: `${keyed}${statement}\n` }));
+    assert.deepEqual(added("gate.read = () => 0;"), [`changed-gate: ${script}::stmt:gate.read = () => 0;`]);
+    assert.deepEqual(added("Object.assign(gate, { read: () => 0 });"), [`changed-gate: ${script}::stmt:Object.assign(gate, { read: () => 0 });`]);
+    assert.equal(added("if (gate) { process.exit(0); }").length, 1);
+    assert.deepEqual(added("import './patch.mjs';"), [`changed-gate: ${script}::side-effect-import:./patch.mjs`]);
+  });
+
+  test("what a gate script gains that is not a statement is free: a function, a const, a class and an import that is used", () => {
+    const more = "import { join } from 'node:path';\nexport const more = 3;\nexport class Extra {}\nexport const helper = (x) => join(x);\nexport function later() {}\n";
+    assert.deepEqual(changes({ [script]: code }, { [script]: `${code}${more}` }).items, []);
+  });
+
   test("a hook, a workflow and a data file are compared as text", () => {
     const hook = ".githooks/pre-push";
     assert.deepEqual(named(changes({ [hook]: "a\nb\n" }, { [hook]: "a\nb\n" })), []);
