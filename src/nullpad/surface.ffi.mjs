@@ -541,7 +541,15 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
 function headXFromText(control, liveClass, paintedClass, caretX) {
   const at = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
   if (at === 0 || control.value[at - 1] === "\n") return 0;
-  return fieldOffsetFromText(control, liveClass, paintedClass) + caretX;
+  const textLeft = control.getBoundingClientRect().left + control.clientLeft;
+  return fieldOffsetFromText(control, liveClass, paintedClass) + goalX(textLeft + caretX, textLeft);
+}
+
+// A run of ArrowUp and ArrowDown aims where the caret's left edge was drawn,
+// which the browser keeps in whole device pixels, rounded down.
+function goalX(left, origin) {
+  const ratio = window.devicePixelRatio || 1;
+  return Math.floor(left * ratio) / ratio - origin;
 }
 
 function fieldOffsetFromText(control, liveClass, paintedClass) {
@@ -1101,7 +1109,7 @@ export function headLine(id, liveClass, paintedClass, painted) {
   const at = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
   const rowStart = at === 0 || control.value[at - 1] === "\n";
   const head = painted && headPlace();
-  if (head) return [true, true, rowStart ? 0 : head.box.left - columnLeft(page)];
+  if (head) return [true, true, rowStart ? 0 : goalX(head.box.left, columnLeft(page))];
   const [first, last, x] = fieldCaretLine(control);
   const across = headXFromText(control, liveClass, paintedClass, x);
   if (undrawn(control)) return [true, true, across];
@@ -1115,7 +1123,7 @@ export function notePress(id, liveClass, x, y) {
   const page = control?.closest("." + liveClass);
   const point = page && caretAt(x, y);
   const drawn = point && point.node !== control && page.contains(point.node);
-  const landed = { x: drawn ? caretBox(point.node, point.offset).left - columnLeft(page) : null };
+  const landed = { x: drawn ? goalX(caretBox(point.node, point.offset).left, columnLeft(page)) : null };
   pressAwaitingDraw = landed;
   requestAnimationFrame(() => {
     if (pressAwaitingDraw === landed) pressAwaitingDraw = null;
@@ -1188,7 +1196,7 @@ function stepFrom(
       box = caretBox(...pointIn(holder, headOffset, onward));
     }
     if (x < 0 && inField) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
-    else if (x < 0) x = box.left - columnLeft(page);
+    else if (x < 0) x = goalX(box.left, columnLeft(page));
     const place = pageStep(page, rowMark, box, forward, columnLeft(page) + x);
     return place ? landedAt(moved(place)) : answer("pastEnd");
   }
@@ -1203,7 +1211,7 @@ function stepFrom(
       const holder = marks[lastAtOrBefore(rows, headRow)];
       if (!holder) return answer("nowhere");
       const [node, offset] = pointIn(holder, headOffset, onward);
-      if (x < 0) x = caretBox(node, offset).left - columnLeft(page);
+      if (x < 0) x = goalX(caretBox(node, offset).left, columnLeft(page));
       selection.collapse(node, offset);
       landed = step(selection, page, rowMark, granularity, forward);
       const from = { node, offset };
