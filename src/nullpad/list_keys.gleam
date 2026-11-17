@@ -14,8 +14,8 @@ import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
 import nullpad/markdown.{
   type Block, type Item, type ItemMarks, type Mark, Block, BulletList,
-  BulletMark, CodeBlock, Heading, ItemMarks, NumberMark, OrderedList, Paragraph,
-  Quote, Rule, Table,
+  BulletMark, CodeBlock, Heading, ItemMarks, Loose, NumberMark, OrderedList,
+  Paragraph, Quote, Rule, Table,
 }
 
 pub type Key {
@@ -52,7 +52,7 @@ pub fn press(
 
 /// An item that holds the caret's row, and the items around it in its list.
 type Level {
-  Level(item: Item, previous: Option(Item), following: List(Item))
+  Level(item: Item, previous: Option(Item), following: List(Item), loose: Bool)
 }
 
 type Held {
@@ -66,9 +66,9 @@ fn holding(blocks: List(Block), row: Int, chain: List(Level)) -> Held {
       block.first_row <= row && row <= block.last_row
     })
   case found {
-    Ok(Block(content: BulletList(items:, ..), ..))
-    | Ok(Block(content: OrderedList(items:, ..), ..)) ->
-      case item_holding(items, row, None) {
+    Ok(Block(content: BulletList(items:, spacing:), ..))
+    | Ok(Block(content: OrderedList(items:, spacing:, ..), ..)) ->
+      case item_holding(items, row, None, spacing == Loose) {
         Ok(level) -> holding(level.item.blocks, row, [level, ..chain])
         Error(Nil) -> Held(chain, False)
       }
@@ -86,13 +86,14 @@ fn item_holding(
   items: List(Item),
   row: Int,
   previous: Option(Item),
+  loose: Bool,
 ) -> Result(Level, Nil) {
   case items {
     [] -> Error(Nil)
     [item, ..rest] ->
       case item.row <= row && row <= last_row(item) {
-        True -> Ok(Level(item, previous, rest))
-        False -> item_holding(rest, row, Some(item))
+        True -> Ok(Level(item, previous, rest, loose))
+        False -> item_holding(rest, row, Some(item), loose)
       }
   }
 }
@@ -148,7 +149,12 @@ fn new_item(
       let kept_after =
         string.length(rest) - string.length(string.trim_start(rest))
       let mark = next(marks.mark)
-      let prefix = markdown.carry(marks.lead) <> marker(marks, mark, item)
+      let carried = markdown.carry(marks.lead)
+      let gap = case here.loose {
+        True -> "\n" <> string.trim_end(carried)
+        False -> ""
+      }
+      let prefix = gap <> "\n" <> carried <> marker(marks, mark, item)
       lines
       |> renumber(here.following, after: mark)
       |> widen(from.row + 1, last_row(item), marks, mark)
@@ -157,7 +163,7 @@ fn new_item(
       |> buffer.replace(
         from: Position(..from, col: kept_before),
         to: Position(..to, col: to.col + kept_after),
-        with: "\n" <> prefix,
+        with: prefix,
       )
       |> Ok
     }

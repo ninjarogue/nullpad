@@ -258,3 +258,9 @@ pub fn the_caret_before_the_marker_stays_before_it_test() {
   assert press("- a\n  - b\n |  - c", vim.BackTab) == "- a\n  - b\n|- c"
   assert press("- a\n|- b", vim.Tab) == "- a\n  |- b"
 }
+
+pub fn enter_in_a_loose_list_keeps_a_blank_row_between_items_test() {
+  assert press("- a\n\n- b|", vim.Enter) == "- a\n\n- b\n\n- |"
+  assert press("1. a\n\n2. b|\n\n3. c", vim.Enter)
+    == "1. a\n\n2. b\n\n3. |\n\n4. c"
+}
