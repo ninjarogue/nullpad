@@ -165,3 +165,61 @@ pub fn the_page_is_laid_out_again_after_tab_test() {
     )
   assert editor.region(ed) == option.Some(live.Region(1, 1))
 }
+
+fn selected(note: String, live: Bool) -> Editor {
+  let assert Ok(#(before, rest)) = string.split_once(note, "[")
+  let assert Ok(#(inside, after)) = string.split_once(rest, "]")
+  let anchor = buffer.end_of(before)
+  let head = buffer.end_of(before <> inside)
+  let b =
+    buffer.from_text(before <> inside <> after)
+    |> buffer.select(anchor:, head:)
+  let ed =
+    editor.new(vim: False, live: False, paint: True)
+    |> editor.open(buffer.text(b))
+  let ed = editor.update(ed.editor, editor.ControlChanged(shown: b, at: 0))
+  editor.set_live(ed.editor, live).editor
+}
+
+fn press_selected(note: String, key: vim.Key) -> String {
+  let run = fn(live) {
+    let ed = selected(note, live)
+    editor.update(ed, editor.KeyPressed(key, shown: editor.field_buffer(ed))).editor
+    |> shown
+  }
+  let whole = run(False)
+  assert run(True) == whole
+  whole
+}
+
+pub fn enter_numbers_the_items_after_the_new_one_test() {
+  assert press("1. a\n2. b|\n3. c\n4. d", vim.Enter)
+    == "1. a\n2. b\n3. |\n4. c\n5. d"
+  assert press("1. a\n   1. b|\n   2. c\n2. d", vim.Enter)
+    == "1. a\n   1. b\n   2. |\n   3. c\n2. d"
+}
+
+pub fn tab_and_shift_tab_number_the_items_after_test() {
+  assert press("1. a\n2. b|\n3. c\n4. d", vim.Tab)
+    == "1. a\n   1. b|\n2. c\n3. d"
+  assert press("1. a\n   1. b|\n   2. c\n2. d", vim.BackTab)
+    == "1. a\n2. b|\n   1. c\n3. d"
+}
+
+pub fn a_split_leaves_no_space_at_the_end_of_the_first_half_test() {
+  assert press("- hello |world", vim.Enter) == "- hello\n- |world"
+}
+
+pub fn enter_inside_the_marker_starts_an_item_above_test() {
+  assert press("-| hello", vim.Enter) == "- \n- |hello"
+  assert press("- [| ] a", vim.Enter) == "- [ ] \n- [ ] |a"
+}
+
+pub fn enter_over_words_of_an_item_replaces_them_with_a_new_item_test() {
+  assert press_selected("- hello [world]", vim.Enter) == "- hello\n- |"
+}
+
+pub fn tab_with_words_selected_nests_the_item_test() {
+  assert press_selected("- a\n- hello [world]", vim.Tab)
+    == "- a\n  - hello world|"
+}

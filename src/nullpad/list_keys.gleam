@@ -1,7 +1,8 @@
 //// Enter, Tab and Shift+Tab in a list item, as editors that write markdown
 //// have them. Enter starts the next item. On an empty item it ends the list,
 //// or moves a nested item out a level. Tab nests an item under the one above
-//// it, and Shift+Tab moves it back out.
+//// it, and Shift+Tab moves it back out. Numbered items after the change are
+//// numbered again, so the markdown reads as the page does.
 ////
 //// Imported by: `editor`. Imports: `buffer`, `markdown`.
 
@@ -12,8 +13,9 @@ import gleam/result
 import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
 import nullpad/markdown.{
-  type Block, type Item, type ItemMarks, Block, BulletList, BulletMark,
-  CodeBlock, Heading, NumberMark, OrderedList, Paragraph, Quote, Rule, Table,
+  type Block, type Item, type ItemMarks, type Mark, Block, BulletList,
+  BulletMark, CodeBlock, Heading, ItemMarks, NumberMark, OrderedList, Paragraph,
+  Quote, Rule, Table,
 }
 
 pub type Key {
@@ -24,6 +26,8 @@ pub type Key {
 
 /// `buffer` after `key`, with `blocks` parsed from it. `Error` when the key
 /// has nothing to do in a list there, so it does what it does elsewhere.
+/// A selection on one row is typed over by Enter, and moves with its item on
+/// Tab and Shift+Tab.
 pub fn press(
   buffer: Buffer,
   blocks: List(Block),
@@ -31,20 +35,24 @@ pub fn press(
 ) -> Result(Buffer, Nil) {
   let #(anchor, head) = buffer.selection(buffer)
   let lines = buffer.lines(buffer)
-  case anchor == head, holding(blocks, head.row, []) {
+  case anchor.row == head.row, holding(blocks, head.row, []) {
     True, Held(chain: [here, ..parents], in_code: False) ->
       case key {
-        NewItem -> new_item(lines, head, here, parents)
-        Indent -> indent(lines, head, here)
-        Outdent -> outdent(lines, head, here, parents)
+        NewItem -> {
+          let from = Position(..head, col: int.min(anchor.col, head.col))
+          let to = Position(..head, col: int.max(anchor.col, head.col))
+          new_item(lines, from, to, here, parents)
+        }
+        Indent -> indent(lines, #(anchor, head), here)
+        Outdent -> outdent(lines, #(anchor, head), here, parents)
       }
     _, _ -> Error(Nil)
   }
 }
 
-/// An item that holds the caret's row, and the item before it in its list.
+/// An item that holds the caret's row, and the items around it in its list.
 type Level {
-  Level(item: Item, previous: Option(Item))
+  Level(item: Item, previous: Option(Item), following: List(Item))
 }
 
 type Held {
@@ -83,7 +91,7 @@ fn item_holding(
     [] -> Error(Nil)
     [item, ..rest] ->
       case item.row <= row && row <= last_row(item) {
-        True -> Ok(Level(item, previous))
+        True -> Ok(Level(item, previous, rest))
         False -> item_holding(rest, row, Some(item))
       }
   }
@@ -100,49 +108,71 @@ fn marks_of(lines: List(String), item: Item) -> Result(ItemMarks, Nil) {
 
 fn new_item(
   lines: List(String),
-  head: Position,
+  from: Position,
+  to: Position,
   here: Level,
   parents: List(Level),
 ) -> Result(Buffer, Nil) {
   let item = here.item
   use marks <- result.try(marks_of(lines, item))
-  let on_marker = head.row == item.row && head.col < item.content_col
-  let empty = item.blocks == [] && head.row == item.row
-  case on_marker, empty, parents {
+  let on_item_row = from.row == item.row
+  let empty = item.blocks == [] && on_item_row
+  case on_item_row && from.col == 0, empty, parents {
     True, _, _ -> Error(Nil)
     False, True, [parent, ..] -> {
       use outer <- result.map(marks_of(lines, parent.item))
-      let row = markdown.carry(outer.lead) <> next(outer, parent.item)
-      set_rows(lines, head.row, [row])
+      let mark = next(outer.mark)
+      let row = markdown.carry(outer.lead) <> marker(outer, mark, parent.item)
+      lines
+      |> renumber(parent.following, after: mark)
+      |> set_rows(from.row, [row])
     }
     False, True, [] -> {
       let carried = markdown.carry(marks.lead)
-      Ok(set_rows(lines, head.row, [string.trim_end(carried), carried]))
+      Ok(set_rows(lines, from.row, [string.trim_end(carried), carried]))
     }
     False, False, _ -> {
-      let row = line(lines, head.row)
-      let rest = string.drop_start(row, head.col)
-      let kept = string.length(rest) - string.length(string.trim_start(rest))
-      let prefix = markdown.carry(marks.lead) <> next(marks, item)
-      Ok(
-        buffer.from_text(string.join(lines, "\n"))
-        |> buffer.replace(
-          from: head,
-          to: Position(..head, col: head.col + kept),
-          with: "\n" <> prefix,
-        ),
+      let words = case on_item_row {
+        True -> item.content_col
+        False -> 0
+      }
+      let from = Position(..from, col: int.max(from.col, words))
+      let to = Position(..to, col: int.max(to.col, words))
+      let row = line(lines, from.row)
+      let kept_before =
+        string.slice(row, 0, from.col)
+        |> string.trim_end
+        |> string.length
+        |> int.max(words)
+      let rest = string.drop_start(row, to.col)
+      let kept_after =
+        string.length(rest) - string.length(string.trim_start(rest))
+      let mark = next(marks.mark)
+      let prefix = markdown.carry(marks.lead) <> marker(marks, mark, item)
+      lines
+      |> renumber(here.following, after: mark)
+      |> string.join("\n")
+      |> buffer.from_text
+      |> buffer.replace(
+        from: Position(..from, col: kept_before),
+        to: Position(..to, col: to.col + kept_after),
+        with: "\n" <> prefix,
       )
+      |> Ok
     }
   }
 }
 
-/// The marker of the item after `item`: one more for a number, and an
-/// unticked box after a task.
-fn next(marks: ItemMarks, item: Item) -> String {
-  let mark = case marks.mark {
-    BulletMark(_) -> marks.mark
+fn next(mark: Mark) -> Mark {
+  case mark {
+    BulletMark(_) -> mark
     NumberMark(number:, delimiter:) -> NumberMark(number + 1, delimiter)
   }
+}
+
+/// `mark` with the spaces after it, and an unticked box when `item` is a
+/// task.
+fn marker(marks: ItemMarks, mark: Mark, item: Item) -> String {
   let box = case item.task {
     Some(_) -> "[ ] "
     None -> ""
@@ -150,9 +180,44 @@ fn next(marks: ItemMarks, item: Item) -> String {
   markdown.mark_text(mark) <> string.repeat(" ", int.max(marks.gap, 1)) <> box
 }
 
+/// Numbers `items` on from the number after `mark`, when they are numbered.
+fn renumber(
+  lines: List(String),
+  items: List(Item),
+  after mark: Mark,
+) -> List(String) {
+  case mark {
+    BulletMark(_) -> lines
+    NumberMark(number:, ..) -> {
+      let numbered =
+        list.index_map(items, fn(item, index) { #(item, number + 1 + index) })
+      use lines, #(item, number) <- list.fold(numbered, lines)
+      case marks_of(lines, item) {
+        Ok(marks) -> {
+          let mark = case marks.mark {
+            NumberMark(delimiter:, ..) -> NumberMark(number, delimiter)
+            BulletMark(_) -> marks.mark
+          }
+          let row = remark(line(lines, item.row), marks, mark)
+          replace_row(lines, item.row, row)
+        }
+        Error(Nil) -> lines
+      }
+    }
+  }
+}
+
+fn remark(row: String, marks: ItemMarks, mark: Mark) -> String {
+  let at = string.length(marks.lead)
+  let old = string.length(markdown.mark_text(marks.mark))
+  string.slice(row, 0, at)
+  <> markdown.mark_text(mark)
+  <> string.drop_start(row, at + old)
+}
+
 fn indent(
   lines: List(String),
-  head: Position,
+  selection: #(Position, Position),
   here: Level,
 ) -> Result(Buffer, Nil) {
   use previous <- result.try(option.to_result(here.previous, Nil))
@@ -163,26 +228,33 @@ fn indent(
   case by > 0 {
     False -> Error(Nil)
     True -> {
-      let mark = case marks.mark, last_list(previous) {
+      let mark = case marks.mark, last_number(previous) {
         BulletMark(_), _ -> marks.mark
-        NumberMark(delimiter:, ..), Some(count) ->
-          NumberMark(count + 1, delimiter)
+        NumberMark(delimiter:, ..), Some(last) ->
+          NumberMark(last + 1, delimiter)
         NumberMark(delimiter:, ..), None -> NumberMark(1, delimiter)
       }
-      Ok(shift(lines, head, here.item, marks, at, by, mark))
+      let before = case marks.mark {
+        NumberMark(number:, delimiter:) -> NumberMark(number - 1, delimiter)
+        BulletMark(_) -> marks.mark
+      }
+      lines
+      |> renumber(here.following, after: before)
+      |> shift(selection, here.item, marks, at, by, mark)
+      |> Ok
     }
   }
 }
 
 fn outdent(
   lines: List(String),
-  head: Position,
+  selection: #(Position, Position),
   here: Level,
   parents: List(Level),
 ) -> Result(Buffer, Nil) {
-  use parent <- result.try(list.first(parents) |> result.map(fn(l) { l.item }))
+  use parent <- result.try(list.first(parents))
   use marks <- result.try(marks_of(lines, here.item))
-  use outer <- result.try(marks_of(lines, parent))
+  use outer <- result.try(marks_of(lines, parent.item))
   let at = string.length(outer.lead)
   let by = string.length(marks.lead) - at
   let blank = string.slice(marks.lead, at, by) |> string.trim == ""
@@ -194,7 +266,15 @@ fn outdent(
           NumberMark(number + 1, delimiter)
         NumberMark(..), BulletMark(_) | BulletMark(_), _ -> marks.mark
       }
-      Ok(shift(lines, head, here.item, marks, at, -by, mark))
+      let first = case marks.mark {
+        NumberMark(delimiter:, ..) -> NumberMark(0, delimiter)
+        BulletMark(_) -> marks.mark
+      }
+      lines
+      |> renumber(here.following, after: first)
+      |> renumber(parent.following, after: mark)
+      |> shift(selection, here.item, marks, at, -by, mark)
+      |> Ok
     }
   }
 }
@@ -206,9 +286,8 @@ fn words_col(marks: ItemMarks) -> Int {
   + int.max(marks.gap, 1)
 }
 
-/// How many items the list that ends `item`, when one does, has. Its last
-/// number when it is numbered.
-fn last_list(item: Item) -> Option(Int) {
+/// The last number of the numbered list that ends `item`, when one does.
+fn last_number(item: Item) -> Option(Int) {
   case list.last(item.blocks) {
     Ok(Block(content: OrderedList(start:, items:, ..), ..)) ->
       Some(start + list.length(items) - 1)
@@ -217,52 +296,57 @@ fn last_list(item: Item) -> Option(Int) {
 }
 
 /// Moves the rows of `item` right by `by` columns at column `at`, or left
-/// when `by` is below 0, and gives its marker `mark`.
+/// when `by` is below 0, and gives its marker `mark`. The selection moves
+/// with the text.
 fn shift(
   lines: List(String),
-  head: Position,
+  selection: #(Position, Position),
   item: Item,
   marks: ItemMarks,
   at: Int,
   by: Int,
-  mark: markdown.Mark,
+  mark: Mark,
 ) -> Buffer {
   let last = last_row(item)
   let moved = fn(row, text) {
     case row < item.row || row > last || string.trim(text) == "" {
       True -> text
       False -> {
-        let before = string.slice(text, 0, at)
         let after = string.drop_start(text, at)
         let after = case by >= 0 {
           True -> string.repeat(" ", by) <> after
           False -> drop_spaces(after, -by)
         }
+        let text = string.slice(text, 0, at) <> after
         case row == item.row {
-          True -> {
-            let old = markdown.mark_text(marks.mark)
-            let indent =
-              string.length(after) - string.length(string.trim_start(after))
-            before
-            <> string.slice(after, 0, indent)
-            <> markdown.mark_text(mark)
-            <> string.drop_start(after, indent + string.length(old))
-          }
-          False -> before <> after
+          True ->
+            remark(
+              text,
+              ItemMarks(..marks, lead: marks.lead |> resize(by)),
+              mark,
+            )
+          False -> text
         }
       }
     }
   }
   let new_lines = list.index_map(lines, fn(text, row) { moved(row, text) })
-  let old_row = line(lines, head.row)
-  let new_row = line(new_lines, head.row)
-  let col = case head.col >= at {
-    True ->
-      int.max(at, head.col + string.length(new_row) - string.length(old_row))
-    False -> head.col
+  let follow = fn(place: Position) {
+    let old_row = line(lines, place.row)
+    let new_row = line(new_lines, place.row)
+    let change = string.length(new_row) - string.length(old_row)
+    case place.col >= at {
+      True -> Position(..place, col: int.max(at, place.col + change))
+      False -> place
+    }
   }
+  let #(anchor, head) = selection
   buffer.from_text(string.join(new_lines, "\n"))
-  |> buffer.move_to(Position(..head, col:))
+  |> buffer.select(anchor: follow(anchor), head: follow(head))
+}
+
+fn resize(lead: String, by: Int) -> String {
+  string.repeat(" ", int.max(0, string.length(lead) + by))
 }
 
 fn drop_spaces(text: String, count: Int) -> String {
@@ -271,6 +355,10 @@ fn drop_spaces(text: String, count: Int) -> String {
     _, " " <> rest -> drop_spaces(rest, count - 1)
     _, _ -> text
   }
+}
+
+fn replace_row(lines: List(String), row: Int, text: String) -> List(String) {
+  list.flatten([list.take(lines, row), [text], list.drop(lines, row + 1)])
 }
 
 fn set_rows(lines: List(String), row: Int, rows: List(String)) -> Buffer {
