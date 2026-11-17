@@ -38,10 +38,10 @@ const with_javascript = ["surface", "platform", "markdown"]
 /// JavaScript in surface and platform that only reads the page. Every other
 /// function there counts as changing it.
 const measures = [
-  "drawnInPage", "holdsFocus", "caretLine", "headLine", "holderText",
-  "paintedOnPage", "locate", "findControl", "textWidth", "boldWidth",
-  "utf16Split", "utf16Length", "below", "hasHardwareKeyboard", "canPaint",
-  "readVimSetting", "readMarkdownSetting", "pressLanding", "dropped",
+  "drawnInPage", "holdsFocus", "caretLine", "endsAtWrap", "headLine",
+  "holderText", "paintedOnPage", "locate", "findControl", "textWidth",
+  "boldWidth", "utf16Split", "utf16Length", "below", "hasHardwareKeyboard",
+  "canPaint", "readVimSetting", "readMarkdownSetting", "pressLanding", "dropped",
   "releasedOnSelection", "focusStayed", "currentEditor", "pastedText",
   "heldKeyEvent", "isApple", "isWindows",
 ]

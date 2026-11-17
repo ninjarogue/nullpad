@@ -1211,6 +1211,17 @@ fn edge_decoder(
   let edge = {
     use edge <- result.try(wanted)
     use <- bool.guard(!drawn_in_page(control_id, live_class), Error(Nil))
+    // A text field drops a selection that runs forward to where a line
+    // wraps and puts the caret at its end, at the start of the line below.
+    use <- bool.guard(
+      name == "ArrowDown"
+        && bare
+        && anchor != head
+        && !pending
+        && !painted_head
+        && ends_at_wrap(control_id),
+      Error(Nil),
+    )
     let head = fn() {
       head_line(control_id, live_class, painted_class, painted_head)
     }
@@ -1418,6 +1429,9 @@ fn holds_focus(id: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "drawnInPage")
 fn drawn_in_page(id: String, live_class: String) -> Bool
+
+@external(javascript, "./surface.ffi.mjs", "endsAtWrap")
+fn ends_at_wrap(id: String) -> Bool
 
 @external(javascript, "./surface.ffi.mjs", "caretLine")
 fn caret_line(id: String) -> #(Bool, Bool)

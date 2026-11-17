@@ -360,6 +360,16 @@ export function drawnInPage(id, liveClass) {
   return document.getElementById(id)?.closest("." + liveClass) != null;
 }
 
+// Whether the field's selection runs forward to where a line wraps.
+export function endsAtWrap(id) {
+  const control = document.getElementById(id);
+  if (!control) return false;
+  const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = control;
+  if (start === end || direction === "backward" || control.value[end - 1] === "\n") return false;
+  const place = measure(control);
+  return place(end - 1).top !== place(end).top;
+}
+
 export function caretLine(id) {
   const control = document.getElementById(id);
   if (!control) return [false, false];

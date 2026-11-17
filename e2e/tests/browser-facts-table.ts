@@ -340,6 +340,39 @@ export const facts: Fact[] = [
   }),
 
   fact({
+    id: 'arrow-down-drops-a-selection-at-a-wrap',
+    says: 'ArrowDown in a text field whose selection runs forward to where a line wraps drops the selection and leaves the caret at its end, at the start of the line below, while from a selection that ends inside a line it goes a line down.',
+    relied: [{ file: surface, text: '&& ends_at_wrap(control_id),' }],
+    html: '<textarea id="t" style="width:120px;height:200px;font:16px monospace;padding:4px;border:0;overflow:hidden">aaaa bbbb cccc dddd eeee</textarea>',
+    observe: async (page) => {
+      const from = async (keys: string[]) => {
+        await page.evaluate(() => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          field.focus();
+          field.setSelectionRange(0, 0);
+        });
+        for (const key of [...keys, 'ArrowDown']) await page.keyboard.press(key);
+        return page.evaluate(() => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          return [field.selectionStart, field.selectionEnd];
+        });
+      };
+      return { toTheWrap: await from(['Shift+End']), insideTheLine: await from(['Shift+ArrowRight', 'Shift+ArrowRight']) };
+    },
+    holds: (seen) => {
+      const expected = { toTheWrap: [10, 10], insideTheLine: [12, 12] };
+      return same(seen, expected) ? null : instead('the caret after ArrowDown from a selection to the wrap and from one inside the first line', expected, seen);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'ArrowDown') event.preventDefault();
+        });
+      });
+    },
+  }),
+
+  fact({
     id: 'modify-crosses-hidden-blocks',
     says: 'Selection.modify on the page steps over blocks that draw nothing (display:none, visibility:hidden) to the next drawn text, stops at the end of the page, and keeps a caret still when there is nowhere to go.',
     relied: [
