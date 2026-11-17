@@ -161,6 +161,15 @@ fn rows_style(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   }
 }
 
+/// The live page holds back room for a heading's marks on its first line,
+/// as the field does when its marks push its words.
+fn marks_of(rows: Rows, marks: String) -> List(attribute.Attribute(msg)) {
+  case rows, marks {
+    Unmarked, _ | Marked, "" -> []
+    Marked, marks -> [attribute.data("marks", marks)]
+  }
+}
+
 fn at(rows: Rows, row: Int) -> List(attribute.Attribute(msg)) {
   case rows {
     Unmarked -> []
@@ -184,8 +193,12 @@ fn block(
     items(listed, spacing, shown.last_row + 1, rows, on_task)
   }
   case shown.content {
-    Heading(level, text) ->
-      heading(level, list.append(here, rows_style(shown, rows)), inlines(text))
+    Heading(level, text, marks) ->
+      heading(
+        level,
+        list.flatten([here, rows_style(shown, rows), marks_of(rows, marks)]),
+        inlines(text),
+      )
     Paragraph(text) -> html.p(here, inlines(text))
     Rule -> html.hr(here)
     Quote(blocks) ->

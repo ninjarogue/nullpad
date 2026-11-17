@@ -422,6 +422,20 @@ button[aria-pressed="true"] {
   min-height: 1lh;
 }
 
+/* Marks the margin cannot hold push a heading's words right in the field,
+   so its first line holds that much less there. The drawn heading holds
+   back the same room at the end of its first line, so it wraps where the
+   field does and the rows below stay put. */
+.page.live .preview.part > :is(h1, h2, h3, h4, h5, h6)[data-marks]::before {
+  content: attr(data-marks);
+  float: right;
+  height: 1px;
+  margin-left: calc(-1 * var(--margin));
+  overflow: hidden;
+  visibility: hidden;
+  white-space: pre;
+}
+
 .page.live .preview > :is(h1, h2, h3, h4, h5, h6) {
   min-height: calc(var(--rows, 1) * 1lh);
 }
