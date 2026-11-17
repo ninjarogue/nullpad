@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFil
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { compare, inventoryOf, judged, loadParsers } from "./inventory.mjs";
-import { covers, sort, trailersOf } from "./judges.mjs";
+import { covers, parseArgs, sort, trailersOf } from "./judges.mjs";
 import { useScratch } from "./scratch.mjs";
 import { root } from "./steps.mjs";
 
@@ -530,6 +530,15 @@ describe("the pre-push gate on a branch", () => {
     branch.edit(toyTest, 'test("adds negatives", () => {\n  assert.equal(add(-1, -1), -2);\n});\n', "");
     branch.commit("add the judges and drop a test");
     caught(branch.push(), /adds negatives/);
+  });
+});
+
+describe("the arguments of a run", () => {
+  test("hand the gate no flag unless one is given, so the commit check of the counts file stays on in the hook", () => {
+    assert.deepEqual(parseArgs(["run"]).options.gateArgs, []);
+    assert.deepEqual(parseArgs(["run", "--base", "abc", "--repo", "/x"]).options.gateArgs, []);
+    assert.deepEqual(parseArgs(["run", "--no-commit-check"]).options.gateArgs, ["--no-commit-check"]);
+    assert.match(parseArgs(["run", "--nope"]).error, /--nope/);
   });
 });
 

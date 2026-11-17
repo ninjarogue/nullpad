@@ -347,7 +347,7 @@ export async function run({ repo, base: given, gateArgs = [], pick = true, only 
   return code;
 }
 
-function parse(args) {
+export function parseArgs(args) {
   const [command, ...rest] = args;
   const options = { repo: null, base: null, pick: true, gate: true, gateArgs: [] };
   for (let at = 0; at < rest.length; at++) {
@@ -364,7 +364,7 @@ function parse(args) {
 const usage = "usage: node test/judges.mjs run [--base <sha>] [--repo <dir>] [--no-pick] [--no-gate] [--no-commit-check]\n       node test/judges.mjs check [--base <sha>] [--repo <dir>]   (only what main's tests and scripts lost or changed)";
 
 async function main(args) {
-  const { command, options, error } = parse(args);
+  const { command, options, error } = parseArgs(args);
   if (error || (command !== "run" && command !== "check")) {
     console.error(error ?? usage);
     return 2;
