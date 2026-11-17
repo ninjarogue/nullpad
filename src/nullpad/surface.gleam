@@ -162,17 +162,14 @@ fn leave_decoder(on_event: fn(editor.Event) -> msg) -> Decoder(msg) {
 
 /// CSS cannot measure typed text, so the marker is measured here.
 fn marker(setting: Option(editor.Setting)) -> attribute.Attribute(msg) {
-  let width = fn(marker, heading) {
-    attribute.style(
-      "--marker",
-      float.to_string(text_width(marker, heading)) <> "px",
-    )
+  let width = fn(marker, width) {
+    attribute.style("--marker", float.to_string(width(marker)) <> "px")
   }
   case setting {
     Some(editor.Setting(kind: live.ListItem(marker:, ..), ..)) ->
-      width(marker, "")
+      width(marker, body_text_width)
     Some(editor.Setting(kind: live.ItemTitle(level, marker:), ..)) ->
-      width(marker, heading_class(level))
+      width(marker, heading_text_width(_, level))
     Some(editor.Setting(kind: live.Body, ..))
     | Some(editor.Setting(kind: live.Mono, ..))
     | Some(editor.Setting(kind: live.Title(_), ..))
@@ -988,8 +985,15 @@ fn write_control(
   backward: Bool,
 ) -> Nil
 
+fn heading_text_width(text: String, level: markdown.Level) -> Float {
+  measure_heading(text, heading_class(level))
+}
+
 @external(javascript, "./surface.ffi.mjs", "textWidth")
-fn text_width(text: String, heading: String) -> Float
+fn body_text_width(text: String) -> Float
+
+@external(javascript, "./surface.ffi.mjs", "textWidth")
+fn measure_heading(text: String, heading: String) -> Float
 
 @external(javascript, "./surface.ffi.mjs", "askFocus")
 fn ask_focus() -> Nil
