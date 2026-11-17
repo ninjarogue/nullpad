@@ -396,19 +396,15 @@ fn blank() -> Generator(Piece) {
 }
 
 fn soup(tame: Bool) -> Generator(Piece) {
-  few(
-    weighted(#(3, words(tame, 0, 3)), [
-      #(
-        2,
-        constants("", [
-          "---", "===", "- a", "> a", "```", "    c", "# h", "|---|", "1. a",
-          "  - b", "* * *", "- [ ] t", "  more", "~~~", "<div>", "[a]: http://x",
-        ]),
-      ),
-    ]),
-    1,
-    8,
-  )
+  let lines = [
+    "---", "===", "- a", "> a", "```", "    c", "# h", "|---|", "1. a", "  - b",
+    "* * *", "- [ ] t", "  more", "~~~", "<div>", "[a]: http://x",
+  ]
+  let lines = case tame {
+    True -> list.filter(lines, fn(line) { line != "|---|" })
+    False -> lines
+  }
+  few(weighted(#(3, words(tame, 0, 3)), [#(2, constants("", lines))]), 1, 8)
 }
 
 type Ending {
@@ -423,7 +419,8 @@ pub type Flavor {
 }
 
 /// A note's text. `Tame` keeps what a parser may drop on purpose out of it: a
-/// table row longer than its header, which GFM cuts to the header's width.
+/// table row longer than its header, which GFM cuts to the header's width,
+/// and so the one column table a `|---|` row makes of the line above it.
 pub fn note(flavor: Flavor) -> Generator(String) {
   let tame = flavor == Tame
   use pieces <- qcheck.bind(few(piece(tame), 0, 6))
