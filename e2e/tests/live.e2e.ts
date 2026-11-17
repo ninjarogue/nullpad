@@ -1925,12 +1925,29 @@ test('Control+A after a setext underline typed under a line moves no line', asyn
   }
   await expect(page.text).toHaveValue('=');
   await page.nextFrame();
+  const seen = () =>
+    browser.evaluate(() => {
+      const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+      const inField = getComputedStyle(field.parentElement!).opacity !== '0' ? field.value : '';
+      const drawn = [...document.querySelectorAll('.preview.part [data-row]')].map((element) => element.textContent);
+      return [inField, ...drawn]
+        .join('')
+        .split('')
+        .filter((letter) => letter.trim() !== '')
+        .sort()
+        .join('');
+    });
   const line = await page.placeOf('c');
   const underline = await page.placeOf('=');
+  expect(await seen()).toBe('=c');
   await browser.keyboard.press('ControlOrMeta+a');
   await page.nextFrame();
   await page.nextFrame();
-  expect({ line: await page.placeOf('c'), underline: await page.placeOf('=') }).toEqual({ line, underline });
+  expect({ line: await page.placeOf('c'), underline: await page.placeOf('='), seen: await seen() }).toEqual({
+    line,
+    underline,
+    seen: '=c',
+  });
 });
 
 test('a press whose hand moves up to four pixels each way selects nothing, and five pixels sideways selects', async ({

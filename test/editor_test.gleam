@@ -2839,6 +2839,7 @@ pub fn selecting_all_from_an_underline_leaves_the_line_above_as_drawn_test() {
     == #(Position(0, 0), Position(1, 1))
   assert editor.blocks(ed) == markdown.parse("Hello")
   assert editor.frame(ed) == Some(live.Body)
+  assert !editor.is_painted(ed)
 }
 
 pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {
