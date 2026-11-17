@@ -1,4 +1,5 @@
 import { expect } from 'e2e';
+import { chromium, devices } from 'playwright-core';
 import { ctrl, Editing, offsetOf, withRawPage } from './editing.ts';
 import type { Fixtures, Spot } from './editing.ts';
 import { pause, test } from './nullpad.ts';
@@ -480,6 +481,91 @@ test('PageDown pressed while a step waits for the rows an Enter in the same fram
 
     expect(await raw.evaluate(() => document.querySelector('textarea')!.value)).toBe(`z${note}X`);
   });
+});
+
+/**
+ * A key that takes the head to another block writes the field with that
+ * block's rows, and until the next frame the page still draws the field
+ * where it was. A page step pressed in that frame waits for the page to
+ * draw the field where it now is, and lands where it lands a frame later.
+ */
+const longNote = "# Heading one that is quite long and will wrap around on the page because it keeps going and going and going\n\nFirst paragraph with **bold words** and *italic words* and some `code` here, long enough to wrap onto several visual lines in the editor at this width, yes indeed.\n\n## Second heading\nLine directly under heading\n\n> quote line one that is long enough to wrap around because quotes are narrower than the page and so on and so forth\n> - item in quote\n>   - nested item in quote with a lot of words to make it wrap around the width of the quote block\n> > nested quote\n> > - list in nested quote\n\n- list item one\n- list item two that is long enough to wrap around because it keeps going and going on and on and on and on and on\n  - nested a\n1. ordered\n2. second\n\n```js\nconst a = 1;\n\nfunction f() { return 2; }\n```\n\n> ```\n> fenced in quote\n> \n> more\n> ```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 33 | 44 |\n\n\n### h3\n#### h4 long long long long long long long long long long long long long long long long long long long long long long long long long long long\n##### h5\n###### h6\n\nlast paragraph";
+test('ArrowDown onto the next block and PageDown, in one frame, land where they do a frame apart', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await browser.setViewport({ width: 1280, height: 800 });
+  const typed = async (frames: string[][]) => {
+    await editor.open(longNote);
+    for (const keys of frames) await page.pressBeforeRedraw(...keys);
+    await browser.keyboard.type('@');
+    await page.nextFrame();
+    await page.markdown.tap();
+    return page.text.inputValue();
+  };
+  const drawn = [[ctrl('Home')], ['ArrowDown'], ['ArrowDown']];
+  const apart = await typed([...drawn, ['ArrowDown'], ['PageDown']]);
+
+  expect(await typed([...drawn, ['ArrowDown', 'PageDown']])).toBe(apart);
+});
+
+test('PageDown twice in one frame on a phone, after a letter, lands where it does a frame apart', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const phone = await chromium.launch();
+  try {
+    const typed = async (together: boolean) => {
+      const context = await phone.newContext({ ...devices['Pixel 7'], permissions: ['clipboard-read', 'clipboard-write'] });
+      const raw = await context.newPage();
+      await raw.addInitScript(() => localStorage.setItem('nullpad.markdown', 'off'));
+      await raw.goto(`${origin}/`);
+      const frames = () => raw.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const hold = () =>
+        raw.evaluate(() => {
+          const held: FrameRequestCallback[] = [];
+          const real = window.requestAnimationFrame.bind(window);
+          window.requestAnimationFrame = (run) => held.push(run);
+          (globalThis as { redraw?: () => void }).redraw = () => {
+            window.requestAnimationFrame = real;
+            for (const run of held) real(run);
+          };
+          return null;
+        });
+      const redraw = async () => {
+        await raw.evaluate(() => {
+          (globalThis as { redraw?: () => void }).redraw!();
+          return null;
+        });
+        await frames();
+      };
+      await raw.getByLabel('Note text').click();
+      await raw.evaluate((text: string) => navigator.clipboard.writeText(text), longNote);
+      await raw.keyboard.press('Control+v');
+      await expect.poll(() => raw.evaluate(() => document.querySelectorAll('.page.live [data-row]').length)).toBeGreaterThan(20);
+      for (const key of ['Control+Home', 'a', 'Control+Home']) {
+        await raw.keyboard.press(key);
+        await frames();
+      }
+      await hold();
+      await raw.keyboard.press('PageDown');
+      if (!together) {
+        await redraw();
+        await hold();
+      }
+      await raw.keyboard.press('PageDown');
+      await redraw();
+      await raw.keyboard.type('@');
+      await frames();
+      await raw.keyboard.press('Control+e');
+      const text = await raw.evaluate(() => document.querySelector('textarea')!.value);
+      await context.close();
+      return text;
+    };
+    const apart = await typed(false);
+
+    expect(await typed(true)).toBe(apart);
+  } finally {
+    await phone.close();
+  }
 });
 
 /**
