@@ -223,3 +223,9 @@ pub fn tab_with_words_selected_nests_the_item_test() {
   assert press_selected("- a\n- hello [world]", vim.Tab)
     == "- a\n  - hello world|"
 }
+
+pub fn a_number_that_grows_a_digit_keeps_its_items_nested_test() {
+  assert press("8. a|\n9. b\n   1. c", vim.Enter)
+    == "8. a\n9. |\n10. b\n    1. c"
+  assert press("9. a|\n   1. x", vim.Enter) == "9. a\n10. |\n    1. x"
+}

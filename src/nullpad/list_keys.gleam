@@ -151,6 +151,7 @@ fn new_item(
       let prefix = markdown.carry(marks.lead) <> marker(marks, mark, item)
       lines
       |> renumber(here.following, after: mark)
+      |> widen(from.row + 1, last_row(item), marks, mark)
       |> string.join("\n")
       |> buffer.from_text
       |> buffer.replace(
@@ -200,9 +201,37 @@ fn renumber(
           }
           let row = remark(line(lines, item.row), marks, mark)
           replace_row(lines, item.row, row)
+          |> widen(item.row + 1, last_row(item), marks, mark)
         }
         Error(Nil) -> lines
       }
+    }
+  }
+}
+
+/// Rows `first` to `last` move as far as an item's words do when its marker
+/// becomes `mark`, so what is nested in the item stays nested.
+fn widen(
+  lines: List(String),
+  first: Int,
+  last: Int,
+  marks: ItemMarks,
+  mark: Mark,
+) -> List(String) {
+  let by =
+    string.length(markdown.mark_text(mark))
+    - string.length(markdown.mark_text(marks.mark))
+  let at = string.length(marks.lead)
+  use text, row <- list.index_map(lines)
+  case by == 0 || row < first || row > last || string.trim(text) == "" {
+    True -> text
+    False -> {
+      let after = string.drop_start(text, at)
+      let after = case by > 0 {
+        True -> string.repeat(" ", by) <> after
+        False -> drop_spaces(after, -by)
+      }
+      string.slice(text, 0, at) <> after
     }
   }
 }
