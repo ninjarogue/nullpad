@@ -465,7 +465,10 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     buffer:,
     field:,
     history: history.new(buffer),
+    press: None,
+    clicked: None,
     ime: NotComposing,
+    goal: None,
     page: behind([], chosen_keys(editor)),
     travel: order.Eq,
     choice: Chosen,
@@ -519,7 +522,8 @@ fn write(editor: Editor) -> Outcome {
 }
 
 pub fn set_live(editor: Editor, on: Bool) -> Outcome {
-  let editor = Editor(..editor, travel: order.Eq)
+  let editor =
+    Editor(..editor, press: None, clicked: None, goal: None, travel: order.Eq)
   let editor = case on {
     True -> Editor(..editor, field: laid_out(editor.buffer)) |> realign
     False -> Editor(..editor, field: Whole)
