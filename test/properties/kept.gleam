@@ -116,13 +116,17 @@ fn fences(blocks: List(Block)) -> List(Int) {
 }
 
 fn up_to_first_info_word(line: String) -> String {
-  let letters = string.to_graphemes(line)
+  let letters = string.to_utf_codepoints(line)
+  let is_one_of = fn(marks: List(Int)) {
+    fn(letter) { list.contains(marks, string.utf_codepoint_to_int(letter)) }
+  }
+  let fence = is_one_of([96, 126])
+  let blank = is_one_of([32, 9])
   let info =
-    list.drop_while(letters, fn(letter) { letter != "`" && letter != "~" })
-    |> list.drop_while(fn(letter) { letter == "`" || letter == "~" })
-    |> list.drop_while(fn(letter) { letter == " " || letter == "\t" })
-  let word =
-    list.take_while(info, fn(letter) { letter != " " && letter != "\t" })
+    list.drop_while(letters, fn(letter) { !fence(letter) })
+    |> list.drop_while(fence)
+    |> list.drop_while(blank)
+  let word = list.take_while(info, fn(letter) { !blank(letter) })
   let kept = list.length(letters) - list.length(info) + list.length(word)
-  string.concat(list.take(letters, int.max(kept, 0)))
+  string.from_utf_codepoints(list.take(letters, int.max(kept, 0)))
 }
