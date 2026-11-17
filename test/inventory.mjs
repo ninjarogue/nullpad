@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { bindings, registeredCalls } from "./e2e_discovery.mjs";
+import { gleamPrinter, hidden, jsPrinter, printGleam, printNode } from "./fingerprint.mjs";
 
 /**
  * What the tests and the gate scripts say, read from their syntax trees: JavaScript and
@@ -28,8 +29,6 @@ export async function loadParsers(repo) {
 }
 
 const isCode = (path) => /\.[cm]?[jt]sx?$/.test(path) || path.endsWith(".gleam");
-const hidden = new Set(["start", "end", "range", "loc", "raw", "location"]);
-const printNode = (node) => JSON.stringify(node, (key, value) => (hidden.has(key) ? undefined : value));
 const squash = (text) => text.replace(/\s+/g, " ").trim();
 const brief = (text) => (squash(text).length > 110 ? `${squash(text).slice(0, 107)}...` : squash(text));
 
@@ -99,7 +98,7 @@ function rootName(node) {
 
 const exiting = new Set(["skip", "fixme", "fail", "slow"]);
 
-function inspectStatement(node, text, names) {
+function inspectStatement(node, text, names, print) {
   let asserts = false;
   let suspicious = false;
   walk(node, (inner) => {
@@ -115,13 +114,16 @@ function inspectStatement(node, text, names) {
     },
     (child) => !fn.has(child.type),
   );
-  return { key: printNode(node), show: brief(text.slice(node.start, node.end)), asserts, suspicious };
+  return { key: print(node), show: brief(text.slice(node.start, node.end)), asserts, suspicious };
 }
 
 function bodyStatements(callback, text, names) {
   if (callback === undefined) return [];
+  const printer = jsPrinter();
+  printer.bindParams(callback.params);
   const body = callback.body.type === "BlockStatement" ? callback.body.body : [callback.body];
-  return body.map((statement) => inspectStatement(statement, text, names));
+  printer.hoist(body);
+  return body.map((statement) => inspectStatement(statement, text, names, printer.print));
 }
 
 const bindingName = (pattern) => (pattern.type === "Identifier" ? pattern.name : squash(printNode(pattern)).slice(0, 60));
@@ -130,7 +132,11 @@ function declUnits(statement, text, names) {
   const exported = statement.type.startsWith("Export") && statement.declaration ? statement.declaration : null;
   const inner = exported ?? statement;
   const wrapper = exported ? statement.type : "";
-  const unit = (key, node, extra) => ({ ...inspectStatement(node, text, names), key, print: printNode([wrapper, extra ?? null, node]) });
+  const unit = (key, node, extra) => {
+    const printer = jsPrinter();
+    const found = inspectStatement(node, text, names, printer.unit);
+    return { ...found, key, print: JSON.stringify([wrapper, extra ?? null, found.key]) };
+  };
   if (inner.type === "ImportDeclaration") return [unit(`import:${inner.source.value}`, inner)];
   if (inner.type === "ClassDeclaration") {
     const name = inner.id?.name ?? "default";
@@ -192,7 +198,9 @@ function jsFile({ path, text, program, calls, names }) {
           const setup = callback.body.body.filter((statement) => !holdsRegistration(statement));
           if (setup.length > 0) {
             const id = `${path} > ${inner.join(" > ")} (setup)`;
-            add(tests, { id, mods: [], setup: true, statements: setup.map((statement) => inspectStatement(statement, text, names)) }, id);
+            const printer = jsPrinter();
+            printer.hoist(setup);
+            add(tests, { id, mods: [], setup: true, statements: setup.map((statement) => inspectStatement(statement, text, names, printer.print)) }, id);
           }
           for (const statement of callback.body.body) visit(statement, inner, passed);
         }
@@ -215,20 +223,12 @@ function jsFile({ path, text, program, calls, names }) {
 
 /** A value glance built: a Gleam custom type, list, option or plain value. */
 const isSpan = (value) => value?.constructor?.name === "Span";
-const fieldsOf = (value) => Object.entries(value).filter(([, inner]) => !isSpan(inner));
 
 const gleamKids = (value) => {
   if (value === null || typeof value !== "object") return [];
   if (typeof value[Symbol.iterator] === "function") return [...value];
-  return fieldsOf(value).map(([, inner]) => inner);
+  return Object.entries(value).filter(([, inner]) => !isSpan(inner)).map(([, inner]) => inner);
 };
-
-export function printGleam(value) {
-  if (value === null || value === undefined) return "-";
-  if (typeof value !== "object") return JSON.stringify(value);
-  if (typeof value[Symbol.iterator] === "function") return `[${[...value].map(printGleam).join(",")}]`;
-  return `${value.constructor.name}(${fieldsOf(value).map(([key, inner]) => `${key}=${printGleam(inner)}`).join(",")})`;
-}
 
 function gleamWalk(value, visit) {
   visit(value);
@@ -257,17 +257,20 @@ function gleamFile({ path, text, module }) {
     return found;
   };
   const guarding = (statement) => statement?.constructor?.name === "Use" && /guard/.test(printGleam(statement.function));
-  const statementsOf = (body) =>
-    [...body].map((statement) => {
+  const statementsOf = (body, parameters = []) => {
+    const printer = gleamPrinter();
+    printer.parameters(parameters);
+    return [...body].map((statement) => {
       const span = spanOf(statement);
-      return { key: printGleam(statement), show: span ? brief(bytes.subarray(span.start, span.end).toString()) : "?", asserts: asserting(statement), suspicious: guarding(statement) };
+      return { key: printer.print(statement), show: span ? brief(bytes.subarray(span.start, span.end).toString()) : "?", asserts: asserting(statement), suspicious: guarding(statement) };
     });
+  };
   const tests = new Map();
   const decls = new Map();
   const runs = /_test\.gleam$/.test(path);
   for (const definition of module.functions) {
     const found = definition.definition;
-    const statements = statementsOf(found.body);
+    const statements = statementsOf(found.body, found.parameters);
     if (runs && found.name.endsWith("_test") && found.publicity.constructor.name === "Public") {
       const id = `${path}::${found.name}`;
       tests.set(id, { id, mods: [], setup: false, statements, bodyKey: JSON.stringify(statements.map((statement) => statement.key)) });

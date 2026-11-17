@@ -279,6 +279,111 @@ pub fn second_test() {
   });
 });
 
+describe("a renamed local variable is not a change", () => {
+  const rename = (text, from, to) => text.replace(new RegExp(`\\b${from}\\b`, "g"), to);
+
+  describe("in gleam", () => {
+    const file = "test/names_test.gleam";
+    const body = `import gleam/list
+import gleeunit/should
+
+fn helper(x: Int) -> Int {
+  x + 1
+}
+
+pub fn locals_test() {
+  let sum = helper(1)
+  assert sum == 2
+  let #(left, right) = #(helper(2), helper(3))
+  assert left == 3
+  assert right == 4
+  let doubled = list.map([sum, left], fn(n) { n * 2 })
+  assert doubled == [4, 6]
+  case helper(4) {
+    5 -> should.equal(sum, 2)
+    other -> should.equal(other, 0)
+  }
+}
+`;
+    const after = (text) => named(changes({ [file]: body }, { [file]: text }));
+
+    test("a let, a destructured pair, a closure parameter and a case variable renamed change nothing", () => {
+      let renamed = body;
+      for (const [from, to] of [["sum", "total"], ["left", "l"], ["right", "r"], ["doubled", "twice"], ["n", "m"], ["other", "rest"]]) renamed = rename(renamed, from, to);
+      assert.notEqual(renamed, body);
+      assert.deepEqual(after(renamed), []);
+    });
+
+    test("a new local put between the old ones, or above them, changes nothing", () => {
+      assert.deepEqual(after(swap(body, "  assert sum == 2\n", "  let unrelated = helper(9)\n  assert sum == 2\n")), []);
+      assert.deepEqual(after(swap(body, "  let sum = helper(1)\n", "  let first = helper(7)\n  let second = first\n  let sum = helper(1)\n")), []);
+    });
+
+    test("an assertion that reads another local, or the other half of a pair, is a change", () => {
+      assert.deepEqual(after(swap(body, "assert left == 3", "assert right == 3")), [`weakened-test: ${file}::locals_test`]);
+      assert.deepEqual(after(swap(body, "assert doubled == [4, 6]", "assert sum == [4, 6]")), [`weakened-test: ${file}::locals_test`]);
+      assert.deepEqual(after(swap(body, "fn(n) { n * 2 }", "fn(n) { sum * 2 }")), [`weakened-test: ${file}::locals_test`]);
+      assert.deepEqual(after(swap(body, "should.equal(other, 0)", "should.equal(sum, 0)")), [`weakened-test: ${file}::locals_test`]);
+    });
+
+    test("two locals defined alike are still two", () => {
+      const twins = swap(body, "  assert sum == 2\n", "  let a = helper(5)\n  let b = helper(5)\n  assert a == b\n  assert sum == 2\n");
+      assert.deepEqual(named(changes({ [file]: twins }, { [file]: rename(rename(twins, "a", "x"), "b", "y") })), []);
+      assert.deepEqual(named(changes({ [file]: twins }, { [file]: swap(twins, "assert a == b", "assert a == a") })), [`weakened-test: ${file}::locals_test`]);
+    });
+
+    test("a local that takes the name of a function the test calls is not that function", () => {
+      assert.deepEqual(after(swap(body, "  let sum = helper(1)\n", "  let helper = fn(x) { x }\n  let sum = helper(1)\n")), [`weakened-test: ${file}::locals_test`]);
+    });
+  });
+
+  describe("in typescript", () => {
+    const code = e2e(`test('locals', async ({ app, page }) => {
+  const sum = add(1, 2);
+  const { first, rest: [second] } = await app.read();
+  expect(sum).toBe(3);
+  expect(first).toBe(second);
+  const rows = [1, 2].map((row) => row + sum);
+  expect(rows).toEqual([4, 5]);
+  try { await page.go(); } catch (error) { expect(error).toBeUndefined(); }
+});`);
+    const after = (text) => named(changes({ [spec]: code }, { [spec]: text }));
+
+    test("a const, a destructured pair, a closure parameter, a catch variable and a renamed fixture change nothing", () => {
+      let renamed = swap(code, "({ app, page })", "({ app: shell, page: tab })");
+      renamed = swap(renamed, "{ first, rest: [second] }", "{ first: one, rest: [two] }");
+      renamed = swap(renamed, "expect(first).toBe(second)", "expect(one).toBe(two)");
+      renamed = rename(rename(renamed, "app\\.read", "shell.read"), "page\\.go", "tab.go");
+      for (const [from, to] of [["sum", "total"], ["row", "item"], ["error", "failure"], ["rows", "lines"]]) renamed = rename(renamed, from, to);
+      assert.notEqual(renamed, code);
+      assert.deepEqual(after(renamed), []);
+    });
+
+    test("a new local put between the old ones changes nothing", () => {
+      assert.deepEqual(after(swap(code, "  expect(sum).toBe(3);\n", "  const unrelated = 5;\n  expect(sum).toBe(3);\n")), []);
+      assert.deepEqual(after(swap(code, "  const sum = add(1, 2);\n", "  const extra = add(7, 7);\n  const sum = add(1, 2);\n")), []);
+    });
+
+    test("an assertion that reads another local, a property of another name, or another fixture is a change", () => {
+      assert.deepEqual(after(swap(code, "expect(first).toBe(second)", "expect(second).toBe(first)")), [`weakened-test: ${spec} > locals`]);
+      assert.deepEqual(after(swap(code, "(row) => row + sum", "(row) => row + 1")), [`weakened-test: ${spec} > locals`]);
+      assert.deepEqual(after(swap(code, "await app.read()", "await app.write()")), [`weakened-test: ${spec} > locals`]);
+      assert.deepEqual(after(swap(code, "await page.go()", "await app.go()")), [`weakened-test: ${spec} > locals`]);
+    });
+
+    test("two consts defined alike are still two", () => {
+      const twins = swap(code, "  expect(sum).toBe(3);\n", "  const a = add(5, 5);\n  const b = add(5, 5);\n  expect(a).toBe(b);\n  expect(sum).toBe(3);\n");
+      assert.deepEqual(named(changes({ [spec]: twins }, { [spec]: rename(rename(twins, "a", "x"), "b", "y") })), []);
+      assert.deepEqual(named(changes({ [spec]: twins }, { [spec]: swap(twins, "expect(a).toBe(b)", "expect(a).toBe(a)") })), [`weakened-test: ${spec} > locals`]);
+    });
+
+    test("a renamed key of an object that carries a local is a change, because it names a property", () => {
+      const keyed = swap(code, "  expect(sum).toBe(3);\n", "  expect({ sum }).toEqual({ sum: 3 });\n");
+      assert.deepEqual(named(changes({ [spec]: keyed }, { [spec]: rename(keyed, "sum", "total") })), [`weakened-test: ${spec} > locals`]);
+    });
+  });
+});
+
 describe("the files that decide", () => {
   const script = "test/steps.mjs";
   const code = "export const a = 1;\nexport function gate() {\n  return 2;\n}\n";
@@ -364,7 +469,7 @@ describe("zero", () => {
   "test/steps.mjs": 'import { nodeTest } from "./steps_real.mjs";\nexport * from "./steps_real.mjs";\nexport const gateSteps = () => [nodeTest("toy", "test/toy.test.mjs")];\n',
 };
 
-const copied = ["test/judges.mjs", "test/inventory.mjs", "test/pick.mjs", "test/e2e_discovery.mjs", "test/test_counts.mjs", ".githooks/pre-push"];
+const copied = ["test/judges.mjs", "test/inventory.mjs", "test/fingerprint.mjs", "test/pick.mjs", "test/e2e_discovery.mjs", "test/test_counts.mjs", ".githooks/pre-push"];
 
 const clean = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "NODE_TEST_CONTEXT"].includes(name)));
 const sh = (cwd, args, env = {}) => spawnSync(args[0], args.slice(1), { cwd, env: { ...clean(), ...env }, encoding: "utf8" });
@@ -388,7 +493,7 @@ function toy({ withJudges = true } = {}) {
   git(first, "init", "-b", "main");
   for (const [path, text] of Object.entries(toyFiles)) put(first, path, text);
   copyFileSync(join(root, "test", "steps.mjs"), join(first, "test", "steps_real.mjs"));
-  for (const path of copied) if (withJudges || !/judges|inventory|pick/.test(path)) {
+  for (const path of copied) if (withJudges || !/judges|inventory|fingerprint|pick/.test(path)) {
     mkdirSync(join(first, path, ".."), { recursive: true });
     copyFileSync(join(root, path), join(first, path));
   }
@@ -574,7 +679,7 @@ describe("the pre-push gate on a branch", () => {
   test("when main has no judge scripts yet, the branch's own are used and the run says so", () => {
     const bare = toy({ withJudges: false });
     const branch = bare.branch();
-    for (const path of ["test/judges.mjs", "test/inventory.mjs", "test/pick.mjs"]) branch.write(path, readFileSync(join(root, path), "utf8"));
+    for (const path of ["test/judges.mjs", "test/inventory.mjs", "test/fingerprint.mjs", "test/pick.mjs"]) branch.write(path, readFileSync(join(root, path), "utf8"));
     branch.commit("add the judges");
     const run = branch.push();
     assert.equal(run.status, 0, run.out);
@@ -585,7 +690,7 @@ describe("the pre-push gate on a branch", () => {
   test("when main has no judge scripts yet, the branch is still judged against main's tests", () => {
     const bare = toy({ withJudges: false });
     const branch = bare.branch();
-    for (const path of ["test/judges.mjs", "test/inventory.mjs", "test/pick.mjs"]) branch.write(path, readFileSync(join(root, path), "utf8"));
+    for (const path of ["test/judges.mjs", "test/inventory.mjs", "test/fingerprint.mjs", "test/pick.mjs"]) branch.write(path, readFileSync(join(root, path), "utf8"));
     branch.edit(toyTest, 'test("adds negatives", () => {\n  assert.equal(add(-1, -1), -2);\n});\n', "");
     branch.commit("add the judges and drop a test");
     caught(branch.push(), /adds negatives/);

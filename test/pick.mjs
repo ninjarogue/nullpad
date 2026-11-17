@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadParsers, printGleam } from "./inventory.mjs";
+import { printGleam } from "./fingerprint.mjs";
+import { loadParsers } from "./inventory.mjs";
 
 /**
  * Picks the tests most likely to fail for a diff, so they run first. A gleeunit module is
