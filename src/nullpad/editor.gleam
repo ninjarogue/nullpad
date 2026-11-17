@@ -1907,10 +1907,15 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
         True -> parsed
         False -> parse(buffer)
       }
-      let drawn = case editor.focus, typed_on(editor.buffer, buffer) {
-        Focused, Ok(#(from, to)) if from == to -> drawn
-        Focused, Ok(#(from, to)) -> live.shift(drawn, from:, to:)
-        Focused, Error(Nil) | Away, _ -> parsed
+      let drawn = case
+        editor.focus,
+        typed_on(editor.buffer, buffer),
+        joins_undrawn(editor.buffer, buffer, drawn:, parsed:)
+      {
+        Focused, _, True -> drawn
+        Focused, Ok(#(from, to)), False if from == to -> drawn
+        Focused, Ok(#(from, to)), False -> live.shift(drawn, from:, to:)
+        Focused, Error(Nil), False | Away, _, _ -> parsed
       }
       Part(rows:, drawn:, parsed:, composing: False, wide:)
     }
@@ -1966,6 +1971,34 @@ fn typed_on(old: Buffer, new: Buffer) -> Result(#(Region, Region), Nil) {
     True -> Ok(#(from, to))
     False -> Error(Nil)
   }
+}
+
+/// Whether a selection that changes no text leaves the caret on a row that
+/// the text joins to other rows than the page drew it with, such as a setext
+/// underline under a line drawn as a paragraph. The page keeps how it was
+/// laid out until the caret leaves that row.
+fn joins_undrawn(
+  old: Buffer,
+  new: Buffer,
+  drawn drawn: List(Block),
+  parsed parsed: List(Block),
+) -> Bool {
+  let row = buffer.cursor(old).row
+  buffer.lines(old) == buffer.lines(new)
+  && buffer.cursor(new).row == row
+  && undrawn(row, drawn:, parsed:)
+}
+
+/// Whether the text joins `row` to other rows than the page drew it with.
+/// The page draws that row as it was laid out, not as the text stands, so it
+/// cannot paint a selection there.
+fn undrawn(
+  row: Int,
+  drawn drawn: List(Block),
+  parsed parsed: List(Block),
+) -> Bool {
+  live.reveal(parsed, from: row, to: row)
+  != live.reveal(drawn, from: row, to: row)
 }
 
 /// How many of the first lines of both are the same, up to `limit`.
@@ -2138,8 +2171,10 @@ pub fn is_painted(editor: Editor) -> Bool {
   let #(anchor, head) = buffer.selection(editor.buffer)
   case editor.paints, editor.field, editor.focus {
     _, Part(wide: True, ..), Focused -> True
-    True, Part(rows:, drawn:, ..), Focused ->
-      anchor != head && rows != live.reveal(drawn, from: head.row, to: head.row)
+    True, Part(rows:, drawn:, parsed:, ..), Focused ->
+      anchor != head
+      && rows != live.reveal(drawn, from: head.row, to: head.row)
+      && !undrawn(head.row, drawn:, parsed:)
     _, Part(..), Away | _, Whole, _ | False, Part(..), Focused -> False
   }
 }
