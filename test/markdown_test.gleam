@@ -19,12 +19,12 @@ pub fn empty_input_has_no_blocks_test() {
 pub fn headings_have_six_levels_test() {
   assert markdown.parse("# a\n## b\n### c\n#### d\n##### e\n###### f")
     == [
-      Block(0, 0, Heading(H1, [Text("a")])),
-      Block(1, 1, Heading(H2, [Text("b")])),
-      Block(2, 2, Heading(H3, [Text("c")])),
-      Block(3, 3, Heading(H4, [Text("d")])),
-      Block(4, 4, Heading(H5, [Text("e")])),
-      Block(5, 5, Heading(H6, [Text("f")])),
+      Block(0, 0, Heading(H1, [Text("a")], "# ")),
+      Block(1, 1, Heading(H2, [Text("b")], "## ")),
+      Block(2, 2, Heading(H3, [Text("c")], "### ")),
+      Block(3, 3, Heading(H4, [Text("d")], "#### ")),
+      Block(4, 4, Heading(H5, [Text("e")], "##### ")),
+      Block(5, 5, Heading(H6, [Text("f")], "###### ")),
     ]
 }
 
@@ -54,14 +54,14 @@ pub fn a_dash_underline_makes_the_paragraph_above_a_heading_test() {
       Block(
         0,
         2,
-        Heading(H2, [Text("Foo "), Emphasis([Text("bar")]), Text("\nbaz")]),
+        Heading(H2, [Text("Foo "), Emphasis([Text("bar")]), Text("\nbaz")], ""),
       ),
     ]
 }
 
 pub fn an_equals_underline_makes_a_level_one_heading_test() {
   assert markdown.parse("Title  \n=")
-    == [Block(0, 1, Heading(H1, [Text("Title")]))]
+    == [Block(0, 1, Heading(H1, [Text("Title")], ""))]
 }
 
 pub fn an_underline_after_a_blank_line_is_no_heading_test() {
@@ -84,7 +84,7 @@ pub fn a_quote_holds_blocks_with_their_rows_test() {
         0,
         4,
         Quote([
-          Block(0, 0, Heading(H1, [Text("Title")])),
+          Block(0, 0, Heading(H1, [Text("Title")], "# ")),
           Block(1, 2, Paragraph([Text("one\ntwo")])),
           Block(4, 4, Rule),
         ]),
@@ -621,7 +621,7 @@ pub fn a_heading_ends_the_paragraph_before_it_test() {
   assert markdown.parse("one\ntwo\n# Title\nthree")
     == [
       Block(0, 1, Paragraph([Text("one\ntwo")])),
-      Block(2, 2, Heading(H1, [Text("Title")])),
+      Block(2, 2, Heading(H1, [Text("Title")], "# ")),
       para(3, "three"),
     ]
 }
@@ -644,7 +644,7 @@ pub fn only_spaces_and_tabs_make_a_line_blank_test() {
 pub fn windows_line_ends_count_like_unix_ones_test() {
   assert markdown.parse("# Title\r\n\r\none\r\ntwo\r\n")
     == [
-      Block(0, 0, Heading(H1, [Text("Title")])),
+      Block(0, 0, Heading(H1, [Text("Title")], "# ")),
       Block(2, 3, Paragraph([Text("one\ntwo")])),
     ]
 }
@@ -657,12 +657,12 @@ pub fn a_lone_carriage_return_ends_a_line_test() {
 pub fn a_nul_character_becomes_the_replacement_character_test() {
   assert markdown.parse("a\u{0}b") == [para(0, "a\u{FFFD}b")]
   assert markdown.parse("# \u{0}")
-    == [Block(0, 0, Heading(H1, [Text("\u{FFFD}")]))]
+    == [Block(0, 0, Heading(H1, [Text("\u{FFFD}")], "# "))]
 }
 
 pub fn emoji_and_accents_are_kept_test() {
   assert markdown.parse("# héllo 👋\n\nbye 👋")
-    == [Block(0, 0, Heading(H1, [Text("héllo 👋")])), para(2, "bye 👋")]
+    == [Block(0, 0, Heading(H1, [Text("héllo 👋")], "# ")), para(2, "bye 👋")]
 }
 
 pub fn spaces_before_a_line_break_are_dropped_test() {
@@ -1116,7 +1116,7 @@ pub fn a_header_and_a_delimiter_row_that_disagree_make_no_table_test() {
 }
 
 pub fn a_dash_underline_makes_a_heading_before_it_makes_a_table_test() {
-  assert markdown.parse("a\n---") == [Block(0, 1, Heading(H2, [Text("a")]))]
+  assert markdown.parse("a\n---") == [Block(0, 1, Heading(H2, [Text("a")], ""))]
   assert markdown.parse("a\n|-|")
     == [Block(0, 1, Table([column(Unaligned, "a")], []))]
   assert markdown.parse("a\n:-")
@@ -1204,7 +1204,7 @@ pub fn another_block_ends_a_table_test() {
   assert markdown.parse("a|b\n-|-\n> q")
     == [table, Block(2, 2, Quote([para(2, "q")]))]
   assert markdown.parse("a|b\n-|-\n# h")
-    == [table, Block(2, 2, Heading(H1, [Text("h")]))]
+    == [table, Block(2, 2, Heading(H1, [Text("h")], "# "))]
   assert markdown.parse("a|b\n-|-\n```\nc")
     == [table, Block(2, 3, CodeBlock(None, "c\n", 3))]
   assert markdown.parse("a|b\n-|-\n***") == [table, Block(2, 2, Rule)]

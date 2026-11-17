@@ -2,6 +2,7 @@ import type { E2EConfig } from 'e2e';
 import { engine } from './engine.ts';
 
 export default {
+  tests: ['tests/**/*.e2e.ts', '!tests/dpr2/**'],
   targets: [
     {
       engine,

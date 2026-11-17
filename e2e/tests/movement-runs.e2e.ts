@@ -4,31 +4,6 @@ import { ctrl, Editing } from './editing.ts';
 import { cursorAt, cursorStartsLine, selectionOf } from './guards.ts';
 import { pause, test } from './nullpad.ts';
 
-/**
- * Two checklists of movement, each compared with a plain text field holding the
- * same markdown, and each pressed where `movement-keys.e2e.ts` does not press:
- *
- * - every key that moves the caret, pressed on a selection that already exists:
- *   inside one block, forward and backward, painted across blocks, forward and
- *   backward, from column 0 and from the middle of a row, and after Ctrl+A;
- * - runs of keys, vertical ones above all, that keep a column across presses:
- *   through short rows, wrapped rows, rows whose marks the page hides, list
- *   items, code blocks, setext underlines and rules; each press is looked at,
- *   and then the same run is pressed with no frame between its keys.
- *
- * A key that goes up or down keeps the caret's place across the page, and the
- * page draws proportional type and larger headings, so its column is not the
- * plain field's, except where the caret starts a row or the rows are plain text.
- * Those are held to the plain field to the letter. The others are held to its
- * row, and to the pixel the caret was at, within half a wide letter, or to the
- * end of a row too short to reach it.
- *
- * A case that fails today is marked with `test.fail` and the id of the finding
- * of the review it shows (F: Opus, X: Fable, B: blind, N: found while writing
- * this). Once the app is fixed the case passes, the mark fails it as an
- * unexpected pass, and the mark is deleted.
- */
-
 type Cell = [number, number];
 
 const pixelSlack = 16;
@@ -70,7 +45,6 @@ const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
 
 type Plain = { value: string; anchor: Cell; head: Cell };
 
-/** A plain text field holding `body` with `anchor` to `head` selected, after each of `keys`. Runs on the blank page. */
 async function plainPresses(editor: Editing, body: string, anchor: Cell, head: Cell, keys: string[]) {
   const { browser } = editor.fixtures;
   const [from, to] = [offsetOfCell(body, anchor), offsetOfCell(body, head)];
@@ -108,7 +82,6 @@ async function plainPresses(editor: Editing, body: string, anchor: Cell, head: C
   return states;
 }
 
-/** The page draws the selection over the page, with no text field in sight. */
 function paintedNow() {
   const highlights = globalThis.CSS?.highlights;
   const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]');
@@ -118,10 +91,8 @@ function paintedNow() {
   };
 }
 
-/** `lineStart` is whether the caret starts a line as it is drawn, so that it cannot go further left. */
 type Look = { anchor: Cell; head: Cell; x: number; y: number; lineStart?: boolean };
 
-/** Waits for the page to draw what was pressed, then reads the selection and where the caret is drawn. */
 async function look(editor: Editing, lines: string[]): Promise<Look | { problem: string }> {
   const { browser, page } = editor.fixtures;
   await page.nextFrame();
@@ -136,7 +107,6 @@ type Follow = 'plain field' | 'row and pixel' | 'row' | 'wrapped';
 const isVertical = (key: string) => /Arrow(Up|Down)$|Page(Up|Down)$/.test(key);
 const isPage = (key: string) => /Page(Up|Down)$/.test(key);
 
-/** What is wrong with where a key left the caret and the selection, given where the plain field left them. */
 function judge(follow: Follow, want: Plain, got: Look, goalX: number, lineLength: number) {
   const ends = (cell: Cell, other: Cell) => (same(cell, other) ? `the caret at ${show(cell)}` : `the selection from ${show(other)} to ${show(cell)}`);
   const wantSaw = `the plain field ends with ${ends(want.head, want.anchor)}, the page with ${ends(got.head, got.anchor)}`;
@@ -153,10 +123,7 @@ function judge(follow: Follow, want: Plain, got: Look, goalX: number, lineLength
   return [`${wantSaw} (${how})`];
 }
 
-/**
- * Every key that moves the caret or the selection, with and without Shift and Ctrl.
- * Ctrl with Page Up or Page Down switches tabs, so it is not pressed.
- */
+/** Ctrl with Page Up or Page Down switches tabs, so it is not pressed. */
 const moving = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].flatMap((name) => [
   name,
   `Shift+${name}`,
@@ -190,7 +157,6 @@ async function setUp(editor: Editing, body: string, keys: string[]) {
   }
 }
 
-/** Where the state of a case puts the selection, and where a plain field goes from there with each key. Asked once for each state. */
 function planOf(editor: Editing, state: State) {
   let found = plans.get(state.name);
   if (!found) {
@@ -213,7 +179,6 @@ function planOf(editor: Editing, state: State) {
   return found;
 }
 
-/** The cases that fail today, by state and key: the id of the finding of the review that shows it. None do. */
 const failing = new Map<string, string>();
 
 for (const state of states) {
@@ -243,37 +208,22 @@ type Step = string | { key: string; follow: Follow };
 type Run = {
   name: string;
   body: string;
-  /** Keys that put the caret where the run starts, from the start of the note. */
   start: Step[];
   steps: Step[];
-  /** How the vertical keys are held: to the letter where the caret starts a row or the rows are plain text. */
   follow: Follow;
-  /** The finding that shows when the run fails today, for the paced press and for the held one. */
   fail?: { paced?: string; held?: string };
-  /** Milliseconds between presses of the paced run, as a person types, or where the page needs time to settle a painted selection. */
-  pace?: number;
-  /** The held run is pressed this many times, for a race that does not always happen. */
-  repeat?: number;
-  /** The run is also pressed with every key sent at once, where the keys do not wait for the page and so share its frames. */
-  burst?: boolean;
-  /** How many times slower the page's thread is made, so that keys pile up and share frames whatever the load of the machine. */
-  throttle?: number;
-  /** A frame is waited for between the keys that put the caret where the run starts and the keys of the run, when the keys are sent at once. */
+  paceMs?: number;
+  heldRepeats?: number;
+  sendAllAtOnce?: boolean;
+  cpuSlowdown?: number;
   frameBeforeSteps?: boolean;
-  /** Only the run with the keys sent at once is made: its keys compare a column the page and a plain field place differently. */
-  burstOnly?: boolean;
-  /** The run is also pressed with Ctrl+E, which shows the source, sent with its keys. */
-  viewSwitch?: boolean;
-  /** The page's thread is held this many milliseconds while the keys of the run are sent, so that they all arrive before it draws. */
-  stall?: number;
-  /** The page's frames are held while the keys of the run are sent, from before the note is pasted, or from the frame before the steps, so that every key arrives before the page draws again, whatever the load of the machine. */
-  holdRedraw?: boolean;
-  /** The keys sent at once are held to the same keys pressed a frame apart on the page, not to the plain field: its vertical keys land where the page's type puts them. */
-  againstPaced?: boolean;
-  /** The run is not pressed with no frame between its keys: whether the page has drawn between two keys of the harness's keyboard depends on the load of the machine. */
-  noHeld?: boolean;
-  /** The offsets of the first and the last mark of each pair of marks the page hides, as `**bold**`. A painted end never cuts one. */
-  pairs?: [number, number][];
+  onlyAllAtOnce?: boolean;
+  alsoWithViewSwitch?: boolean;
+  stallMs?: number;
+  holdFramesWhileSending?: boolean;
+  compareToPacedPage?: boolean;
+  skipHeldRun?: boolean;
+  hiddenMarkPairs?: [number, number][];
 };
 
 const key = (step: Step) => (typeof step === 'string' ? step : step.key);
@@ -353,12 +303,12 @@ const runs: Run[] = [
   { name: 'Shift+Down through rules', body: rules, start: [], steps: downBy(9, 'Shift+ArrowDown'), follow: 'plain field' },
   { name: 'Down and Up over a row the page wraps', body: wrapped, start: rightBy(10), steps: [...downBy(4), ...downBy(4, 'ArrowUp')], follow: 'wrapped' },
   { name: 'Shift+Down and Shift+Up over a row the page wraps', body: wrapped, start: rightBy(10), steps: [...downBy(4, 'Shift+ArrowDown'), ...downBy(4, 'Shift+ArrowUp')], follow: 'wrapped' },
-  { name: 'Shift+Down from the start of each row of the page in a wrapped paragraph', body: wrapped, start: [], steps: downBy(4, 'Shift+ArrowDown'), follow: 'wrapped', pace: 70 },
-  { name: 'Down, then Shift+Down, from the start of a row of the page in a wrapped paragraph', body: wrapped, start: [], steps: ['ArrowDown', ...downBy(3, 'Shift+ArrowDown')], follow: 'wrapped', pace: 70 },
-  { name: 'Shift+Down from the start of rows of the page through a wrapped paragraph, heading, quote and list item', body: wrappedBlocks, start: [], steps: downBy(16, 'Shift+ArrowDown'), follow: 'wrapped', pace: 70 },
-  { name: 'Down through a wrapped paragraph, heading, quote and list item, from the start of a row', body: wrappedBlocks, start: [], steps: downBy(16), follow: 'wrapped', pace: 70 },
-  { name: 'Shift+Up from the start of rows of the page back through a wrapped list item, quote, heading and paragraph', body: wrappedBlocks, start: [ctrl('End'), 'Home'], steps: downBy(16, 'Shift+ArrowUp'), follow: 'wrapped', pace: 70 },
-  { name: 'Up from the end of rows of the page back through a wrapped list item, quote, heading and paragraph', body: wrappedBlocks, start: [ctrl('End')], steps: downBy(16, 'ArrowUp'), follow: 'wrapped', pace: 70 },
+  { name: 'Shift+Down from the start of each row of the page in a wrapped paragraph', body: wrapped, start: [], steps: downBy(4, 'Shift+ArrowDown'), follow: 'wrapped', paceMs: 70 },
+  { name: 'Down, then Shift+Down, from the start of a row of the page in a wrapped paragraph', body: wrapped, start: [], steps: ['ArrowDown', ...downBy(3, 'Shift+ArrowDown')], follow: 'wrapped', paceMs: 70 },
+  { name: 'Shift+Down from the start of rows of the page through a wrapped paragraph, heading, quote and list item', body: wrappedBlocks, start: [], steps: downBy(16, 'Shift+ArrowDown'), follow: 'wrapped', paceMs: 70 },
+  { name: 'Down through a wrapped paragraph, heading, quote and list item, from the start of a row', body: wrappedBlocks, start: [], steps: downBy(16), follow: 'wrapped', paceMs: 70 },
+  { name: 'Shift+Up from the start of rows of the page back through a wrapped list item, quote, heading and paragraph', body: wrappedBlocks, start: [ctrl('End'), 'Home'], steps: downBy(16, 'Shift+ArrowUp'), follow: 'wrapped', paceMs: 70 },
+  { name: 'Up from the end of rows of the page back through a wrapped list item, quote, heading and paragraph', body: wrappedBlocks, start: [ctrl('End')], steps: downBy(16, 'ArrowUp'), follow: 'wrapped', paceMs: 70 },
   {
     name: 'Shift+Down then Shift+Up over a row whose marks are hidden returns to where it began',
     body: 'some **bold** words here\n\nplain second paragraph text',
@@ -380,9 +330,9 @@ const runs: Run[] = [
     start: [],
     steps: times(8, ctrl('Shift+ArrowRight')),
     follow: 'plain field',
-    pace: 150,
-    noHeld: true,
-    pairs: [[10, 18]],
+    paceMs: 150,
+    skipHeldRun: true,
+    hiddenMarkPairs: [[10, 18]],
   },
   {
     name: 'Ctrl+Shift+Left through words with hidden marks, from the paragraph below',
@@ -390,9 +340,9 @@ const runs: Run[] = [
     start: [ctrl('End')],
     steps: times(8, ctrl('Shift+ArrowLeft')),
     follow: 'plain field',
-    pace: 150,
-    noHeld: true,
-    pairs: [[5, 13]],
+    paceMs: 150,
+    skipHeldRun: true,
+    hiddenMarkPairs: [[5, 13]],
   },
   {
     name: 'Ctrl+Shift+Left through words with hidden marks',
@@ -400,7 +350,7 @@ const runs: Run[] = [
     start: [ctrl('End')],
     steps: times(8, ctrl('Shift+ArrowLeft')),
     follow: 'plain field',
-    pace: 150,
+    paceMs: 150,
   },
   {
     name: 'Ctrl+Right through words with hidden marks, then Ctrl+Shift+Down, then Ctrl+Shift+Up',
@@ -408,8 +358,8 @@ const runs: Run[] = [
     start: [],
     steps: [...times(6, ctrl('ArrowRight')), ...times(2, ctrl('Shift+ArrowDown')), ctrl('Shift+ArrowUp')],
     follow: 'row and pixel',
-    pace: 150,
-    pairs: [[10, 18]],
+    paceMs: 150,
+    hiddenMarkPairs: [[10, 18]],
   },
   {
     name: 'Shift+Right and Backspace past the hidden marks of a list item and a heading',
@@ -452,9 +402,9 @@ const runs: Run[] = [
     start: [],
     steps: ['a', 'Shift+ArrowDown', 'Shift+ArrowDown'],
     follow: 'plain field',
-    burst: true,
-    burstOnly: true,
-    repeat: 12,
+    sendAllAtOnce: true,
+    onlyAllAtOnce: true,
+    heldRepeats: 12,
     frameBeforeSteps: true,
   },
   {
@@ -463,8 +413,8 @@ const runs: Run[] = [
     start: ['End'],
     steps: ['Enter', 'Shift+ArrowUp'],
     follow: 'plain field',
-    burst: true,
-    burstOnly: true,
+    sendAllAtOnce: true,
+    onlyAllAtOnce: true,
   },
   {
     name: 'Shift+Down, then Enter, in one frame',
@@ -472,12 +422,12 @@ const runs: Run[] = [
     start: [],
     steps: ['Shift+ArrowDown', 'Enter'],
     follow: 'plain field',
-    burst: true,
-    burstOnly: true,
-    stall: 80,
-    holdRedraw: true,
-    throttle: 1,
-    repeat: 30,
+    sendAllAtOnce: true,
+    onlyAllAtOnce: true,
+    stallMs: 80,
+    holdFramesWhileSending: true,
+    cpuSlowdown: 1,
+    heldRepeats: 30,
   },
   {
     name: 'Shift+Down, then a letter, Backspace and Left, in one frame',
@@ -485,10 +435,10 @@ const runs: Run[] = [
     start: [],
     steps: ['Shift+ArrowDown', 'x', 'Backspace', 'ArrowLeft', 'y'],
     follow: 'plain field',
-    burst: true,
-    burstOnly: true,
-    holdRedraw: true,
-    throttle: 1,
+    sendAllAtOnce: true,
+    onlyAllAtOnce: true,
+    holdFramesWhileSending: true,
+    cpuSlowdown: 1,
   },
   {
     name: 'Shift+Down, then Right and Ctrl+Backspace at the start of a row, in one frame',
@@ -496,10 +446,10 @@ const runs: Run[] = [
     start: [],
     steps: ['Shift+ArrowDown', 'ArrowRight', ctrl('Backspace')],
     follow: 'plain field',
-    burst: true,
-    burstOnly: true,
-    holdRedraw: true,
-    throttle: 1,
+    sendAllAtOnce: true,
+    onlyAllAtOnce: true,
+    holdFramesWhileSending: true,
+    cpuSlowdown: 1,
   },
   {
     name: 'Shift+Down twice, then Shift+Up, in one frame',
@@ -507,10 +457,10 @@ const runs: Run[] = [
     start: [],
     steps: ['Shift+ArrowDown', 'Shift+ArrowDown', 'Shift+ArrowUp'],
     follow: 'plain field',
-    burst: true,
-    burstOnly: true,
-    holdRedraw: true,
-    throttle: 1,
+    sendAllAtOnce: true,
+    onlyAllAtOnce: true,
+    holdFramesWhileSending: true,
+    cpuSlowdown: 1,
   },
   {
     name: 'a typed letter, then Up',
@@ -518,8 +468,8 @@ const runs: Run[] = [
     start: [ctrl('End')],
     steps: ['b', 'ArrowUp'],
     follow: 'plain field',
-    viewSwitch: true,
-    holdRedraw: true,
+    alsoWithViewSwitch: true,
+    holdFramesWhileSending: true,
   },
   {
     name: 'a typed letter, then Shift+Up',
@@ -527,7 +477,7 @@ const runs: Run[] = [
     start: ['End'],
     steps: ['d', 'Shift+ArrowUp'],
     follow: 'plain field',
-    viewSwitch: true,
+    alsoWithViewSwitch: true,
   },
   {
     name: 'a typed letter, then Page Up',
@@ -535,7 +485,7 @@ const runs: Run[] = [
     start: ['End'],
     steps: ['x', 'PageUp'],
     follow: 'plain field',
-    viewSwitch: true,
+    alsoWithViewSwitch: true,
   },
   {
     name: 'a long run of keys with no pause between them',
@@ -543,11 +493,11 @@ const runs: Run[] = [
     start: [],
     steps: ['ArrowDown', 'End', 'Enter', 'ArrowLeft', 'a', 'b', 'Shift+ArrowRight', ctrl('Shift+ArrowRight'), 'Backspace', 'ArrowUp', 'Shift+End', 'Shift+ArrowDown', ctrl('ArrowRight'), ctrl('Shift+ArrowRight'), 'Shift+Home', 'x'],
     follow: 'plain field',
-    burst: true,
-    burstOnly: true,
+    sendAllAtOnce: true,
+    onlyAllAtOnce: true,
     frameBeforeSteps: true,
-    holdRedraw: true,
-    againstPaced: true,
+    holdFramesWhileSending: true,
+    compareToPacedPage: true,
   },
 ];
 
@@ -570,14 +520,8 @@ async function runPlan(editor: Editing, run: Run) {
   return found;
 }
 
-/**
- * The plain field's states as the page holds them. The head of a selection
- * across blocks, which the page paints, never stops inside a pair of marks the
- * page hides, as Delete would then leave half of it: such a stop is passed over.
- * The anchor stays where it was put, as in a plain field.
- */
 function wholePairs(run: Run, states: Plain[]): Plain[] {
-  const pairs = run.pairs;
+  const pairs = run.hiddenMarkPairs;
   if (!pairs) return states;
   const cut = (value: string, cell: Cell) => {
     const at = offsetOfCell(value, cell);
@@ -597,12 +541,6 @@ async function begin(editor: Editing, run: Run) {
   await editor.fixtures.page.nextFrame();
 }
 
-/**
- * The wrapped rows have no plain field to follow: the caret goes down a row of
- * the page at a time, keeping its pixel, or to the end of the row it is on, or
- * its start going up, when no row of the page is past it. `rowLength` is the
- * length of the row the head is on.
- */
 function judgeWrapped(step: string, before: Look, after: Look, first: Look, rowLength: number) {
   const down = /Down/.test(step);
   const problems: string[] = [];
@@ -622,7 +560,6 @@ const virtualKeys: Record<string, number> = { Enter: 13, Backspace: 8, Delete: 4
 const modifierBits: Record<string, number> = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 const modifierKeys: Record<string, [string, number]> = { Control: ['ControlLeft', 17], Shift: ['ShiftLeft', 16], Alt: ['AltLeft', 18], Meta: ['MetaLeft', 91] };
 
-/** One key press as Chrome DevTools key events, modifiers included. Letters and the named keys of the runs. */
 function keyEvents(spec: string) {
   const parts = spec.replace('ControlOrMeta', 'Control').split('+');
   const main = parts.pop()!;
@@ -647,7 +584,6 @@ function keyEvents(spec: string) {
   return events;
 }
 
-/** Holds the page's animation frames, so that Lustre draws nothing until they are let go. */
 function holdFrames() {
   const page = window as unknown as { heldFrames?: FrameRequestCallback[]; letFrame?: typeof requestAnimationFrame };
   page.heldFrames = [];
@@ -658,20 +594,12 @@ function holdFrames() {
   };
 }
 
-/** Lets the held frames go, in the order they were asked for. */
 function releaseFrames() {
   const page = window as unknown as { heldFrames: FrameRequestCallback[]; letFrame: typeof requestAnimationFrame };
   window.requestAnimationFrame = page.letFrame;
   for (const callback of page.heldFrames) page.letFrame(callback);
 }
 
-/**
- * Pastes the note into a page of its own, then sends every key of the run to the
- * browser at once, as a held key or a fast hand does, and reads the note and its selection
- * once the page has drawn and Ctrl+E has shown the source, where the text field
- * can be read. With `withViewSwitch` Ctrl+E goes with the keys. The harness's own keyboard waits for the page to
- * handle each key, which keeps two keys from sharing a frame.
- */
 async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, times: number, paced = false) {
   const browser = await chromium.launch();
   try {
@@ -681,7 +609,7 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
     await raw.getByLabel('Note text').click();
     const frames = () => raw.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const session = await context.newCDPSession(raw);
-    await session.send('Emulation.setCPUThrottlingRate', { rate: run.throttle ?? 4 });
+    await session.send('Emulation.setCPUThrottlingRate', { rate: run.cpuSlowdown ?? 4 });
     const found: Plain[] = [];
     for (let again = 0; again < times; again++) {
       if (again > 0) {
@@ -698,16 +626,16 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
         });
       }
       await raw.evaluate((text: string) => navigator.clipboard.writeText(text), run.body);
-      const holdAll = run.holdRedraw && !run.frameBeforeSteps && !paced;
+      const holdAll = run.holdFramesWhileSending && !run.frameBeforeSteps && !paced;
       if (holdAll) await raw.evaluate(holdFrames);
       await raw.keyboard.press('Control+v');
       const send = (keys: string[]) => Promise.all(keys.flatMap(keyEvents).map((event) => session.send('Input.dispatchKeyEvent', event as never)));
       const steps = run.steps.map(key);
       if (withViewSwitch) steps.push('Control+e');
       const held = async (keys: string[]) => {
-        if (run.holdRedraw && !holdAll) await raw.evaluate(holdFrames);
+        if (run.holdFramesWhileSending && !holdAll) await raw.evaluate(holdFrames);
         await send(keys);
-        if (run.holdRedraw) await raw.evaluate(releaseFrames);
+        if (run.holdFramesWhileSending) await raw.evaluate(releaseFrames);
       };
       if (paced) {
         for (const step of ['Control+Home', ...run.start.map(key), ...steps]) {
@@ -719,7 +647,7 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
         await raw.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
         await held(steps);
       } else {
-        if (run.stall) void raw.evaluate((ms: number) => { for (const from = performance.now(); performance.now() - from < ms; ); }, run.stall);
+        if (run.stallMs) void raw.evaluate((ms: number) => { for (const from = performance.now(); performance.now() - from < ms; ); }, run.stallMs);
         await held(['Control+Home', ...run.start.map(key), ...steps]);
       }
       await frames();
@@ -740,13 +668,13 @@ async function pressTogether(origin: string, run: Run, withViewSwitch: boolean, 
   }
 }
 
-const failingRuns = new Map<string, { paced?: string; held?: string; burst?: string; viewSwitch?: string }>();
+const failingRuns = new Map<string, { paced?: string; held?: string; sendAllAtOnce?: string; alsoWithViewSwitch?: string }>();
 
 for (const run of runs) {
   const pending = failingRuns.get(run.name);
   const lines = (value: string) => value.split('\n');
 
-  if (!run.burstOnly) test(`${run.name}, a key at a time, leaves the cursor and selection where a plain text field does`, async (fixtures) => {
+  if (!run.onlyAllAtOnce) test(`${run.name}, a key at a time, leaves the cursor and selection where a plain text field does`, async (fixtures) => {
     const editor = new Editing(fixtures);
     const plan = await runPlan(editor, run);
     if (pending?.paced) test.fail(pending.paced);
@@ -759,7 +687,7 @@ for (const run of runs) {
     for (const [index, step] of run.steps.entries()) {
       const name = key(step);
       await fixtures.browser.keyboard.press(name);
-      if (run.pace) await pause(run.pace);
+      if (run.paceMs) await pause(run.paceMs);
       const want = wants[index]!;
       const got = await look(editor, lines(want.value));
       if ('problem' in got) {
@@ -784,14 +712,12 @@ for (const run of runs) {
     expect(problems).toEqual([]);
   });
 
-  if (!run.burstOnly && !run.noHeld) test(`${run.name}, with no frame between the keys, ends where a plain text field does`, async (fixtures) => {
+  if (!run.onlyAllAtOnce && !run.skipHeldRun) test(`${run.name}, with no frame between the keys, ends where a plain text field does`, async (fixtures) => {
     const editor = new Editing(fixtures);
     const plan = await runPlan(editor, run);
     if (pending?.held) test.fail(pending.held);
     const wanted = wholePairs(run, plan.states).at(-1)!;
     const problems: string[] = [];
-    // A plain field does not wrap where the page does, so wrapped rows end
-    // where the same keys pressed a frame apart end.
     let paced: Look | null = null;
     if (run.follow === 'wrapped') {
       await begin(editor, run);
@@ -801,7 +727,7 @@ for (const run of runs) {
         paced = 'problem' in got ? null : got;
       }
     }
-    for (let again = 0; again < (run.repeat ?? 1); again++) {
+    for (let again = 0; again < (run.heldRepeats ?? 1); again++) {
       await begin(editor, run);
       for (const step of run.steps) await fixtures.browser.keyboard.press(key(step));
       const got = await look(editor, lines(wanted.value));
@@ -823,16 +749,16 @@ for (const run of runs) {
     expect(problems).toEqual([]);
   });
 
-  if (run.viewSwitch) {
+  if (run.alsoWithViewSwitch) {
     test(`${run.name}, then Ctrl+E in the same frame, ends where a plain text field does`, async (fixtures) => {
       const editor = new Editing(fixtures);
       const plan = await runPlan(editor, run);
-      if (pending?.viewSwitch) test.fail(pending.viewSwitch);
+      if (pending?.alsoWithViewSwitch) test.fail(pending.alsoWithViewSwitch);
       const wanted = plan.states.at(-1)!;
       await fixtures.app.open('/blank');
       const origin = new URL(await fixtures.browser.url()).origin;
       const problems: string[] = [];
-      for (const [again, got] of (await pressTogether(origin, run, true, run.repeat ?? 6)).entries()) {
+      for (const [again, got] of (await pressTogether(origin, run, true, run.heldRepeats ?? 6)).entries()) {
         const state = { anchor: got.anchor, head: got.head, x: NaN, y: NaN };
         if (got.value !== wanted.value) problems.push(`press ${again + 1}: the plain field holds ${JSON.stringify(wanted.value)}, the page ${JSON.stringify(got.value)}`);
         for (const problem of judge('plain field', wanted, state, NaN, 0)) problems.push(`press ${again + 1}: ${problem}`);
@@ -841,18 +767,18 @@ for (const run of runs) {
     });
   }
 
-  if (run.burst) {
-    const against = run.againstPaced ? 'the same keys pressed a frame apart do' : 'a plain text field does';
+  if (run.sendAllAtOnce) {
+    const against = run.compareToPacedPage ? 'the same keys pressed a frame apart do' : 'a plain text field does';
     test(`${run.name}, with the keys sent at once, ends where ${against}`, async (fixtures) => {
       const editor = new Editing(fixtures);
       const plan = await runPlan(editor, run);
-      if (pending?.burst) test.fail(pending.burst);
+      if (pending?.sendAllAtOnce) test.fail(pending.sendAllAtOnce);
       await fixtures.app.open('/blank');
       const origin = new URL(await fixtures.browser.url()).origin;
-      const wanted = run.againstPaced ? (await pressTogether(origin, run, false, 1, true))[0]! : plan.states.at(-1)!;
-      const field = run.againstPaced ? 'the page with a frame between the keys' : 'the plain field';
+      const wanted = run.compareToPacedPage ? (await pressTogether(origin, run, false, 1, true))[0]! : plan.states.at(-1)!;
+      const field = run.compareToPacedPage ? 'the page with a frame between the keys' : 'the plain field';
       const problems: string[] = [];
-      for (const [again, got] of (await pressTogether(origin, run, false, run.repeat ?? 6)).entries()) {
+      for (const [again, got] of (await pressTogether(origin, run, false, run.heldRepeats ?? 6)).entries()) {
         const state = { anchor: got.anchor, head: got.head, x: NaN, y: NaN };
         if (got.value !== wanted.value) problems.push(`press ${again + 1}: ${field} holds ${JSON.stringify(wanted.value)}, the page ${JSON.stringify(got.value)}`);
         for (const problem of judge('plain field', wanted, state, NaN, 0)) problems.push(`press ${again + 1}: ${problem}`);

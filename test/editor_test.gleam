@@ -250,7 +250,7 @@ pub fn an_arrow_after_an_aim_aims_again_on_the_line_beside_with_the_kept_column_
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Beside(up: False, select: False),
+        editor.LineInField(up: False, select: False),
         x: 0.0,
         shown: caret("", 0, 0),
       ),
@@ -509,7 +509,7 @@ pub fn escape_collapses_a_selection_across_blocks_to_its_head_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectToEnd,
+        editor.SelectToNoteEnd,
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -804,7 +804,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       caret("# Trip", 0, 3),
       move: editor.LineDown,
       select: True,
-      x: 12.5,
+      x: Some(12.5),
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 0, col: 3), Position(row: 0, col: 3))
@@ -824,7 +824,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       caret("- one", 0, 4),
       move: editor.LineUp,
       select: True,
-      x: 7.0,
+      x: Some(7.0),
     )
 }
 
@@ -844,13 +844,19 @@ pub fn an_arrow_up_or_down_stepped_on_the_drawn_page_moves_the_caret_test() {
       caret("- one", 0, 4),
       move: editor.LineDown,
       select: False,
-      x: 7.0,
+      x: Some(7.0),
     )
 
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 5, visible: "tw", at_end: False, next: "", x: 7.0),
+      editor.Stepped(
+        row: 5,
+        visible: "tw",
+        at_end: False,
+        next: "",
+        x: Some(7.0),
+      ),
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(row: 5, col: 4), Position(row: 5, col: 4))
@@ -867,8 +873,12 @@ pub fn an_arrow_up_on_the_first_row_steps_up_the_drawn_page_test() {
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndStep(move: editor.LineUp, select: False, x: 7.0, ..) =
-    sync
+  let assert editor.WriteAndStep(
+    move: editor.LineUp,
+    select: False,
+    x: Some(7.0),
+    ..,
+  ) = sync
 }
 
 pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
@@ -890,20 +900,26 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: True, next: "", x: 12.5),
+      editor.Stepped(row: 1, visible: "", at_end: True, next: "", x: Some(12.5)),
     )
   assert sync
     == editor.WriteAndStep(
       selected("# Trip\n", from: Position(0, 3), to: Position(1, 0)),
       move: editor.LineUp,
       select: True,
-      x: 12.5,
+      x: Some(12.5),
     )
 
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 0, visible: "Tr", at_end: False, next: "", x: 12.5),
+      editor.Stepped(
+        row: 0,
+        visible: "Tr",
+        at_end: False,
+        next: "",
+        x: Some(12.5),
+      ),
     )
   assert sync
     == editor.WriteAndAim(
@@ -939,18 +955,18 @@ pub fn the_keys_that_step_a_painted_head_ask_the_page_for_the_step_test() {
     editor.update(ed, editor.EdgePressed(edge, x: 3.0, shown:)).sync
   }
   assert asks(editor.SelectRight)
-    == editor.WriteAndStep(shown, move: editor.LetterOn, select: True, x: -1.0)
+    == editor.WriteAndStep(shown, move: editor.LetterOn, select: True, x: None)
   assert asks(editor.SelectLeft)
     == editor.WriteAndStep(
       shown,
       move: editor.LetterBack,
       select: True,
-      x: -1.0,
+      x: None,
     )
   assert asks(editor.SelectLineStart)
-    == editor.WriteAndStep(shown, move: editor.LineStart, select: True, x: -1.0)
+    == editor.WriteAndStep(shown, move: editor.LineStart, select: True, x: None)
   assert asks(editor.SelectLineEnd)
-    == editor.WriteAndStep(shown, move: editor.LineEnd, select: True, x: -1.0)
+    == editor.WriteAndStep(shown, move: editor.LineEnd, select: True, x: None)
 }
 
 pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through_them_test() {
@@ -976,7 +992,7 @@ pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through
   let step = fn(ed, visible, next) {
     editor.update(
       ed,
-      editor.Stepped(row: 4, visible:, at_end: False, next:, x: -1.0),
+      editor.Stepped(row: 4, visible:, at_end: False, next:, x: None),
     ).editor
   }
   let head = fn(ed) { buffer.cursor(editor.buffer(ed)) }
@@ -996,14 +1012,14 @@ pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through
   let ed =
     editor.update(
       ed,
-      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: -1.0),
+      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: None),
     ).editor
   assert head(ed) == Position(4, 1)
   let ed = press(ed, editor.SelectLeft)
   let ed =
     editor.update(
       ed,
-      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: -1.0),
+      editor.Stepped(row: 3, visible: "", at_end: False, next: "", x: None),
     ).editor
   assert head(ed) == Position(4, 0)
   let ed = press(ed, editor.SelectLeft)
@@ -1054,7 +1070,7 @@ pub fn a_line_step_with_nothing_drawn_past_the_head_stops_on_the_row_past_it_tes
       visible: "",
       at_end: True,
       next: "\n",
-      x: 9.0,
+      x: Some(9.0),
     ))
   let ed = up(ed.editor) |> editor.update(editor.SteppedPast)
   assert buffer.selection(editor.buffer(ed.editor))
@@ -1089,7 +1105,13 @@ pub fn a_press_escape_or_a_blur_ends_the_waiting_steps_test() {
   let Outcome(editor: late, sync:, ..) =
     editor.update(
       moved_on,
-      editor.Stepped(row: 5, visible: "tw", at_end: False, next: "", x: 0.0),
+      editor.Stepped(
+        row: 5,
+        visible: "tw",
+        at_end: False,
+        next: "",
+        x: Some(0.0),
+      ),
     )
   assert sync == editor.InSync
   assert late == moved_on
@@ -1114,7 +1136,13 @@ pub fn a_change_the_editor_did_not_write_ends_the_waiting_steps_test() {
   let Outcome(editor: late, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "Fli", at_end: False, next: "", x: 9.0),
+      editor.Stepped(
+        row: 2,
+        visible: "Fli",
+        at_end: False,
+        next: "",
+        x: Some(9.0),
+      ),
     )
   assert sync == editor.InSync
   assert late == ed
@@ -1181,7 +1209,7 @@ pub fn the_page_settles_the_head_a_key_moved_and_never_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.SelectToEnd, x: 0.0, shown: inside),
+      editor.EdgePressed(editor.SelectToNoteEnd, x: 0.0, shown: inside),
     )
   assert editor.is_painted(ed)
   let from = buffer.selection(editor.buffer(ed))
@@ -1227,7 +1255,13 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: False, next: "\n", x: 12.5),
+      editor.Stepped(
+        row: 1,
+        visible: "",
+        at_end: False,
+        next: "\n",
+        x: Some(12.5),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1241,7 +1275,13 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "Fli", at_end: False, next: "", x: 12.5),
+      editor.Stepped(
+        row: 2,
+        visible: "Fli",
+        at_end: False,
+        next: "",
+        x: Some(12.5),
+      ),
     )
 
   assert editor.region(ed) == Some(Region(0, 2))
@@ -1264,7 +1304,7 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
       shown:,
     ))
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.Unstepped(x: 9.0))
+    editor.update(ed, editor.Unstepped(x: Some(9.0)))
   assert sync == editor.Write(shown)
   let Outcome(sync:, ..) =
     editor.update(
@@ -1272,7 +1312,12 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
       editor.EdgePressed(editor.Line(up: False, select: True), x: 9.0, shown:),
     )
   assert sync
-    == editor.WriteAndStep(shown, move: editor.LineDown, select: True, x: 9.0)
+    == editor.WriteAndStep(
+      shown,
+      move: editor.LineDown,
+      select: True,
+      x: Some(9.0),
+    )
 }
 
 pub fn a_step_the_field_took_lets_the_steps_behind_it_go_test() {
@@ -1283,9 +1328,14 @@ pub fn a_step_the_field_took_lets_the_steps_behind_it_go_test() {
   let Outcome(editor: ed, ..) = editor.update(ed, down)
   let took = selected("# Trip", from: Position(0, 3), to: Position(0, 6))
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.FieldStepped(shown: took, x: 9.0))
+    editor.update(ed, editor.FieldStepped(shown: took, x: Some(9.0)))
   assert sync
-    == editor.WriteAndStep(took, move: editor.LineDown, select: True, x: 9.0)
+    == editor.WriteAndStep(
+      took,
+      move: editor.LineDown,
+      select: True,
+      x: Some(9.0),
+    )
   assert editor.buffer(ed)
     |> buffer.selection
     == #(Position(0, 3), Position(0, 6))
@@ -1303,7 +1353,7 @@ fn step_to(
     ed,
     editor.EdgePressed(editor.Line(up: False, select: True), x:, shown:),
   ).editor
-  |> editor.update(editor.Stepped(row:, visible:, at_end:, next: "", x:))
+  |> editor.update(editor.Stepped(row:, visible:, at_end:, next: "", x: Some(x)))
 }
 
 pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() {
@@ -1319,7 +1369,8 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
         shown: editor.field_buffer(ed.editor),
       ),
     )
-  let assert editor.WriteAndStep(_, move: editor.LineDown, x: 40.0, ..) = sync
+  let assert editor.WriteAndStep(_, move: editor.LineDown, x: Some(40.0), ..) =
+    sync
 
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1343,7 +1394,8 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
         shown: editor.field_buffer(ed),
       ),
     )
-  let assert editor.WriteAndStep(_, move: editor.LineUp, x: 3.0, ..) = sync
+  let assert editor.WriteAndStep(_, move: editor.LineUp, x: Some(3.0), ..) =
+    sync
 }
 
 pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
@@ -1409,7 +1461,7 @@ pub fn selecting_to_the_ends_of_the_note_keeps_the_anchor_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectToEnd,
+        editor.SelectToNoteEnd,
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -1422,7 +1474,7 @@ pub fn selecting_to_the_ends_of_the_note_keeps_the_anchor_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectToStart,
+        editor.SelectToNoteStart,
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -1616,19 +1668,23 @@ pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_t
     )
   assert editor.region(ed) == Some(Region(0, 1))
   assert editor.blocks(ed) == markdown.parse("~~wow~~\n-")
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 }
 
 pub fn moving_inside_a_block_never_changes_how_the_field_is_set_test() {
   let heading = "Hello\n-"
   let ed = live(heading)
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 
   let ed = show(ed, caret(heading, 1, 1))
   assert editor.region(ed) == Some(Region(0, 1))
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
   let ed = show(ed, caret(heading, 0, 2))
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 
   let table = "| a | b |\n|-|-|\n| 1 | 2 |"
   let ed = live(table)
@@ -1656,7 +1712,7 @@ pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
   let ed = live("top\n\n") |> point(2)
 
   assert editor.kind(show(ed, caret("# T", 0, 3)))
-    == Some(live.Title(level: markdown.H1, marks: "# "))
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
   assert editor.kind(show(ed, caret("- item", 0, 6)))
     == Some(live.ListItem(task: False, marker: "- "))
   assert editor.kind(show(ed, caret("```", 0, 3))) == Some(live.Mono)
@@ -1664,7 +1720,8 @@ pub fn a_block_typed_on_a_row_of_its_own_is_set_at_once_test() {
 
 pub fn a_row_that_joins_a_block_beyond_the_field_is_set_as_body_text_test() {
   let ed = live("# Title\ntext")
-  assert editor.kind(ed) == Some(live.Title(level: markdown.H1, marks: "# "))
+  assert editor.kind(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret("Title", 0, 0), at: 0))
@@ -1710,7 +1767,8 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
     editor.update(blurred, editor.FocusChanged(True))
   assert sync == editor.Write(caret("Hello\n-", 1, 1))
   assert editor.region(back) == Some(Region(0, 1))
-  assert editor.kind(back) == Some(live.Title(level: markdown.H2, marks: ""))
+  assert editor.kind(back)
+    == Some(live.Title(level: markdown.H2, typed_marks: ""))
 
   let Outcome(editor: escaped, sync:, ..) =
     editor.update(ed, editor.EscapePressed(shown: caret("-", 0, 1)))
@@ -1940,7 +1998,13 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: False, next: "\n", x: 0.0),
+      editor.Stepped(
+        row: 1,
+        visible: "",
+        at_end: False,
+        next: "\n",
+        x: Some(0.0),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1954,7 +2018,7 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: 0.0),
+      editor.Stepped(row: 2, visible: "", at_end: False, next: "", x: Some(0.0)),
     )
   assert editor.region(ed) == Some(Region(0, 2))
 
@@ -1985,7 +2049,11 @@ pub fn a_key_the_browser_acts_on_widens_the_field_to_the_note_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Widen, x: 0.0, shown: caret("bravo two", 0, 0)),
+      editor.EdgePressed(
+        editor.WidenToNote,
+        x: 0.0,
+        shown: caret("bravo two", 0, 0),
+      ),
     )
   assert sync == editor.WriteAndRead(caret(note, 2, 0))
   assert editor.region(ed) == Some(Region(0, 2))
@@ -2004,16 +2072,18 @@ pub fn an_arrow_past_the_rows_the_field_holds_moves_one_character_without_the_no
     editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
   }
   let Outcome(editor: ed, sync:, ..) =
-    edge(pressed(note, 2, ""), editor.Before, caret("bravo two", 0, 0))
+    edge(pressed(note, 2, ""), editor.OntoRowBefore, caret("bravo two", 0, 0))
   assert sync == editor.Write(caret("", 0, 0))
   assert editor.region(ed) == Some(Region(1, 1))
   assert !editor.is_painted(ed)
 
-  let Outcome(editor: ed, sync:, ..) = edge(ed, editor.After, caret("", 0, 0))
+  let Outcome(editor: ed, sync:, ..) =
+    edge(ed, editor.OntoRowAfter, caret("", 0, 0))
   assert sync == editor.Write(caret("bravo two", 0, 0))
   assert editor.region(ed) == Some(Region(2, 2))
 
-  let Outcome(sync:, ..) = edge(ed, editor.After, caret("bravo two", 0, 9))
+  let Outcome(sync:, ..) =
+    edge(ed, editor.OntoRowAfter, caret("bravo two", 0, 9))
   assert sync == editor.InSync
 }
 
@@ -2023,13 +2093,17 @@ pub fn ctrl_and_home_or_end_goes_to_the_ends_of_the_note_without_the_note_test()
     editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
   }
   let Outcome(editor: ed, sync:, ..) =
-    edge(pressed(note, 2, "bravo"), editor.ToStart, caret("bravo two", 0, 5))
+    edge(
+      pressed(note, 2, "bravo"),
+      editor.ToNoteStart,
+      caret("bravo two", 0, 5),
+    )
   assert sync == editor.Write(caret("alpha one", 0, 0))
   assert editor.region(ed) == Some(Region(0, 0))
   assert !editor.is_painted(ed)
 
   let Outcome(editor: ed, sync:, ..) =
-    edge(ed, editor.ToEnd, caret("alpha one", 0, 0))
+    edge(ed, editor.ToNoteEnd, caret("alpha one", 0, 0))
   assert sync == editor.Write(caret("bravo two", 0, 9))
   assert editor.region(ed) == Some(Region(2, 2))
 }
@@ -2038,7 +2112,10 @@ pub fn ctrl_and_an_arrow_aims_at_the_runs_column_on_the_row_above_or_below_test(
   let note = "alpha one\n\nbravo two\ncharlie"
   let ed = pressed(note, 2, "")
   let row = fn(ed, up, select, shown) {
-    editor.update(ed, editor.EdgePressed(editor.Row(up:, select:), 30.0, shown))
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.NextRow(up:, select:), 30.0, shown),
+    )
   }
   let Outcome(sync:, ..) =
     row(ed, True, False, caret("bravo two\ncharlie", 1, 7))
@@ -2071,7 +2148,7 @@ pub fn ctrl_and_an_arrow_on_a_selection_moves_from_its_head_test() {
     let shown = selected(note, from, to)
     editor.update(
       ed,
-      editor.EdgePressed(editor.Row(up:, select: False), 30.0, shown),
+      editor.EdgePressed(editor.NextRow(up:, select: False), 30.0, shown),
     )
   }
   let Outcome(sync:, ..) = row(True, Position(0, 2), Position(2, 3))
@@ -2099,7 +2176,7 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Row(up: True, select: False),
+        editor.NextRow(up: True, select: False),
         x: 60.0,
         shown: caret(note, 2, 9),
       ),
@@ -2110,7 +2187,7 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Row(up: True, select: False),
+        editor.NextRow(up: True, select: False),
         x: 12.0,
         shown: caret(note, 1, 2),
       ),
@@ -2118,8 +2195,6 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
   let assert editor.WriteAndAim(x: 60.0, line: editor.LastLine, ..) = sync
 }
 
-/// A run down a note of three blocks, the caret aimed at `x` 40 on the
-/// blank row below the first.
 fn run_down(note: String) -> Editor {
   let ed = pressed(note, 0, "")
   let Outcome(editor: ed, ..) =
@@ -2194,7 +2269,7 @@ pub fn a_key_that_moves_across_ends_the_run_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Widen, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.WidenToNote, x: 0.0, shown: caret("", 0, 0)),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -2229,7 +2304,7 @@ pub fn a_key_that_moves_nothing_keeps_the_run_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Widen, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.WidenToNote, x: 0.0, shown: caret("", 0, 0)),
     )
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret(note, 1, 0), at: 0))
@@ -2283,7 +2358,7 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
         visible: "alpha one\nbrav",
         at_end: False,
         next: "",
-        x: 40.0,
+        x: Some(40.0),
       ),
     )
   let Outcome(editor: ed, ..) =
@@ -2312,10 +2387,10 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
         visible: "alpha one\nbra",
         at_end: False,
         next: "v",
-        x: 0.0,
+        x: Some(0.0),
       ),
     )
-  let assert editor.WriteAndStep(move: editor.LineUp, x: -1.0, ..) = sync
+  let assert editor.WriteAndStep(move: editor.LineUp, x: None, ..) = sync
 }
 
 pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
@@ -2331,12 +2406,15 @@ pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
       ),
     )
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.FieldStepped(shown: caret(note, 1, 4), x: 40.0))
+    editor.update(
+      ed,
+      editor.FieldStepped(shown: caret(note, 1, 4), x: Some(40.0)),
+    )
   let Outcome(sync:, ..) =
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Beside(up: True, select: False),
+        editor.LineInField(up: True, select: False),
         x: 3.0,
         shown: editor.field_buffer(ed),
       ),
@@ -2357,10 +2435,13 @@ pub fn a_run_from_the_start_of_a_row_lands_at_the_start_of_rows_test() {
           shown: caret(note, 0, col),
         ),
       )
-    let before = editor.from_row_start(ed)
+    let before = editor.run_started_at_row_start(ed)
     let Outcome(editor: ed, ..) =
-      editor.update(ed, editor.FieldStepped(shown: caret(note, 1, col), x: 0.0))
-    #(before, editor.from_row_start(ed))
+      editor.update(
+        ed,
+        editor.FieldStepped(shown: caret(note, 1, col), x: Some(0.0)),
+      )
+    #(before, editor.run_started_at_row_start(ed))
   }
   assert run(0) == #(True, True)
   assert run(4) == #(False, False)
@@ -2381,13 +2462,19 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "", at_end: False, next: "", x: 40.0),
+      editor.Stepped(
+        row: 1,
+        visible: "",
+        at_end: False,
+        next: "",
+        x: Some(40.0),
+      ),
     )
   let Outcome(sync:, ..) =
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Beside(up: True, select: False),
+        editor.LineInField(up: True, select: False),
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -2395,7 +2482,7 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
   let assert editor.WriteAndStep(
     move: editor.LineUp,
     select: False,
-    x: 40.0,
+    x: Some(40.0),
     ..,
   ) = sync
 }
@@ -2415,7 +2502,13 @@ pub fn a_step_that_lands_in_the_field_is_aimed_on_the_line_it_reached_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.Stepped(row: 1, visible: "brav", at_end: False, next: "", x: 40.0),
+      editor.Stepped(
+        row: 1,
+        visible: "brav",
+        at_end: False,
+        next: "",
+        x: Some(40.0),
+      ),
     )
   assert sync
     == editor.WriteAndAim(
@@ -2463,11 +2556,11 @@ pub fn a_page_key_goes_from_the_start_or_end_of_a_selection_and_keeps_it_with_no
   }
   let selection = fn(ed) { buffer.selection(editor.buffer(ed)) }
   let up = page(True, Position(0, 0), Position(0, 2))
-  assert editor.step_start(up) == Position(0, 0)
+  assert editor.step_origin(up) == Position(0, 0)
   let Outcome(editor: up, ..) = editor.update(up, editor.SteppedPast)
   assert selection(up) == #(Position(0, 0), Position(0, 2))
   let down = page(False, Position(1, 3), Position(0, 2))
-  assert editor.step_start(down) == Position(1, 3)
+  assert editor.step_origin(down) == Position(1, 3)
   let Outcome(editor: down, ..) = editor.update(down, editor.SteppedPast)
   assert selection(down) == #(Position(1, 5), Position(1, 5))
   let up = page(True, Position(0, 1), Position(0, 3))
@@ -2508,7 +2601,7 @@ pub fn a_line_step_onto_a_fence_takes_the_runs_column_test() {
       )
     editor.update(
       ed,
-      editor.Stepped(row:, visible: "", at_end: False, next:, x: 20.0),
+      editor.Stepped(row:, visible: "", at_end: False, next:, x: Some(20.0)),
     )
   }
   let Outcome(editor: ed, ..) = down(ed, 1, "")
@@ -2535,7 +2628,7 @@ pub fn a_run_begun_by_a_step_in_the_frame_of_a_press_keeps_the_column_from_befor
   let stepped = fn(ed, row, visible, at_end) {
     editor.update(
       ed,
-      editor.Stepped(row:, visible:, at_end:, next: "", x: 40.0),
+      editor.Stepped(row:, visible:, at_end:, next: "", x: Some(40.0)),
     )
   }
   let Outcome(editor: ed, ..) = down(ed, -1.0) |> stepped(1, "xy", True)
@@ -2566,7 +2659,13 @@ pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
     let Outcome(editor: ed, ..) =
       editor.update(
         ed,
-        editor.Stepped(row: 3, visible: "", at_end: False, next: "c", x: 0.0),
+        editor.Stepped(
+          row: 3,
+          visible: "",
+          at_end: False,
+          next: "c",
+          x: Some(0.0),
+        ),
       )
     buffer.selection(editor.buffer(ed))
   }
@@ -2596,6 +2695,136 @@ pub fn a_second_press_selects_the_word_the_first_put_the_caret_in_test() {
   let assert editor.Press(write: Some(_), x: 90.0, y: 40.0) = sync
   assert buffer.selection(editor.buffer(second(-1, "").editor))
     == #(Position(row: 2, col: 6), Position(row: 2, col: 11))
+}
+
+pub fn a_heading_typed_on_a_row_is_framed_as_that_heading_at_once_test() {
+  let ed = live("top\n\nHello\n\nbelow") |> point(2)
+  assert editor.frame(ed) == Some(live.Body)
+
+  let marks = show(ed, caret("# Hello", 0, 2))
+  assert editor.kind(marks)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+  assert editor.frame(marks)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+  assert editor.blocks(marks) == editor.blocks(ed)
+
+  let more = show(ed, caret("### Hello", 0, 4))
+  assert editor.frame(more)
+    == Some(live.Title(level: markdown.H3, typed_marks: "### "))
+
+  let bare = show(ed, caret("#Hello", 0, 1))
+  assert editor.frame(bare) == Some(live.Body)
+}
+
+pub fn a_heading_typed_in_an_item_or_a_quote_is_framed_as_that_heading_at_once_test() {
+  let item = live("top\n\nHello\n\nbelow") |> point(2)
+  let marks = show(item, caret("- # Hello", 0, 4))
+  assert editor.kind(marks) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+  assert editor.frame(marks) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+  assert editor.blocks(marks) == editor.blocks(item)
+
+  let bare = show(item, caret("- #Hello", 0, 3))
+  assert editor.kind(bare) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(bare) == Some(live.Body)
+
+  let quote = show(item, caret("> ## Hello", 0, 5))
+  assert editor.kind(quote)
+    == Some(live.QuoteTitle(markdown.H2, in_item: False))
+  assert editor.frame(quote)
+    == Some(live.QuoteTitle(markdown.H2, in_item: False))
+
+  let nested = show(item, caret("- - # Hello", 0, 6))
+  assert editor.frame(nested) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+
+  let quoted = show(item, caret("> - # Hello", 0, 6))
+  assert editor.frame(quoted)
+    == Some(live.QuoteTitle(markdown.H1, in_item: True))
+}
+
+pub fn the_marks_of_a_heading_in_an_item_or_a_quote_removed_frame_the_row_at_once_test() {
+  let item = live("- # Hello\n\nbelow")
+  assert editor.frame(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+  let removed = show(item, caret("- Hello", 0, 2))
+  assert editor.frame(removed) == Some(live.ListItem(task: False, marker: "- "))
+
+  let quote = live("> # Hello\n\nbelow")
+  assert editor.frame(quote)
+    == Some(live.QuoteTitle(markdown.H1, in_item: False))
+  let removed = show(quote, caret("> Hello", 0, 2))
+  assert editor.frame(removed) == Some(live.Body)
+}
+
+pub fn a_heading_with_no_text_is_set_and_framed_as_a_heading_test() {
+  let ed = live("top\n\n\n\nbelow") |> point(2)
+  let marks = show(ed, caret("#", 0, 1))
+  assert editor.kind(marks)
+    == Some(live.Title(level: markdown.H1, typed_marks: "#"))
+  assert editor.frame(marks)
+    == Some(live.Title(level: markdown.H1, typed_marks: "#"))
+
+  let spaced = show(ed, caret("# ", 0, 2))
+  assert editor.kind(spaced)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+  assert editor.frame(spaced)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+
+  let item = show(ed, caret("- #", 0, 3))
+  assert editor.kind(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+  assert editor.frame(item) == Some(live.ItemTitle(markdown.H1, marker: "- "))
+
+  let quote = show(ed, caret("> ## ", 0, 5))
+  assert editor.kind(quote)
+    == Some(live.QuoteTitle(markdown.H2, in_item: False))
+  assert editor.frame(quote)
+    == Some(live.QuoteTitle(markdown.H2, in_item: False))
+
+  let laid_out = live("# \n\nbelow")
+  assert editor.kind(laid_out)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+  assert editor.frame(laid_out)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+}
+
+pub fn a_heading_whose_text_is_removed_stays_a_heading_test() {
+  let ed = live("# T\n\nbelow")
+  assert editor.frame(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+  let emptied = show(ed, caret("# ", 0, 2))
+  assert editor.kind(emptied)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+  assert editor.frame(emptied)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+}
+
+pub fn a_setext_heading_in_an_item_or_a_quote_is_set_as_that_item_or_quote_test() {
+  let item = live("- Hello\n  ===\n\nbelow")
+  assert editor.region(item) == Some(Region(0, 1))
+  assert editor.kind(item) == Some(live.ListItem(task: False, marker: "- "))
+  assert editor.frame(item) == Some(live.ListItem(task: False, marker: "- "))
+
+  let quote = live("> Hello\n> ---\n\nbelow")
+  assert editor.region(quote) == Some(Region(0, 1))
+  assert editor.kind(quote) == Some(live.Body)
+  assert editor.frame(quote) == Some(live.Body)
+}
+
+pub fn the_marks_of_a_heading_removed_frame_the_row_as_body_text_at_once_test() {
+  let ed = live("# Hello\n\nbelow")
+  assert editor.frame(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
+
+  let removed = show(ed, caret("Hello", 0, 0))
+  assert editor.kind(removed) == Some(live.Body)
+  assert editor.frame(removed) == Some(live.Body)
+}
+
+pub fn an_underline_typed_under_a_line_leaves_that_line_framed_as_it_was_test() {
+  let ed = live("Hello") |> show(caret("Hello\n", 1, 0))
+  let ed = show(ed, caret("-", 0, 1))
+  assert editor.region(ed) == Some(Region(1, 1))
+  assert editor.kind(ed) == Some(live.Body)
+  assert editor.frame(ed) == Some(live.Body)
+  assert editor.blocks(ed) == markdown.parse("Hello")
 }
 
 pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {
@@ -2666,7 +2895,8 @@ pub fn nothing_is_dropped_in_vim_normal_mode_test() {
 pub fn a_selection_reaching_another_row_lays_out_the_row_typed_as_another_block_test() {
   let ed = live("- a\n- b") |> point(1) |> show(caret("# b", 0, 3))
   assert editor.region(ed) == Some(Region(1, 1))
-  let assert Some(live.ListItem(..)) = editor.frame(ed)
+  assert editor.frame(ed)
+    == Some(live.Title(level: markdown.H1, typed_marks: "# "))
 
   let Outcome(editor: ed, ..) =
     editor.update(

@@ -171,8 +171,6 @@ test('keys typed before any note opens reach the field', async ({ app, browser, 
   await disk.fail();
   await app.open('/');
   await expect(page.problem).toHaveText(notWorking);
-  // A key the field hears before any event that changed the app, which no
-  // person can press, since the field is focused first.
   await browser.evaluate(() => {
     const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
     field.dispatchEvent(

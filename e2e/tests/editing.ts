@@ -7,14 +7,12 @@ import { cursorProblem, fast, selectionOf } from './guards.ts';
 import type { Disk, Page } from './nullpad.ts';
 
 /** Where a person aims the pointer: the gap before character `at` of the first `word` drawn on the page. */
-/** The gap before letter `at` of `word`, on source row `row` when the word is not unique in the note. */
 export type Spot = { word: string; at: number; row?: number };
 
 export type Fixtures = { app: App; browser: Browser; disk: Disk; page: Page };
 
 export const ctrl = (key: string) => `ControlOrMeta+${key}`;
 
-/** The offset of `spot` in `note`. A word that is not unique in the note, or in its row, cannot be aimed at. */
 export function offsetOf(note: string, spot: Spot) {
   if (spot.row === undefined) {
     expect(note.split(spot.word).length - 1, `"${spot.word}" appears once in the note`).toBe(1);
@@ -47,10 +45,6 @@ function centreOf(spot: Spot) {
   return null;
 }
 
-/**
- * The note as the page shows it: the part drawn above the text field, the
- * field while it is in sight, and the part drawn below.
- */
 function shownInPage() {
   const sheet = document.querySelector('.page')!;
   const rows = (part: Element | null) => (part ? [...part.children].map((row) => row.textContent ?? '') : []);
@@ -70,11 +64,6 @@ export class Editing {
 
   constructor(readonly fixtures: Fixtures) {}
 
-  /**
-   * Seeds the note and leaves the browser on a blank page, where `plainField`
-   * can run. The page opens with Markdown on, as it does the first time, so
-   * `show` can be called again and again.
-   */
   async seed(body: string) {
     await this.fixtures.app.open('/blank');
     for (const { key } of await this.fixtures.disk.notes()) await this.fixtures.disk.remove(key);
@@ -100,7 +89,6 @@ export class Editing {
     await this.show(body);
   }
 
-  /** A plain text field on the blank page, holding `body`, with `start` to `end` selected. */
   private async putPlainField(body: string, start: number, end: number) {
     await this.fixtures.browser.evaluate(
       (put: { body: string; start: number; end: number }) => {
@@ -134,12 +122,6 @@ export class Editing {
     });
   }
 
-  /**
-   * What `plainField` answers, from a plain text field set as the page sets a
-   * paragraph: in the page's body type, as wide as the page's text and wrapped
-   * there, so that its columns are where the page draws them. Runs in the page
-   * view, over the note, and gives the focus back to the note's field.
-   */
   async pageField(body: string, start: number, keys: string[], typed: string) {
     const { browser } = this.fixtures;
     await browser.evaluate(
@@ -170,12 +152,6 @@ export class Editing {
     });
   }
 
-  /**
-   * What a plain text field holding `body` ends with when `key` is pressed
-   * with the caret at `start`, or with `start` to `end` selected: its text and
-   * the two ends of its selection as offsets, `head` being the end that moves.
-   * Runs on the blank page.
-   */
   async plainKey(body: string, start: number, key: string, end = start) {
     const { browser } = this.fixtures;
     await this.putPlainField(body, start, end);
@@ -219,12 +195,6 @@ export class Editing {
     return box!;
   }
 
-  /**
-   * Waits for the page to draw what was just done, and checks that the cursor
-   * can be seen. A test fails, after it has run on, for each of the first few
-   * actions after which it cannot. The fast mode waits for nothing and looks
-   * only where a guard asserts something.
-   */
   async settle(after: string) {
     if (fast) return;
     await this.fixtures.page.nextFrame();
@@ -256,7 +226,6 @@ export class Editing {
     await this.settle(`a click on "${spot.word}"`);
   }
 
-  /** A click that waits for nothing, so that the next key can come in the same frame. */
   async clickNow(spot: Spot) {
     const { x, y } = await this.point(spot);
     await this.pointerAt(x, y);
@@ -286,13 +255,11 @@ export class Editing {
     await this.settle(`a drag from "${from.word}" to "${to.word}"`);
   }
 
-  /** Clicks a control outside the note, which takes the focus, so until the note has it again there is no cursor to look at. */
   async focusElsewhere(control: Locator) {
     this.blurred = true;
     await control.click();
   }
 
-  /** Escape leaves the text field, so after it there is no cursor to look at. */
   async press(...keys: string[]) {
     for (const key of keys) {
       this.blurred = key === 'Escape';
@@ -302,7 +269,6 @@ export class Editing {
     }
   }
 
-  /** A word at a time, so that the cursor is looked at as the text grows. */
   async type(text: string) {
     this.blurred = false;
     if (fast) return this.fixtures.browser.keyboard.type(text);
@@ -328,7 +294,6 @@ export class Editing {
     return note!.body;
   }
 
-  /** What the note changed last is, as saved. */
   async savedNewest() {
     const notes = await this.fixtures.disk.notes();
     return notes.at(-1)!.body;
@@ -350,7 +315,6 @@ export class Editing {
     return this.fixtures.browser.evaluate(shownInPage);
   }
 
-  /** Where the caret is, from the page alone: the start of the selection. `note` is what the page shows. */
   async caret(note: string) {
     await this.fixtures.page.nextFrame();
     if (fast) await this.seeCursor('the keys pressed');
@@ -371,7 +335,6 @@ export class Editing {
     }, text);
   }
 
-  /** Whether the cursor can be seen, as `cursorProblem` judges it. */
   async cursorInView() {
     await this.fixtures.page.nextFrame();
     return (await cursorProblem(this.fixtures.browser, 'now')) === null;
@@ -420,7 +383,6 @@ export async function withRawPage(origin: string, body: string, run: (page: RawP
   }
 }
 
-/** One double click on a spot, as a hand makes it: two presses, the second counted as the second of a series. */
 export async function doubleClick(page: RawPage, spot: Spot) {
   const at = await page.evaluate(centreOf, spot);
   if (!at) throw new Error(`"${spot.word}" is not drawn on the page`);
@@ -428,11 +390,6 @@ export async function doubleClick(page: RawPage, spot: Spot) {
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 }
 
-/**
- * A quick series of presses on one spot: what a double or triple click is.
- * Each press is counted as the next of the series, as a hand's are. A hand
- * takes some time between two presses, so the fast mode keeps that wait.
- */
 export async function clickSeries(page: RawPage, spot: Spot, count: number) {
   const at = await page.evaluate(centreOf, spot);
   if (!at) throw new Error(`"${spot.word}" is not drawn on the page`);

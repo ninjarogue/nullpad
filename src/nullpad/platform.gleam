@@ -42,12 +42,9 @@ pub fn has_hardware_keyboard() -> Bool
 @external(javascript, "./platform.ffi.mjs", "canPaint")
 pub fn can_paint() -> Bool
 
-/// Whether the browser runs on an Apple device, where Cmd and Option move
-/// the caret by lines and words.
 @external(javascript, "./platform.ffi.mjs", "isApple")
 pub fn is_apple() -> Bool
 
-/// Whether the browser runs on Windows, where Ctrl with Alt is AltGr.
 @external(javascript, "./platform.ffi.mjs", "isWindows")
 pub fn is_windows() -> Bool
 

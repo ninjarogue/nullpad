@@ -364,6 +364,13 @@ export class Page {
     return this.browser.evaluate(() => document.querySelector('.page')!.scrollTop);
   }
 
+  sizesOf(selector: string) {
+    return this.browser.evaluate((selector: string) => {
+      const style = getComputedStyle(document.querySelector(selector)!);
+      return { size: style.fontSize, line: style.lineHeight };
+    }, selector);
+  }
+
   /** Where the text field is in the window. */
   fieldBox() {
     return this.browser.evaluate(() => {
@@ -392,16 +399,12 @@ export class Page {
         range.setStart(text, at);
         range.setEnd(text, at + word.length);
         const box = range.getClientRects()[0];
-        return { left: box.left, top: box.top - sheet.getBoundingClientRect().top + sheet.scrollTop };
+        return { left: box.left, right: box.right, top: box.top - sheet.getBoundingClientRect().top + sheet.scrollTop };
       }
       return null;
     }, word);
   }
 
-  /**
-   * Runs `act` while the page draws nothing, as on a device too busy to draw
-   * between two events. Then lets it draw. `act` must not wait for a frame.
-   */
   async beforeRedraw(act: () => Promise<void>) {
     await this.nextFrame();
     await this.browser.evaluate(() => {
@@ -422,14 +425,12 @@ export class Page {
     await this.nextFrame();
   }
 
-  /** Presses `keys` one after another while the page draws nothing. */
   pressBeforeRedraw(...keys: string[]) {
     return this.beforeRedraw(async () => {
       for (const key of keys) await this.browser.keyboard.press(key);
     });
   }
 
-  /** The middle of the note's row in the list, in the window. */
   rowCentre(title: string) {
     return this.browser.evaluate((title: string) => {
       const row = [...document.querySelectorAll('[data-test-id="note-list"] [data-test-id^="note-"]')].find(

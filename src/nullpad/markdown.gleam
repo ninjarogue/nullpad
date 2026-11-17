@@ -23,7 +23,10 @@ pub type Block {
 }
 
 pub type Content {
-  Heading(level: Level, text: List(Inline))
+  /// `marks` is what comes before the words on the row of an ATX heading
+  /// (its indent, its `#`s and the spaces after them), and empty for a
+  /// setext heading.
+  Heading(level: Level, text: List(Inline), marks: String)
   /// A line break between source lines stays in the text as "\n" (a soft
   /// break). The page shows it as a line break.
   Paragraph(text: List(Inline))
@@ -335,7 +338,7 @@ type Start {
   QuoteStart(rest: Line)
   NextItem(width: Int, rest: Line)
   ListStart(marker: Marker, number: Int, width: Int, rest: Line)
-  HeadingStart(level: Level, text: List(String))
+  HeadingStart(level: Level, text: List(String), marks: String)
   RuleStart
   FenceStart(fence: String, length: Int, indent: Int, language: Option(String))
   CodeStart(rest: Line)
@@ -382,7 +385,7 @@ fn continue_leaf(open: Open, line: Line) -> Open {
     ParagraphLeaf(first_row:, lines:, ..), text if line.indent < 4 ->
       case setext_level(text) {
         Ok(level) -> {
-          let heading = Heading(level, inlines(paragraph_text(lines)))
+          let heading = Heading(level, inlines(paragraph_text(lines)), "")
           Open(..open, leaf: NoLeaf)
           |> push_block(Block(first_row, line.row, heading))
         }
@@ -482,9 +485,9 @@ fn start_blocks(open: Open, matched: Int, line: Line) -> Open {
       ))
       |> start_blocks(matched + 1, rest)
     }
-    HeadingStart(level, text), _ ->
+    HeadingStart(level, text, marks), _ ->
       close_to(open, matched, row)
-      |> push_block(Block(row, row, Heading(level, inlines(text))))
+      |> push_block(Block(row, row, Heading(level, inlines(text), marks)))
     RuleStart, _ ->
       close_to(open, matched, row) |> push_block(Block(row, row, Rule))
     FenceStart(fence, length, indent, language), _ ->
@@ -515,7 +518,13 @@ fn start_text(open: Open, matched: Int, line: Line) -> Start {
     [">", ..] if matched < max_block_depth -> QuoteStart(after_quote_mark(line))
     ["#", ..] as text ->
       case heading(text) {
-        Ok(#(level, text)) -> HeadingStart(level, text)
+        Ok(#(level, content)) -> {
+          let #(marks, after_marks) =
+            list.split_while(text, fn(char) { char == "#" })
+          let #(spaces, _) = list.split_while(after_marks, is_space_or_tab)
+          let marks = string.concat(list.flatten([line.margin, marks, spaces]))
+          HeadingStart(level, content, marks)
+        }
         Error(Nil) -> TextLine
       }
     ["`", ..] as text | ["~", ..] as text ->
@@ -919,9 +928,7 @@ fn heading(line: List(String)) -> Result(#(Level, List(String)), Nil) {
   }
 }
 
-/// The marks that start a heading of one row, with the spaces around them,
-/// such as "## " in "## Title", or "" when `line` starts no such heading.
-pub fn heading_marks(line: String) -> String {
+pub fn atx_heading_prefix(line: String) -> String {
   let chars = string.to_graphemes(line)
   let #(indent, text) = list.split_while(chars, fn(char) { char == " " })
   let #(marks, after_marks) = list.split_while(text, fn(char) { char == "#" })

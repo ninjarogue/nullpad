@@ -16,7 +16,7 @@ pub fn html(blocks: List(Block)) -> String {
 
 fn block(block: Block) -> String {
   case block.content {
-    Heading(level:, text:) -> {
+    Heading(level:, text:, ..) -> {
       let name = heading_tag(level)
       element(name, [], inlines(text)) <> "\n"
     }

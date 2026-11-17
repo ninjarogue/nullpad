@@ -5,24 +5,7 @@ import type { Box } from './guards.ts';
 import { test } from './nullpad.ts';
 import { everyKind } from './stability.ts';
 
-/**
- * Did the word move when I clicked? A click on a drawn word opens its block
- * in the text field, and the word under the pointer has to stay under the
- * pointer: a double click lands its second click where the first one was, and
- * a hand does not follow a word that jumps away. Every word of every sample is
- * clicked, with the whole note drawn each time, and the word's box is
- * measured before the click and in the text field after it. Words of links are
- * not clicked, because a click on a link follows the link.
- *
- * The same words are then double clicked, which must select the word, and
- * pressed with a hand that moves a pixel or two before it lets go, which must
- * select nothing.
- *
- * Every word of a sample appears once in its note, so that it can be found by
- * its text, and `draws` names the kinds of block and mark the sample draws.
- */
-
-type Sample = { name: string; draws: string[]; note: string };
+type Sample = { name: string; draws: string[]; note: string; revealMoves?: true };
 
 const samples: Sample[] = [
   {
@@ -35,6 +18,7 @@ const samples: Sample[] = [
   },
   {
     name: 'paragraphs and inline marks',
+    revealMoves: true,
     draws: ['p', 'strong', 'em', ':not(pre) > code', 'a', 'del'],
     note: [
       'quail rat **seal toad** urial *vole wolf* xerus `yak zebra` [bat cat](http://x.y) ~~emu fig~~ gull', '',
@@ -43,16 +27,19 @@ const samples: Sample[] = [
   },
   {
     name: 'lists',
+    revealMoves: true,
     draws: ['ul', 'ol', 'li.task'],
     note: ['- mule nene', '- oryx panda', '  - quokka rhea', '', '1. sable tapir', '2. uguisu vervet', '', '- [ ] wombat xenops', '- [x] yapok zorilla'].join('\n'),
   },
   {
     name: 'quotes and code',
+    revealMoves: true,
     draws: ['blockquote', 'pre'],
     note: ['> aphid beetle', '> cicada dingo', '', '```', 'egret finch', 'gecko heron', '```', '', '    impala jackal'].join('\n'),
   },
   {
     name: 'tables and rules',
+    revealMoves: true,
     draws: ['table', 'hr'],
     note: ['| koala | llama |', '|-------|-------|', '| magpie | numbat |', '| ocelot | possum |', '', '---', '', 'raven stoat'].join('\n'),
   },
@@ -60,7 +47,6 @@ const samples: Sample[] = [
 
 const near = (box: Box) => `${box.left.toFixed(1)}, ${box.top.toFixed(1)}`;
 
-/** Draws the whole note and lists the words that can be clicked. */
 async function drawWholeNote(editor: Editing, sample: Sample) {
   const { browser, page } = editor.fixtures;
   await editor.open(sample.note);
@@ -73,11 +59,11 @@ async function drawWholeNote(editor: Editing, sample: Sample) {
   return { words, links };
 }
 
-/** Whether a click shows the marks it reveals, and so moves the words after them, waits on a decision about how hidden marks reveal. */
 const pendingReveal = 'pending the decision on how hidden marks reveal on a click';
 
 for (const sample of samples) {
-  test(`a click on a word in ${sample.name} leaves the word where it was`, { skip: pendingReveal }, async (fixtures) => {
+  test(`a click on a word in ${sample.name} leaves the word where it was`, async (fixtures) => {
+    if (sample.revealMoves) test.fail(pendingReveal);
     const editor = new Editing(fixtures);
     const { browser, page } = fixtures;
     const { words } = await drawWholeNote(editor, sample);
@@ -182,11 +168,6 @@ test('the samples between them draw every kind of block and inline the parser ma
   expect(everyKind.filter((kind) => !claimed.has(kind))).toEqual([]);
 });
 
-/**
- * A heading in the field hangs its marks left of its words, as far as the
- * margin lets them, so its words wrap where the page draws them. A click on a
- * heading that wraps over lines leaves every word of it where it was drawn.
- */
 for (const marks of ['#', '###', '######']) {
   test(`a click on a heading of "${marks}" that wraps over lines leaves its words where the page drew them`, async (fixtures) => {
     const { browser, page } = fixtures;

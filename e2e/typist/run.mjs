@@ -1,15 +1,3 @@
-// Robot typist: random key scripts typed into a plain textarea and into nullpad in real
-// Chromium. Any difference in text, cursor or selection is a bug, shrunk to a short script.
-//
-//   node typist/run.mjs [--count 120] [--seed 1] [--length 40] [--workers 3] [--tours 3] [--phone-count 12]
-//   node typist/run.mjs --script '["a","Enter","ArrowLeft"]'     replay one script
-//   node typist/run.mjs --pace frame|slow|burst|mixed            how fast nullpad is typed at
-//   --close-at-once                                               Ctrl+E (source view) sent with the last keys
-//   --phone                                                       every page is a phone (390x844, mobile, touch)
-//   node typist/run.mjs --scripts '[["a"],["b"]]'               compare several scripts, no shrinking
-//   node typist/run.mjs --no-known                                ignore known.mjs
-//   node typist/run.mjs --no-shifts                               leave the text-shift watcher off
-//
 // Text shift. After every key of a script typed a frame at a time or slowly, nullpad must not move
 // what the key did not touch. The typist reads where the page paints every block of the note and
 // its lines (DOMSnapshot.captureSnapshot, about 2ms) once the page has stopped drawing, and judges
@@ -26,15 +14,6 @@
 //     blocks are all set in one line height. A line that turns into a heading, or a paste of several
 //     kinds of block, changes the line height, and then any height is allowed.
 // A script typed in a burst has no frame between its keys to look in, so it is not watched.
-//
-// Block tours. The random scripts rarely walk the cursor into a block of each kind, so each run
-// also types `--tours` seeded scripts a frame at a time that paste one block of every kind (every
-// heading level and both setext forms, lists, tasks, a quote, a fence, an indented block, a table
-// and a rule) and walk the cursor down through every row and back up.
-//
-// Phone. A run also types `--phone-count` shorter random scripts and two tours on a phone, which
-// draws a note with other widths, margins and padding: the pages of that pass are 390x844, mobile
-// and touch. `--phone` types the whole run there.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -73,22 +52,8 @@ const caretOf = `(() => {
   return { value: c.value, anchor: back ? c.selectionEnd : c.selectionStart, head: back ? c.selectionStart : c.selectionEnd };
 })()`;
 const sign = (s) => JSON.stringify([s.v, s.s, s.e, s.d]);
-/** Where nullpad's editor holds the anchor of the selection, as row:column of the whole note. */
-const anchorOf = `document.querySelector('textarea')?.dataset.anchor ?? null`;
-/**
- * A Shift key moves the head of the selection and never its anchor, in any text field. Checked
- * in nullpad alone, around each Shift key of a paced script: an extra frame after the key before
- * it, as the page draws a key's anchor in a frame callback that a paced wait can run ahead of,
- * and two frames after it, as the page may answer a painted selection a frame late.
- */
+const anchorOf = `document.querySelector('textarea')?.dataset.typistAnchor ?? null`;
 const movesAnchor = (k) => typeof k === 'string' && k.includes('Shift+');
-/**
- * How fast nullpad is typed at. The plain textarea is always typed at in a burst.
- *   burst  every key at once, as a held key or a fast hand does
- *   frame  the next key after the page drew a frame
- *   slow   the next key 120ms later, after the page has settled
- * A default run mixes them: most scripts burst, many go a frame at a time, a few are slow.
- */
 const slowMs = 120;
 const paces = ['burst', 'frame', 'slow'];
 const closeAtOnce = args['close-at-once'] !== undefined;
@@ -97,7 +62,6 @@ if (forcedPace && !paces.includes(forcedPace)) throw new Error(`--pace ${forcedP
 const paceOf = (i) => forcedPace ?? (i % 16 === 15 ? 'slow' : i % 16 >= 9 ? 'frame' : 'burst');
 const phonePaceOf = (i) => forcedPace ?? (i % 3 === 0 ? 'burst' : 'frame');
 const phoneDevice = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
-/** A slow script has a third fewer keys, or the short run would take a minute. */
 const slowKeys = 28;
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -127,7 +91,6 @@ async function startServer() {
 // The clipboard belongs to the browser, so only one page may paste at a time.
 let clipboard = Promise.resolve();
 
-/** A page that runs a script and answers { state, undone }. kind is 'textarea' or 'nullpad'. */
 async function open(browser, url, kind, errors, phone) {
   const context = await browser.newContext(phone ? phoneDevice : {});
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: url });
@@ -166,10 +129,6 @@ async function open(browser, url, kind, errors, phone) {
       release();
     }
   };
-  /**
-   * The keys of a script that can be compared, found by typing the script into the plain
-   * textarea: a key is left out where known.mjs says nullpad cannot be compared to it.
-   */
   const prune = async (keys, pace) => {
     await ev(`document.body.innerHTML = ${JSON.stringify(blank)}; document.querySelector('textarea').focus()`);
     const kept = [];
@@ -194,7 +153,6 @@ async function open(browser, url, kind, errors, phone) {
   const run = async (keys, pace = 'burst', closeAtOnce = false) => {
     if (kind === 'textarea') await ev(`document.body.innerHTML = ${JSON.stringify(blank)}; document.querySelector('textarea').focus()`);
     else if (!first) {
-      // Click "New note" and wait for the empty note to take the focus.
       await ev(`(async () => {
         const rows = () => document.querySelectorAll('[data-test-id=note-list] li').length;
         const before = rows();
@@ -262,8 +220,6 @@ async function open(browser, url, kind, errors, phone) {
       }
       if (watching) await watch(k, step);
     }
-    // Ctrl+E shows the source: the text field is only comparable there. The page gets two frames
-    // to finish the last key first, so that the end of every script is not a race with Ctrl+E.
     if (kind === 'nullpad') {
       if (!closeAtOnce) {
         await drain();
@@ -274,8 +230,6 @@ async function open(browser, url, kind, errors, phone) {
     }
     await drain();
     const state = await ev(read);
-    // Undo steps differ from a textarea's by design, and the native undo stack is not a
-    // dependable reference, so only nullpad is checked: undoing everything gives back ''.
     let undone = null;
     if (kind === 'nullpad') {
       for (let i = 0; i < keys.length + 5; i++) pending.push(send('Control+z'));
@@ -299,11 +253,6 @@ const differ = (a, b) =>
           ? 'text shifted'
           : null;
 
-/**
- * Remove chunks of keys, halving the chunk size, while the script still fails. `comparable`
- * leaves out of each shorter script the keys known.mjs cannot compare there: a key that was
- * comparable in the whole script may not be once the keys before it are gone.
- */
 async function shrink(keys, fails, comparable = async (candidate) => candidate) {
   for (let size = Math.ceil(keys.length / 2); size >= 1; size = size === 1 ? 0 : Math.ceil(size / 2)) {
     for (let at = 0; at < keys.length; ) {
@@ -338,8 +287,6 @@ async function main() {
       const [a, b] = await Promise.all([pair.plain(keys), pair.nullpad(keys, pace, closeAtOnce)]);
       return { a, b, why: differ(a, b) };
     };
-    // A race does not always happen, so a repro that names `tries` is run that often and
-    // counts as still differing if any run differs.
     const differs = async (pair, keys, pace, tries = 1, closeAtOnce = false) => {
       let last;
       for (let t = 0; t < tries; t++) {
@@ -376,7 +323,6 @@ async function main() {
     made.forEach((each, i) => lanes[each.phone ? lanes.length - 1 : i % workers].jobs.push(i));
     const laneOf = (i) => lanes.find((lane) => lane.jobs.includes(i)).pair;
     const paceOfScript = (i) => made[i].pace;
-    // The plain textarea decides which vertical keys can be compared, so it has to type each script first.
     const scripts = made.map((each) => each.keys);
     if (useKnown && !args.script) {
       await Promise.all(
@@ -402,7 +348,6 @@ async function main() {
     const run = performance.now() - ready;
     if (process.env.TYPIST_TRACE) console.log(`scripts done at ${((performance.now() - t0) / 1000).toFixed(1)}s`);
 
-    // Open bugs must still fail, and intended differences must still be there.
     const stale = [];
     if (useKnown && !args.script && !phoneOnly)
       await Promise.all(

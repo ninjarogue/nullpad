@@ -4,8 +4,6 @@ import { fast } from './guards.ts';
 import { test } from './nullpad.ts';
 import { differences, drawnKinds, endOf, openEmptyNote, pressFast, report, typeAndMeasure, typedText } from './stability.ts';
 
-/** Types notes of prose, headings, lists and quotes one key at a time. The rule they are held to is in `stability.ts`. */
-
 for (const group of typedText) {
   test(`typing ${group.name} changes only the caret's row`, async ({ app, browser, disk, page }) => {
     await app.open('/');

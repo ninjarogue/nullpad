@@ -20,7 +20,7 @@ pub fn the_page_is_a_marked_preview_root_test() {
 pub fn blocks_render_in_order_test() {
   let html =
     render_blocks([
-      Block(0, 0, Heading(H1, [Text("Title")])),
+      Block(0, 0, Heading(H1, [Text("Title")], "# ")),
       Block(2, 2, Paragraph([Text("Body")])),
     ])
 
@@ -38,7 +38,7 @@ pub fn headings_render_as_h1_to_h6_test() {
   ]
   use #(level, tag) <- list.each(levels)
 
-  let html = render(Heading(level, [Text("T")]))
+  let html = render(Heading(level, [Text("T")], ""))
 
   assert string.contains(html, "<" <> tag <> ">T</" <> tag <> ">")
 }
@@ -76,7 +76,7 @@ pub fn code_and_heading_text_are_escaped_test() {
     "<code>&lt;i&gt;</code>",
   )
   assert string.contains(
-    render(Heading(H2, [Text("<i>")])),
+    render(Heading(H2, [Text("<i>")], "## ")),
     "<h2>&lt;i&gt;</h2>",
   )
 }
@@ -433,7 +433,7 @@ pub fn a_part_marks_each_element_with_its_row_in_the_note_test() {
     |> element.to_string
 
   assert string.contains(html, "data-test-id=\"live-below\"")
-  assert string.contains(html, "<h1 data-row=\"10\">")
+  assert string.contains(html, "<h1 data-marks=\"# \" data-row=\"10\">")
   // Row 1 of the run is blank, and so is every other row between blocks.
   assert string.contains(html, "<div class=\"blank\" data-row=\"11\">")
   assert list.length(string.split(html, "class=\"blank\"")) == 4
@@ -493,7 +493,7 @@ pub fn a_part_draws_the_rows_of_a_quote_with_nothing_after_the_mark_as_blank_row
     == "<div class=\"preview part\" data-test-id=\"live-below\"><blockquote data-row=\"0\"><div class=\"blank\" data-row=\"0\"></div></blockquote><div class=\"blank\" data-row=\"1\"></div><p data-row=\"2\">next</p><div class=\"blank\" data-row=\"3\"></div><div class=\"blank\" data-row=\"4\"></div></div>"
   assert string.contains(
     draw("> a\n>\n> > b"),
-    "<blockquote data-row=\"0\"><p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">b</p></blockquote></blockquote>",
+    "<blockquote class=\"set-as-body\" data-row=\"0\"><p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">b</p></blockquote></blockquote>",
   )
 }
 
@@ -676,7 +676,7 @@ pub fn an_item_beside_the_field_is_drawn_with_what_it_holds_test() {
 pub fn a_quote_a_table_and_code_beside_the_field_are_drawn_whole_test() {
   assert beside_field("p\n\n> a\n> b\n\nq", 1, 5)
     == drawn_part(
-      "<div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">a\nb</p></blockquote><div class=\"blank\" data-row=\"4\"></div><p data-row=\"5\">q</p>",
+      "<div class=\"blank\" data-row=\"1\"></div><blockquote class=\"set-as-body\" data-row=\"2\"><p data-row=\"2\">a\nb</p></blockquote><div class=\"blank\" data-row=\"4\"></div><p data-row=\"5\">q</p>",
     )
   assert beside_field("# T\n\n| a | b |\n|---|---|\n| 1 | 2 |", 1, 4)
     == drawn_part(
@@ -685,6 +685,46 @@ pub fn a_quote_a_table_and_code_beside_the_field_are_drawn_whole_test() {
   assert beside_field("```\ncode\n\nmore\n```\n\np", 0, 6)
     == drawn_part(
       "<pre data-row=\"1\"><code>code\n\nmore\n</code></pre><div class=\"blank\" data-row=\"5\"></div>",
+    )
+}
+
+pub fn a_blank_row_in_a_quote_beside_the_field_is_drawn_as_a_blank_row_test() {
+  assert beside_field("> a\n>\n> > b\n>", 0, 4)
+    == drawn_part(
+      "<blockquote class=\"set-as-body\" data-row=\"0\"><p data-row=\"0\">a</p><div class=\"blank\" data-row=\"1\"></div><blockquote data-row=\"2\"><p data-row=\"2\">b</p></blockquote><div class=\"blank\" data-row=\"3\"></div></blockquote>",
+    )
+}
+
+pub fn a_heading_set_over_several_rows_beside_the_field_says_how_many_test() {
+  assert beside_field("> a\n> b\n> ---\n\nc", 0, 4)
+    == drawn_part(
+      "<blockquote class=\"set-as-body\" data-row=\"0\"><h2 data-row=\"0\" style=\"--rows:3;\">a\nb</h2></blockquote><div class=\"blank\" data-row=\"3\"></div>",
+    )
+  assert beside_field("# a\n\nc", 0, 2)
+    == drawn_part(
+      "<h1 data-marks=\"# \" data-row=\"0\">a</h1><div class=\"blank\" data-row=\"1\"></div>",
+    )
+}
+
+pub fn a_heading_beside_the_field_carries_the_marks_typed_before_its_words_test() {
+  assert beside_field("  ##   a\n\nc", 0, 1)
+    == drawn_part("<h2 data-marks=\"  ##   \" data-row=\"0\">a</h2>")
+  assert !string.contains(beside_field("a\n===\n\nc", 0, 2), "data-marks")
+  assert string.contains(
+    preview.view(markdown.parse("# a"), fn(task, _) { task })
+      |> element.to_string,
+    "<h1>a</h1>",
+  )
+}
+
+pub fn a_code_block_of_several_rows_beside_the_field_says_how_many_test() {
+  assert beside_field("> ```\n> x\n> ```\n\nc", 0, 4)
+    == drawn_part(
+      "<blockquote class=\"set-as-body\" data-row=\"0\"><pre data-row=\"1\" style=\"--rows:3;\"><code>x\n</code></pre></blockquote><div class=\"blank\" data-row=\"3\"></div>",
+    )
+  assert beside_field(">     x\n>     y\n\nc", 0, 3)
+    == drawn_part(
+      "<blockquote class=\"set-as-body\" data-row=\"0\"><pre data-row=\"0\" style=\"--rows:2;\"><code>x\ny\n</code></pre></blockquote><div class=\"blank\" data-row=\"2\"></div>",
     )
 }
 

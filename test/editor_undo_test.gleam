@@ -437,9 +437,6 @@ pub fn undo_takes_back_a_drop_on_the_page_in_one_step_test() {
   assert editor.text(undo(ed)) == "alpha beta gamma\n\nsecond para here"
 }
 
-/// Chrome sends `select` while an IME composes, which the surface reports as
-/// a change of the field: the composition goes on, undo and redo still wait
-/// for it to end, and it is still one step.
 pub fn a_select_while_composing_does_not_end_the_composition_test() {
   use ed <- list.each([live("one"), whole("one")])
   let ed = point(ed, 0, True)
