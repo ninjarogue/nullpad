@@ -166,3 +166,23 @@ test('a note deleted in another tab leaves the list', async ({ app, disk, page }
   await expect(page.currentRow).toHaveText('Groceries');
   await expect(page.text).toHaveValue('milk');
 });
+
+test('keys typed before any note opens reach the field', async ({ app, browser, disk, page }) => {
+  await disk.fail();
+  await app.open('/');
+  await expect(page.problem).toHaveText(notWorking);
+  // A key the field hears before any event that changed the app, which no
+  // person can press, since the field is focused first.
+  await browser.evaluate(() => {
+    const field = document.querySelector<HTMLTextAreaElement>('[data-test-id="editor"]')!;
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }),
+    );
+    return null;
+  });
+
+  await page.text.pressSequentially('ab');
+  await page.text.press('Enter');
+  await page.text.pressSequentially('c');
+  await expect(page.text).toHaveValue('ab\nc');
+});

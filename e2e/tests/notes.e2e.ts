@@ -24,6 +24,17 @@ test('picking a note opens it', async ({ page }) => {
   await expect(page.saveState).toHaveText('Saved');
 });
 
+test('keys pressed as soon as another note opens go into it', async ({ disk, page }) => {
+  await page.row('Trip').tap();
+  await expect(page.text).toHaveValue('# Trip');
+  await page.text.press('End');
+  await page.text.pressSequentially(' plans');
+
+  await expect(page.text).toHaveValue('# Trip plans');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([groceries, { ...trip, body: '# Trip plans' }]);
+});
+
 test('a note without a title offers its first line as one', async ({ page }) => {
   await page.row('Trip').tap();
 
