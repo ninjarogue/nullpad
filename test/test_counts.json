@@ -8,6 +8,6 @@
   "keystroke-cost": 119,
   "mutants-tool": 75,
   "pick": 24,
-  "test-cleanup": 10,
+  "test-cleanup": 12,
   "test-counts": 79
 }
