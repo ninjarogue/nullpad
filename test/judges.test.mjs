@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { compare, inventoryOf, judged, loadParsers } from "./inventory.mjs";
@@ -217,6 +217,65 @@ pub fn subtracts_test() {
   test("a private function named like a test is no test, so it is not judged as one", () => {
     const hidden = swap(body, "pub fn subtracts_test", "fn subtracts_test");
     assert.deepEqual(weakened(hidden), [`removed-test: ${file}::subtracts_test`]);
+  });
+});
+
+describe("what is not a change", () => {
+  const file = "test/place_test.gleam";
+  const body = `import gleeunit/should
+
+fn place(row row: Int, col col: Int) -> Int {
+  row + col
+}
+
+pub fn first_test() {
+  assert place(row: 1, col: 2) == 3
+}
+
+pub fn second_test() {
+  assert place(row: 2, col: 2) == 4
+  place(col: 3, row: 3) |> should.equal(6)
+}
+`;
+  const free = (after) => named(changes({ [file]: body }, { [file]: after }));
+
+  test("a test inserted above a gleam test that passes labelled arguments does not change it", () => {
+    assert.deepEqual(free(swap(body, "pub fn second_test", "pub fn between_test() {\n  assert 1 == 1\n}\n\npub fn second_test")), []);
+  });
+
+  test("a comment or blank lines above a gleam test that passes labelled arguments do not change it", () => {
+    assert.deepEqual(free(`// a comment\n\n\n${body}`), []);
+    assert.deepEqual(free(swap(body, "pub fn second_test", "// about the second\n\n\npub fn second_test")), []);
+  });
+
+  test("a changed value, and a changed label, in a labelled argument are still caught", () => {
+    assert.deepEqual(free(swap(body, "place(row: 2, col: 2)", "place(row: 2, col: 3)")), [`weakened-test: ${file}::second_test`]);
+    assert.deepEqual(free(swap(body, "place(col: 3, row: 3)", "place(col: 3, row: 4)")), [`weakened-test: ${file}::second_test`]);
+    assert.deepEqual(free(swap(body, "place(row: 1, col: 2)", "place(row: 1, cols: 2)")), [`weakened-test: ${file}::first_test`]);
+  });
+
+  test("a comment and a test inserted above every real gleam test file change none of them", () => {
+    const dir = join(root, "test");
+    const files = readdirSync(dir).filter((name) => name.endsWith(".gleam"));
+    assert.ok(files.length > 5);
+    for (const name of files) {
+      const text = readFileSync(join(dir, name), "utf8");
+      const path = `test/${name}`;
+      const first = text.search(/^pub fn /m);
+      const inserted = first < 0 ? text : `${text.slice(0, first)}pub fn inserted_above_test() {\n  assert 1 == 1\n}\n\n${text.slice(first)}`;
+      assert.deepEqual(named(changes({ [path]: text }, { [path]: `// a comment\n\n${inserted}` })), [], path);
+    }
+  });
+
+  test("a comment and blank lines above the code of every real javascript and typescript judge change none of them", () => {
+    const found = [];
+    for (const dir of ["test", "e2e/tests", "tools/mutants", "e2e"]) {
+      for (const name of readdirSync(join(root, dir))) if (/\.[cm]?[jt]s$/.test(name) && !name.endsWith(".d.ts")) found.push(`${dir}/${name}`);
+    }
+    assert.ok(found.length > 20);
+    const files = Object.fromEntries(found.map((path) => [path, readFileSync(join(root, path), "utf8")]));
+    const shifted = Object.fromEntries(found.map((path) => [path, `// a comment\n\n\n${files[path]}`]));
+    assert.deepEqual(named(changes(files, shifted)), []);
   });
 });
 

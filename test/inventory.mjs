@@ -214,18 +214,20 @@ function jsFile({ path, text, program, calls, names }) {
 }
 
 /** A value glance built: a Gleam custom type, list, option or plain value. */
+const isSpan = (value) => value?.constructor?.name === "Span";
+const fieldsOf = (value) => Object.entries(value).filter(([, inner]) => !isSpan(inner));
+
 const gleamKids = (value) => {
   if (value === null || typeof value !== "object") return [];
   if (typeof value[Symbol.iterator] === "function") return [...value];
-  return Object.entries(value).filter(([key]) => key !== "location").map(([, inner]) => inner);
+  return fieldsOf(value).map(([, inner]) => inner);
 };
 
 export function printGleam(value) {
   if (value === null || value === undefined) return "-";
   if (typeof value !== "object") return JSON.stringify(value);
   if (typeof value[Symbol.iterator] === "function") return `[${[...value].map(printGleam).join(",")}]`;
-  const fields = Object.entries(value).filter(([key]) => key !== "location");
-  return `${value.constructor.name}(${fields.map(([key, inner]) => `${key}=${printGleam(inner)}`).join(",")})`;
+  return `${value.constructor.name}(${fieldsOf(value).map(([key, inner]) => `${key}=${printGleam(inner)}`).join(",")})`;
 }
 
 function gleamWalk(value, visit) {
