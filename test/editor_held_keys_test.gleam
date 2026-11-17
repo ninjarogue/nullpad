@@ -7,6 +7,7 @@ import gleam/option.{None, Some}
 import gleam/order
 import nullpad/buffer.{Position}
 import nullpad/editor.{type Editor, type Held, Outcome}
+import nullpad/markdown
 
 const note = "alpha beta\n\nsecond para here\nthird row\n\nlast"
 
@@ -462,4 +463,38 @@ pub fn text_an_ime_converts_again_behind_a_held_key_is_kept_test() {
   let ed = drain(ed)
   assert editor.text(ed) == "ALPHAz beta\n\nsecond para here\nthird row\n\nlast"
   assert !editor.is_waiting(ed)
+}
+
+pub fn keys_typed_while_a_chosen_note_loads_go_into_it_test() {
+  let choosing = editor.set_choosing(opened(), True).editor
+  assert editor.is_waiting(choosing)
+  let choosing = hold(choosing, key("Z"))
+  assert editor.replay(choosing) == None
+
+  let typed = buffer.from_text("typed" <> note)
+  let Outcome(editor: kept, sync:, ..) =
+    editor.update(choosing, editor.ControlChanged(shown: typed, at: 0))
+  assert editor.text(kept) == note
+  assert sync == editor.WriteQuietly(editor.field_buffer(choosing))
+
+  let arrived = editor.open(kept, "next").editor
+  assert !editor.is_choosing(arrived)
+  assert editor.replay(arrived) == Some(key("Z"))
+}
+
+pub fn keys_typed_while_choosing_go_into_the_note_kept_test() {
+  let choosing = editor.set_choosing(opened(), True).editor |> hold(key("Z"))
+  let stayed = editor.set_choosing(choosing, False).editor
+  assert editor.text(stayed) == note
+  assert editor.replay(stayed) == Some(key("Z"))
+  assert editor.set_choosing(stayed, False).editor == stayed
+}
+
+pub fn a_box_ticked_while_a_chosen_note_loads_changes_nothing_test() {
+  let box = markdown.Task(checked: False, row: 0, col: 3)
+  let listed = editor.new(vim: False, live: True, paint: True)
+  let listed = editor.open(listed, "- [ ] milk").editor
+  assert editor.text(editor.tick(listed, box, True).editor) == "- [x] milk"
+  let choosing = editor.set_choosing(listed, True).editor
+  assert editor.text(editor.tick(choosing, box, True).editor) == "- [ ] milk"
 }

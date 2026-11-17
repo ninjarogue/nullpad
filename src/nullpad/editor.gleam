@@ -26,6 +26,8 @@ import nullpad/vim.{Step}
 /// `goal` is where a run of moves up and down aims, as a text field keeps
 /// the caret's x. The first move of a run sets it, and any other change to
 /// the selection or the text ends the run.
+///
+/// `choice` is whether the note in the editor is the one the user chose.
 pub opaque type Editor {
   /// `press` is a mouse press the editor took, held until it is let go.
   /// `clicked` is where the last plain press put the caret.
@@ -45,7 +47,16 @@ pub opaque type Editor {
     goal: Option(Goal),
     page: Page,
     travel: order.Order,
+    choice: Choice,
   )
+}
+
+/// While a note the user chose loads, the note in the editor no longer
+/// changes, and the keys they type wait for the note they chose and go into
+/// it once it opens.
+type Choice {
+  Chosen
+  Choosing(keys: List(Held))
 }
 
 /// Whether the page has caught up with the editor. A key pressed while it
@@ -430,6 +441,7 @@ pub fn new(
     goal: None,
     page: CaughtUp,
     travel: order.Eq,
+    choice: Chosen,
   )
 }
 
@@ -454,11 +466,37 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     field:,
     history: history.new(buffer),
     ime: NotComposing,
-    page: CaughtUp,
+    page: behind([], chosen_keys(editor)),
     travel: order.Eq,
+    choice: Chosen,
   )
   |> realign
   |> write_and_focus
+}
+
+/// The user chose another note, which has yet to open, or the note they
+/// chose stays in the editor after all: the keys typed meanwhile go into
+/// it.
+pub fn set_choosing(editor: Editor, choosing: Bool) -> Outcome {
+  let editor = case editor.choice, choosing {
+    Chosen, True ->
+      Editor(..editor, page: CaughtUp, choice: Choosing(held_keys(editor)))
+    Choosing(keys:), False ->
+      Editor(..editor, page: behind(steps(editor), keys), choice: Chosen)
+    Chosen, False | Choosing(..), True -> editor
+  }
+  Outcome(editor:, sync: InSync, requests: [])
+}
+
+pub fn is_choosing(editor: Editor) -> Bool {
+  editor.choice != Chosen
+}
+
+fn chosen_keys(editor: Editor) -> List(Held) {
+  case editor.choice {
+    Chosen -> []
+    Choosing(keys:) -> keys
+  }
 }
 
 fn laid_out(buffer: Buffer) -> Field {
@@ -498,6 +536,64 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 }
 
 pub fn update(editor: Editor, event: Event) -> Outcome {
+  case editor.choice {
+    Chosen -> follow(editor, event)
+    Choosing(keys:) -> choosing(editor, keys, event)
+  }
+}
+
+/// A key waits for the note the user chose. Nothing else may change the note
+/// they left.
+fn choosing(editor: Editor, keys: List(Held), event: Event) -> Outcome {
+  let wait = fn(held) {
+    let choice = Choosing(list.append(keys, [held]))
+    Outcome(editor: Editor(..editor, choice:), sync: InSync, requests: [])
+  }
+  case event {
+    KeyHeld(held:) -> wait(held)
+    UndoAsked -> wait(HeldUndo)
+    RedoAsked -> wait(HeldRedo)
+    ControlChanged(..)
+    | Composing(..)
+    | Composed(..)
+    | KeyPressed(..)
+    | EdgePressed(..)
+    | EscapePressed(..)
+    | Pointed(..)
+    | LinePointed(..)
+    | ShiftPointed(..)
+    | Grabbed(..)
+    | WordPressed(..)
+    | SelectionPointed(..)
+    | Dragged(..)
+    | Stepped(..)
+    | Unstepped(..)
+    | FieldStepped(..)
+    | Aimed(..)
+    | SteppedPast
+    | Settled(..)
+    | Released
+    | DragStarted
+    | Dropped(..)
+    | FocusChanged(..)
+    | Replayed(..) -> keep_note(editor, follow(editor, event))
+  }
+}
+
+/// The field is put back as it was by anything that would change the note.
+fn keep_note(before: Editor, outcome: Outcome) -> Outcome {
+  case buffer.text(outcome.editor.buffer) == buffer.text(before.buffer) {
+    True -> outcome
+    False ->
+      Outcome(
+        editor: before,
+        sync: WriteQuietly(field_buffer(before)),
+        requests: [],
+      )
+  }
+}
+
+fn follow(editor: Editor, event: Event) -> Outcome {
   let outcome = apply(editor, event)
   let goal = case in_run(event), outcome.editor.buffer == editor.buffer {
     Moves, _ | Changes, True -> outcome.editor.goal
@@ -1853,10 +1949,11 @@ fn hold(editor: Editor, rows: Region, drawn: List(Block)) -> Editor {
 pub fn tick(editor: Editor, task: markdown.Task, checked: Bool) -> Outcome {
   let text = buffer.text(editor.buffer)
   case
+    editor.choice,
     markdown.set_task(text, task, checked),
     list.drop(buffer.lines(editor.buffer), task.row)
   {
-    Ok(line), [old, ..] -> {
+    Chosen, Ok(line), [old, ..] -> {
       let buffer =
         editor.buffer
         |> buffer.replace(
@@ -1888,7 +1985,8 @@ pub fn tick(editor: Editor, task: markdown.Task, checked: Bool) -> Outcome {
       }
       Outcome(editor:, sync:, requests: [])
     }
-    _, _ -> Outcome(editor:, sync: InSync, requests: [])
+    Choosing(..), _, _ | Chosen, Error(_), _ | Chosen, _, [] ->
+      Outcome(editor:, sync: InSync, requests: [])
   }
 }
 
@@ -1978,15 +2076,17 @@ pub fn is_stepping(editor: Editor) -> Bool {
 /// on: the editor learns where the browser left the caret only once the
 /// field is read, after the key.
 pub fn is_waiting(editor: Editor) -> Bool {
-  editor.page != CaughtUp || is_wide(editor)
+  editor.page != CaughtUp || is_wide(editor) || editor.choice != Chosen
 }
 
 /// The held key to replay now: the first, once no step waits for the page,
-/// the field has been read after the browser acted on it, and no IME
-/// composes in it. The surface replays it once the page has drawn the
-/// editor as it is.
+/// the field has been read after the browser acted on it, no IME composes
+/// in it, and the note in the editor is the one the user chose. The surface
+/// replays it once the page has drawn the editor as it is.
 pub fn replay(editor: Editor) -> Option(Held) {
-  case editor.page, editor.ime != NotComposing || is_wide(editor) {
+  let held_back =
+    editor.ime != NotComposing || is_wide(editor) || editor.choice != Chosen
+  case editor.page, held_back {
     Behind(steps: [], keys: [key, ..]), False -> Some(key)
     Behind(steps: [], keys: [_, ..]), True
     | Behind(steps: [], keys: []), _

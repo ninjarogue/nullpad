@@ -114,7 +114,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserTickedTask(task:, checked:) ->
       apply(model, editor.tick(model.editor, task, checked))
 
-    ToLibrary(event) -> tell_library(model, event)
+    ToLibrary(event) -> tell_library(model, event) |> wait_for_choice
 
     UserOpenedMenu(menu) -> #(
       Model(..model, menu: Some(menu)),
@@ -123,6 +123,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserClosedMenu -> #(Model(..model, menu: None), effect.none())
     UserDeletedNote(id) ->
       tell_library(Model(..model, menu: None), library.UserDeletedNote(id))
+      |> wait_for_choice
 
     UserToggledMarkdown -> {
       let showing = case model.showing {
@@ -162,6 +163,20 @@ fn apply(model: Model, outcome: Outcome) -> #(Model, Effect(Msg)) {
     model,
     effect.batch([surface.sync(editor, sync, EditorSent), autosave, ..asked]),
   )
+}
+
+/// Keys typed while the note the user chose loads wait for it.
+fn wait_for_choice(done: #(Model, Effect(Msg))) -> #(Model, Effect(Msg)) {
+  let #(model, effects) = done
+  let choosing = library.is_choosing(model.library)
+  case editor.is_choosing(model.editor) == choosing {
+    True -> done
+    False -> {
+      let #(model, chose) =
+        apply(model, editor.set_choosing(model.editor, choosing))
+      #(model, effect.batch([effects, chose]))
+    }
+  }
 }
 
 fn perform(model: Model, request: vim.Request) -> #(Model, Effect(Msg)) {

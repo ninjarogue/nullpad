@@ -572,3 +572,50 @@ fn put(cell: Cell(a), value: a) -> Nil
 
 @external(javascript, "./library_test_ffi.mjs", "take")
 fn take(cell: Cell(a)) -> Result(a, Nil)
+
+pub fn a_chosen_note_is_waited_for_until_it_opens_test() {
+  let #(groceries, trip) = groceries_and_trip()
+  let open = opened([groceries, trip])
+  assert !library.is_choosing(open)
+  let #(typed, _) = library.update(open, TextEdited, "milk, eggs")
+
+  let #(leaving, save) =
+    library.update(typed, UserPickedNote(trip.id), "milk, eggs")
+  assert library.is_choosing(leaving)
+  let #(loading, _) =
+    library.update(leaving, saved(save, Ok(Nil)), "milk, eggs")
+  assert library.is_choosing(loading)
+  let #(arrived, _) =
+    library.update(loading, StorageLoaded(Ok(trip)), "milk, eggs")
+  assert !library.is_choosing(arrived)
+
+  let #(making, _) = library.update(arrived, UserAskedForNewNote, "# Trip")
+  assert library.is_choosing(making)
+  let new = Note(trip.id, None, "")
+  let #(made, _) = library.update(making, StorageCreated(Ok(new)), "# Trip")
+  assert !library.is_choosing(made)
+}
+
+pub fn a_choice_that_cannot_open_is_no_longer_waited_for_test() {
+  let #(groceries, trip) = groceries_and_trip()
+  let open = opened([groceries, trip])
+  let #(loading, _) = library.update(open, UserPickedNote(trip.id), "milk")
+  let #(staying, _) =
+    library.update(loading, UserPickedNote(groceries.id), "milk")
+  assert library.is_choosing(staying)
+  let #(gone, _) =
+    library.update(loading, StorageLoaded(Error(storage.NotFound)), "milk")
+  assert !library.is_choosing(gone)
+  let #(failed, _) = library.update(loading, StorageLoaded(Error(full)), "milk")
+  assert !library.is_choosing(failed)
+
+  let #(typed, _) = library.update(open, TextEdited, "milk, eggs")
+  let #(leaving, save) =
+    library.update(typed, UserPickedNote(trip.id), "milk, eggs")
+  let #(kept, _) =
+    library.update(leaving, UserPickedNote(groceries.id), "milk, eggs")
+  assert !library.is_choosing(kept)
+  let #(unsaved, _) =
+    library.update(leaving, saved(save, Error(full)), "milk, eggs")
+  assert !library.is_choosing(unsaved)
+}
