@@ -133,7 +133,8 @@ export function focusInPlace(id) {
 
 // A textarea cannot be told that its caret sits at the end of a wrapped
 // line rather than at the start of the next, which share an offset. Moving
-// to the line's end does tell it. A painted field is not where it is drawn.
+// to the line's end does tell it, and setting the offset again puts it at
+// the start of the next. A painted field is not where it is drawn.
 export function placeCaret(id, paintedClass, x, y) {
   const control = document.getElementById(id);
   if (!control || document.activeElement !== control || control.closest("." + paintedClass)) return;
@@ -144,7 +145,8 @@ export function placeCaret(id, paintedClass, x, y) {
   const place = measure(control);
   const line = place(offset).top - place(0).top;
   const pressed = y - box.top - parseFloat(getComputedStyle(control).paddingTop) + control.scrollTop;
-  if (place(offset - 1).top === place(offset).top || pressed >= line) return;
+  if (place(offset - 1).top === place(offset).top) return;
+  if (pressed >= line) return control.setSelectionRange(offset, offset);
   control.setSelectionRange(offset - 1, offset - 1);
   getSelection().modify("move", "forward", "lineboundary");
   if (control.selectionStart !== offset) control.setSelectionRange(offset, offset);
