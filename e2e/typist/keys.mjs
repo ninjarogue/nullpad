@@ -75,20 +75,17 @@ export function makeScripts(count, length, seed) {
 }
 
 const base = {
-  Enter: ['Enter', 13, '\r'], Backspace: ['Backspace', 8], Delete: ['Delete', 46],
-  ArrowLeft: ['ArrowLeft', 37], ArrowUp: ['ArrowUp', 38], ArrowRight: ['ArrowRight', 39], ArrowDown: ['ArrowDown', 40],
-  Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34], Shift: ['ShiftLeft', 16], Control: ['ControlLeft', 17],
-  ' ': ['Space', 32, ' '], '-': ['Minus', 189, '-'], '_': ['Minus', 189, '_', true],
-  '=': ['Equal', 187, '='], '`': ['Backquote', 192, '`'], '~': ['Backquote', 192, '~', true],
-  '[': ['BracketLeft', 219, '['], ']': ['BracketRight', 221, ']'], '|': ['Backslash', 220, '|', true],
-  '#': ['Digit3', 51, '#', true], '*': ['Digit8', 56, '*', true], '>': ['Period', 190, '>', true],
+  Enter: { code: 'Enter', vk: 13, text: '\r' }, Backspace: { code: 'Backspace', vk: 8 }, Delete: { code: 'Delete', vk: 46 },
+  ArrowLeft: { code: 'ArrowLeft', vk: 37 }, ArrowUp: { code: 'ArrowUp', vk: 38 }, ArrowRight: { code: 'ArrowRight', vk: 39 }, ArrowDown: { code: 'ArrowDown', vk: 40 },
+  Home: { code: 'Home', vk: 36 }, End: { code: 'End', vk: 35 }, PageUp: { code: 'PageUp', vk: 33 }, PageDown: { code: 'PageDown', vk: 34 }, Shift: { code: 'ShiftLeft', vk: 16 }, Control: { code: 'ControlLeft', vk: 17 },
+  ' ': { code: 'Space', vk: 32, text: ' ' }, '-': { code: 'Minus', vk: 189, text: '-' }, '_': { code: 'Minus', vk: 189, text: '_', shifted: true },
+  '=': { code: 'Equal', vk: 187, text: '=' }, '`': { code: 'Backquote', vk: 192, text: '`' }, '~': { code: 'Backquote', vk: 192, text: '~', shifted: true },
+  '[': { code: 'BracketLeft', vk: 219, text: '[' }, ']': { code: 'BracketRight', vk: 221, text: ']' }, '|': { code: 'Backslash', vk: 220, text: '|', shifted: true },
+  '#': { code: 'Digit3', vk: 51, text: '#', shifted: true }, '*': { code: 'Digit8', vk: 56, text: '*', shifted: true }, '>': { code: 'Period', vk: 190, text: '>', shifted: true },
 };
 
 function describe(key) {
-  if (base[key]) {
-    const [code, vk, text, shifted] = base[key];
-    return { key, code, vk, text, shifted };
-  }
+  if (base[key]) return { key, ...base[key] };
   if (/^[a-z]$/.test(key)) return { key, code: 'Key' + key.toUpperCase(), vk: key.toUpperCase().charCodeAt(0), text: key };
   if (/^[A-Z]$/.test(key)) return { key, code: 'Key' + key, vk: key.charCodeAt(0), text: key, shifted: true };
   if (/^[0-9]$/.test(key)) return { key, code: 'Digit' + key, vk: key.charCodeAt(0), text: key };
