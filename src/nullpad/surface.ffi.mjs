@@ -11,38 +11,39 @@ export function writeControl(id, text, start, end, backward) {
   }
 }
 
-let drawnRows = "";
-let held = null;
+const heldTypography = {
+  drawnRows: "",
+  holding: null,
+  apply(holder, classes, rows, marker) {
+    if (!this.holding) {
+      this.holding = { holder, drawn: holder.className };
+      requestAnimationFrame(() => this.restore());
+    } else if (holder.className !== this.holding.classes) {
+      this.holding.drawn = holder.className;
+    }
+    const framed = this.drawnRows === "" || this.drawnRows === rows ? "" : ` held framed-${this.drawnRows}`;
+    this.holding.classes = `${classes}${framed} holding`;
+    holder.className = this.holding.classes;
+    if (marker === "") holder.style.removeProperty("--held-marker");
+    else holder.style.setProperty("--held-marker", marker);
+  },
+  restore() {
+    if (!this.holding) return;
+    const { holder, classes, drawn } = this.holding;
+    if (holder.className === classes) holder.className = drawn;
+    holder.style.removeProperty("--held-marker");
+    this.holding = null;
+  },
+};
 
 export function holdControl(id, classes, rows, marker) {
   const holder = document.getElementById(id)?.parentElement;
-  if (!holder || (drawnRows === "" && !holder.classList.contains("idle"))) return;
-  if (!held) {
-    held = { holder, drawn: holder.className };
-    requestAnimationFrame(releaseControl);
-  } else if (holder.className !== held.classes) {
-    held.drawn = holder.className;
-  }
-  const framed = drawnRows === "" || drawnRows === rows ? "" : ` held framed-${drawnRows}`;
-  held.classes = `${classes}${framed} holding`;
-  holder.className = held.classes;
-  setMarker(holder, marker);
-}
-
-function releaseControl() {
-  if (!held) return;
-  if (held.holder.className === held.classes) held.holder.className = held.drawn;
-  held.holder.style.removeProperty("--held-marker");
-  held = null;
+  if (!holder || (heldTypography.drawnRows === "" && !holder.classList.contains("idle"))) return;
+  heldTypography.apply(holder, classes, rows, marker);
 }
 
 export function drawnControl(rows) {
-  drawnRows = rows;
-}
-
-function setMarker(holder, marker) {
-  if (marker === "") holder.style.removeProperty("--held-marker");
-  else holder.style.setProperty("--held-marker", marker);
+  heldTypography.drawnRows = rows;
 }
 
 let focusAsked = null;
@@ -82,10 +83,10 @@ export function focusControl(id, liveClass, paintedClass) {
     top = control.getBoundingClientRect().top + parseFloat(style.paddingTop) + headCaret(control, place).top - place(0).top;
     line = parseFloat(style.lineHeight);
   }
-  revealOnPage(page, top, top + line);
+  scrollToShowOnPage(page, top, top + line);
 }
 
-function revealOnPage(page, top, bottom) {
+function scrollToShowOnPage(page, top, bottom) {
   const view = page.getBoundingClientRect();
   const style = getComputedStyle(page);
   let to = page.scrollTop;
@@ -210,30 +211,30 @@ function edgeSpeed(y, top, bottom) {
   return up > down ? -speed(up) : speed(down);
 }
 
-let drawnCount = 0;
+let rowsAtLastDraw = 0;
 
 export function noteDrawn(rows) {
-  drawnCount = rows;
-  pressed = null;
+  rowsAtLastDraw = rows;
+  pressAwaitingDraw = null;
 }
 
-let heldStep = null;
+let stepAwaitingDraw = null;
 
 export function holdStep(held, editor) {
-  heldStep = held ? editor : null;
+  stepAwaitingDraw = held ? editor : null;
 }
 
 export function takeHeldStep(editor) {
-  if (heldStep !== editor) return false;
-  heldStep = null;
+  if (stepAwaitingDraw !== editor) return false;
+  stepAwaitingDraw = null;
   return true;
 }
 
-let latest = null;
+let replayDueFor = null;
 let current = null;
 
 export function noteEditor(editor) {
-  latest = editor;
+  replayDueFor = editor;
   current = editor;
 }
 
@@ -243,8 +244,8 @@ export function currentEditor() {
 }
 
 export function takeReplay(editor) {
-  if (latest !== editor) return false;
-  latest = null;
+  if (replayDueFor !== editor) return false;
+  replayDueFor = null;
   return true;
 }
 
@@ -403,16 +404,16 @@ function atLineEnd(control, head, place) {
   return moved;
 }
 
-let aimed = new WeakMap();
+let lastAimByField = new WeakMap();
 let forgetting = false;
 const ALONG = ["ArrowLeft", "ArrowRight", "Home", "End"];
 
 function forgetAims(event) {
-  if (event.type === "pointerdown" || ALONG.includes(event.key)) aimed = new WeakMap();
+  if (event.type === "pointerdown" || ALONG.includes(event.key)) lastAimByField = new WeakMap();
 }
 
 function aimedHere(control) {
-  const last = aimed.get(control);
+  const last = lastAimByField.get(control);
   if (!last) return null;
   const now = [control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
   return last.shown.join("\u0000") === now.join("\u0000") ? last : null;
@@ -424,7 +425,7 @@ export function aimControl(id, ...args) {
   } catch {
     const control = document.getElementById(id);
     if (!control) return [false, "", 0, 0, false];
-    aimed.delete(control);
+    lastAimByField.delete(control);
     return [false, control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
   }
 }
@@ -440,7 +441,7 @@ function aimFrom(id, liveClass, paintedClass, text, start, end, backward, x, lin
   ];
   if (again) {
     if (!control.closest("." + liveClass)) return [false, ...shown()];
-    const last = aimed.get(control);
+    const last = lastAimByField.get(control);
     if (!last || last.by !== by || last.shown.join("\u0000") !== shown().join("\u0000")) {
       return [false, ...shown()];
     }
@@ -448,11 +449,11 @@ function aimFrom(id, liveClass, paintedClass, text, start, end, backward, x, lin
     const written =
       control.value === text && control.selectionStart === start && control.selectionEnd === end;
     if (!written) {
-      aimed.delete(control);
+      lastAimByField.delete(control);
       return [false, ...shown()];
     }
   }
-  noteAim(control, by, aimIn(control, liveClass, paintedClass, x, again ? 4 : line, select, rowStart));
+  noteAim(control, by, aimIn(control, liveClass, paintedClass, x, again ? "head" : line, select, rowStart));
   return [true, ...shown()];
 }
 
@@ -463,11 +464,11 @@ function noteAim(control, by, atEnd) {
     document.addEventListener("pointerdown", forgetAims, true);
   }
   if (atEnd === null) {
-    aimed.delete(control);
+    lastAimByField.delete(control);
     return;
   }
   const shown = [control.value, control.selectionStart, control.selectionEnd, control.selectionDirection === "backward"];
-  aimed.set(control, { by, shown, atEnd });
+  lastAimByField.set(control, { by, shown, atEnd });
 }
 
 function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
@@ -476,7 +477,7 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
   const backward = control.selectionDirection === "backward";
   const head = backward ? start : end;
   const place = measure(control);
-  const left = fieldLeft(control, liveClass, paintedClass);
+  const left = fieldOffsetFromText(control, liveClass, paintedClass);
   const lineFrom = (offset, step) => {
     const top = place(offset).top;
     while (offset + step >= 0 && offset + step <= text.length && place(offset + step).top === top) offset += step;
@@ -485,10 +486,10 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
   const wrapEnd = headCaret(control, place).top !== place(head).top;
   const headStart = wrapEnd ? lineFrom(head - 1, -1) : lineFrom(head, -1);
   let from;
-  if (line === 0) from = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
-  else if (line === 1) from = lineFrom(text.indexOf("\n", head) < 0 ? text.length : text.indexOf("\n", head), -1);
-  else if (line === 4) from = headStart;
-  else if (line === 2) {
+  if (line === "first") from = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
+  else if (line === "last") from = lineFrom(text.indexOf("\n", head) < 0 ? text.length : text.indexOf("\n", head), -1);
+  else if (line === "head") from = headStart;
+  else if (line === "above") {
     from = headStart - 1;
     if (from < 0) return null;
     from = lineFrom(from, -1);
@@ -523,13 +524,13 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
   return atEnd;
 }
 
-function fieldAcross(control, liveClass, paintedClass, caretX) {
+function headXFromText(control, liveClass, paintedClass, caretX) {
   const at = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
   if (at === 0 || control.value[at - 1] === "\n") return 0;
-  return fieldLeft(control, liveClass, paintedClass) + caretX;
+  return fieldOffsetFromText(control, liveClass, paintedClass) + caretX;
 }
 
-function fieldLeft(control, liveClass, paintedClass) {
+function fieldOffsetFromText(control, liveClass, paintedClass) {
   if (!control.closest("." + liveClass) || control.closest("." + paintedClass)) return 0;
   const margin = parseFloat(getComputedStyle(control.parentElement).marginLeft) || 0;
   return margin + (parseFloat(getComputedStyle(control).left) || 0);
@@ -1079,12 +1080,12 @@ export function headLine(id, liveClass, paintedClass, painted) {
   const head = painted && headPlace();
   if (head) return [true, true, rowStart ? 0 : head.box.left - columnLeft(page)];
   const [first, last, x] = fieldCaretLine(control);
-  const across = fieldAcross(control, liveClass, paintedClass, x);
+  const across = headXFromText(control, liveClass, paintedClass, x);
   if (undrawn(control)) return [true, true, across];
   return [first, last, across];
 }
 
-let pressed = null;
+let pressAwaitingDraw = null;
 
 export function notePress(id, liveClass, x, y) {
   const control = document.getElementById(id);
@@ -1092,16 +1093,16 @@ export function notePress(id, liveClass, x, y) {
   const point = page && caretAt(x, y);
   const drawn = point && point.node !== control && page.contains(point.node);
   const landed = { x: drawn ? caretBox(point.node, point.offset).left - columnLeft(page) : null };
-  pressed = landed;
+  pressAwaitingDraw = landed;
   requestAnimationFrame(() => {
-    if (pressed === landed) pressed = null;
+    if (pressAwaitingDraw === landed) pressAwaitingDraw = null;
   });
 }
 
 export function pressLanding(id) {
   const control = document.getElementById(id);
-  const landed = pressed?.x != null && control != null && undrawn(control);
-  return [pressed !== null, pressed?.x ?? -1, landed];
+  const landed = pressAwaitingDraw?.x != null && control != null && undrawn(control);
+  return { pending: pressAwaitingDraw !== null, landedX: landed ? pressAwaitingDraw.x : null };
 }
 
 // The field's text has changed since the page was drawn, so its lines are
@@ -1132,23 +1133,23 @@ function stepFrom(
   const first = control.dataset[rowMark];
   const drawnLines = mirror ? mirror.data.split("\n").length : 0;
   const lines = control.value.split("\n").length;
-  const typedIn = first !== undefined && Number(first) === fieldFirst && rowCount - drawnCount === lines - drawnLines;
+  const typedIn = first !== undefined && Number(first) === fieldFirst && rowCount - rowsAtLastDraw === lines - drawnLines;
   const grown = typedIn ? lines - drawnLines : 0;
   const held = first === undefined || !mirror ? null : [Number(first), Number(first) + drawnLines + grown - 1];
   const inField = held !== null && headRow >= held[0] && headRow <= held[1];
   const written = first !== undefined && Number(first) !== fieldFirst;
-  if (!typedIn && (rowCount !== drawnCount || written || (inField && undrawn(control)))) return answer(-3);
+  if (!typedIn && (rowCount !== rowsAtLastDraw || written || (inField && undrawn(control)))) return answer(-3);
   const drawnLast = held ? held[1] - grown : Infinity;
   const moved = (place) => (place[0] > drawnLast ? [place[0] + grown, ...place.slice(1)] : place);
-  if (pressed !== null && first === undefined) return answer(-3);
+  if (pressAwaitingDraw !== null && first === undefined) return answer(-3);
   const edge = granularity !== "line" || fieldCaretLine(control)[forward ? 1 : 0];
   if (inField && granularity !== "page" && !edge) {
     if (granularity !== "line") {
       getSelection().modify(select ? "extend" : "move", forward ? "forward" : "backward", granularity);
       return answer(-4);
     }
-    if (x < 0) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
-    noteAim(control, null, aimIn(control, liveClass, paintedClass, x, forward ? 3 : 2, select, rowStart));
+    if (x < 0) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+    noteAim(control, null, aimIn(control, liveClass, paintedClass, x, forward ? "below" : "above", select, rowStart));
     return answer(-4);
   }
   const { marks, rows } = drawnMarks(id, liveClass, rowMark);
@@ -1160,7 +1161,7 @@ function stepFrom(
       if (!holder) return answer(-1);
       box = caretBox(...pointIn(holder, headOffset, onward));
     }
-    if (x < 0 && inField) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+    if (x < 0 && inField) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
     else if (x < 0) x = box.left - columnLeft(page);
     const place = pageStep(page, rowMark, box, forward, columnLeft(page) + x);
     return place ? [...moved(place), x] : answer(-2);
@@ -1170,7 +1171,7 @@ function stepFrom(
   try {
     let landed;
     if (inField) {
-      if (x < 0) x = fieldAcross(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+      if (x < 0) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
       landed = beside(marks, part, forward);
     } else {
       const holder = marks[lastAtOrBefore(rows, headRow)];
@@ -1362,7 +1363,7 @@ export function revealCaret(id, liveClass, paintedClass) {
   const page = control?.closest("." + liveClass);
   if (!page || document.activeElement !== control || control.closest("." + paintedClass)) return;
   const { box } = fieldCaret(control);
-  revealOnPage(page, box.top, box.bottom);
+  scrollToShowOnPage(page, box.top, box.bottom);
 }
 
 // Where text dropped on the page lands, the text, and whether the drop

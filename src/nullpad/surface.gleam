@@ -601,11 +601,11 @@ pub fn sync(
             backward,
             x,
             case line {
-              editor.FirstLine -> 0
-              editor.LastLine -> 1
-              editor.LineAbove -> 2
-              editor.LineBelow -> 3
-              editor.HeadLine -> 4
+              editor.FirstLine -> "first"
+              editor.LastLine -> "last"
+              editor.LineAbove -> "above"
+              editor.LineBelow -> "below"
+              editor.HeadLine -> "head"
             },
             select,
             editor.run_started_at_row_start(editor),
@@ -1127,11 +1127,13 @@ fn edge_decoder(
     |> result.unwrap("")
     |> string.drop_start(head.col)
     |> is_blank
-  let #(pending, landed_x, landed) = press_landing(control_id)
+  let PressLanding(pending:, landed_x:) =
+    decode.run(press_landing(control_id), press_landing_decoder())
+    |> result.unwrap(PressLanding(pending: False, landed_x: None))
   let from_press = fn(x) {
-    case landed && head.col != 0 {
-      True -> landed_x
-      False -> x
+    case landed_x, head.col {
+      Some(landed_x), col if col != 0 -> landed_x
+      Some(_), _ | None, _ -> x
     }
   }
   let painted_head =
@@ -1476,8 +1478,18 @@ fn painted_on_page(id: String, painted_class: String) -> Bool
 @external(javascript, "./surface.ffi.mjs", "notePress")
 fn note_press(id: String, live_class: String, x: Float, y: Float) -> Nil
 
+type PressLanding {
+  PressLanding(pending: Bool, landed_x: Option(Float))
+}
+
+fn press_landing_decoder() -> Decoder(PressLanding) {
+  use pending <- decode.field("pending", decode.bool)
+  use landed_x <- decode.field("landedX", decode.optional(decode.float))
+  decode.success(PressLanding(pending:, landed_x:))
+}
+
 @external(javascript, "./surface.ffi.mjs", "pressLanding")
-fn press_landing(id: String) -> #(Bool, Float, Bool)
+fn press_landing(id: String) -> Dynamic
 
 @external(javascript, "./surface.ffi.mjs", "revealCaret")
 fn reveal_caret(id: String, live_class: String, painted_class: String) -> Nil
@@ -1521,7 +1533,7 @@ fn aim_control(
   end: Int,
   backward: Bool,
   x: Float,
-  line: Int,
+  line: String,
   select: Bool,
   row_start: Bool,
   again: Bool,
