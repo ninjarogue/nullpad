@@ -36,9 +36,13 @@ const heldTypography = {
   },
 };
 
-export function holdControl(id, classes, rows, marker) {
+// A field drawn idle or with a painted selection has no rows' type, and
+// takes the type of the rows it is written with at once, so that a key
+// pressed before the render measures it as it will be drawn.
+export function holdControl(id, paintedClass, classes, rows, marker) {
   const holder = document.getElementById(id)?.parentElement;
-  if (!holder || (heldTypography.drawnRows === "" && !holder.classList.contains("idle"))) return;
+  const untyped = holder?.classList.contains("idle") || holder?.classList.contains(paintedClass);
+  if (!holder || (heldTypography.drawnRows === "" && !untyped)) return;
   heldTypography.apply(holder, classes, rows, marker);
 }
 
@@ -1077,8 +1081,17 @@ function fieldCaret(control) {
   const place = measure(control);
   const caret = headCaret(control, place);
   const box = control.getBoundingClientRect();
-  const top = box.top + caret.top - ruler.getBoundingClientRect().top - control.scrollTop;
-  return { box: new DOMRect(box.left + caret.x, top, 0, caret.height), line: lineHeight(control) };
+  const shift = box.top - ruler.getBoundingClientRect().top - control.scrollTop;
+  const top = shift + caret.top;
+  // A space typed where a line wraps hangs at its end with the caret, while
+  // the field already holds the line below that the next letter starts.
+  const head = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
+  const last = head === control.value.length ? place(head) : caret;
+  return {
+    box: new DOMRect(box.left + caret.x, top, 0, caret.height),
+    end: shift + last.top + last.height,
+    line: lineHeight(control),
+  };
 }
 
 export function headLine(id, liveClass, paintedClass, painted) {
@@ -1375,8 +1388,8 @@ export function revealCaret(id, liveClass, paintedClass) {
   const control = document.getElementById(id);
   const page = control?.closest("." + liveClass);
   if (!page || document.activeElement !== control || control.closest("." + paintedClass)) return;
-  const { box } = fieldCaret(control);
-  scrollToShowOnPage(page, box.top, box.bottom);
+  const { box, end } = fieldCaret(control);
+  scrollToShowOnPage(page, box.top, Math.max(box.bottom, end));
 }
 
 // Where text dropped on the page lands, the text, and whether the drop

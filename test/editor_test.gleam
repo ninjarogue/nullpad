@@ -2827,6 +2827,21 @@ pub fn an_underline_typed_under_a_line_leaves_that_line_framed_as_it_was_test() 
   assert editor.blocks(ed) == markdown.parse("Hello")
 }
 
+pub fn selecting_all_from_an_underline_leaves_the_line_above_as_drawn_test() {
+  let ed = live("Hello") |> show(caret("Hello\n", 1, 0))
+  let ed = show(ed, caret("=", 0, 1))
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.SelectAll, x: 0.0, shown: caret("=", 0, 1)),
+    )
+  assert buffer.selection(editor.buffer(ed))
+    == #(Position(0, 0), Position(1, 1))
+  assert editor.blocks(ed) == markdown.parse("Hello")
+  assert editor.frame(ed) == Some(live.Body)
+  assert !editor.is_painted(ed)
+}
+
 pub fn the_selection_dragged_onto_the_drawn_page_moves_there_test() {
   let shown =
     buffer.from_text("alpha beta gamma")
