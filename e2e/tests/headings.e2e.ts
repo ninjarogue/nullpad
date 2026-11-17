@@ -161,6 +161,25 @@ for (const { what, prefix, hangs } of containers) {
   }
 }
 
+const longWords = 'Head some words that may wrap onto lines when narrow okay and then more words here';
+
+for (const level of [1, 2, 3, 4, 5, 6]) {
+  test(`a heading ${level} long enough to wrap takes the rows in the field that it takes drawn, where its marks push its words, from 320 to 1600px wide at 12 to 24px`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    const block = `${'#'.repeat(level)} ${longWords}`;
+    await open({ app, disk, page }, block);
+    for (const setting of sweep) {
+      await set(browser, setting);
+      const { field, drawn } = await arriveAndLeave(page, browser, block, 'Head', '#');
+      expect({ setting, below: field.below, top: field.word!.top }).toEqual({ setting, below: drawn.below, top: drawn.word!.top });
+    }
+  });
+}
+
 for (const block of [
   '#',
   '# ',

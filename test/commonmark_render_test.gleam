@@ -16,7 +16,7 @@ fn href(url: String) -> String {
 
 pub fn blocks_end_with_a_newline_test() {
   assert render.html([
-      Block(0, 0, Heading(H3, [Text("a")])),
+      Block(0, 0, Heading(H3, [Text("a")], "### ")),
       Block(1, 1, Paragraph([Text("b")])),
     ])
     == "<h3>a</h3>\n<p>b</p>\n"

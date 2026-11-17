@@ -20,7 +20,7 @@ pub fn the_page_is_a_marked_preview_root_test() {
 pub fn blocks_render_in_order_test() {
   let html =
     render_blocks([
-      Block(0, 0, Heading(H1, [Text("Title")])),
+      Block(0, 0, Heading(H1, [Text("Title")], "# ")),
       Block(2, 2, Paragraph([Text("Body")])),
     ])
 
@@ -38,7 +38,7 @@ pub fn headings_render_as_h1_to_h6_test() {
   ]
   use #(level, tag) <- list.each(levels)
 
-  let html = render(Heading(level, [Text("T")]))
+  let html = render(Heading(level, [Text("T")], ""))
 
   assert string.contains(html, "<" <> tag <> ">T</" <> tag <> ">")
 }
@@ -76,7 +76,7 @@ pub fn code_and_heading_text_are_escaped_test() {
     "<code>&lt;i&gt;</code>",
   )
   assert string.contains(
-    render(Heading(H2, [Text("<i>")])),
+    render(Heading(H2, [Text("<i>")], "## ")),
     "<h2>&lt;i&gt;</h2>",
   )
 }
@@ -433,7 +433,7 @@ pub fn a_part_marks_each_element_with_its_row_in_the_note_test() {
     |> element.to_string
 
   assert string.contains(html, "data-test-id=\"live-below\"")
-  assert string.contains(html, "<h1 data-row=\"10\">")
+  assert string.contains(html, "<h1 data-marks=\"# \" data-row=\"10\">")
   // Row 1 of the run is blank, and so is every other row between blocks.
   assert string.contains(html, "<div class=\"blank\" data-row=\"11\">")
   assert list.length(string.split(html, "class=\"blank\"")) == 4
@@ -702,8 +702,19 @@ pub fn a_heading_set_over_several_rows_beside_the_field_says_how_many_test() {
     )
   assert beside_field("# a\n\nc", 0, 2)
     == drawn_part(
-      "<h1 data-row=\"0\">a</h1><div class=\"blank\" data-row=\"1\"></div>",
+      "<h1 data-marks=\"# \" data-row=\"0\">a</h1><div class=\"blank\" data-row=\"1\"></div>",
     )
+}
+
+pub fn a_heading_beside_the_field_carries_the_marks_typed_before_its_words_test() {
+  assert beside_field("  ##   a\n\nc", 0, 1)
+    == drawn_part("<h2 data-marks=\"  ##   \" data-row=\"0\">a</h2>")
+  assert !string.contains(beside_field("a\n===\n\nc", 0, 2), "data-marks")
+  assert string.contains(
+    preview.view(markdown.parse("# a"), fn(task, _) { task })
+      |> element.to_string,
+    "<h1>a</h1>",
+  )
 }
 
 pub fn a_code_block_of_several_rows_beside_the_field_says_how_many_test() {
