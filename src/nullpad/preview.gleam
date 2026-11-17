@@ -151,7 +151,7 @@ fn several_rows(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   }
 }
 
-fn rows_of(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
+fn rows_style(shown: Block, rows: Rows) -> List(attribute.Attribute(msg)) {
   case rows, shown.last_row - shown.first_row + 1 {
     Unmarked, _ | Marked, 1 -> []
     Marked, count -> [attribute.style("--rows", int.to_string(count))]
@@ -177,7 +177,7 @@ fn block(
   }
   case shown.content {
     Heading(level, text) ->
-      heading(level, list.append(here, rows_of(shown, rows)), inlines(text))
+      heading(level, list.append(here, rows_style(shown, rows)), inlines(text))
     Paragraph(text) -> html.p(here, inlines(text))
     Rule -> html.hr(here)
     Quote(blocks) ->
@@ -204,7 +204,7 @@ fn block(
         None -> []
       }
       let count = case in_quote {
-        True -> rows_of(shown, rows)
+        True -> rows_style(shown, rows)
         False -> []
       }
       html.pre(list.append(at(rows, code_row), count), [
