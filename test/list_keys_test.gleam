@@ -2,6 +2,7 @@
 //// with `|` where the caret is.
 
 import gleam/list
+import gleam/option
 import gleam/string
 import nullpad/buffer.{type Buffer}
 import nullpad/editor.{type Editor, Outcome}
@@ -146,4 +147,21 @@ pub fn a_lone_dash_hangs_as_far_as_a_dash_and_a_space_test() {
   let field = live.Region(1, 1)
   assert live.kind(blocks, field:, lines:)
     == live.ListItem(task: False, marker: "- ")
+}
+
+pub fn the_page_is_laid_out_again_after_tab_test() {
+  let ed = opened("- a\n- b|", True)
+  assert editor.region(ed) == option.Some(live.Region(1, 1))
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.KeyPressed(vim.Tab, shown: editor.field_buffer(ed)),
+    )
+  assert editor.region(ed) == option.Some(live.Region(0, 1))
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.KeyPressed(vim.BackTab, shown: editor.field_buffer(ed)),
+    )
+  assert editor.region(ed) == option.Some(live.Region(1, 1))
 }

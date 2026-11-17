@@ -724,7 +724,22 @@ fn typed(
     True -> editor.waiting
     False -> []
   }
-  let editor = Editor(..editor, keys:, waiting:) |> edit(wanted) |> place
+  let nests = case keys, key {
+    PlainKeys, Some(vim.Tab) | PlainKeys, Some(vim.BackTab) -> True
+    PlainKeys, Some(vim.Enter)
+    | PlainKeys, Some(vim.Char(_))
+    | PlainKeys, Some(vim.Escape)
+    | PlainKeys, Some(vim.Ctrl(_))
+    | PlainKeys, None
+    | VimKeys(_), Some(_)
+    | VimKeys(_), None
+    -> False
+  }
+  let editor =
+    Editor(..editor, keys:, waiting:)
+    |> edit(wanted)
+    |> lay_out_again(nests)
+    |> place
   let wanted_shown = field_buffer(editor)
   let sync = case wanted_shown == shown {
     True -> InSync
@@ -747,6 +762,16 @@ fn plain_key(editor: Editor, base: Buffer, key: vim.Key) -> Buffer {
     vim.Tab -> result.unwrap(in_list(list_keys.Indent), base)
     vim.BackTab -> result.unwrap(in_list(list_keys.Outdent), base)
     vim.Char(_) | vim.Escape | vim.Ctrl(_) -> base
+  }
+}
+
+/// Tab and Shift+Tab move an item into another, which the page must show
+/// at once, though they may change no row but the caret's.
+fn lay_out_again(editor: Editor, again: Bool) -> Editor {
+  case editor.field, again {
+    Part(rows:, parsed:, composing:, ..), True ->
+      Editor(..editor, field: Part(rows:, drawn: parsed, parsed:, composing:))
+    Part(..), False | Whole, _ -> editor
   }
 }
 
