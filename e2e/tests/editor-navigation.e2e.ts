@@ -528,3 +528,33 @@ movesWithoutTheWholeNote('ArrowRight at the end of a block moves to the blank ro
 movesWithoutTheWholeNote('ArrowRight twice at the end of a block moves to the start of the next without the whole note in the field', { word: 'row 6 of the note', at: 17 }, ['ArrowRight', 'ArrowRight']);
 movesWithoutTheWholeNote('Ctrl+Home goes to the start of a long note without the whole note in the field', { word: 'row 6 ', at: 3 }, [ctrl('Home')]);
 movesWithoutTheWholeNote('Ctrl+End goes to the end of a long note without the whole note in the field', { word: 'row 6 ', at: 3 }, [ctrl('End')]);
+
+test('Down in a note just opened goes from its caret, not from where the last note was left', async ({ app, browser, disk, page }) => {
+  const long = 'a'.repeat(30);
+  const left = `${long}\n\n${long}\n\n${long}`;
+  const opened = `b\n\n${'b'.repeat(30)}\n\n${'b'.repeat(30)}`;
+  await disk.seed([
+    { key: 'bee', title: 'Bee', body: opened },
+    { key: 'ay', title: 'Ay', body: left },
+  ]);
+  await app.open('/');
+  await expect(page.text).toHaveValue(left);
+  await page.markdown.tap();
+  await expect(page.text).toBeFocused();
+  for (const key of ['End', 'ArrowDown', 'ArrowDown']) {
+    await browser.keyboard.press(key);
+    await page.nextFrame();
+  }
+
+  await page.row('Bee').tap();
+  await expect(page.currentRow).toHaveText('Bee');
+  await expect(page.text).toHaveValue('b');
+  await page.nextFrame();
+  for (const key of ['ArrowDown', 'ArrowDown']) {
+    await browser.keyboard.press(key);
+    await page.nextFrame();
+  }
+  await browser.keyboard.type('X');
+  await page.markdown.tap();
+  await expect(page.text).toHaveValue(`b\n\nX${'b'.repeat(30)}\n\n${'b'.repeat(30)}`);
+});

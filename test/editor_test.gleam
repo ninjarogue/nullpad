@@ -2117,6 +2117,51 @@ fn run_down(note: String) -> Editor {
   ed
 }
 
+pub fn another_note_starts_a_new_run_test() {
+  let ed = run_down("alpha one\n\nbravo two")
+  let opened = editor.open(ed, "b\n\nbravo two").editor
+  let Outcome(sync:, ..) =
+    editor.update(
+      opened,
+      editor.EdgePressed(
+        editor.Down,
+        x: 0.0,
+        shown: editor.field_buffer(opened),
+      ),
+    )
+  let assert editor.WriteAndAim(x: 0.0, ..) = sync
+}
+
+pub fn showing_the_markdown_or_the_page_starts_a_new_run_test() {
+  let ed = run_down("alpha one\n\nbravo two")
+  let shown = editor.set_live(ed, True).editor
+  let Outcome(sync:, ..) =
+    editor.update(
+      shown,
+      editor.EdgePressed(editor.Down, x: 0.0, shown: editor.field_buffer(shown)),
+    )
+  let assert editor.WriteAndAim(x: 0.0, ..) = sync
+}
+
+pub fn a_second_press_in_another_note_selects_the_word_it_is_on_test() {
+  let ed = pressed("alpha one", 0, "")
+  let opened = editor.open(ed, "bravo two").editor
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      opened,
+      editor.WordPressed(
+        row: 0,
+        visible: "bravo t",
+        at_end: False,
+        next: "",
+        x: 1.0,
+        y: 2.0,
+      ),
+    )
+  assert buffer.selection(editor.buffer(ed))
+    == #(Position(row: 0, col: 6), Position(row: 0, col: 9))
+}
+
 pub fn a_move_that_changes_nothing_keeps_the_runs_column_test() {
   let ed = run_down("alpha one\n\nbravo two")
   let Outcome(editor: ed, ..) =
