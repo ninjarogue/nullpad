@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
+import { listen } from '../browser-problems.mjs';
 import { keyEvents, makeScripts } from './keys.mjs';
 import { judged, known, sanitize, skips } from './known.mjs';
 
@@ -94,8 +95,8 @@ async function open(browser, url, kind, errors) {
   const context = await browser.newContext();
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: url });
   const page = await context.newPage();
-  page.on('pageerror', (e) => errors.push(e.message));
   const cdp = await context.newCDPSession(page);
+  await listen(cdp, (problem) => errors.push(problem));
   const ev = async (expression) => (await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result.value;
   const send = (spec) => Promise.all(keyEvents(spec).map((e) => cdp.send('Input.dispatchKeyEvent', e)));
   const settle = () => ev(frame);
@@ -319,8 +320,9 @@ async function main() {
       );
 
     const mix = paces.map((p) => `${scripts.filter((_, i) => paceOfScript(i) === p).length} ${p}`).join(', ');
-    console.log(`typist: ${scripts.length} scripts of ${length} keys (${mix}), seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min)`);
-    for (const e of [...new Set(errors)]) console.log(`  page error: ${e}`);
+    const keysTyped = scripts.reduce((sum, script) => sum + script.length, 0);
+    console.log(`typist: ${scripts.length} scripts of ${length} keys (${mix}), seed ${seed}, ${workers} workers, ${(run / 1000).toFixed(1)}s (${Math.round((scripts.length / run) * 60000)}/min, ${keysTyped} keys, ${Math.round((keysTyped / run) * 60000)} keys/min)`);
+    for (const e of [...new Set(errors)]) console.log(`  browser reported: ${e}`);
 
     failed.sort((x, y) => x.i - y.i);
     const seen = new Set();
