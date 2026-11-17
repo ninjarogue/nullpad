@@ -657,6 +657,48 @@ button[aria-pressed="true"] {
   --frame-line: 1.3125rem;
 }
 
+.editor.part:is(.framed-h1, .framed-item-h1, .framed-quote-h1False, .framed-quote-h1True) {
+  --frame-title: var(--h1);
+  --frame-line: calc(var(--h1) * 1.25);
+}
+
+.editor.part:is(.framed-h2, .framed-item-h2, .framed-quote-h2False, .framed-quote-h2True) {
+  --frame-title: var(--h2);
+  --frame-line: calc(var(--h2) * 1.25);
+}
+
+.editor.part:is(.framed-h3, .framed-item-h3, .framed-quote-h3False, .framed-quote-h3True) {
+  --frame-title: var(--h3);
+  --frame-line: calc(var(--h3) * 1.25);
+}
+
+.editor.part:is(.framed-h4, .framed-item-h4, .framed-quote-h4False, .framed-quote-h4True) {
+  --frame-title: var(--h4);
+  --frame-line: calc(var(--h4) * 1.25);
+}
+
+.editor.part:is(.framed-h5, .framed-item-h5, .framed-quote-h5False, .framed-quote-h5True) {
+  --frame-title: var(--h5);
+  --frame-line: calc(var(--h5) * 1.25);
+}
+
+.editor.part:is(.framed-h6, .framed-item-h6, .framed-quote-h6False, .framed-quote-h6True) {
+  --frame-title: var(--h6);
+  --frame-line: calc(var(--h6) * 1.25);
+}
+
+.editor.part:is(.framed-h1, .framed-h2, .framed-h3, .framed-h4, .framed-h5, .framed-h6) {
+  margin-top: 0.4rem;
+}
+
+.editor.part:is(.framed-item-h1, .framed-item-h2, .framed-item-h3, .framed-item-h4, .framed-item-h5, .framed-item-h6) {
+  margin-block: 0.25rem max(0.25rem, var(--frame-title) / 2);
+}
+
+.editor.part:is(.framed-quote-h1True, .framed-quote-h2True, .framed-quote-h3True, .framed-quote-h4True, .framed-quote-h5True, .framed-quote-h6True) {
+  margin-block: 0 calc(var(--frame-title) / 2);
+}
+
 .page.live > .editor.part:first-child,
 .page.live > .part:empty + .editor.part {
   margin-top: 0;

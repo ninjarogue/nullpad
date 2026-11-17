@@ -274,7 +274,7 @@ export const facts: Fact[] = [
   fact({
     id: 'modify-extends-a-text-field',
     says: 'Selection.modify extends the selection of a focused text field by a character or a word, either way, and the field reports it with its direction.',
-    relied: [{ file: ffi, text: 'getSelection().modify("extend", forward ? "forward" : "backward", granularity);' }],
+    relied: [{ file: ffi, text: 'selection.modify("extend", direction, granularity);' }],
     html: '<textarea id="t">hello world</textarea>',
     observe: (page) =>
       page.evaluate(() => {
@@ -795,7 +795,7 @@ export const facts: Fact[] = [
     says: 'An IME starts with a keydown of keyCode 229 that is not yet composing, then every key, beforeinput and input of the composition says it is composing, and compositionend comes last.',
     relied: [
       { file: surface, text: '_, True -> on_event(editor.Composing(shown:))' },
-      { file: surface, text: 'event.on("compositionend", changed),' },
+      { file: surface, text: 'event.on("compositionend", composed),' },
     ],
     html: '<textarea id="t"></textarea>',
     observe: async (page) => {
@@ -1286,7 +1286,7 @@ export const facts: Fact[] = [
     id: 'platform-names-apple-devices',
     says: 'navigator.platform names the operating system the user agent names, and starts with Mac, iPhone or iPad on exactly the Apple ones, so Ctrl is not taken for Cmd anywhere else. Only the Chromium this runs in can be looked at: an override of the user agent leaves navigator.platform as it was.',
     relied: [
-      { file: platform, text: 'const apple = /Mac|iPhone|iPad/.test(navigator.platform);' },
+      { file: platform, text: 'return /Mac|iPhone|iPad/.test(navigator.platform);' },
       { file: ffi, text: 'navigator.platform.startsWith("Mac")' },
     ],
     observe: (page) =>
@@ -1316,7 +1316,7 @@ export const facts: Fact[] = [
     relied: [
       { file: platform, text: 'const typed = event.key.toLowerCase();' },
       { file: platform, text: 'event.code === "Key" + letter.toUpperCase()' },
-      { file: surface, text: 'is_key(name, code, "z"), is_key(name, code, "y")' },
+      { file: surface, text: 'editor.is_key(name, code, "z"),\n    editor.is_key(name, code, "y")' },
     ],
     html: '<textarea id="t"></textarea>',
     observe: async (page) => {

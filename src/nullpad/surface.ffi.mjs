@@ -781,6 +781,7 @@ export function boldWidth(text) {
   pen ??= document.createElement("canvas").getContext("2d");
   pen.font = `bold ${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
   pen.letterSpacing = "0px";
+  pen.fontKerning = "normal";
   return pen.measureText(text).width / parseFloat(root.fontSize);
 }
 
