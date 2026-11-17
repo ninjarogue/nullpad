@@ -399,6 +399,8 @@ const wordsBelow = `${words}\n\nbelow`;
 keepsTheColumn('End on a line the page wraps, then ArrowDown, goes to the end of the line below', wordsBelow, { word: 'p0', at: 0 }, ['End', 'ArrowDown']);
 keepsTheColumn('End on a line the page wraps, then ArrowDown twice and ArrowUp, keeps to the ends of the lines', wordsBelow, { word: 'p0', at: 0 }, ['End', 'ArrowDown', 'ArrowDown', 'ArrowUp']);
 keepsTheColumn('Shift+End on a line the page wraps, then Shift+ArrowDown, selects to the end of the line below', wordsBelow, { word: 'p0', at: 0 }, ['Shift+End', 'Shift+ArrowDown']);
+keepsTheColumn('ArrowRight and ArrowLeft at the end of a line the page wraps, after ArrowDown, then ArrowDown, goes from the start of the next line', wordsBelow, { word: 'p0', at: 0 }, ['End', 'ArrowDown', 'ArrowRight', 'ArrowLeft', 'ArrowDown']);
+keepsTheColumn('ArrowRight and ArrowLeft at the end of a line the page wraps, after ArrowDown, then ArrowUp, goes from the start of the next line', wordsBelow, { word: 'p0', at: 0 }, ['End', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowLeft', 'ArrowUp']);
 
 const marked = 'xx **xx** [xx](http://example.com) xxxxxxxxxxxxxa\n\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxb\n\nxx **xx** [xx](http://example.com) xxxxxxxxxxxxxc';
 keepsTheColumn('ArrowDown keeps the column of the markdown the field shows, with hidden marks to the left of the caret', marked, { word: 'xxxxxxxxxxxxxa', at: 6 }, repeat('ArrowDown', 4));
