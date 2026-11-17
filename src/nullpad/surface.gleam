@@ -447,14 +447,14 @@ pub fn sync(
     write_control(control_id, text, start, end, backward)
   }
   let write = fn(buffer) { effect.from(fn(_) { write_now(buffer) }) }
-  // The page paints the selection, and settles its head where it can draw
-  // it. True when there is nothing to settle.
+  // The page paints the selection, and settles its ends where it can draw
+  // them. True when there is nothing to settle.
   let draw = fn(dispatch) {
     paint(editor)
     note_drawn(editor.row_count(editor))
     case settling(editor) {
-      Some(#(from, head)) -> {
-        dispatch(on_event(editor.Settled(from:, head:)))
+      Some(#(from, to)) -> {
+        dispatch(on_event(editor.Settled(from:, to:)))
         False
       }
       None -> True
@@ -809,23 +809,29 @@ fn paint(editor: Editor) -> Nil {
 
 /// Where the head of a painted selection settles, when a key moved it among
 /// marks the page hides: it never cuts a pair of them.
-fn settling(editor: Editor) -> Option(#(#(Position, Position), Position)) {
+fn settling(
+  editor: Editor,
+) -> Option(#(#(Position, Position), #(Position, Position))) {
   let toward = editor.direction(editor)
-  use <- bool.guard(!editor.is_painted(editor) || toward == order.Eq, None)
+  let settles =
+    editor.is_painted(editor)
+    && { toward != order.Eq || editor.is_pressed(editor) }
+  use <- bool.guard(!settles, None)
   let buffer = editor.buffer(editor)
   let #(anchor, head) = buffer.selection(buffer)
-  let #(row, visible) =
-    holder_text(control_id, live_class, live.row_mark, head.row)
-  let to =
-    live.settle(
-      buffer.lines(buffer),
-      row:,
-      visible:,
-      at: head,
-      other: anchor,
-      toward:,
+  let settle = fn(at: Position, other: Position, toward: order.Order) {
+    let #(row, visible) =
+      holder_text(control_id, live_class, live.row_mark, at.row)
+    live.settle(buffer.lines(buffer), row:, visible:, at:, other:, toward:)
+  }
+  let to = case toward {
+    order.Eq -> #(
+      settle(anchor, head, order.Eq),
+      settle(head, anchor, order.Eq),
     )
-  case to == head {
+    order.Lt | order.Gt -> #(anchor, settle(head, anchor, toward))
+  }
+  case to == #(anchor, head) {
     True -> None
     False -> Some(#(#(anchor, head), to))
   }

@@ -318,7 +318,7 @@ const events = {
       (_, row) =>
         new editor.Settled(
           [new buffer.Position(row, 0), new buffer.Position(row + 9, 0)],
-          new buffer.Position(row + 9, 1),
+          [new buffer.Position(row, 0), new buffer.Position(row + 9, 1)],
         ),
     ],
   ],

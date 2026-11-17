@@ -1132,12 +1132,15 @@ pub fn a_painted_head_a_key_moved_settles_where_the_page_painted_it_test() {
   let head = Position(2, 14)
 
   let Outcome(editor: stale, sync:, ..) =
-    editor.update(ed, editor.Settled(from: #(Position(0, 3), from.1), head:))
+    editor.update(
+      ed,
+      editor.Settled(from: #(Position(0, 3), from.1), to: #(from.0, head)),
+    )
   assert sync == editor.InSync
   assert stale == ed
 
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.Settled(from:, head:))
+    editor.update(ed, editor.Settled(from:, to: #(from.0, head)))
   assert sync
     == editor.WriteQuietly(selected(
       "# Trip\n\nFlights are **booked**.",
@@ -1147,7 +1150,7 @@ pub fn a_painted_head_a_key_moved_settles_where_the_page_painted_it_test() {
   assert editor.text(ed) == live_note
 }
 
-pub fn a_painted_head_a_drag_put_among_hidden_marks_stays_there_test() {
+pub fn a_drag_takes_both_ends_where_the_page_settles_them_test() {
   let ed = pressed(live_note, 0, "Tr")
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -1158,10 +1161,16 @@ pub fn a_painted_head_a_drag_put_among_hidden_marks_stays_there_test() {
   let from = #(Position(0, 4), Position(2, 12))
   assert buffer.selection(editor.buffer(ed)) == from
 
+  let to = #(Position(0, 2), Position(2, 14))
+  let Outcome(editor: settled, ..) =
+    editor.update(ed, editor.Settled(from:, to:))
+  assert buffer.selection(editor.buffer(settled)) == to
+
+  let Outcome(editor: let_go, ..) = editor.update(ed, editor.Released)
   let Outcome(editor: kept, sync:, ..) =
-    editor.update(ed, editor.Settled(from:, head: Position(2, 14)))
+    editor.update(let_go, editor.Settled(from:, to:))
   assert sync == editor.InSync
-  assert kept == ed
+  assert kept == let_go
 }
 
 pub fn the_page_settles_the_head_a_key_moved_and_never_the_anchor_test() {
@@ -1179,7 +1188,10 @@ pub fn the_page_settles_the_head_a_key_moved_and_never_the_anchor_test() {
   assert from == #(Position(2, 13), Position(5, 5))
 
   let Outcome(editor: ed, ..) =
-    editor.update(ed, editor.Settled(from:, head: Position(5, 4)))
+    editor.update(
+      ed,
+      editor.Settled(from:, to: #(Position(2, 13), Position(5, 4))),
+    )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(2, 13), Position(5, 4))
 }
@@ -1196,7 +1208,10 @@ pub fn a_selection_made_in_the_markdown_keeps_its_ends_in_the_page_test() {
   assert from == #(Position(4, 0), Position(2, 14))
 
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.Settled(from:, head: Position(2, 12)))
+    editor.update(
+      ed,
+      editor.Settled(from:, to: #(Position(4, 0), Position(2, 12))),
+    )
   assert sync == editor.InSync
   assert buffer.selection(editor.buffer(ed)) == from
 }

@@ -262,12 +262,13 @@ pub type Event {
   /// A step with nothing drawn past the head: the head goes to the start or
   /// the end of the note, as in a text field.
   SteppedPast
-  /// The page painted a selection from `from` whose head a key moved among
-  /// marks it hides, and draws the head where `live.settle` puts it, at
-  /// `head`. Unless the selection has moved since, the head is taken there.
-  /// The anchor stays where it was put, as do both ends of a selection no
-  /// key moved, so what is deleted or typed over is what was selected.
-  Settled(from: #(Position, Position), head: Position)
+  /// The page painted a selection from `from` with ends among marks it
+  /// hides, and draws them where `live.settle` puts them, at `to`. Unless
+  /// the selection has moved since, it is taken there. A drag from a press
+  /// settles both ends, so what it selects holds both marks of a pair or
+  /// neither. A key settles only the head it moved: the anchor stays where
+  /// it was put, so what is deleted or typed over is what was selected.
+  Settled(from: #(Position, Position), to: #(Position, Position))
   Released
   /// The browser starts to drag the field's selection.
   DragStarted
@@ -1192,14 +1193,13 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       |> begin_run(editor, landing(steps(editor)), -1.0)
       |> next_step(landed, undrawn)
     }
-    Settled(from:, head:) ->
+    Settled(from:, to: #(anchor, head)) ->
       case
         is_painted(editor)
-        && editor.travel != order.Eq
+        && { editor.travel != order.Eq || editor.press != None }
         && buffer.selection(editor.buffer) == from
       {
         True -> {
-          let #(anchor, _) = from
           let settled =
             edit(editor, buffer.select(editor.buffer, anchor:, head:))
             |> realign
@@ -2329,6 +2329,12 @@ fn is_wide(editor: Editor) -> Bool {
     Part(wide:, ..) -> wide
     Whole -> False
   }
+}
+
+/// Whether a press the editor took is still held, so that a drag from it
+/// may yet select.
+pub fn is_pressed(editor: Editor) -> Bool {
+  editor.press != None
 }
 
 pub fn is_idle(editor: Editor) -> Bool {
