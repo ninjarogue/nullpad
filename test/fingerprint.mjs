@@ -182,6 +182,8 @@ export function jsPrinter() {
   const scope = scopes();
   let refs = new Set();
   let top = null;
+  let reads = new Map();
+  let writes = new Map();
 
   const within = (build) => {
     const mark = scope.mark();
@@ -256,9 +258,18 @@ export function jsPrinter() {
   const handlers = {
     Identifier(node) {
       const id = scope.lookup(node.name);
+      reads.set(id ?? node.name, node.name);
       if (id !== null) return `{Identifier:${id}}`;
       refs.add(node.name);
       return `{Identifier:${node.name}}`;
+    },
+    AssignmentExpression(node) {
+      if (node.left.type === "Identifier") writes.set(scope.lookup(node.left.name) ?? node.left.name, node.left.name);
+      return generic(node);
+    },
+    UpdateExpression(node) {
+      if (node.argument.type === "Identifier") writes.set(scope.lookup(node.argument.name) ?? node.argument.name, node.argument.name);
+      return generic(node);
     },
     MemberExpression(node) {
       if (!node.computed && node.property.type === "Identifier") {
@@ -310,6 +321,14 @@ export function jsPrinter() {
     }
   };
 
+  /** The locals and names read, and assigned to, since the last call. */
+  const touched = () => {
+    const found = { reads, writes };
+    reads = new Map();
+    writes = new Map();
+    return found;
+  };
+
   /** What `build` returns, with the names it read from outside. */
   const collect = (build) => {
     const outer = refs;
@@ -321,5 +340,5 @@ export function jsPrinter() {
     }
   };
 
-  return { print, unit, within, collect, bindParams: (params) => params.map((param, index) => pattern(param, `parameter ${index}`)), hoist, get refs() { return refs; } };
+  return { print, unit, touched, within, collect, bindParams: (params) => params.map((param, index) => pattern(param, `parameter ${index}`)), hoist, get refs() { return refs; } };
 }

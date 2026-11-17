@@ -528,6 +528,90 @@ pub fn reads_test() {
   });
 });
 
+describe("an added statement that switches checks off", () => {
+  const before = { [spec]: sums };
+  const after = (text) => named(changes(before, { [spec]: text }));
+  const only = (text) => after(text).filter((line) => !line.startsWith("note"));
+
+  test("only on a test of main's, on a new test, or on a group, is a change, because no other test runs", () => {
+    assert.deepEqual(only(swap(sums, "test('adds'", "test.only('adds'")), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(only(`${sums}test.only('new', async () => { expect(1).toBe(1); });\n`), [`disabled: ${spec} > new`]);
+    assert.deepEqual(only(`${sums}test.describe.only('later', () => {\n  test('inside', async () => { expect(1).toBe(1); });\n});\n`), [`disabled: ${spec} > later > inside`]);
+  });
+
+  test("a new test or group marked skip or fixme is a change, and a new test that runs is free", () => {
+    assert.deepEqual(only(`${sums}test.skip('new', async () => { expect(1).toBe(1); });\n`), [`disabled: ${spec} > new`]);
+    const fixme = only(`${sums}test.fixme('new', async () => { expect(1).toBe(1); });\n`);
+    assert.equal(fixme.length, 1);
+    assert.match(fixme[0], /^disabled: .*test\.fixme/);
+    assert.deepEqual(only(`${sums}test.describe.skip('later', () => {\n});\n`), [`disabled: ${spec} > later`]);
+    assert.deepEqual(only(`${sums}test('new', async () => { expect(1).toBe(1); });\n`), []);
+  });
+
+  test("a test of main's renamed and marked skip in one change is a weakened test, not a move", () => {
+    assert.deepEqual(only(swap(sums, "test('adds'", "test.skip('adds (flaky)'")), [`weakened-test: ${spec} > adds`]);
+  });
+
+  test("a skip taken out of the test API by name, in the body or at the top of the file, is a change", () => {
+    assert.deepEqual(only(swap(sums, "const sum = add(1, 2);", "const { skip } = test;\n  skip(true, 'flaky');\n  const sum = add(1, 2);")), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(only(swap(sums, "test('adds'", "const { skip } = test;\ntest('adds'")).length, 1);
+    assert.deepEqual(only(swap(sums, "const sum = add(1, 2);", "const off = test.skip;\n  const sum = add(1, 2);")), [`weakened-test: ${spec} > adds`]);
+  });
+
+  test("a call that is named fail on something that is not the test API is free", () => {
+    assert.deepEqual(only(swap(sums, "const sum = add(1, 2);", "await disk.fail();\n  const sum = add(1, 2);")), []);
+    assert.deepEqual(only(swap(sums, "const sum = add(1, 2);", "const slow = 3;\n  const skip = slow + 1;\n  const sum = add(1, 2);")), []);
+  });
+
+  test("a group's configuration, added at the top of the file, is a change", () => {
+    assert.equal(only(swap(sums, "test('adds'", "test.describe.configure({ retries: 5 });\ntest('adds'")).length, 1);
+  });
+
+  test("a name the test reads, declared again in the test, as a parameter, or hoisted from the end of it, is a change", () => {
+    assert.deepEqual(only(swap(sums, "const sum = add(1, 2);", "const expect: any = () => ({ toBe() {} });\n  const sum = add(1, 2);")), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(only(swap(sums, "expect(sum + 1).toBe(4);", "expect(sum + 1).toBe(4);\n  function expect() { return { toBe() {} }; }")), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(only(swap(sums, "test('adds', async () => {", "test('adds', async ({ expect }) => {")), [`weakened-test: ${spec} > adds`]);
+  });
+
+  test("expect imported from another file is a change", () => {
+    assert.deepEqual(only(swap(sums, "import { expect, test } from 'e2e';", "import { test } from 'e2e';\nimport { expect } from './lenient.ts';")), [`changed-input: ${spec}::import:expect`]);
+  });
+
+  test("a name the test reads, assigned to by a new statement before it is read, is a change, and one assigned after is not", () => {
+    const withLet = swap(sums, "const sum = add(1, 2);", "let sum = add(1, 2);");
+    assert.deepEqual(named(changes({ [spec]: withLet }, { [spec]: swap(withLet, "  expect(sum).toBe(3);", "  sum = 3;\n  expect(sum).toBe(3);") })), [`weakened-test: ${spec} > adds`]);
+    assert.deepEqual(named(changes({ [spec]: withLet }, { [spec]: swap(withLet, "  expect(sum + 1).toBe(4);", "  expect(sum + 1).toBe(4);\n  sum = 10;\n  expect(sum).toBe(10);") })), []);
+    assert.deepEqual(named(changes({ [spec]: withLet }, { [spec]: swap(withLet, "  expect(sum).toBe(3);", "  let count = 0;\n  for (let i = 0; i < 3; i++) count += i;\n  expect(count).toBe(3);\n  expect(sum).toBe(3);") })), []);
+  });
+
+  describe("in gleam", () => {
+    const file = "test/use_test.gleam";
+    const body = `import gleam/bool
+import gleeunit/should
+
+fn helper(x: Int) -> Int {
+  x + 1
+}
+
+pub fn adds_test() {
+  assert helper(1) == 2
+  helper(2) |> should.equal(3)
+}
+`;
+    const flagged = (text) => named(changes({ [file]: body }, { [file]: text }));
+
+    test("a use added to a test, whatever it calls, is a change", () => {
+      assert.deepEqual(flagged(swap(body, "  assert helper(1) == 2\n", "  use <- skip\n  assert helper(1) == 2\n").concat("\nfn skip(_rest: fn() -> Nil) -> Nil {\n  Nil\n}\n")), [`weakened-test: ${file}::adds_test`]);
+      assert.deepEqual(flagged(swap(body, "  assert helper(1) == 2\n", "  use <- bool.guard(True, Nil)\n  assert helper(1) == 2\n")), [`weakened-test: ${file}::adds_test`]);
+      assert.deepEqual(flagged(swap(body, "  assert helper(1) == 2\n", "  use x <- result.try(Error(Nil))\n  assert helper(1) == 2\n")), [`weakened-test: ${file}::adds_test`]);
+    });
+
+    test("a new local that takes the name of the module the test asserts through is a change", () => {
+      assert.deepEqual(flagged(swap(body, "  helper(2) |> should.equal(3)", "  let should = fake\n  helper(2) |> should.equal(3)")), [`weakened-test: ${file}::adds_test`]);
+    });
+  });
+});
+
 describe("the files that decide", () => {
   const script = "test/steps.mjs";
   const code = "export const a = 1;\nexport function gate() {\n  return 2;\n}\n";

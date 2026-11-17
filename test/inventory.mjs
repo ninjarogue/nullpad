@@ -97,10 +97,26 @@ function rootName(node) {
 }
 
 const exiting = new Set(["skip", "fixme", "fail", "slow"]);
+const switches = new Set([...exiting, "only", "configure"]);
+const testRoots = new Set(["test", "it", "describe", "suite"]);
+const ofTestApi = (node) => testRoots.has(rootName(node) ?? "");
 
-function inspectStatement(node, text, names, print) {
+/** A statement that, anywhere in it, takes a skip, a fixme, an only or a configure out of the test API. */
+function switchesOff(node) {
+  let found = false;
+  walk(node, (inner) => {
+    if (inner.type === "MemberExpression" && !inner.computed && switches.has(nameOf(inner.property) ?? "") && ofTestApi(inner.object)) found = true;
+    if (inner.type === "VariableDeclarator" && inner.id.type === "ObjectPattern" && inner.init && ofTestApi(inner.init)) {
+      if (inner.id.properties.some((property) => property.type === "Property" && switches.has(nameOf(property.key) ?? ""))) found = true;
+    }
+  });
+  return found;
+}
+
+function inspectStatement(node, text, names, printer, how = "print") {
   let asserts = false;
-  let suspicious = false;
+  const off = switchesOff(node);
+  let suspicious = off;
   walk(node, (inner) => {
     if (inner.type !== "CallExpression") return;
     const root = rootName(inner.callee);
@@ -109,12 +125,14 @@ function inspectStatement(node, text, names, print) {
   walk(
     node,
     (inner) => {
-      if (inner.type === "CallExpression" && inner.callee.type === "MemberExpression" && exiting.has(nameOf(inner.callee.property) ?? "")) suspicious = true;
+      if (inner.type === "CallExpression" && inner.callee.type === "MemberExpression" && exiting.has(nameOf(inner.callee.property) ?? "") && ofTestApi(inner.callee.object)) suspicious = true;
       if (inner.type === "ReturnStatement" || inner.type === "TryStatement") suspicious = true;
     },
     (child) => !fn.has(child.type),
   );
-  return { key: print(node), show: brief(text.slice(node.start, node.end)), asserts, suspicious };
+  const key = printer[how](node);
+  const { reads, writes } = printer.touched();
+  return { key, show: brief(text.slice(node.start, node.end)), asserts, suspicious, off, reads, writes };
 }
 
 function bodyStatements(callback, text, names, printer) {
@@ -124,7 +142,7 @@ function bodyStatements(callback, text, names, printer) {
       printer.bindParams(callback.params);
       const body = callback.body.type === "BlockStatement" ? callback.body.body : [callback.body];
       printer.hoist(body);
-      return body.map((statement) => inspectStatement(statement, text, names, printer.print));
+      return body.map((statement) => inspectStatement(statement, text, names, printer));
     });
     return { statements, refs };
   });
@@ -172,13 +190,13 @@ function declUnits(statement, text, names) {
   const wrapper = exported ? statement.type : "";
   const unit = (key, node, extra, more = {}) => {
     const printer = jsPrinter();
-    const found = inspectStatement(node, text, names, printer.unit);
-    return { ...found, key, print: JSON.stringify([wrapper, extra ?? null, found.key]), refs: printer.refs, binds: [], ...more };
+    const found = inspectStatement(node, text, names, printer, "unit");
+    return { ...found, key, print: JSON.stringify([wrapper, extra ?? null, found.key]), refs: printer.refs, binds: [], disables: found.off, ...more };
   };
   if (inner.type === "ImportDeclaration") {
     const source = String(inner.source.value);
-    const here = (key, node, imported, binds) => ({ key, print: `${source}|${imported}|${inner.importKind}|${node.importKind ?? ""}`, show: brief(text.slice(node.start, node.end)), asserts: false, suspicious: false, refs: new Set(), binds, from: { source, imported, namespace: imported === "*" } });
-    if (inner.specifiers.length === 0) return [{ ...here(`side-effect-import:${source}`, inner, "", []), effect: true }];
+    const here = (key, node, imported, binds) => ({ key, print: `${source}|${imported}|${inner.importKind}|${node.importKind ?? ""}`, show: brief(text.slice(node.start, node.end)), asserts: false, suspicious: false, refs: new Set(), binds, from: { source, imported, namespace: imported === "*" }, disables: false });
+    if (inner.specifiers.length === 0) return [{ ...here(`side-effect-import:${source}`, inner, "", []), effect: true, disables: true }];
     return inner.specifiers.map((specifier) => {
       const imported = specifier.type === "ImportNamespaceSpecifier" ? "*" : specifier.type === "ImportDefaultSpecifier" ? "default" : nameOf(specifier.imported);
       return here(`import:${specifier.local.name}`, specifier, imported, [specifier.local.name]);
@@ -229,6 +247,7 @@ function nodeTestCalls(program) {
 function jsFile({ path, text, program, calls, names }) {
   const tests = new Map();
   const decls = new Map();
+  const groups = new Map();
   const seen = new Map();
   const add = (map, unit, key) => {
     const times = (seen.get(key) ?? 0) + 1;
@@ -252,6 +271,7 @@ function jsFile({ path, text, program, calls, names }) {
       if (segments.some((word) => groupWords.has(word))) {
         const inner = [...scope, title];
         const passed = [...inherited, ...mods];
+        groups.set(`${path} > ${inner.join(" > ")}`, mods);
         if (callback?.body.type === "BlockStatement") {
           const printer = shared ?? jsPrinter();
           printer.within(() => {
@@ -260,7 +280,7 @@ function jsFile({ path, text, program, calls, names }) {
               const id = `${path} > ${inner.join(" > ")} (setup)`;
               const [statements, refs] = printer.collect(() => {
                 printer.hoist(setup);
-                return setup.map((statement) => inspectStatement(statement, text, names, printer.print));
+                return setup.map((statement) => inspectStatement(statement, text, names, printer));
               });
               add(tests, { id, mods: [], setup: true, statements, refs }, id);
             }
@@ -281,7 +301,7 @@ function jsFile({ path, text, program, calls, names }) {
     else for (const unit of declUnits(statement, text, names)) add(decls, unit, unit.key);
   }
   for (const unit of tests.values()) unit.bodyKey = JSON.stringify(unit.statements.map((statement) => statement.key));
-  return { tests, decls };
+  return { tests, decls, groups };
 }
 
 /** A value glance built: a Gleam custom type, list, option or plain value. */
@@ -319,7 +339,7 @@ function gleamFile({ path, text, module }) {
     });
     return found;
   };
-  const guarding = (statement) => statement?.constructor?.name === "Use" && /guard/.test(printGleam(statement.function));
+  const guarding = (statement) => statement?.constructor?.name === "Use";
   const statementsOf = (body, parameters = []) => {
     const printer = gleamPrinter();
     printer.parameters(parameters);
@@ -395,7 +415,7 @@ export function inventoryOf(files, parsers) {
   const resolve = bindings(programs);
   for (const [path, text] of files) {
     const role = roleOf(path);
-    const entry = { path, role, tests: new Map(), decls: new Map(), unreadable: null, text: normalised(path, text), data: !isCode(path), byName: new Map() };
+    const entry = { path, role, tests: new Map(), decls: new Map(), unreadable: null, text: normalised(path, text), data: !isCode(path), byName: new Map(), groups: new Map() };
     found.set(path, entry);
     if (!isCode(path)) continue;
     if (path.endsWith(".gleam")) {
@@ -504,22 +524,34 @@ function changed(unit, next, strict) {
 }
 
 const rank = (mods) => mods.filter((word) => weakWords.has(word)).length;
+const marked = (mods) => mods.filter((word) => word === "skip" || word === "fixme" || word === "only");
 
 function weaker(base, branch) {
   const reasons = [];
   let at = 0;
+  const kept = [];
   const added = [];
-  for (const statement of branch.statements) {
-    if (at < base.statements.length && statement.key === base.statements[at].key) at++;
-    else added.push(statement);
-  }
+  branch.statements.forEach((statement, index) => {
+    if (at < base.statements.length && statement.key === base.statements[at].key) {
+      at++;
+      kept.push(index);
+    } else added.push(index);
+  });
   if (at < base.statements.length) {
     const lost = base.statements[at];
     reasons.push(`${lost.asserts ? "an assertion" : "a statement"} was removed or changed: ${lost.show}`);
   }
-  const exit = added.find((statement) => statement.suspicious);
-  if (exit) reasons.push(`a new early exit, skip or try was added: ${exit.show}`);
+  const exit = added.map((index) => branch.statements[index]).find((statement) => statement.suspicious);
+  if (exit) reasons.push(`a new early exit, skip, use or switch-off was added: ${exit.show}`);
+  const lastRead = new Map();
+  for (const index of kept) for (const id of branch.statements[index].reads?.keys() ?? []) lastRead.set(id, index);
+  for (const index of added) {
+    for (const [id, name] of branch.statements[index].writes ?? []) {
+      if ((lastRead.get(id) ?? -1) > index) reasons.push(`a new statement assigns ${name}, which the test reads after it: ${branch.statements[index].show}`);
+    }
+  }
   if (rank(branch.mods) > rank(base.mods)) reasons.push(`it is now marked ${branch.mods.filter((word) => weakWords.has(word)).join(", ")}`);
+  if (branch.mods.includes("only") && !base.mods.includes("only")) reasons.push("it is now marked only, so no other test of the run runs");
   return reasons.join("; ");
 }
 
@@ -533,6 +565,9 @@ export function compare(base, branch) {
   const items = [];
   const notes = [];
   const bodies = new Set([...branch.values()].flatMap((entry) => [...entry.tests.values()].map((unit) => unit.bodyKey)));
+  const copies = new Map();
+  for (const entry of branch.values()) for (const unit of entry.tests.values()) copies.set(unit.bodyKey, [...(copies.get(unit.bodyKey) ?? []), unit.mods]);
+  const baseBodies = new Set([...base.values()].flatMap((entry) => [...entry.tests.values()].map((unit) => unit.bodyKey)));
   const read = readBy(base);
   const kept = new Set([...branch.values()].flatMap((entry) => [...entry.decls].map(([key, unit]) => `${key}|${unit.print}`)));
   for (const [path, was] of base) {
@@ -562,12 +597,28 @@ export function compare(base, branch) {
     for (const unit of was.tests.values()) {
       const next = now.tests.get(unit.id);
       if (next === undefined) {
-        if (!unit.setup && bodies.has(unit.bodyKey)) continue;
-        items.push({ file: path, id: unit.id, what: unit.setup ? "weakened-test" : "removed-test", why: unit.setup ? "the setup of the group is gone" : "no test of this name is left in the file" });
+        const same = copies.get(unit.bodyKey) ?? [];
+        if (!unit.setup && same.some((mods) => rank(mods) <= rank(unit.mods) && marked(mods).length <= marked(unit.mods).length)) continue;
+        if (!unit.setup && same.length > 0) items.push({ file: path, id: unit.id, what: "weakened-test", why: "its copy under another name is marked skip, fixme or only" });
+        else items.push({ file: path, id: unit.id, what: unit.setup ? "weakened-test" : "removed-test", why: unit.setup ? "the setup of the group is gone" : "no test of this name is left in the file" });
         continue;
       }
       const why = weaker(unit, next);
       if (why !== "") items.push({ file: path, id: unit.id, what: "weakened-test", why });
+    }
+    const fresh = [];
+    for (const [id, unit] of now.tests) {
+      if (was.tests.has(id) || unit.setup || baseBodies.has(unit.bodyKey)) continue;
+      const bad = marked(unit.mods);
+      if (bad.length > 0) fresh.push({ file: path, id, what: "disabled", why: `is a new test marked ${bad.join(", ")}` });
+    }
+    for (const [id, mods] of now.groups) {
+      if (was.groups.has(id) || marked(mods).length === 0 || fresh.some((item) => item.id.startsWith(`${id} > `))) continue;
+      fresh.push({ file: path, id, what: "disabled", why: `is a new group marked ${marked(mods).join(", ")}` });
+    }
+    items.push(...fresh);
+    for (const [key, unit] of now.decls) {
+      if (!was.decls.has(key) && unit.disables) items.push({ file: path, id: `${path}::${key}`, what: "disabled", why: `${unit.show ?? key} is new, and it can switch checks off` });
     }
     for (const [key, unit] of was.decls) {
       const next = now.decls.get(key);

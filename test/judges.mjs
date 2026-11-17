@@ -105,6 +105,7 @@ const reasons = {
   "removed-file": "is a file of main's judges that this branch no longer has",
   "weakened-test": "is a test of main's that this branch made check less",
   "weakened-helper": "is a helper of main's tests that this branch made check less",
+  disabled: "is a statement, test or group that this branch added and that switches checks off or leaves the others out",
   "changed-input": "is a const, table, helper or import that a test of main's reads, and this branch changed it",
   "changed-gate": "is a script or file that decides, and this branch changed it",
   unreadable: "is a judge that cannot be read",
