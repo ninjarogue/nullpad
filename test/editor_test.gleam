@@ -250,7 +250,7 @@ pub fn an_arrow_after_an_aim_aims_again_on_the_line_beside_with_the_kept_column_
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Beside(up: False, select: False),
+        editor.LineInField(up: False, select: False),
         x: 0.0,
         shown: caret("", 0, 0),
       ),
@@ -509,7 +509,7 @@ pub fn escape_collapses_a_selection_across_blocks_to_its_head_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectToEnd,
+        editor.SelectToNoteEnd,
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -1181,7 +1181,7 @@ pub fn the_page_settles_the_head_a_key_moved_and_never_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.SelectToEnd, x: 0.0, shown: inside),
+      editor.EdgePressed(editor.SelectToNoteEnd, x: 0.0, shown: inside),
     )
   assert editor.is_painted(ed)
   let from = buffer.selection(editor.buffer(ed))
@@ -1409,7 +1409,7 @@ pub fn selecting_to_the_ends_of_the_note_keeps_the_anchor_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectToEnd,
+        editor.SelectToNoteEnd,
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -1422,7 +1422,7 @@ pub fn selecting_to_the_ends_of_the_note_keeps_the_anchor_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.SelectToStart,
+        editor.SelectToNoteStart,
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),
@@ -1985,7 +1985,11 @@ pub fn a_key_the_browser_acts_on_widens_the_field_to_the_note_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Widen, x: 0.0, shown: caret("bravo two", 0, 0)),
+      editor.EdgePressed(
+        editor.WidenToNote,
+        x: 0.0,
+        shown: caret("bravo two", 0, 0),
+      ),
     )
   assert sync == editor.WriteAndRead(caret(note, 2, 0))
   assert editor.region(ed) == Some(Region(0, 2))
@@ -2004,16 +2008,18 @@ pub fn an_arrow_past_the_rows_the_field_holds_moves_one_character_without_the_no
     editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
   }
   let Outcome(editor: ed, sync:, ..) =
-    edge(pressed(note, 2, ""), editor.Before, caret("bravo two", 0, 0))
+    edge(pressed(note, 2, ""), editor.OntoRowBefore, caret("bravo two", 0, 0))
   assert sync == editor.Write(caret("", 0, 0))
   assert editor.region(ed) == Some(Region(1, 1))
   assert !editor.is_painted(ed)
 
-  let Outcome(editor: ed, sync:, ..) = edge(ed, editor.After, caret("", 0, 0))
+  let Outcome(editor: ed, sync:, ..) =
+    edge(ed, editor.OntoRowAfter, caret("", 0, 0))
   assert sync == editor.Write(caret("bravo two", 0, 0))
   assert editor.region(ed) == Some(Region(2, 2))
 
-  let Outcome(sync:, ..) = edge(ed, editor.After, caret("bravo two", 0, 9))
+  let Outcome(sync:, ..) =
+    edge(ed, editor.OntoRowAfter, caret("bravo two", 0, 9))
   assert sync == editor.InSync
 }
 
@@ -2023,13 +2029,17 @@ pub fn ctrl_and_home_or_end_goes_to_the_ends_of_the_note_without_the_note_test()
     editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
   }
   let Outcome(editor: ed, sync:, ..) =
-    edge(pressed(note, 2, "bravo"), editor.ToStart, caret("bravo two", 0, 5))
+    edge(
+      pressed(note, 2, "bravo"),
+      editor.ToNoteStart,
+      caret("bravo two", 0, 5),
+    )
   assert sync == editor.Write(caret("alpha one", 0, 0))
   assert editor.region(ed) == Some(Region(0, 0))
   assert !editor.is_painted(ed)
 
   let Outcome(editor: ed, sync:, ..) =
-    edge(ed, editor.ToEnd, caret("alpha one", 0, 0))
+    edge(ed, editor.ToNoteEnd, caret("alpha one", 0, 0))
   assert sync == editor.Write(caret("bravo two", 0, 9))
   assert editor.region(ed) == Some(Region(2, 2))
 }
@@ -2038,7 +2048,10 @@ pub fn ctrl_and_an_arrow_aims_at_the_runs_column_on_the_row_above_or_below_test(
   let note = "alpha one\n\nbravo two\ncharlie"
   let ed = pressed(note, 2, "")
   let row = fn(ed, up, select, shown) {
-    editor.update(ed, editor.EdgePressed(editor.Row(up:, select:), 30.0, shown))
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.NextRow(up:, select:), 30.0, shown),
+    )
   }
   let Outcome(sync:, ..) =
     row(ed, True, False, caret("bravo two\ncharlie", 1, 7))
@@ -2071,7 +2084,7 @@ pub fn ctrl_and_an_arrow_on_a_selection_moves_from_its_head_test() {
     let shown = selected(note, from, to)
     editor.update(
       ed,
-      editor.EdgePressed(editor.Row(up:, select: False), 30.0, shown),
+      editor.EdgePressed(editor.NextRow(up:, select: False), 30.0, shown),
     )
   }
   let Outcome(sync:, ..) = row(True, Position(0, 2), Position(2, 3))
@@ -2099,7 +2112,7 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Row(up: True, select: False),
+        editor.NextRow(up: True, select: False),
         x: 60.0,
         shown: caret(note, 2, 9),
       ),
@@ -2110,7 +2123,7 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Row(up: True, select: False),
+        editor.NextRow(up: True, select: False),
         x: 12.0,
         shown: caret(note, 1, 2),
       ),
@@ -2192,7 +2205,7 @@ pub fn a_key_that_moves_across_ends_the_run_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Widen, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.WidenToNote, x: 0.0, shown: caret("", 0, 0)),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -2227,7 +2240,7 @@ pub fn a_key_that_moves_nothing_keeps_the_run_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Widen, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.WidenToNote, x: 0.0, shown: caret("", 0, 0)),
     )
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret(note, 1, 0), at: 0))
@@ -2334,7 +2347,7 @@ pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Beside(up: True, select: False),
+        editor.LineInField(up: True, select: False),
         x: 3.0,
         shown: editor.field_buffer(ed),
       ),
@@ -2355,10 +2368,10 @@ pub fn a_run_from_the_start_of_a_row_lands_at_the_start_of_rows_test() {
           shown: caret(note, 0, col),
         ),
       )
-    let before = editor.from_row_start(ed)
+    let before = editor.run_started_at_row_start(ed)
     let Outcome(editor: ed, ..) =
       editor.update(ed, editor.FieldStepped(shown: caret(note, 1, col), x: 0.0))
-    #(before, editor.from_row_start(ed))
+    #(before, editor.run_started_at_row_start(ed))
   }
   assert run(0) == #(True, True)
   assert run(4) == #(False, False)
@@ -2385,7 +2398,7 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
     editor.update(
       ed,
       editor.EdgePressed(
-        editor.Beside(up: True, select: False),
+        editor.LineInField(up: True, select: False),
         x: 0.0,
         shown: editor.field_buffer(ed),
       ),

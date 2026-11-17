@@ -23,14 +23,14 @@ pub opaque type Editor {
     history: History,
     clock: Int,
     press: Option(Press),
-    clicked: Option(Position),
+    last_plain_press: Option(Position),
     dragging: Bool,
     ime: Ime,
     paints: Bool,
-    goal: Option(Goal),
-    page: Page,
+    vertical_goal: Option(Goal),
+    page_backlog: Page,
     travel: order.Order,
-    choice: Choice,
+    note_choice: Choice,
   )
 }
 
@@ -41,17 +41,17 @@ type Choice {
 
 type Page {
   CaughtUp
-  Behind(steps: List(Queued), keys: List(Held))
+  Behind(steps_for_page: List(Queued), keys_behind_steps: List(Held))
 }
 
 type Ime {
   NotComposing
   ComposingHere
-  ComposingBehind
+  ComposingBehindHeldKeys
 }
 
 type Goal {
-  Goal(x: Float, col: Int)
+  Goal(page_x: Float, markdown_col: Int)
 }
 
 type Queued {
@@ -220,8 +220,8 @@ pub type Held {
     at: Int,
   )
   HeldPaste(text: String, at: Int)
-  HeldUndo
-  HeldRedo
+  HeldMenuUndo
+  HeldMenuRedo
 }
 
 pub type Keyboard {
@@ -260,7 +260,7 @@ pub type Granularity {
   ByDocument
 }
 
-pub fn holds(held: Held, keyboard: Keyboard) -> Bool {
+pub fn replay_matches_browser(held: Held, keyboard: Keyboard) -> Bool {
   case held {
     HeldKey(key: "Escape", ..)
     | HeldKey(key: "PageUp", ..)
@@ -271,7 +271,7 @@ pub fn holds(held: Held, keyboard: Keyboard) -> Bool {
         is_key(key, code, "z") || { is_key(key, code, "y") && ctrl && !shift }
       { command && undoes } || browser_act(held, keyboard) != None
     }
-    HeldPaste(..) | HeldUndo | HeldRedo -> True
+    HeldPaste(..) | HeldMenuUndo | HeldMenuRedo -> True
   }
 }
 
@@ -346,7 +346,7 @@ pub fn browser_act(held: Held, keyboard: Keyboard) -> Option(Act) {
         _ -> {
           let typed = case string.length(key) == 1 {
             False -> False
-            True -> plain || { types && !names_its_key(key, code) }
+            True -> plain || { types && !names_printed_label(key, code) }
           }
           let shortcut = case command && !shift && string.length(key) == 1 {
             False -> None
@@ -367,7 +367,7 @@ pub fn browser_act(held: Held, keyboard: Keyboard) -> Option(Act) {
         }
       }
     }
-    HeldPaste(..) | HeldUndo | HeldRedo -> None
+    HeldPaste(..) | HeldMenuUndo | HeldMenuRedo -> None
   }
 }
 
@@ -381,7 +381,7 @@ pub fn is_key(name: String, code: String, letter: String) -> Bool {
 
 const letters = "abcdefghijklmnopqrstuvwxyz"
 
-fn names_its_key(name: String, code: String) -> Bool {
+fn names_printed_label(name: String, code: String) -> Bool {
   code == "Key" <> string.uppercase(name) || code == "Digit" <> name
 }
 
@@ -393,7 +393,7 @@ pub type Edge {
   JoinBefore
   JoinAfter
   Line(up: Bool, select: Bool)
-  Beside(up: Bool, select: Bool)
+  LineInField(up: Bool, select: Bool)
   SelectBefore
   SelectAfter
   /// Shift and an arrow left or right, Home or End, over a painted
@@ -402,16 +402,16 @@ pub type Edge {
   SelectRight
   SelectLineStart
   SelectLineEnd
-  SelectToStart
-  SelectToEnd
+  SelectToNoteStart
+  SelectToNoteEnd
   SelectAll
   Page(up: Bool, select: Bool)
-  Row(up: Bool, select: Bool)
-  Before
-  After
-  ToStart
-  ToEnd
-  Widen
+  NextRow(up: Bool, select: Bool)
+  OntoRowBefore
+  OntoRowAfter
+  ToNoteStart
+  ToNoteEnd
+  WidenToNote
 }
 
 pub type Sync {
@@ -475,14 +475,14 @@ pub fn new(
     history: history.new(buffer),
     clock: 0,
     press: None,
-    clicked: None,
+    last_plain_press: None,
     dragging: False,
     ime: NotComposing,
     paints:,
-    goal: None,
-    page: CaughtUp,
+    vertical_goal: None,
+    page_backlog: CaughtUp,
     travel: order.Eq,
-    choice: Chosen,
+    note_choice: Chosen,
   )
 }
 
@@ -507,33 +507,38 @@ pub fn open(editor: Editor, text: String) -> Outcome {
     field:,
     history: history.new(buffer),
     press: None,
-    clicked: None,
+    last_plain_press: None,
     ime: NotComposing,
-    goal: None,
-    page: behind([], chosen_keys(editor)),
+    vertical_goal: None,
+    page_backlog: behind([], chosen_keys(editor)),
     travel: order.Eq,
-    choice: Chosen,
+    note_choice: Chosen,
   )
   |> realign
   |> write_and_focus
 }
 
 pub fn set_choosing(editor: Editor, choosing: Bool) -> Outcome {
-  let editor = case editor.choice, choosing {
-    Chosen, True -> Editor(..editor, page: CaughtUp, choice: Choosing([]))
+  let editor = case editor.note_choice, choosing {
+    Chosen, True ->
+      Editor(..editor, page_backlog: CaughtUp, note_choice: Choosing([]))
     Choosing(keys:), False ->
-      Editor(..editor, page: behind(steps(editor), keys), choice: Chosen)
+      Editor(
+        ..editor,
+        page_backlog: behind(steps(editor), keys),
+        note_choice: Chosen,
+      )
     Chosen, False | Choosing(..), True -> editor
   }
   Outcome(editor:, sync: InSync, requests: [])
 }
 
 pub fn is_choosing(editor: Editor) -> Bool {
-  editor.choice != Chosen
+  editor.note_choice != Chosen
 }
 
 fn chosen_keys(editor: Editor) -> List(Held) {
-  case editor.choice {
+  case editor.note_choice {
     Chosen -> []
     Choosing(keys:) -> keys
   }
@@ -560,7 +565,13 @@ fn write(editor: Editor) -> Outcome {
 
 pub fn set_live(editor: Editor, on: Bool) -> Outcome {
   let editor =
-    Editor(..editor, press: None, clicked: None, goal: None, travel: order.Eq)
+    Editor(
+      ..editor,
+      press: None,
+      last_plain_press: None,
+      vertical_goal: None,
+      travel: order.Eq,
+    )
   let editor = case on {
     True -> Editor(..editor, field: laid_out(editor.buffer)) |> realign
     False -> Editor(..editor, field: Whole)
@@ -577,7 +588,7 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 }
 
 pub fn update(editor: Editor, event: Event) -> Outcome {
-  case editor.choice {
+  case editor.note_choice {
     Chosen -> follow(editor, event)
     Choosing(keys:) -> choosing(editor, keys, event)
   }
@@ -586,12 +597,16 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
 fn choosing(editor: Editor, keys: List(Held), event: Event) -> Outcome {
   let wait = fn(held) {
     let choice = Choosing(list.append(keys, [held]))
-    Outcome(editor: Editor(..editor, choice:), sync: InSync, requests: [])
+    Outcome(
+      editor: Editor(..editor, note_choice: choice),
+      sync: InSync,
+      requests: [],
+    )
   }
   case event {
     KeyHeld(held:) -> wait(held)
-    UndoAsked -> wait(HeldUndo)
-    RedoAsked -> wait(HeldRedo)
+    UndoAsked -> wait(HeldMenuUndo)
+    RedoAsked -> wait(HeldMenuRedo)
     ControlChanged(..)
     | Composing(..)
     | Composed(..)
@@ -624,7 +639,7 @@ fn ends_steps(before: Editor, outcome: Outcome) -> Outcome {
     True -> outcome
     False -> {
       let page = behind([], held_keys(outcome.editor))
-      Outcome(..outcome, editor: Editor(..outcome.editor, page:))
+      Outcome(..outcome, editor: Editor(..outcome.editor, page_backlog: page))
     }
   }
 }
@@ -670,8 +685,8 @@ fn follow(editor: Editor, event: Event) -> Outcome {
     | Replayed(..) -> apply(editor, event)
   }
   let goal = case in_run(event), outcome.editor.buffer == editor.buffer {
-    Moves, _ | Changes, True -> outcome.editor.goal
-    Changes, False | Ends, _ -> None
+    KeepsRun, _ | EndsRunOnChange, True -> outcome.editor.vertical_goal
+    EndsRunOnChange, False | EndsRun, _ -> None
   }
   let head = buffer.cursor(editor.buffer)
   let travel = case buffer.compare(buffer.cursor(outcome.editor.buffer), head) {
@@ -682,10 +697,13 @@ fn follow(editor: Editor, event: Event) -> Outcome {
         False -> order.Eq
       }
   }
-  Outcome(..outcome, editor: Editor(..outcome.editor, goal:, travel:))
+  Outcome(
+    ..outcome,
+    editor: Editor(..outcome.editor, vertical_goal: goal, travel:),
+  )
 }
 
-pub fn direction(editor: Editor) -> order.Order {
+pub fn last_key_travel(editor: Editor) -> order.Order {
   editor.travel
 }
 
@@ -723,24 +741,24 @@ fn steers(event: Event) -> Bool {
 }
 
 type InRun {
-  Moves
-  Ends
-  Changes
+  KeepsRun
+  EndsRun
+  EndsRunOnChange
 }
 
 fn in_run(event: Event) -> InRun {
   case event {
     EdgePressed(edge:, ..) ->
       case is_vertical(edge) {
-        True -> Moves
-        False -> Changes
+        True -> KeepsRun
+        False -> EndsRunOnChange
       }
     Stepped(..)
     | Unstepped(..)
     | FieldStepped(..)
     | Aimed(..)
     | SteppedPast
-    | Settled(..) -> Moves
+    | Settled(..) -> KeepsRun
     Pointed(..)
     | LinePointed(..)
     | ShiftPointed(..)
@@ -753,21 +771,21 @@ fn in_run(event: Event) -> InRun {
     | Dropped(..)
     | EscapePressed(..)
     | UndoAsked
-    | RedoAsked -> Ends
+    | RedoAsked -> EndsRun
     ControlChanged(..)
     | Composing(..)
     | Composed(..)
     | KeyPressed(..)
     | FocusChanged(..)
     | KeyHeld(..)
-    | Replayed(None) -> Changes
+    | Replayed(None) -> EndsRunOnChange
     Replayed(Some(event)) -> in_run(event)
   }
 }
 
 fn is_vertical(edge: Edge) -> Bool {
   case edge {
-    Up | Down | Line(..) | Beside(..) | Page(..) | Row(..) -> True
+    Up | Down | Line(..) | LineInField(..) | Page(..) | NextRow(..) -> True
     JoinBefore
     | JoinAfter
     | SelectBefore
@@ -776,14 +794,14 @@ fn is_vertical(edge: Edge) -> Bool {
     | SelectRight
     | SelectLineStart
     | SelectLineEnd
-    | SelectToStart
-    | SelectToEnd
+    | SelectToNoteStart
+    | SelectToNoteEnd
     | SelectAll
-    | Before
-    | After
-    | ToStart
-    | ToEnd
-    | Widen -> False
+    | OntoRowBefore
+    | OntoRowAfter
+    | ToNoteStart
+    | ToNoteEnd
+    | WidenToNote -> False
   }
 }
 
@@ -793,12 +811,12 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     ControlChanged(shown:, at:) ->
       case editor.ime {
         NotComposing -> typed(Editor(..editor, clock: at), shown, None, realign)
-        ComposingHere | ComposingBehind -> compose(editor, shown)
+        ComposingHere | ComposingBehindHeldKeys -> compose(editor, shown)
       }
     Composing(shown:) -> compose(editor, shown)
     Composed(shown:, at:) ->
       case editor.ime {
-        ComposingBehind -> hold_composition(editor, shown, at)
+        ComposingBehindHeldKeys -> queue_ime_text_behind_page(editor, shown, at)
         ComposingHere | NotComposing ->
           typed(
             Editor(..editor, clock: at, ime: NotComposing),
@@ -808,7 +826,8 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           )
       }
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
-    EdgePressed(edge: Widen, shown:, ..) -> spread(editor, shown)
+    EdgePressed(edge: WidenToNote, shown:, ..) ->
+      widen_field_to_note(editor, shown)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
     EscapePressed(shown:) -> {
       let outcome = typed(editor, shown, None, realign)
@@ -817,7 +836,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
         Part(..) -> {
           let left = outcome.editor.buffer
           let editor =
-            Editor(..outcome.editor, focus: Away, page: CaughtUp)
+            Editor(..outcome.editor, focus: Away, page_backlog: CaughtUp)
             |> edit(buffer.move_to(left, buffer.cursor(left)))
             |> realign
           Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
@@ -831,8 +850,8 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedAt(at)),
-          clicked: Some(at),
-          page: CaughtUp,
+          last_plain_press: Some(at),
+          page_backlog: CaughtUp,
         )
         |> edit(buffer.move_to(editor.buffer, at))
         |> realign
@@ -850,7 +869,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedOnLine(start:, end:)),
-          page: CaughtUp,
+          page_backlog: CaughtUp,
         )
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
@@ -868,7 +887,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedAt(anchor)),
-          page: CaughtUp,
+          page_backlog: CaughtUp,
         )
         |> reach(from, anchor, row:, visible:, at_end:, next:)
       Outcome(
@@ -887,7 +906,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     }
     WordPressed(row:, visible:, at_end:, next:, x:, y:) -> {
       let cursor = buffer.cursor(editor.buffer)
-      let at = case editor.clicked {
+      let at = case editor.last_plain_press {
         Some(clicked) if clicked == cursor -> cursor
         Some(_) | None if row >= 0 ->
           place(editor.buffer, row:, visible:, at_end:, next:)
@@ -899,7 +918,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           ..editor,
           focus: Focused,
           press: Some(PressedOnWord(start:, end:)),
-          page: CaughtUp,
+          page_backlog: CaughtUp,
         )
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
@@ -915,7 +934,7 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           let at = place(editor.buffer, row:, visible:, at_end:, next:)
           let press = Some(PressedOnSelection(at))
           Outcome(
-            editor: Editor(..editor, press:, page: CaughtUp),
+            editor: Editor(..editor, press:, page_backlog: CaughtUp),
             sync: HoldSelection(x:, y:),
             requests: [],
           )
@@ -1108,11 +1127,12 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     }
     FocusChanged(focused:) -> {
       let #(focus, press, page) = case focused {
-        True -> #(Focused, editor.press, editor.page)
+        True -> #(Focused, editor.press, editor.page_backlog)
         False -> #(Away, None, CaughtUp)
       }
       let changed =
-        Editor(..editor, focus:, press:, page:) |> edit(editor.buffer)
+        Editor(..editor, focus:, press:, page_backlog: page)
+        |> edit(editor.buffer)
       let changed = case focus {
         Away -> changed
         Focused -> realign(changed)
@@ -1124,16 +1144,20 @@ fn apply(editor: Editor, event: Event) -> Outcome {
       Outcome(editor: changed, sync:, requests: [])
     }
     UndoAsked ->
-      case editor.page, editor.ime {
-        Behind(..), NotComposing -> hold_key(editor, HeldUndo)
-        CaughtUp, _ | Behind(..), ComposingHere | Behind(..), ComposingBehind ->
-          travel(editor, history.undo)
+      case editor.page_backlog, editor.ime {
+        Behind(..), NotComposing -> hold_key(editor, HeldMenuUndo)
+        CaughtUp, _
+        | Behind(..), ComposingHere
+        | Behind(..), ComposingBehindHeldKeys
+        -> travel(editor, history.undo)
       }
     RedoAsked ->
-      case editor.page, editor.ime {
-        Behind(..), NotComposing -> hold_key(editor, HeldRedo)
-        CaughtUp, _ | Behind(..), ComposingHere | Behind(..), ComposingBehind ->
-          travel(editor, history.redo)
+      case editor.page_backlog, editor.ime {
+        Behind(..), NotComposing -> hold_key(editor, HeldMenuRedo)
+        CaughtUp, _
+        | Behind(..), ComposingHere
+        | Behind(..), ComposingBehindHeldKeys
+        -> travel(editor, history.redo)
       }
     KeyHeld(held) -> hold_key(editor, held)
     Replayed(Some(UndoAsked)) -> travel(replayed(editor), history.undo)
@@ -1163,35 +1187,41 @@ fn apply(editor: Editor, event: Event) -> Outcome {
 
 fn hold_key(editor: Editor, held: Held) -> Outcome {
   let page = behind(steps(editor), list.append(held_keys(editor), [held]))
-  Outcome(editor: Editor(..editor, page:), sync: InSync, requests: [])
+  Outcome(
+    editor: Editor(..editor, page_backlog: page),
+    sync: InSync,
+    requests: [],
+  )
 }
 
 fn replayed(editor: Editor) -> Editor {
-  case replay(editor), editor.page {
-    Some(_), Behind(steps:, keys: [_, ..keys]) ->
-      Editor(..editor, page: behind(steps, keys))
-    Some(_), Behind(keys: [], ..) | Some(_), CaughtUp | None, _ -> editor
+  case replay(editor), editor.page_backlog {
+    Some(_), Behind(steps_for_page: steps, keys_behind_steps: [_, ..keys]) ->
+      Editor(..editor, page_backlog: behind(steps, keys))
+    Some(_), Behind(keys_behind_steps: [], ..) | Some(_), CaughtUp | None, _ ->
+      editor
   }
 }
 
 fn behind(steps: List(Queued), keys: List(Held)) -> Page {
   case steps, keys {
     [], [] -> CaughtUp
-    [_, ..], _ | _, [_, ..] -> Behind(steps:, keys:)
+    [_, ..], _ | _, [_, ..] ->
+      Behind(steps_for_page: steps, keys_behind_steps: keys)
   }
 }
 
 fn steps(editor: Editor) -> List(Queued) {
-  case editor.page {
+  case editor.page_backlog {
     CaughtUp -> []
-    Behind(steps:, ..) -> steps
+    Behind(steps_for_page: steps, ..) -> steps
   }
 }
 
 fn held_keys(editor: Editor) -> List(Held) {
-  case editor.page {
+  case editor.page_backlog {
     CaughtUp -> []
-    Behind(keys:, ..) -> keys
+    Behind(keys_behind_steps: keys, ..) -> keys
   }
 }
 
@@ -1205,10 +1235,10 @@ fn travel(
   through: fn(History) -> Result(History, Nil),
 ) -> Outcome {
   case editor.ime, editor.focus, through(editor.history) {
-    ComposingHere, _, _ | ComposingBehind, _, _ ->
+    ComposingHere, _, _ | ComposingBehindHeldKeys, _, _ ->
       Outcome(editor:, sync: InSync, requests: [])
     NotComposing, Focused, Ok(history) ->
-      Editor(..editor, history:, page: behind([], held_keys(editor)))
+      Editor(..editor, history:, page_backlog: behind([], held_keys(editor)))
       |> edit(history.present(history))
       |> realign
       |> write
@@ -1219,9 +1249,10 @@ fn travel(
 
 fn next_step(editor: Editor, landed: Option(Bool), undrawn: Bool) -> Outcome {
   let waiting = list.drop(steps(editor), 1)
-  let editor = Editor(..editor, page: behind(waiting, held_keys(editor)))
-  case waiting, landed, editor.goal {
-    [], Some(select), Some(Goal(x:, ..)) ->
+  let editor =
+    Editor(..editor, page_backlog: behind(waiting, held_keys(editor)))
+  case waiting, landed, editor.vertical_goal {
+    [], Some(select), Some(Goal(page_x: x, ..)) ->
       case is_painted(editor) || undrawn {
         True -> write(editor)
         False -> {
@@ -1245,20 +1276,24 @@ fn begin_run(
   landed: Option(Bool),
   x: Float,
 ) -> Editor {
-  case landed, editor.goal {
+  case landed, editor.vertical_goal {
     Some(_), None if x >=. 0.0 ->
       Editor(
         ..editor,
-        goal: Some(Goal(x:, col: buffer.cursor(before.buffer).col)),
+        vertical_goal: Some(Goal(
+          page_x: x,
+          markdown_col: buffer.cursor(before.buffer).col,
+        )),
       )
-    None, _ if editor.buffer != before.buffer -> Editor(..editor, goal: None)
+    None, _ if editor.buffer != before.buffer ->
+      Editor(..editor, vertical_goal: None)
     Some(_), _ | None, _ -> editor
   }
 }
 
-pub fn from_row_start(editor: Editor) -> Bool {
-  case editor.goal {
-    Some(Goal(col:, ..)) -> col == 0
+pub fn run_started_at_row_start(editor: Editor) -> Bool {
+  case editor.vertical_goal {
+    Some(Goal(markdown_col: col, ..)) -> col == 0
     None -> step_start(editor).col == 0
   }
 }
@@ -1377,11 +1412,11 @@ fn stays(editor: Editor, reached: Position) -> Bool {
 }
 
 fn step_x(editor: Editor, move: Move) -> Float {
-  case move, editor.goal {
-    LineUp, Some(Goal(x:, ..))
-    | LineDown, Some(Goal(x:, ..))
-    | PageUp, Some(Goal(x:, ..))
-    | PageDown, Some(Goal(x:, ..))
+  case move, editor.vertical_goal {
+    LineUp, Some(Goal(page_x: x, ..))
+    | LineDown, Some(Goal(page_x: x, ..))
+    | PageUp, Some(Goal(page_x: x, ..))
+    | PageDown, Some(Goal(page_x: x, ..))
     -> x
     LineUp, None
     | LineDown, None
@@ -1475,8 +1510,8 @@ fn among_marks(
 }
 
 fn run_col(editor: Editor, head: Position) -> Int {
-  case editor.goal {
-    Some(Goal(col:, ..)) -> col
+  case editor.vertical_goal {
+    Some(Goal(markdown_col: col, ..)) -> col
     None -> head.col
   }
 }
@@ -1512,10 +1547,11 @@ fn typed(
   }
   // A change the editor did not write ends the steps still waiting.
   let page = case shown == field_buffer(editor) {
-    True -> editor.page
+    True -> editor.page_backlog
     False -> behind([], held_keys(editor))
   }
-  let editor = Editor(..editor, keys:, page:) |> edit(wanted) |> place
+  let editor =
+    Editor(..editor, keys:, page_backlog: page) |> edit(wanted) |> place
   let wanted_shown = field_buffer(editor)
   let sync = case wanted_shown == shown {
     True -> InSync
@@ -1529,10 +1565,10 @@ fn typed(
 /// Its keys are not steps of the history: the event that ends it records the
 /// whole composition as one.
 fn compose(editor: Editor, shown: Buffer) -> Outcome {
-  case editor.ime, editor.page {
-    ComposingBehind, _ | NotComposing, Behind(..) ->
+  case editor.ime, editor.page_backlog {
+    ComposingBehindHeldKeys, _ | NotComposing, Behind(..) ->
       Outcome(
-        editor: Editor(..editor, ime: ComposingBehind),
+        editor: Editor(..editor, ime: ComposingBehindHeldKeys),
         sync: InSync,
         requests: [],
       )
@@ -1571,9 +1607,13 @@ fn keep_history(before: Editor, outcome: Outcome) -> Outcome {
   Outcome(..outcome, editor:)
 }
 
-fn hold_composition(editor: Editor, shown: Buffer, at: Int) -> Outcome {
+fn queue_ime_text_behind_page(
+  editor: Editor,
+  shown: Buffer,
+  at: Int,
+) -> Outcome {
   let field = field_buffer(editor)
-  case composed_text(field, shown) {
+  case ime_inserted_text(field, shown) {
     Error(Nil) -> typed(Editor(..editor, clock: at), shown, None, realign)
     Ok(text) -> {
       let keys = case text {
@@ -1581,7 +1621,11 @@ fn hold_composition(editor: Editor, shown: Buffer, at: Int) -> Outcome {
         _ -> list.append(held_keys(editor), [HeldPaste(text:, at:)])
       }
       let editor =
-        Editor(..editor, ime: NotComposing, page: behind(steps(editor), keys))
+        Editor(
+          ..editor,
+          ime: NotComposing,
+          page_backlog: behind(steps(editor), keys),
+        )
       let sync = case steps(editor) {
         [Queued(move:, select:), ..] ->
           WriteAndStep(field, move:, select:, x: step_x(editor, move))
@@ -1592,7 +1636,7 @@ fn hold_composition(editor: Editor, shown: Buffer, at: Int) -> Outcome {
   }
 }
 
-fn composed_text(before: Buffer, after: Buffer) -> Result(String, Nil) {
+fn ime_inserted_text(before: Buffer, after: Buffer) -> Result(String, Nil) {
   let #(anchor, head) = buffer.selection(before)
   let #(from, to) = case buffer.compare(anchor, head) {
     order.Gt -> #(head, anchor)
@@ -1614,7 +1658,7 @@ fn composed_text(before: Buffer, after: Buffer) -> Result(String, Nil) {
   }
 }
 
-fn spread(editor: Editor, shown: Buffer) -> Outcome {
+fn widen_field_to_note(editor: Editor, shown: Buffer) -> Outcome {
   let editor = edit(editor, base(editor, shown))
   case editor.field {
     Whole -> Outcome(editor:, sync: InSync, requests: [])
@@ -1642,12 +1686,12 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let reach = fn(head) { #(buffer.select(base, anchor:, head:), Done) }
   let goal = case
     is_vertical(edge),
-    editor.goal,
+    editor.vertical_goal,
     shown == field_buffer(editor)
   {
     True, Some(goal), True -> Some(goal)
-    True, _, _ if x >=. 0.0 -> Some(Goal(x:, col: cursor.col))
-    False, goal, _ if edge == Before || edge == After -> goal
+    True, _, _ if x >=. 0.0 -> Some(Goal(page_x: x, markdown_col: cursor.col))
+    False, goal, _ if edge == OntoRowBefore || edge == OntoRowAfter -> goal
     True, _, _ | False, _, _ -> None
   }
   let start = Position(row: 0, col: 0)
@@ -1694,17 +1738,17 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     SelectRight if live -> #(base, StepTo(Queued(LetterOn, select: True)))
     SelectLineStart if live -> #(base, StepTo(Queued(LineStart, select: True)))
     SelectLineEnd if live -> #(base, StepTo(Queued(LineEnd, select: True)))
-    Beside(up: True, select: False) if live && anchor != head -> #(
+    LineInField(up: True, select: False) if live && anchor != head -> #(
       base,
       StepTo(Queued(LineUp, select: False)),
     )
-    Beside(up: False, select: False) if live && anchor != head -> #(
+    LineInField(up: False, select: False) if live && anchor != head -> #(
       base,
       StepTo(Queued(LineDown, select: False)),
     )
-    Beside(up: True, select:) if live -> #(base, Aim(LineAbove, select:))
-    Beside(up: False, select:) if live -> #(base, Aim(LineBelow, select:))
-    Row(up:, select:) if live -> {
+    LineInField(up: True, select:) if live -> #(base, Aim(LineAbove, select:))
+    LineInField(up: False, select:) if live -> #(base, Aim(LineBelow, select:))
+    NextRow(up:, select:) if live -> {
       let #(to, then) = case up {
         True if head.row == 0 -> #(start, Done)
         True -> #(end_of_row(head.row - 1), Aim(LastLine, select:))
@@ -1733,18 +1777,18 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     }
     SelectBefore if row_above -> reach(end_of_row(cursor.row - 1))
     SelectAfter if row_below -> reach(Position(row: cursor.row + 1, col: 0))
-    Before if row_above -> #(
+    OntoRowBefore if row_above -> #(
       buffer.move_to(base, end_of_row(cursor.row - 1)),
       Done,
     )
-    After if row_below -> #(
+    OntoRowAfter if row_below -> #(
       buffer.move_to(base, Position(row: cursor.row + 1, col: 0)),
       Done,
     )
-    ToStart -> #(buffer.move_to(base, start), Done)
-    ToEnd -> #(buffer.move_to(base, end), Done)
-    SelectToStart -> reach(start)
-    SelectToEnd -> reach(end)
+    ToNoteStart -> #(buffer.move_to(base, start), Done)
+    ToNoteEnd -> #(buffer.move_to(base, end), Done)
+    SelectToNoteStart -> reach(start)
+    SelectToNoteEnd -> reach(end)
     SelectAll -> #(buffer.select(base, anchor: start, head: end), Done)
     Up
     | Down
@@ -1754,29 +1798,31 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | SelectBefore
     | SelectAfter
     | Page(..)
-    | Beside(..)
-    | Row(..)
-    | Widen
+    | LineInField(..)
+    | NextRow(..)
+    | WidenToNote
     | SelectLeft
     | SelectRight
     | SelectLineStart
     | SelectLineEnd
-    | Before
-    | After -> #(base, Done)
+    | OntoRowBefore
+    | OntoRowAfter -> #(base, Done)
   }
   let page = case then {
     StepTo(step) ->
       behind(list.append(steps(editor), [step]), held_keys(editor))
-    Done | Aim(..) -> editor.page
+    Done | Aim(..) -> editor.page_backlog
   }
   let first = steps(editor) == []
-  let editor = Editor(..edit(editor, wanted), page:, goal:) |> realign
+  let editor =
+    Editor(..edit(editor, wanted), page_backlog: page, vertical_goal: goal)
+    |> realign
   let wanted_shown = field_buffer(editor)
   let sync = case then, wanted_shown == shown {
     Aim(line, select:), _ ->
       WriteAndAim(
         wanted_shown,
-        x: option.map(goal, fn(goal) { goal.x }) |> option.unwrap(x),
+        x: option.map(goal, fn(goal) { goal.page_x }) |> option.unwrap(x),
         line:,
         select:,
       )
@@ -1964,7 +2010,7 @@ fn hold(editor: Editor, rows: Region, drawn: List(Block)) -> Editor {
 pub fn tick(editor: Editor, task: markdown.Task, checked: Bool) -> Outcome {
   let text = buffer.text(editor.buffer)
   case
-    editor.choice,
+    editor.note_choice,
     markdown.set_task(text, task, checked),
     list.drop(buffer.lines(editor.buffer), task.row)
   {
@@ -2096,18 +2142,22 @@ pub fn is_stepping(editor: Editor) -> Bool {
   steps(editor) != [] && editor.ime == NotComposing
 }
 
-pub fn is_waiting(editor: Editor) -> Bool {
-  editor.page != CaughtUp || is_wide(editor) || editor.choice != Chosen
+pub fn keys_wait(editor: Editor) -> Bool {
+  editor.page_backlog != CaughtUp
+  || is_wide(editor)
+  || editor.note_choice != Chosen
 }
 
 pub fn replay(editor: Editor) -> Option(Held) {
   let held_back =
-    editor.ime != NotComposing || is_wide(editor) || editor.choice != Chosen
-  case editor.page, held_back {
-    Behind(steps: [], keys: [key, ..]), False -> Some(key)
-    Behind(steps: [], keys: [_, ..]), True
-    | Behind(steps: [], keys: []), _
-    | Behind(steps: [_, ..], ..), _
+    editor.ime != NotComposing
+    || is_wide(editor)
+    || editor.note_choice != Chosen
+  case editor.page_backlog, held_back {
+    Behind(steps_for_page: [], keys_behind_steps: [key, ..]), False -> Some(key)
+    Behind(steps_for_page: [], keys_behind_steps: [_, ..]), True
+    | Behind(steps_for_page: [], keys_behind_steps: []), _
+    | Behind(steps_for_page: [_, ..], ..), _
     | CaughtUp, _
     -> None
   }

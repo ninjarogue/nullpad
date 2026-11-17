@@ -535,7 +535,7 @@ pub fn sync(
             head.row,
             offset,
             onward,
-            editor.from_row_start(editor),
+            editor.run_started_at_row_start(editor),
             granularity,
             forward,
             select,
@@ -608,7 +608,7 @@ pub fn sync(
               editor.HeadLine -> 4
             },
             select,
-            editor.from_row_start(editor),
+            editor.run_started_at_row_start(editor),
             again,
             editor,
           )
@@ -652,7 +652,8 @@ pub fn sync(
                 Error(_) -> Nil
               }
             }
-            editor.HeldPaste(..) | editor.HeldUndo | editor.HeldRedo -> Nil
+            editor.HeldPaste(..) | editor.HeldMenuUndo | editor.HeldMenuRedo ->
+              Nil
           }
         }),
         painted,
@@ -797,7 +798,7 @@ fn paint(editor: Editor) -> Nil {
 fn settling(
   editor: Editor,
 ) -> Option(#(#(Position, Position), #(Position, Position))) {
-  let toward = editor.direction(editor)
+  let toward = editor.last_key_travel(editor)
   let settles =
     editor.is_painted(editor)
     && { toward != order.Eq || editor.is_pressed(editor) }
@@ -934,8 +935,8 @@ fn hold_decoder(
     on_event(editor.KeyHeld(held))
     |> event.handler(prevent_default: True, stop_propagation: True)
   case
-    editor.is_waiting(current_editor())
-    && editor.holds(held, keyboard())
+    editor.keys_wait(current_editor())
+    && editor.replay_matches_browser(held, keyboard())
     && !composing
     && key_code != 229
   {
@@ -952,7 +953,7 @@ fn paste_decoder(
   let handler =
     on_event(editor.KeyHeld(editor.HeldPaste(text: pasted_text(paste), at:)))
     |> event.handler(prevent_default: True, stop_propagation: False)
-  case editor.is_waiting(current_editor()) {
+  case editor.keys_wait(current_editor()) {
     True -> decode.success(handler)
     False -> decode.failure(handler, expected: "a paste the page is behind")
   }
@@ -970,8 +971,8 @@ fn replay_held(
     |> option.from_result
   }
   case editor.replay(editor), take_replay(editor) {
-    Some(editor.HeldUndo), True -> replayed(Some(editor.UndoAsked))
-    Some(editor.HeldRedo), True -> replayed(Some(editor.RedoAsked))
+    Some(editor.HeldMenuUndo), True -> replayed(Some(editor.UndoAsked))
+    Some(editor.HeldMenuRedo), True -> replayed(Some(editor.RedoAsked))
     Some(editor.HeldPaste(text:, at:)), True -> {
       paste_into(control_id, text)
       replayed(read(at))
@@ -1147,8 +1148,8 @@ fn edge_decoder(
     "ArrowDown" if bare && head.row == end.row -> Ok(editor.Down)
     "ArrowUp" if bare && pending -> Ok(editor.Line(up: True, select: False))
     "ArrowDown" if bare && pending -> Ok(editor.Line(up: False, select: False))
-    "ArrowUp" if bare -> Ok(editor.Beside(up: True, select: False))
-    "ArrowDown" if bare -> Ok(editor.Beside(up: False, select: False))
+    "ArrowUp" if bare -> Ok(editor.LineInField(up: True, select: False))
+    "ArrowDown" if bare -> Ok(editor.LineInField(up: False, select: False))
     "ArrowUp" if shifted -> Ok(editor.Line(up: True, select: True))
     "ArrowDown" if shifted -> Ok(editor.Line(up: False, select: True))
     "ArrowLeft" if painted -> Ok(editor.SelectLeft)
@@ -1158,32 +1159,32 @@ fn edge_decoder(
     "ArrowLeft" if shifted && head == start -> Ok(editor.SelectBefore)
     "ArrowRight" if shifted && head == end -> Ok(editor.SelectAfter)
     _ if command && !shift && select_all -> Ok(editor.SelectAll)
-    "Home" if command && shift -> Ok(editor.SelectToStart)
-    "End" if command && shift -> Ok(editor.SelectToEnd)
-    "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToStart)
-    "ArrowDown" if meta && shift && alone -> Ok(editor.SelectToEnd)
+    "Home" if command && shift -> Ok(editor.SelectToNoteStart)
+    "End" if command && shift -> Ok(editor.SelectToNoteEnd)
+    "ArrowUp" if meta && shift && alone -> Ok(editor.SelectToNoteStart)
+    "ArrowDown" if meta && shift && alone -> Ok(editor.SelectToNoteEnd)
     "PageUp" if alone && !{ ctrl || meta } ->
       Ok(editor.Page(up: True, select: shift))
     "PageDown" if alone && !{ ctrl || meta } ->
       Ok(editor.Page(up: False, select: shift))
-    "Home" if command -> Ok(editor.ToStart)
-    "End" if command -> Ok(editor.ToEnd)
+    "Home" if command -> Ok(editor.ToNoteStart)
+    "End" if command -> Ok(editor.ToNoteEnd)
     "ArrowUp" if alone && ctrl && !meta ->
-      Ok(editor.Row(up: True, select: shift))
+      Ok(editor.NextRow(up: True, select: shift))
     "ArrowDown" if alone && ctrl && !meta ->
-      Ok(editor.Row(up: False, select: shift))
-    "ArrowUp" if alone && meta -> Ok(editor.ToStart)
-    "ArrowDown" if alone && meta -> Ok(editor.ToEnd)
+      Ok(editor.NextRow(up: False, select: shift))
+    "ArrowUp" if alone && meta -> Ok(editor.ToNoteStart)
+    "ArrowDown" if alone && meta -> Ok(editor.ToNoteEnd)
     "ArrowLeft" | "Backspace" if command && head.row == 0 && blank_before ->
-      Ok(editor.Widen)
+      Ok(editor.WidenToNote)
     "ArrowRight" | "Delete" if command && head.row == end.row && blank_after ->
-      Ok(editor.Widen)
-    "ArrowLeft" if plain && head == start -> Ok(editor.Before)
-    "ArrowRight" if plain && head == end -> Ok(editor.After)
-    "ArrowLeft" if bare && head == start -> Ok(editor.Widen)
-    "ArrowRight" if bare && head == end -> Ok(editor.Widen)
-    "Backspace" if alone && head == start -> Ok(editor.Widen)
-    "Delete" if alone && head == end -> Ok(editor.Widen)
+      Ok(editor.WidenToNote)
+    "ArrowLeft" if plain && head == start -> Ok(editor.OntoRowBefore)
+    "ArrowRight" if plain && head == end -> Ok(editor.OntoRowAfter)
+    "ArrowLeft" if bare && head == start -> Ok(editor.WidenToNote)
+    "ArrowRight" if bare && head == end -> Ok(editor.WidenToNote)
+    "Backspace" if alone && head == start -> Ok(editor.WidenToNote)
+    "Delete" if alone && head == end -> Ok(editor.WidenToNote)
     _ -> Error(Nil)
   }
   let edge = {
@@ -1200,7 +1201,7 @@ fn edge_decoder(
         case up && first || !up && last, pending {
           True, _ -> Ok(#(edge, from_press(x)))
           False, True -> Ok(#(editor.Line(up:, select: False), -1.0))
-          False, False -> Ok(#(editor.Beside(up:, select: False), x))
+          False, False -> Ok(#(editor.LineInField(up:, select: False), x))
         }
       }
       editor.Line(..) | editor.Page(..) if pending -> Ok(#(edge, -1.0))
@@ -1208,11 +1209,11 @@ fn edge_decoder(
         let #(first, last, x) = head()
         case up && first || !up && last || !select {
           True -> Ok(#(edge, x))
-          False -> Ok(#(editor.Beside(up:, select: True), x))
+          False -> Ok(#(editor.LineInField(up:, select: True), x))
         }
       }
-      editor.Row(..) -> Ok(#(edge, from_press(head().2)))
-      editor.Beside(..) | editor.Page(..) -> Ok(#(edge, head().2))
+      editor.NextRow(..) -> Ok(#(edge, from_press(head().2)))
+      editor.LineInField(..) | editor.Page(..) -> Ok(#(edge, head().2))
       editor.JoinBefore
       | editor.JoinAfter
       | editor.SelectBefore
@@ -1221,21 +1222,21 @@ fn edge_decoder(
       | editor.SelectRight
       | editor.SelectLineStart
       | editor.SelectLineEnd
-      | editor.SelectToStart
-      | editor.SelectToEnd
+      | editor.SelectToNoteStart
+      | editor.SelectToNoteEnd
       | editor.SelectAll
-      | editor.Before
-      | editor.After
-      | editor.ToStart
-      | editor.ToEnd
-      | editor.Widen -> Ok(#(edge, 0.0))
+      | editor.OntoRowBefore
+      | editor.OntoRowAfter
+      | editor.ToNoteStart
+      | editor.ToNoteEnd
+      | editor.WidenToNote -> Ok(#(edge, 0.0))
     }
   }
   case edge {
     Ok(#(edge, x)) ->
       on_event(editor.EdgePressed(edge:, x:, shown:))
       |> event.handler(
-        prevent_default: wanted != Ok(editor.Widen),
+        prevent_default: wanted != Ok(editor.WidenToNote),
         stop_propagation: False,
       )
       |> decode.success

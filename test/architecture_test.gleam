@@ -423,7 +423,7 @@ fn breaks() -> List(Break) {
       surface,
       both(
         last(
-          "fn waiting_now() -> Bool {\n  editor.is_waiting(current_editor())\n}",
+          "fn waiting_now() -> Bool {\n  editor.keys_wait(current_editor())\n}",
         ),
         after(
           "fn hold_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
@@ -437,7 +437,7 @@ fn breaks() -> List(Break) {
       surface,
       both(
         last(
-          "fn waiting_now() -> Bool {\n  editor.is_waiting(current_editor())\n}",
+          "fn waiting_now() -> Bool {\n  editor.keys_wait(current_editor())\n}",
         ),
         after(
           "  use key_code <- decode.optional_field(\"keyCode\", 0, decode.int)\n",
@@ -450,7 +450,7 @@ fn breaks() -> List(Break) {
       "a callback made outside the decoders reads a JavaScript record",
       surface,
       last(
-        "fn waits_now() -> fn() -> Bool {\n  fn() { editor.is_waiting(current_editor()) }\n}",
+        "fn waits_now() -> fn() -> Bool {\n  fn() { editor.keys_wait(current_editor()) }\n}",
       ),
     ),
     Break(
@@ -1019,7 +1019,7 @@ fn fourth_round() -> List(Break) {
         after(view, "  let latest = current_editor()\n"),
         instead(
           field_events,
-          "..field_events(fn(event) {\n          case editor.is_waiting(latest) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
+          "..field_events(fn(event) {\n          case editor.keys_wait(latest) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
         ),
       ),
     ),
@@ -1029,7 +1029,7 @@ fn fourth_round() -> List(Break) {
       surface,
       instead(
         moved,
-        "  let moved = {\n    let latest = current_editor()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(latest)\n",
+        "  let moved = {\n    let latest = current_editor()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.keys_wait(latest)\n",
       ),
     ),
     Break(
@@ -1038,7 +1038,7 @@ fn fourth_round() -> List(Break) {
       surface,
       after(
         moved,
-        "    let composing = composing || editor.is_waiting(current_editor())\n",
+        "    let composing = composing || editor.keys_wait(current_editor())\n",
       ),
     ),
     Break(
@@ -1049,7 +1049,7 @@ fn fourth_round() -> List(Break) {
         after(view, "  let editor = current_editor()\n"),
         instead(
           field_events,
-          "..field_events(fn(event) {\n          case editor.is_waiting(editor) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
+          "..field_events(fn(event) {\n          case editor.keys_wait(editor) {\n            True -> on_event(editor.Released)\n            False -> on_event(event)\n          }\n        })",
         ),
       ),
     ),
@@ -1059,7 +1059,7 @@ fn fourth_round() -> List(Break) {
       surface,
       instead(
         moved,
-        "  let moved = {\n    let editor = current_editor()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.is_waiting(editor)\n",
+        "  let moved = {\n    let editor = current_editor()\n    use name <- decode.field(\"key\", decode.string)\n    use composing <- decode.field(\"isComposing\", decode.bool)\n    let composing = composing || editor.keys_wait(editor)\n",
       ),
     ),
     Break(
@@ -1293,7 +1293,7 @@ fn fourth_round() -> List(Break) {
         ),
         after(
           moved,
-          "    let composing = composing || editor.is_waiting(drawn)\n",
+          "    let composing = composing || editor.keys_wait(drawn)\n",
         ),
       ),
     ),
@@ -1364,7 +1364,7 @@ fn fourth_round() -> List(Break) {
       both(
         instead(
           "fn hold_decoder(\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n",
-          "fn hold_decoder(\n  drawn: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let waits = fn() { editor.is_waiting(drawn()) }\n",
+          "fn hold_decoder(\n  drawn: fn() -> Editor,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let waits = fn() { editor.keys_wait(drawn()) }\n",
         ),
         instead(
           "decode.one_of(hold_decoder(on_event), [",
@@ -1801,7 +1801,7 @@ fn fifth_round() -> List(Break) {
         ),
         instead(
           "..field_events(on_event)",
-          "..field_events(\n          Asks(\n            waits: fn() { editor.is_waiting(editor) },\n            claims: fn(key) { editor.claims(editor, key) },\n          ),\n          on_event,\n        )",
+          "..field_events(\n          Asks(\n            waits: fn() { editor.keys_wait(editor) },\n            claims: fn(key) { editor.claims(editor, key) },\n          ),\n          on_event,\n        )",
         ),
       ),
     ),
@@ -2092,7 +2092,7 @@ fn fifth_round() -> List(Break) {
       both(
         after(
           "  use key_code <- decode.optional_field(\"keyCode\", 0, decode.int)\n",
-          "  let _ = editor.is_waiting(latest_editor())\n",
+          "  let _ = editor.keys_wait(latest_editor())\n",
         ),
         last(
           "@external(javascript, \"./surface.ffi.mjs\", \"currentEditor\")\nfn latest_editor() -> Editor",
@@ -2131,7 +2131,7 @@ fn fifth_round() -> List(Break) {
       both(
         after(
           "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
-          "  let _ = call_now(fn() { editor.is_waiting(current_editor()) })\n",
+          "  let _ = call_now(fn() { editor.keys_wait(current_editor()) })\n",
         ),
         last("fn call_now(run: fn() -> Bool) -> Bool {\n  run()\n}"),
       ),
@@ -2155,7 +2155,7 @@ fn fifth_round() -> List(Break) {
 
 fn sixth_round() -> List(Break) {
   let guarded =
-    "fn(task, checked) {\n            case editor.is_waiting(model.editor) {\n              True -> UserClosedMenu\n              False -> UserTickedTask(task, checked)\n            }\n          }"
+    "fn(task, checked) {\n            case editor.keys_wait(model.editor) {\n              True -> UserClosedMenu\n              False -> UserTickedTask(task, checked)\n            }\n          }"
   [
     Break(
       Caught(rules.DecoderState),
@@ -2176,7 +2176,7 @@ fn sixth_round() -> List(Break) {
           "    lone_view(model),\n    note_menu(model.menu),",
         ),
         last(
-          "fn lone_view(model: Model) -> Element(Msg) {\n  preview.view(editor.blocks(model.editor), fn(task, checked) {\n    case editor.is_waiting(model.editor) {\n      True -> UserClosedMenu\n      False -> UserTickedTask(task, checked)\n    }\n  })\n}",
+          "fn lone_view(model: Model) -> Element(Msg) {\n  preview.view(editor.blocks(model.editor), fn(task, checked) {\n    case editor.keys_wait(model.editor) {\n      True -> UserClosedMenu\n      False -> UserTickedTask(task, checked)\n    }\n  })\n}",
         ),
       ),
     ),
@@ -2200,7 +2200,7 @@ fn sixth_round() -> List(Break) {
               "    lone(model),\n    note_menu(model.menu),",
             ),
             last(
-              "fn lone(model: Model) -> Element(Msg) {\n  let guarded = fn(event) {\n    case editor.is_waiting(model.editor) {\n      True -> UserClosedMenu\n      False -> EditorSent(event)\n    }\n  }\n  html.div(surface.w([1], guarded), [])\n}",
+              "fn lone(model: Model) -> Element(Msg) {\n  let guarded = fn(event) {\n    case editor.keys_wait(model.editor) {\n      True -> UserClosedMenu\n      False -> EditorSent(event)\n    }\n  }\n  html.div(surface.w([1], guarded), [])\n}",
             ),
           ),
         ),
@@ -2221,7 +2221,7 @@ fn sixth_round() -> List(Break) {
       last(
         "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
   event.on(\"keyup\", decode.success(on_event(editor.Released)))
-}\n\npub fn peek_effect(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    use dispatch <- effect.from\n    case editor.is_waiting(current_editor()) {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
+}\n\npub fn peek_effect(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    use dispatch <- effect.from\n    case editor.keys_wait(current_editor()) {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
       ),
     ),
     Break(
@@ -2229,7 +2229,7 @@ fn sixth_round() -> List(Break) {
       "k1b: a maker of handlers reads the record before the effect it makes",
       "src/nullpad/surface.gleam",
       last(
-        "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"keyup\", decode.success(on_event(editor.Released)))\n}\n\npub fn peek_early(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    let waiting = editor.is_waiting(current_editor())\n    use dispatch <- effect.from\n    case waiting {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
+        "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.on(\"keyup\", decode.success(on_event(editor.Released)))\n}\n\npub fn peek_early(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    let waiting = editor.keys_wait(current_editor())\n    use dispatch <- effect.from\n    case waiting {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
       ),
     ),
     Breaks(
@@ -2250,7 +2250,7 @@ fn sixth_round() -> List(Break) {
               "    lone(model),\n    note_menu(model.menu),",
             ),
             last(
-              "fn lone(model: Model) -> Element(Msg) {\n  let guarded = fn(event) {\n    case editor.is_waiting(model.editor) {\n      True -> UserClosedMenu\n      False -> EditorSent(event)\n    }\n  }\n  html.div(surface.v(guarded), [])\n}",
+              "fn lone(model: Model) -> Element(Msg) {\n  let guarded = fn(event) {\n    case editor.keys_wait(model.editor) {\n      True -> UserClosedMenu\n      False -> EditorSent(event)\n    }\n  }\n  html.div(surface.v(guarded), [])\n}",
             ),
           ),
         ),
