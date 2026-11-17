@@ -47,7 +47,7 @@ cd e2e && npx tsc && npm test
 
 `.githooks/pre-push` runs all of them, then the short robot typist run.
 
-The robot typist (`e2e/typist/`) types random key scripts into a plain textarea and into nullpad in Chromium and compares text, cursor and selection. `cd e2e && npm run typist` is the short run (120 scripts); `npm run typist:long -- --count 3000 --seed 7` is the long one. A failure prints the seed, the shrunk script and a replay command. `e2e/typist/known.mjs` is the one list of known differences, each with its reason; an open bug's keys are left out until its repro stops differing, and then the run fails until the entry is deleted. `--no-known` types everything.
+The robot typist (`e2e/typist/`) types random key scripts into a plain textarea and into nullpad in Chromium and compares text, cursor and selection. `cd e2e && npm run typist` is the short run (96 random scripts, 3 block tours, and a phone pass); `npm run typist:long -- --count 3000 --seed 7` is the long one. A failure prints the seed, the shrunk script and a replay command. `e2e/typist/known.mjs` is the one list of known differences, each with its reason; an open bug's keys are left out until its repro stops differing, and then the run fails until the entry is deleted. `--no-known` types everything.
 
 Three checks look at the browser from outside the page, over the DevTools protocol. Each was shown failing on a planted bug.
 
@@ -55,7 +55,11 @@ Three checks look at the browser from outside the page, over the DevTools protoc
 - A touch in a test is a real finger on a phone (`e2e/tests/finger.ts`), never a `PointerEvent` sent from the page: the browser then sends its own trusted events in its own order.
 - After every key of a typist script typed a frame at a time or slowly, the typist reads where the page paints each block (`e2e/typist/shifts.mjs`; the rule is at the top of `run.mjs`, its tests run with `npm run typist`) and fails when a key moved a block it had no business moving. A shift we know about is an `open` entry with a `shift` and a repro in `known.mjs`.
 
-A bug fix lands with its failing test in an earlier commit, written from the goal before the fix.
+The typist also types seeded block tours, because random scripts rarely walk the cursor into every kind of block. A tour pastes one block of every kind (all heading levels, both setext forms, lists, tasks, quote, fence, indented code, table, rule), walks the cursor down through every row and back up, a frame at a time. A run also types shorter random scripts and two tours on a phone (390x844, mobile, touch), where `--task-pad` and the widths differ; `--phone` types a whole run there.
+
+`e2e/tests/held-frame.e2e.ts` reads the page in the frame a key was handled in, before it draws, which the typist's settled read cannot see: it holds the page's frames back, presses the keys that make the text field another kind of block, and expects nothing to have moved.
+
+A bug fix lands with its failing test in an earlier commit, written from the goal before the fix. A planted bug that a check missed gets a test of its own, shown failing with the plant and passing without it.
 
 ## Code
 
