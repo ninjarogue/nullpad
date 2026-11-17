@@ -27,6 +27,7 @@ const core = [
   "live",
   "markdown",
   "library",
+  "list_keys",
 ]
 
 const core_may_also_import = [#("library", "storage")]

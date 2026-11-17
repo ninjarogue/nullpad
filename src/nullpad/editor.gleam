@@ -5,9 +5,11 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
+import gleam/result
 import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
 import nullpad/history.{type History}
+import nullpad/list_keys
 import nullpad/live.{type Region, Region}
 import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
@@ -714,7 +716,8 @@ fn typed(
       let Step(state:, buffer:, requests:) = vim.press(state, base, key)
       #(VimKeys(state), buffer, requests)
     }
-    _, _ -> #(editor.keys, base, [])
+    Some(key), PlainKeys -> #(PlainKeys, plain_key(editor, base, key), [])
+    None, _ -> #(editor.keys, base, [])
   }
   // A change the editor did not write ends the steps still waiting.
   let waiting = case shown == field_buffer(editor) {
@@ -728,6 +731,31 @@ fn typed(
     False -> Write(wanted_shown)
   }
   Outcome(editor:, sync:, requests:)
+}
+
+/// Enter, Tab and Shift+Tab without vim: in a list they work on the item,
+/// and elsewhere Enter starts a line and Tab does nothing, so the caret
+/// stays in the note.
+fn plain_key(editor: Editor, base: Buffer, key: vim.Key) -> Buffer {
+  let in_list = fn(key) { list_keys.press(base, blocks_of(editor, base), key) }
+  case key {
+    vim.Enter ->
+      result.lazy_unwrap(in_list(list_keys.NewItem), fn() {
+        let #(anchor, head) = buffer.selection(base)
+        buffer.replace(base, from: anchor, to: head, with: "\n")
+      })
+    vim.Tab -> result.unwrap(in_list(list_keys.Indent), base)
+    vim.BackTab -> result.unwrap(in_list(list_keys.Outdent), base)
+    vim.Char(_) | vim.Escape | vim.Ctrl(_) -> base
+  }
+}
+
+fn blocks_of(editor: Editor, base: Buffer) -> List(Block) {
+  let same = buffer.lines(editor.buffer) == buffer.lines(base)
+  case editor.field {
+    Part(parsed:, composing: False, ..) if same -> parsed
+    Part(..) | Whole -> parse(base)
+  }
 }
 
 /// An IME redraws its own text in the control, so the control is not
@@ -1163,7 +1191,11 @@ pub fn mode(editor: Editor) -> Mode {
 /// inside its keydown decoder.
 pub fn claims(editor: Editor, key: vim.Key) -> Bool {
   case editor.keys {
-    PlainKeys -> False
+    PlainKeys ->
+      case key {
+        vim.Enter | vim.Tab | vim.BackTab -> True
+        vim.Char(_) | vim.Escape | vim.Ctrl(_) -> False
+      }
     VimKeys(state) -> vim.claims(vim.mode(state), key)
   }
 }

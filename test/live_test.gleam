@@ -152,12 +152,12 @@ pub fn only_the_first_line_of_an_item_has_a_marker_test() {
   assert marker("\n- a") == "- "
 }
 
-pub fn an_item_with_nothing_after_its_marker_has_that_marker_test() {
-  assert marker("-") == "-"
+pub fn an_item_with_nothing_after_its_marker_hangs_as_if_a_space_followed_test() {
+  assert marker("-") == "- "
   assert marker("- ") == "- "
   assert marker("-   ") == "-   "
-  assert marker("1.") == "1."
-  assert marker("- [ ]") == "- [ ]"
+  assert marker("1.") == "1. "
+  assert marker("- [ ]") == "- [ ] "
   assert marker("- [ ] ") == "- [ ] "
 }
 

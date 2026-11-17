@@ -32,9 +32,10 @@ fn shown(ed: Editor) -> String {
 fn opened(note: String, live: Bool) -> Editor {
   let b = at_caret(note)
   let ed =
-    editor.new(vim: False, live:, paint: True)
+    editor.new(vim: False, live: False, paint: True)
     |> editor.open(buffer.text(b))
-  editor.update(ed.editor, editor.ControlChanged(shown: b, at: 0)).editor
+  let ed = editor.update(ed.editor, editor.ControlChanged(shown: b, at: 0))
+  editor.set_live(ed.editor, live).editor
 }
 
 fn press_in(note: String, key: vim.Key, live: Bool) -> String {
