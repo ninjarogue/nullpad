@@ -284,23 +284,18 @@ button[aria-pressed="true"] {
   min-height: 0;
 }
 
-.page {
-  --margin: max(1.25rem, (100cqw - 46rem) / 2);
-  display: flex;
-}
-
 /* A heading's marks hang in the left margin while it is edited, so its
-   words stay where they are drawn. On a desktop the margin holds the widest
-   marks, `###### `, which surface measures in h6 ems, and the right margin
-   gives up that room first. */
-@container (min-width: 40rem) {
-  .page {
-    --margin: max(
-      1.25rem,
-      (100cqw - 46rem) / 2,
-      var(--widest-marks, 0) * var(--h6)
-    );
-  }
+   words stay where they are drawn. The margin holds the widest marks,
+   `###### `, which surface measures in h6 ems, for as long as the text
+   column beside it keeps 27rem, about 45 characters of body text, and the
+   right margin gives up that room first. */
+.page {
+  --margin: max(
+    1.25rem,
+    (100cqw - 46rem) / 2,
+    min(var(--widest-marks, 0) * var(--h6), 100cqw - 1.25rem - 27rem)
+  );
+  display: flex;
 }
 
 .editor {
