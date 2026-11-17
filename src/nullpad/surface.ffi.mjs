@@ -1230,7 +1230,8 @@ function stepFrom(
   const grown = typedIn ? lines - drawnLines : 0;
   const held = first === undefined || !mirror ? null : [Number(first), Number(first) + drawnLines + grown - 1];
   const inField = held !== null && headRow >= held[0] && headRow <= held[1];
-  if (!typedIn && (rowCount !== drawnCount || (inField && undrawn(control)))) return answer(-3);
+  const written = first !== undefined && Number(first) !== fieldFirst;
+  if (!typedIn && (rowCount !== drawnCount || written || (inField && undrawn(control)))) return answer(-3);
   const drawnLast = held ? held[1] - grown : Infinity;
   const moved = (place) => (place[0] > drawnLast ? [place[0] + grown, ...place.slice(1)] : place);
   if (pressed !== null && first === undefined) return answer(-3);
