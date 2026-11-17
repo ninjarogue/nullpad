@@ -146,9 +146,29 @@ export function describeFailures(items) {
   return shown;
 }
 
-export function describeTrailers(trailers) {
+const MOST_LISTED = 20;
+
+/** The changes a trailer covers, listed when it covers more than the one it names, so that a reviewer sees each one. */
+function coverageLines(trailer, covered) {
+  const under = covered.filter(({ by }) => by === trailer).map(({ item }) => item);
+  if (under.length === 0 || (under.length === 1 && under[0].id === trailer.subject)) return [];
+  return [
+    `    covers ${under.length} change${under.length === 1 ? "" : "s"}:`,
+    ...under.slice(0, MOST_LISTED).map((item) => `      ${item.id}  (${item.what})`),
+    ...(under.length > MOST_LISTED ? [`      and ${under.length - MOST_LISTED} more`] : []),
+  ];
+}
+
+export function describeTrailers(trailers, covered = []) {
   if (trailers.length === 0) return "";
-  return [`${TRAILER} trailers on this branch. Put them in the PR description:`, ...trailers.map((trailer) => `  ${TRAILER}: ${trailer.text}  (${trailer.commit})`), ""].join("\n");
+  const lines = [`${TRAILER} trailers on this branch. Put them in the PR description:`];
+  for (const trailer of trailers) lines.push(`  ${TRAILER}: ${trailer.text}  (${trailer.commit})`, ...coverageLines(trailer, covered));
+  return [...lines, ""].join("\n");
+}
+
+/** The changes that a trailer covered during the run of main's tests, trailer by trailer. */
+export function describeCovered(trailers, covered) {
+  return trailers.flatMap((trailer) => (covered.some(({ by }) => by === trailer) ? [`  ${TRAILER}: ${trailer.text}  (${trailer.commit})`, ...coverageLines(trailer, covered)] : []));
 }
 
 function staticJudge({ repo, base, tree, head, parsers }) {
@@ -342,7 +362,7 @@ export async function run({ repo, base: given, gateArgs = [], pick = true, only 
     const trailers = trailersOf(repo, sha);
     const statics = staticJudge({ repo, base: sha, tree, head, parsers });
     const sorted = sort(statics.items, trailers);
-    const printed = describeTrailers(trailers);
+    const printed = describeTrailers(trailers, sorted.covered);
     if (printed) log(printed);
     for (const trailer of sorted.noReason) log(`FAIL ${TRAILER}: ${trailer.text} (${trailer.commit}) has no reason after the dash`);
     for (const trailer of sorted.unused) log(`note: ${TRAILER}: ${trailer.subject} (${trailer.commit}) names nothing this branch changed`);
@@ -372,7 +392,7 @@ export async function run({ repo, base: given, gateArgs = [], pick = true, only 
         log(`FAIL main's tests fail on this branch's code:\n${overlay.failures.join("\n")}`);
         return 1;
       }
-      if (overlay.covered.length > 0) log(`judges: ${overlay.covered.length} of main's tests fail or do not compile here, covered by a trailer`);
+      if (overlay.covered.length > 0) log([`judges: ${overlay.covered.length} of main's tests fail or do not compile here, covered by a trailer:`, ...describeCovered(trailers, overlay.covered)].join("\n"));
     }
   } finally {
     cleanup();

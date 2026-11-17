@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, mkdirSync, readFileSync, readdirSync, symlinkS
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { compare, inventoryOf, judged, loadParsers } from "./inventory.mjs";
-import { covers, describeFailures, parseArgs, sort, trailersOf } from "./judges.mjs";
+import { covers, describeFailures, describeTrailers, parseArgs, sort, trailersOf } from "./judges.mjs";
 import { useScratch } from "./scratch.mjs";
 import { root } from "./steps.mjs";
 
@@ -995,6 +995,8 @@ describe("the pre-push gate on a branch", () => {
     const passed = kept.push();
     assert.equal(passed.status, 0, passed.out);
     assert.match(passed.out, /covered by a trailer/);
+    assert.match(passed.out, /covers 4 changes/);
+    assert.match(passed.out, /test\/toy\.test\.mjs > is the identity {2}\(fails-on-branch\)/);
   });
 
   test("a branch that changes only src, so main's tests are its tests, runs the gate once", () => {
@@ -1024,6 +1026,51 @@ describe("the pre-push gate on a branch", () => {
     branch.edit(toyTest, 'test("adds negatives", () => {\n  assert.equal(add(-1, -1), -2);\n});\n', "");
     branch.commit("add the judges and drop a test");
     caught(branch.push(), /adds negatives/);
+  });
+});
+
+describe("what a trailer covers, printed", () => {
+  const file = "test/a.test.mjs";
+  const change = (id, what = "weakened-test") => ({ file, id, what, why: "check less" });
+  const trailer = (subject) => ({ commit: "abc1234", subject, reason: "because", text: `${subject} — because` });
+
+  test("a trailer for a file lists each change under it, so a reviewer sees them all", () => {
+    const by = trailer(file);
+    const printed = describeTrailers([by], [{ item: change(`${file} > one`), by }, { item: change(`${file} > two`, "removed-test"), by }]);
+    assert.match(printed, /Changes-test: test\/a\.test\.mjs — because/);
+    assert.match(printed, /covers 2 changes/);
+    assert.match(printed, /test\/a\.test\.mjs > one/);
+    assert.match(printed, /test\/a\.test\.mjs > two/);
+  });
+
+  test("a trailer for a file that covers one change says which, and one that names the test needs no list", () => {
+    const wide = trailer(file);
+    assert.match(describeTrailers([wide], [{ item: change(`${file} > one`), by: wide }]), /covers 1 change[^s]/);
+    const named = trailer(`${file} > one`);
+    assert.doesNotMatch(describeTrailers([named], [{ item: change(`${file} > one`), by: named }]), /covers/);
+  });
+
+  test("two trailers are listed apart, each with only its own changes, and a long list is cut", () => {
+    const one = trailer(file);
+    const other = trailer("test/b.test.mjs");
+    const many = Array.from({ length: 30 }, (_, n) => ({ item: change(`${file} > t${n}`), by: one }));
+    const printed = describeTrailers([one, other], [...many, { item: { ...change("test/b.test.mjs > z"), file: "test/b.test.mjs" }, by: other }]);
+    assert.match(printed, /covers 30 changes/);
+    assert.match(printed, /and 10 more/);
+    assert.match(printed, /covers 1 change[^s][^]*test\/b\.test\.mjs > z/);
+  });
+
+  test("on a push, a file trailer over two changed tests prints both of them", () => {
+    const home = toy();
+    const branch = home.branch();
+    branch.edit("test/toy.test.mjs", "assert.equal(add(0, 7), 7);", "assert.equal(add(0, 7), 7 + 0);");
+    branch.edit("test/toy.test.mjs", "assert.equal(add(-1, -1), -2);", "assert.equal(add(-1, -1), -1 - 1);");
+    branch.commit("two\n\nChanges-test: test/toy.test.mjs — the file moved on");
+    const run = branch.push();
+    assert.equal(run.status, 0, run.out);
+    assert.match(run.out, /covers 2 changes/);
+    assert.match(run.out, /test\/toy\.test\.mjs > zero > is the identity/);
+    assert.match(run.out, /test\/toy\.test\.mjs > adds negatives/);
   });
 });
 
