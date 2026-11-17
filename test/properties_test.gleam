@@ -201,6 +201,8 @@ fn undone_and_redone(ed: Editor) -> Option(#(Editor, Editor)) {
         editor.update(undone.editor, editor.RedoAsked).editor,
       ))
     editor.InSync
+    | editor.InSyncInPlace
+    | editor.WriteInPlace(_)
     | editor.WriteQuietly(_)
     | editor.WriteAndAim(..)
     | editor.WriteAndStep(..)
