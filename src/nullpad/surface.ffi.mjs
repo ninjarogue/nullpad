@@ -250,7 +250,7 @@ export function takeHeldStep(editor) {
 
 // The editor the last message left. The page shows the last frame drawn,
 // which keys pressed since may have left behind, so a key is decided by this
-// editor. A held key is replayed from the paint of that editor only, once:
+// editor. The app notes its first editor before any event can come. A held key is replayed from the paint of that editor only, once:
 // the paint of an earlier editor in the same frame would replay it on a
 // field the editor has since left.
 let latest = null;

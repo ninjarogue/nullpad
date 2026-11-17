@@ -47,8 +47,8 @@ const measures = [
 ]
 
 /// JavaScript that hands back app state an effect noted there, such as the
-/// editor the last message left. A callback reads the latest editor through
-/// one when a handler runs.
+/// editor the last message left. A handler reads the latest editor through
+/// one when its event comes.
 const records = ["currentEditor"]
 
 /// The types that hold app state from one message to the next: the editor,
@@ -111,7 +111,7 @@ pub fn says(rule: Rule) -> String {
     ChangesPage ->
       "only a function that returns an Effect or Nil may change the page"
     DecoderState ->
-      "a handler is made only where no app state is in scope, from callbacks that read app state when it runs"
+      "a handler is handed no app state: it reads the editor from a record when its event comes"
     SkipsOutcome ->
       "a public editor function that changes the editor returns an Outcome"
     RawHtml -> "nothing draws raw HTML"

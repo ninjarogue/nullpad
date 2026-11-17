@@ -958,13 +958,12 @@ fn third_round() -> List(Break) {
   ]
 }
 
-/// From a fourth attacker, who had not read the breaks above, ported to the
-/// code as it now stands: the field's handlers are made in `field_events`
-/// and `page_events`, and app's in small functions that take no model. The
-/// rule that let most of these through followed app state from name to
-/// name. The rule now only looks where a handler is made and what a
-/// callback written there names, so a value or a callback that leaves
-/// app state through a `let` or a helper is review's to catch.
+/// From a fourth attacker, who had not read the breaks above, ported to
+/// the code as it now stands: the field's handlers are made in `field_events`
+/// and `page_events`, and app's in small functions that take no model. A
+/// handler is handed no editor and reads the record when its event comes, so
+/// the callbacks for the editor these first went through are gone, and a
+/// closure over app state handed to a maker is caught however it is bound.
 fn fourth_round() -> List(Break) {
   let app = "nullpad/app.gleam"
   let surface = "nullpad/surface.gleam"
@@ -2093,6 +2092,32 @@ fn fifth_round() -> List(Break) {
         after(view_attribute, "        on_copy(on_event),\n"),
         last(
           "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    use <- bool.guard(!editor.is_painted(current_editor()), decode.failure(on_event(editor.Released), \"painted\"))\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Escapes,
+      "the author's: a handler's maker hands a closure that reads the record to a helper that calls it at once",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          "  let _ = call_now(fn() { editor.is_waiting(current_editor()) })\n",
+        ),
+        last("fn call_now(run: fn() -> Bool) -> Bool {\n  run()\n}"),
+      ),
+    ),
+    Break(
+      Escapes,
+      "the author's: app maps the field's messages through a callback a helper made over the model",
+      "nullpad/app.gleam",
+      both(
+        instead(
+          "  let field = #(\"field\", surface.view(model.editor, EditorSent))",
+          "  let field = #(\n    \"field\",\n    surface.view(model.editor, fn(event) { event }) |> element.map(mapped(model)),\n  )",
+        ),
+        last(
+          "fn mapped(model: Model) -> fn(editor.Event) -> Msg {\n  fn(event) {\n    case model.menu {\n      Some(_) -> UserClosedMenu\n      None -> EditorSent(event)\n    }\n  }\n}",
         ),
       ),
     ),
