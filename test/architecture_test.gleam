@@ -128,6 +128,7 @@ fn all_breaks() -> List(Break) {
     third_round(),
     fourth_round(),
     fifth_round(),
+    sixth_round(),
   ])
 }
 
@@ -2119,6 +2120,83 @@ fn fifth_round() -> List(Break) {
         last(
           "fn mapped(model: Model) -> fn(editor.Event) -> Msg {\n  fn(event) {\n    case model.menu {\n      Some(_) -> UserClosedMenu\n      None -> EditorSent(event)\n    }\n  }\n}",
         ),
+      ),
+    ),
+  ]
+}
+
+/// The sixth attacker's: a name a function binds hid every call to a
+/// function of that name anywhere in it, and an effect's callback read the
+/// record as if when the handlers are made.
+fn sixth_round() -> List(Break) {
+  let guarded =
+    "fn(task, checked) {\n            case editor.is_waiting(model.editor) {\n              True -> UserClosedMenu\n              False -> UserTickedTask(task, checked)\n            }\n          }"
+  [
+    Break(
+      Caught(rules.DecoderState),
+      "e1: app hands the page a task callback that reads the model",
+      "nullpad/app.gleam",
+      instead(
+        "          on_task: UserTickedTask,\n",
+        "          on_task: " <> guarded <> ",\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "e1b: app hands the whole page a task callback that reads the model",
+      "nullpad/app.gleam",
+      both(
+        instead(
+          "    note_menu(model.menu),",
+          "    lone_view(model),\n    note_menu(model.menu),",
+        ),
+        last(
+          "fn lone_view(model: Model) -> Element(Msg) {\n  preview.view(editor.blocks(model.editor), fn(task, checked) {\n    case editor.is_waiting(model.editor) {\n      True -> UserClosedMenu\n      False -> UserTickedTask(task, checked)\n    }\n  })\n}",
+        ),
+      ),
+    ),
+    Breaks(
+      Caught(rules.DecoderState),
+      "h1: a maker of handlers called before a pattern binds a name like it",
+      [
+        #(
+          "nullpad/surface.gleam",
+          last(
+            "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
+  event.on(\"keyup\", decode.success(on_event(editor.Released)))
+}\n\npub fn w(xs: List(Int), on_event: fn(editor.Event) -> msg) -> List(attribute.Attribute(msg)) {\n  let go = fn() { keyup_with(on_event) }\n  case xs {\n    [keyup_with, ..] -> [go(), ..list.map([keyup_with], fn(_) { go() })]\n    [] -> []\n  }\n}",
+          ),
+        ),
+        #(
+          "nullpad/app.gleam",
+          both(
+            instead(
+              "    note_menu(model.menu),",
+              "    lone(model),\n    note_menu(model.menu),",
+            ),
+            last(
+              "fn lone(model: Model) -> Element(Msg) {\n  let guarded = fn(event) {\n    case editor.is_waiting(model.editor) {\n      True -> UserClosedMenu\n      False -> EditorSent(event)\n    }\n  }\n  html.div(surface.w([1], guarded), [])\n}",
+            ),
+          ),
+        ),
+      ],
+    ),
+    Break(
+      Clean,
+      "h1b: a function calls a closure it binds under the name of a maker of handlers",
+      "nullpad/surface.gleam",
+      last(
+        "fn shadowed(on_event: fn(editor.Event) -> msg) -> Int {\n  let field_events = fn(count: Int) { count + 1 }\n  let _ = on_event\n  field_events(1)\n}",
+      ),
+    ),
+    Break(
+      Clean,
+      "k1: a maker of handlers reads the record inside an effect it makes, when the effect runs",
+      "nullpad/surface.gleam",
+      last(
+        "fn keyup_with(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {
+  event.on(\"keyup\", decode.success(on_event(editor.Released)))
+}\n\npub fn peek_effect(on_event: fn(editor.Event) -> msg) -> #(attribute.Attribute(msg), Effect(msg)) {\n  #(keyup_with(on_event), {\n    use dispatch <- effect.from\n    case editor.is_waiting(current_editor()) {\n      True -> dispatch(on_event(editor.Released))\n      False -> Nil\n    }\n  })\n}",
       ),
     ),
   ]
