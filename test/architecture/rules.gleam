@@ -60,6 +60,10 @@ const state_roots = [
   "nullpad/vim.State",
 ]
 
+/// The app's message. A callback that hands one back is a message callback,
+/// as one that hands back a type variable is.
+const messages = ["nullpad/app.Msg"]
+
 pub type Source {
   /// `path` is relative to `src`: "nullpad/editor.gleam".
   Source(path: String, text: String)
@@ -631,7 +635,9 @@ fn decoder_state(
                 function.body,
                 fn(seen) {
                   case resolve(seen) {
-                    Ok(called) -> set.contains(context.readers, called)
+                    Ok(called) ->
+                      set.contains(context.readers, called)
+                      && !set.contains(context.reach, called)
                     Error(Nil) -> False
                   }
                 },
@@ -791,7 +797,8 @@ fn holds(
 }
 
 /// Whether `type_` holds a callback that hands back more than a message: a
-/// message is a type variable, which the handler cannot look into.
+/// message is a type variable, which the handler cannot look into, or the
+/// app's message.
 fn calls_back(
   type_: glance.Type,
   types: fn(Option(String), String) -> TypeKey,
@@ -803,22 +810,19 @@ fn calls_back(
       set.contains(among, types(module, name)) || list.any(parameters, inner)
     glance.TupleType(elements:, ..) -> list.any(elements, inner)
     glance.FunctionType(return: glance.VariableType(..), ..) -> False
+    glance.FunctionType(return: glance.NamedType(name:, module:, ..), ..) ->
+      !list.contains(messages, types(module, name))
     glance.FunctionType(..) -> True
     glance.VariableType(..) | glance.HoleType(..) -> False
   }
 }
 
-/// Whether `type_` holds a callback of any kind.
-fn has_function(
-  type_: glance.Type,
-  types: fn(Option(String), String) -> TypeKey,
-  among: Set(TypeKey),
-) -> Bool {
-  let inner = has_function(_, types, among)
+/// Whether `type_` is written with a callback in it. A type it names is
+/// not looked into: the model holds the storage's callbacks.
+fn has_function(type_: glance.Type) -> Bool {
   case type_ {
-    glance.NamedType(name:, module:, parameters:, ..) ->
-      set.contains(among, types(module, name)) || list.any(parameters, inner)
-    glance.TupleType(elements:, ..) -> list.any(elements, inner)
+    glance.NamedType(parameters:, ..) -> list.any(parameters, has_function)
+    glance.TupleType(elements:, ..) -> list.any(elements, has_function)
     glance.FunctionType(..) -> True
     glance.VariableType(..) | glance.HoleType(..) -> False
   }
@@ -850,9 +854,7 @@ fn closure_parameters(
   list.filter_map(function.parameters, fn(parameter) {
     case parameter.name, parameter.type_ {
       glance.Named(name), Some(type_) ->
-        case
-          holds(type_, types, state) && has_function(type_, types, set.new())
-        {
+        case holds(type_, types, state) && has_function(type_) {
           True -> Ok(name)
           False -> Error(Nil)
         }
@@ -980,7 +982,7 @@ fn context(files: List(File)) -> Context {
   let parameters = fn(one: Known) {
     list.map(one.function.parameters, fn(parameter) {
       #(parameter.label, case parameter.type_ {
-        Some(type_) -> has_function(type_, one.types, set.new())
+        Some(type_) -> has_function(type_)
         None -> False
       })
     })
@@ -991,7 +993,7 @@ fn context(files: List(File)) -> Context {
         Some(_) ->
           list.any(one.function.parameters, fn(parameter) {
             case parameter.type_ {
-              Some(type_) -> has_function(type_, one.types, set.new())
+              Some(type_) -> has_function(type_)
               None -> False
             }
           })
@@ -1146,9 +1148,10 @@ fn bound_names(function: glance.Function) -> Set(String) {
   |> set.from_list
 }
 
-/// The readers `body` calls as it runs: outside any closure or capture, and
-/// before any `use` of a decoder, whose rest runs when the event comes. A
-/// closure bound with `let` that reads one, called as the body runs, counts.
+/// The readers `body` calls or names as it runs: outside any closure or
+/// capture, and before any `use` of a decoder, whose rest runs when the event
+/// comes. A reader named, not called, is handed on to be called who knows
+/// when. A closure bound with `let` that reads one counts as a reader.
 fn early_reads(
   body: List(glance.Statement),
   reader: fn(Seen) -> Bool,
@@ -1201,24 +1204,20 @@ fn early_read(
   bound: Set(String),
   locals: Set(String),
 ) -> List(String) {
-  let called = case subject {
-    glance.Call(function: callee, ..) ->
-      case seen_callee(callee) {
-        Some(Name(name)) ->
-          case set.contains(locals, name) {
+  let called = case seen_callee(subject) {
+    Some(Name(name)) ->
+      case set.contains(locals, name) {
+        True -> [name]
+        False ->
+          case !set.contains(bound, name) && reader(Name(name)) {
             True -> [name]
-            False ->
-              case !set.contains(bound, name) && reader(Name(name)) {
-                True -> [name]
-                False -> []
-              }
-          }
-        Some(Remote(alias, label) as seen) ->
-          case reader(seen) {
-            True -> [alias <> "." <> label]
             False -> []
           }
-        _ -> []
+      }
+    Some(Remote(alias, label) as seen) ->
+      case reader(seen) {
+        True -> [alias <> "." <> label]
+        False -> []
       }
     _ -> []
   }
@@ -1416,11 +1415,15 @@ fn refers_in(body: List(glance.Statement), scope: Scope) -> Bool {
 }
 
 /// Whether `subject` is, or holds, a closure: one written in it, or a name
-/// bound to one over app state.
+/// bound to one over app state. What a function hands back is not looked
+/// into, but what a record or a variant is made of is.
 fn carries_closure(subject: glance.Expression, scope: Scope) -> Bool {
   case subject {
     glance.Fn(..) | glance.FnCapture(..) -> True
     glance.Variable(name:, ..) -> set.contains(scope.closures, name)
+    glance.Call(function:, arguments:, ..) ->
+      constructs(function)
+      && list.any(items(arguments), carries_closure(_, scope))
     glance.Block(statements:, ..) ->
       list.any(statements, fn(statement) {
         case statement {
@@ -1435,6 +1438,19 @@ fn carries_closure(subject: glance.Expression, scope: Scope) -> Bool {
       list.any(parts(subject, scope), fn(part) {
         carries_closure(part.0, part.1)
       })
+  }
+}
+
+fn constructs(callee: glance.Expression) -> Bool {
+  let capital = fn(name) {
+    string.first(name)
+    |> result.map(fn(first) { first == string.uppercase(first) })
+    |> result.unwrap(False)
+  }
+  case callee {
+    glance.Variable(name:, ..) -> capital(name)
+    glance.FieldAccess(label:, ..) -> capital(label)
+    _ -> False
   }
 }
 

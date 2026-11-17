@@ -127,6 +127,7 @@ fn all_breaks() -> List(Break) {
     second_round(),
     third_round(),
     fourth_round(),
+    fifth_round(),
   ])
 }
 
@@ -1419,6 +1420,680 @@ fn fourth_round() -> List(Break) {
       instead(
         "          #(-4, _, _, _, x) -> {\n            case decode.run(find_control(control_id), control_decoder()) {",
         "          #(-4, _, _, _, x) -> {\n            let shown =\n              decode.one_of(control_decoder(), [\n                decode.success(editor.field_buffer(editor)),\n              ])\n            case decode.run(find_control(control_id), shown) {",
+      ),
+    ),
+  ]
+}
+
+/// From a fifth attacker, who had not read the breaks above, ported to
+/// handlers that are handed no editor: each name starts with the attacker's
+/// script. Most of these got past the rule that let a maker take a callback
+/// for the editor, or raised it over code that was right.
+fn fifth_round() -> List(Break) {
+  [
+    Break(
+      Caught(rules.DecoderState),
+      "a00, b00: the view hands a copy handler a message callback over the editor it draws",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view_attribute,
+          "        on_copy(fn(event) {\n          case editor.is_painted(editor) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }),\n",
+        ),
+        last(
+          "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a01, b01: the callback over the drawn editor is chosen by a case written as the argument",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view_attribute,
+          "        on_copy(case editor.region(editor) {\n          None -> on_event\n          Some(_) -> fn(event) {\n          case editor.is_painted(editor) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }\n        }),\n",
+        ),
+        last(
+          "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a02, b02: the callback over the drawn editor is written inside a tuple",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view_attribute,
+          "        on_copy(#(fn(event) {\n          case editor.is_painted(editor) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }, 0)),\n",
+        ),
+        last(
+          "fn on_copy(asks: #(fn(editor.Event) -> msg, Int)) -> attribute.Attribute(msg) {\n  let #(on_event, _) = asks\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a03, b03: the callback over the drawn editor is written inside Some",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view_attribute,
+          "        on_copy(Some(fn(event) {\n          case editor.is_painted(editor) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }), on_event),\n",
+        ),
+        last(
+          "fn on_copy(picked: Option(fn(editor.Event) -> msg), on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  let on_event = option.unwrap(picked, on_event)\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "b04: the callback over the drawn editor is a field of a record",
+      "nullpad/surface.gleam",
+      both(
+        first(
+          "type Copying(msg) {\n  Copying(on_event: fn(editor.Event) -> msg, rows: Int)\n}\n\n",
+        ),
+        both(
+          after(
+            view_attribute,
+            "        on_copy(Copying(on_event: fn(event) {\n          case editor.is_painted(editor) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }, rows: 0)),\n",
+          ),
+          last(
+            "fn on_copy(copying: Copying(msg)) -> attribute.Attribute(msg) {\n  let Copying(on_event:, ..) = copying\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "b05: the callback over the drawn editor is one of a list",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view_attribute,
+          "        on_copy([fn(event) {\n          case editor.is_painted(editor) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }], on_event),\n",
+        ),
+        last(
+          "fn on_copy(pickers: List(fn(editor.Event) -> msg), on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  let on_event = list.first(pickers) |> result.unwrap(on_event)\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a18, b07: the view binds the callback over the drawn editor with let and hands it on",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view,
+          "  let pick = fn(event) {\n    case editor.is_painted(editor) {\n      True -> on_event(event)\n      False -> on_event(editor.Released)\n    }\n  }\n",
+        ),
+        both(
+          after(view_attribute, "        on_copy(pick),\n"),
+          last(
+            "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a20, b08: a helper makes the callback over the drawn editor",
+      "nullpad/surface.gleam",
+      both(
+        both(
+          after(
+            view_attribute,
+            "        on_copy(painted_now(editor, on_event)),\n",
+          ),
+          last(
+            "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+          ),
+        ),
+        last(
+          "fn painted_now(editor: Editor, on_event: fn(editor.Event) -> msg) -> fn(editor.Event) -> msg {\n  fn(event) {\n    case editor.is_painted(editor) {\n      True -> on_event(event)\n      False -> on_event(editor.Released)\n    }\n  }\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a23, b09: the view reads the record while it draws and hands on a callback over the value",
+      "nullpad/surface.gleam",
+      both(
+        after(view, "  let latest = current_editor()\n"),
+        both(
+          after(
+            view_attribute,
+            "        on_copy(fn(event) {\n          case editor.is_painted(latest) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }),\n",
+          ),
+          last(
+            "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "b11: a handler's maker calls a closure bound with let that reads the record",
+      "nullpad/surface.gleam",
+      both(
+        after(view_attribute, "        on_copy(on_event),\n"),
+        last(
+          "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  let painted = fn() { editor.is_painted(current_editor()) }\n  let _ = painted()\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "b11c: a handler's maker reads the record before its decoder",
+      "nullpad/surface.gleam",
+      both(
+        after(view_attribute, "        on_copy(on_event),\n"),
+        last(
+          "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  let _ = editor.is_painted(current_editor())\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "b12: the view binds the editor with let under another name and hands on a callback over it",
+      "nullpad/surface.gleam",
+      both(
+        after(view, "  let drawn = editor\n"),
+        both(
+          after(
+            view_attribute,
+            "        on_copy(fn(event) {\n          case editor.is_painted(drawn) {\n            True -> on_event(event)\n            False -> on_event(editor.Released)\n          }\n        }),\n",
+          ),
+          last(
+            "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "b13: a handler's maker is handed a callback that hands back a Bool",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view_attribute,
+          "        on_copy(fn() { editor.is_painted(current_editor()) }, on_event),\n",
+        ),
+        last(
+          "fn on_copy(paints: fn() -> Bool, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    let _ = paints()\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a05: the field's handlers are chosen by a closure bound with let that reads the record",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          "  let in_vim = fn() { editor.mode(current_editor()) != editor.Plain }\n",
+        ),
+        instead(
+          "    event.advanced(\"keydown\", keydown_decoder(on_event)),\n",
+          "    event.advanced(\"keydown\", case in_vim() {\n      True -> keydown_decoder(on_event)\n      False -> hold_decoder(on_event)\n    }),\n",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a06: the field's handlers hand the record to a helper that reads it at once",
+      "nullpad/surface.gleam",
+      both(
+        instead(
+          "    event.advanced(\"keydown\", keydown_decoder(on_event)),\n",
+          "    event.advanced(\"keydown\", case in_vim(current_editor) {\n      True -> keydown_decoder(on_event)\n      False -> hold_decoder(on_event)\n    }),\n",
+        ),
+        last(
+          "fn in_vim(now: fn() -> Editor) -> Bool {\n  editor.mode(now()) != editor.Plain\n}",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a07: the field's handlers take a record that holds a callback for the editor",
+      "nullpad/surface.gleam",
+      both(
+        instead(
+          "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          "type Reads(msg) {\n  Reads(now: fn() -> Editor, on_event: fn(editor.Event) -> msg)\n}\n\nfn field_events(reads: Reads(msg)) -> List(attribute.Attribute(msg)) {\n  let Reads(on_event:, ..) = reads\n",
+        ),
+        instead(
+          "..field_events(on_event)",
+          "..field_events(Reads(now: current_editor, on_event:))",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a08: the field's handlers take a tuple that holds a callback for the editor",
+      "nullpad/surface.gleam",
+      both(
+        instead(
+          "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          "fn field_events(\n  reads: #(fn() -> Editor, fn(editor.Event) -> msg),\n) -> List(attribute.Attribute(msg)) {\n  let #(_, on_event) = reads\n",
+        ),
+        instead(
+          "..field_events(on_event)",
+          "..field_events(#(current_editor, on_event))",
+        ),
+      ),
+    ),
+    Breaks(
+      Caught(rules.DecoderState),
+      "a12: the field's handlers take a callback for the editor under an alias from the editor module",
+      [
+        #(
+          "nullpad/editor.gleam",
+          instead(
+            "pub type Mode {",
+            "pub type Latest =\n  fn() -> Editor\n\npub type Mode {",
+          ),
+        ),
+        #(
+          "nullpad/surface.gleam",
+          instead(
+            "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+            "fn field_events(\n  now: editor.Latest,\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          ),
+        ),
+      ],
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a12b: the field's handlers take a callback for the editor under a local alias",
+      "nullpad/surface.gleam",
+      both(
+        first("type Latest =\n  fn() -> Editor\n\n"),
+        instead(
+          "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          "fn field_events(\n  now: Latest,\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a13: sync hands the drag listener a release callback that calls a closure over the editor",
+      "nullpad/surface.gleam",
+      instead(
+        "            fn() { dispatch(on_event(editor.Released)) },\n          )\n        })\n      effect.batch([placed, followed, painted])",
+        "            fn() {\n              draw(dispatch)\n              dispatch(on_event(editor.Released))\n            },\n          )\n        })\n      effect.batch([placed, followed, painted])",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a13b: sync hands the drag listener a release callback that paints the editor",
+      "nullpad/surface.gleam",
+      instead(
+        "            fn() { dispatch(on_event(editor.Released)) },\n          )\n        })\n      effect.batch([placed, followed, painted])",
+        "            fn() {\n              paint(editor)\n              dispatch(on_event(editor.Released))\n            },\n          )\n        })\n      effect.batch([placed, followed, painted])",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a14: app maps a storage answer through a closure over the model",
+      "nullpad/app.gleam",
+      instead(
+        "      storage.load(model.storage, id, answer(library.StorageLoaded)),\n",
+        "      storage.load(model.storage, id, answer(library.StorageLoaded))\n        |> effect.map(fn(loaded) {\n          case editor.mode(model.editor) {\n            editor.Plain -> loaded\n            editor.Normal | editor.Insert -> loaded\n          }\n        }),\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a16: the sidebar makes a handler in a closure bound with let, with the model in scope",
+      "nullpad/app.gleam",
+      instead(
+        "fn sidebar(model: Model) -> Element(Msg) {\n",
+        "fn sidebar(model: Model) -> Element(Msg) {\n  let _new_note = fn() {\n    html.button([event.on_click(ToLibrary(library.UserAskedForNewNote))], [])\n  }\n",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a17: a decoder takes a callback for the editor and calls it before the event comes",
+      "nullpad/surface.gleam",
+      instead(
+        "fn edge_decoder(\n  on_event",
+        "fn edge_decoder(\n  now: fn() -> Editor,\n  on_event",
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a19: the field's handlers take a record of callbacks written over the drawn editor",
+      "nullpad/surface.gleam",
+      both(
+        instead(
+          "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+          "type Asks {\n  Asks(waits: fn() -> Bool, claims: fn(vim.Key) -> Bool)\n}\n\nfn field_events(\n  asks: Asks,\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n  let Asks(..) = asks\n",
+        ),
+        instead(
+          "..field_events(on_event)",
+          "..field_events(\n          Asks(\n            waits: fn() { editor.is_waiting(editor) },\n            claims: fn(key) { editor.claims(editor, key) },\n          ),\n          on_event,\n        )",
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a29: the title field's callback over the model is chosen by a case written as the argument",
+      "nullpad/app.gleam",
+      both(
+        instead(
+          "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n      ),",
+          "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n        renamed: case open.title {\n          None -> fn(title) {\n            ToLibrary(library.UserRenamedNote(case title {\n              \"\" -> storage.display_title(None, editor.text(model.editor))\n              _ -> title\n            }))\n          }\n          Some(_) -> fn(title) { ToLibrary(library.UserRenamedNote(title)) }\n        },\n      ),",
+        ),
+        both(
+          instead(
+            "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n) -> Element(Msg) {",
+            "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n  renamed renamed: fn(String) -> Msg,\n) -> Element(Msg) {",
+          ),
+          instead(
+            "    event.on_input(fn(title) { ToLibrary(library.UserRenamedNote(title)) }),",
+            "    event.on_input(renamed),",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a29c: the title field is handed a callback over the model",
+      "nullpad/app.gleam",
+      both(
+        instead(
+          "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n      ),",
+          "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n        renamed: fn(title) {\n          ToLibrary(library.UserRenamedNote(case title {\n            \"\" -> storage.display_title(None, editor.text(model.editor))\n            _ -> title\n          }))\n        },\n      ),",
+        ),
+        both(
+          instead(
+            "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n) -> Element(Msg) {",
+            "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n  renamed renamed: fn(String) -> Msg,\n) -> Element(Msg) {",
+          ),
+          instead(
+            "    event.on_input(fn(title) { ToLibrary(library.UserRenamedNote(title)) }),",
+            "    event.on_input(renamed),",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a31: the toolbar binds the editor with let and hands the title field a callback over it",
+      "nullpad/app.gleam",
+      both(
+        after(
+          "fn toolbar(model: Model) -> Element(Msg) {\n",
+          "  let drawn = model.editor\n",
+        ),
+        both(
+          instead(
+            "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n      ),",
+            "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n        renamed: fn(title) {\n          ToLibrary(library.UserRenamedNote(case title {\n            \"\" -> storage.display_title(None, editor.text(drawn))\n            _ -> title\n          }))\n        },\n      ),",
+          ),
+          both(
+            instead(
+              "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n) -> Element(Msg) {",
+              "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n  renamed renamed: fn(String) -> Msg,\n) -> Element(Msg) {",
+            ),
+            instead(
+              "    event.on_input(fn(title) { ToLibrary(library.UserRenamedNote(title)) }),",
+              "    event.on_input(renamed),",
+            ),
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a32: the toolbar takes the editor out of the model with let and hands the title field a callback over it",
+      "nullpad/app.gleam",
+      both(
+        after(
+          "fn toolbar(model: Model) -> Element(Msg) {\n",
+          "  let Model(editor: note, ..) = model\n",
+        ),
+        both(
+          instead(
+            "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n      ),",
+            "      title_field(\n        open.title,\n        placeholder: storage.display_title(None, editor.text(model.editor)),\n        renamed: fn(title) {\n          ToLibrary(library.UserRenamedNote(case title {\n            \"\" -> storage.display_title(None, editor.text(note))\n            _ -> title\n          }))\n        },\n      ),",
+          ),
+          both(
+            instead(
+              "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n) -> Element(Msg) {",
+              "fn title_field(\n  title: Option(String),\n  placeholder placeholder: String,\n  renamed renamed: fn(String) -> Msg,\n) -> Element(Msg) {",
+            ),
+            instead(
+              "    event.on_input(fn(title) { ToLibrary(library.UserRenamedNote(title)) }),",
+              "    event.on_input(renamed),",
+            ),
+          ),
+        ),
+      ),
+    ),
+    Breaks(
+      Caught(rules.DecoderState),
+      "a33: a copy handler's maker takes the editor under an alias from the editor module",
+      [
+        #(
+          "nullpad/editor.gleam",
+          instead(
+            "pub type Mode {",
+            "pub type Drawn =\n  Editor\n\npub type Mode {",
+          ),
+        ),
+        #(
+          "nullpad/surface.gleam",
+          both(
+            after(view_attribute, "        on_copy(editor, on_event),\n"),
+            last(
+              "fn on_copy(drawn: editor.Drawn, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+            ),
+          ),
+        ),
+      ],
+    ),
+    Breaks(
+      Caught(rules.DecoderState),
+      "a34: a copy handler's maker takes a new type that holds the editor",
+      [
+        #(
+          "nullpad/editor.gleam",
+          instead(
+            "pub type Mode {",
+            "pub type Shown {\n  Shown(rows: Int, of: Option(Editor))\n}\n\npub type Mode {",
+          ),
+        ),
+        #(
+          "nullpad/surface.gleam",
+          both(
+            after(
+              view_attribute,
+              "        on_copy(editor.Shown(rows: 0, of: Some(editor)), on_event),\n",
+            ),
+            last(
+              "fn on_copy(shown: editor.Shown, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+            ),
+          ),
+        ),
+      ],
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a35: the view hands a handler's maker the rest of its block, which names the editor",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          "  html.div([attribute.class(classes(editor, kind)), marker(kind)], [\n",
+          "",
+        ),
+        both(
+          instead(
+            "  html.div([attribute.class(classes(editor, kind)), marker(kind)], [\n",
+            "  use <- with_copy(on_event)\n  let _ = editor.is_painted(editor)\n  html.div([attribute.class(classes(editor, kind)), marker(kind)], [\n",
+          ),
+          last(
+            "fn with_copy(on_event: fn(editor.Event) -> msg, then: fn() -> Element(msg)) -> Element(msg) {\n  html.div([event.on(\"copy\", decode.success(on_event(editor.Released)))], [then()])\n}",
+          ),
+        ),
+      ),
+    ),
+    Break(
+      Caught(rules.DecoderState),
+      "a36: app takes the editor out of the model with let and hands the field a callback over it",
+      "nullpad/app.gleam",
+      instead(
+        "fn page(model: Model) -> Element(Msg) {\n",
+        "fn page(model: Model) -> Element(Msg) {\n  let Model(editor: note, ..) = model\n  let _ = surface.view(note, fn(event) {\n    case editor.is_idle(note) {\n      True -> EditorSent(event)\n      False -> EditorSent(editor.Released)\n    }\n  })\n",
+      ),
+    ),
+    Breaks(
+      Escapes,
+      "a15, b06: a new record in the editor module copies what a handler needs from the drawn editor",
+      [
+        #(
+          "nullpad/editor.gleam",
+          instead(
+            "pub type Mode {",
+            "pub type Keyboard {\n  Keyboard(waiting: Bool, painted: Bool)\n}\n\npub fn keyboard(editor: Editor) -> Keyboard {\n  Keyboard(waiting: is_waiting(editor), painted: is_painted(editor))\n}\n\npub type Mode {",
+          ),
+        ),
+        #(
+          "nullpad/surface.gleam",
+          both(
+            after(
+              view_attribute,
+              "        on_copy(editor.keyboard(editor), on_event),\n",
+            ),
+            last(
+              "fn on_copy(keyboard: editor.Keyboard, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    use <- bool.guard(!keyboard.painted, decode.failure(on_event(editor.Released), \"painted\"))\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+            ),
+          ),
+        ),
+      ],
+    ),
+    Break(
+      Escapes,
+      "a21, b10: the view hands a copy handler a plain value read from the drawn editor",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          view_attribute,
+          "        on_copy(editor.is_painted(editor), on_event),\n",
+        ),
+        last(
+          "fn on_copy(painted: Bool, on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    use <- bool.guard(!painted, decode.failure(on_event(editor.Released), \"painted\"))\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
+      ),
+    ),
+    Break(
+      Escapes,
+      "a25: app sets a timer whose message carries the buffer of the editor it has now",
+      "nullpad/app.gleam",
+      instead(
+        "      #(model, effect.batch([synced, remembered]))\n",
+        "      let reread =\n        platform.after(\n          50,\n          EditorSent(editor.ControlChanged(shown: editor.buffer(model.editor), at: 0)),\n        )\n      #(model, effect.batch([synced, remembered, reread]))\n",
+      ),
+    ),
+    Break(
+      Clean,
+      "a04: a handler's maker writes a capture that reads the record each time it is called",
+      "nullpad/surface.gleam",
+      after(
+        "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+        "  let _claims = editor.claims(current_editor(), _)\n",
+      ),
+    ),
+    Break(
+      Clean,
+      "a09: app maps the field's messages through a constructor",
+      "nullpad/app.gleam",
+      instead(
+        "  let field = #(\"field\", surface.view(model.editor, EditorSent))",
+        "  let field = #(\n    \"field\",\n    surface.view(model.editor, fn(event) { event }) |> element.map(EditorSent),\n  )",
+      ),
+    ),
+    Break(
+      Clean,
+      "a10: a view helper in app takes a render callback over the model and calls it at once",
+      "nullpad/app.gleam",
+      both(
+        instead(
+          "fn sidebar(model: Model) -> Element(Msg) {\n  html.nav([attribute.class(\"sidebar\"), attribute.aria_label(\"Notes\")], [\n",
+          "fn sidebar(model: Model) -> Element(Msg) {\n  html.nav([attribute.class(\"sidebar\"), attribute.aria_label(\"Notes\")], [\n    titled(fn() { toolbar(model) }),\n",
+        ),
+        last(
+          "fn titled(render: fn() -> Element(Msg)) -> Element(Msg) {\n  html.div([], [render()])\n}",
+        ),
+      ),
+    ),
+    Break(
+      Clean,
+      "a11: a decoder takes a record of its own that is named like a type in the editor module",
+      "nullpad/surface.gleam",
+      last(
+        "type Keys {\n  Keys(ctrl: Bool, meta: Bool)\n}\n\nfn claimed_decoder(\n  keys: Keys,\n  on_event: fn(editor.Event) -> msg,\n) -> Decoder(event.Handler(msg)) {\n  let Keys(ctrl:, ..) = keys\n  case ctrl {\n    True -> decode.success(on_event(editor.Released) |> event.handler(prevent_default: False, stop_propagation: False))\n    False -> decode.failure(on_event(editor.Released) |> event.handler(prevent_default: False, stop_propagation: False), \"ctrl\")\n  }\n}",
+      ),
+    ),
+    Breaks(
+      Clean,
+      "a12: the field's handlers take a message callback under an alias from the editor module",
+      [
+        #(
+          "nullpad/editor.gleam",
+          instead(
+            "pub type Mode {",
+            "pub type OnEvent(msg) =\n  fn(Event) -> msg\n\npub type Mode {",
+          ),
+        ),
+        #(
+          "nullpad/surface.gleam",
+          instead(
+            "fn field_events(\n  on_event: fn(editor.Event) -> msg,\n) -> List(attribute.Attribute(msg)) {\n",
+            "fn field_events(\n  on_event: editor.OnEvent(msg),\n) -> List(attribute.Attribute(msg)) {\n",
+          ),
+        ),
+      ],
+    ),
+    Break(
+      Clean,
+      "a27: a decoder reads a record bound under a second name when the event comes",
+      "nullpad/surface.gleam",
+      both(
+        after(
+          "  use key_code <- decode.optional_field(\"keyCode\", 0, decode.int)\n",
+          "  let _ = editor.is_waiting(latest_editor())\n",
+        ),
+        last(
+          "@external(javascript, \"./surface.ffi.mjs\", \"currentEditor\")\nfn latest_editor() -> Editor",
+        ),
+      ),
+    ),
+    Break(
+      Clean,
+      "a28: sync moves an effect that acts on its editor at once into a helper",
+      "nullpad/surface.gleam",
+      both(
+        instead(
+          "  let noted =\n    effect.from(fn(_) {\n",
+          "  let noted =\n    at_once(fn() {\n",
+        ),
+        last(
+          "fn at_once(run: fn() -> Nil) -> Effect(msg) {\n  use _ <- effect.from\n  run()\n}",
+        ),
+      ),
+    ),
+    Break(
+      Clean,
+      "b00b: a copy handler reads the record when the copy comes",
+      "nullpad/surface.gleam",
+      both(
+        after(view_attribute, "        on_copy(on_event),\n"),
+        last(
+          "fn on_copy(on_event: fn(editor.Event) -> msg) -> attribute.Attribute(msg) {\n  event.advanced(\"copy\", {\n    use _ <- decode.then(decode.dynamic)\n    use <- bool.guard(!editor.is_painted(current_editor()), decode.failure(on_event(editor.Released), \"painted\"))\n    on_event(editor.Released)\n    |> event.handler(prevent_default: True, stop_propagation: False)\n    |> decode.success\n  })\n}",
+        ),
       ),
     ),
   ]
