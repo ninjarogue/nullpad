@@ -37,7 +37,7 @@ async function open({ app, disk, page }: { app: App; disk: Disk; page: Page }, b
   await expect(page.text).toHaveValue('top');
 }
 
-async function at(page: Page, word: string) {
+async function expectPlaceOf(page: Page, word: string) {
   const place = await page.placeOf(word);
   expect(place, `${word} is on the page`).not.toBeNull();
   return place!;
@@ -49,17 +49,17 @@ async function arriveAndLeave(page: Page, browser: Browser, block: string, word:
   await expect(page.text).toHaveValue(block);
   await page.nextFrame();
   const field = {
-    word: word === null ? null : await at(page, word),
-    typed: await at(page, typed),
-    below: (await at(page, 'below')).top,
+    word: word === null ? null : await expectPlaceOf(page, word),
+    typed: await expectPlaceOf(page, typed),
+    below: (await expectPlaceOf(page, 'below')).top,
     size: (await page.sizesOf('[data-test-id="editor"]')).size,
   };
   for (const _ of block.split('\n')) await browser.keyboard.press('ArrowDown');
   await expect(page.text).toHaveValue('');
   await page.nextFrame();
   const drawn = {
-    word: word === null ? null : await at(page, word),
-    below: (await at(page, 'below')).top,
+    word: word === null ? null : await expectPlaceOf(page, word),
+    below: (await expectPlaceOf(page, 'below')).top,
   };
   for (const _ of ['', '', ...block.split('\n')]) await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('top');
@@ -323,7 +323,7 @@ for (const [block, words] of [
       await page.nextFrame();
       const line = 1.7 * parseFloat(setting.root);
       const tops: number[] = [];
-      for (const word of words) tops.push((await at(page, word)).top);
+      for (const word of words) tops.push((await expectPlaceOf(page, word)).top);
       const gaps = tops.slice(1).map((top, index) => Math.round((top - tops[index] - line) * 10) / 10 + 0);
       expect({ setting, gaps }).toEqual({ setting, gaps: gaps.map(() => 0) });
     }
