@@ -30,6 +30,13 @@ export async function load(url, context, nextLoad) {
 }`;
 register("data:text/javascript," + encodeURIComponent(counter));
 globalThis.parses = 0;
+// The view measures heading marks on a canvas against the page's styles,
+// which node does not have. A measure parses nothing.
+globalThis.document = {
+  documentElement: null,
+  createElement: () => ({ getContext: () => ({ measureText: () => ({ width: 0 }) }) }),
+};
+globalThis.getComputedStyle = () => ({ fontSize: "16px", getPropertyValue: () => "" });
 
 const build = process.argv[2]
   ? pathToFileURL(process.argv[2].replace(/\/?$/, "/"))

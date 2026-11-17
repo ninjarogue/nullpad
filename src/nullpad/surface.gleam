@@ -264,10 +264,20 @@ pub fn page(
   editor: Editor,
   on_event: fn(editor.Event) -> msg,
 ) -> List(attribute.Attribute(msg)) {
-  case editor.region(editor) {
+  let attributes = case editor.region(editor) {
     None -> [attribute.class("page")]
     Some(_) -> [attribute.class("page " <> live_class), ..page_events(on_event)]
   }
+  [
+    attribute.style("--widest-marks", float.to_string(widest_marks_em())),
+    ..attributes
+  ]
+}
+
+/// The widest marks a heading can hang, in the ems of a heading 6.
+fn widest_marks_em() -> Float {
+  let marks = "###### "
+  bold_width_em(marks) +. heading_letter_spacing(markdown.H6, marks)
 }
 
 fn page_events(
