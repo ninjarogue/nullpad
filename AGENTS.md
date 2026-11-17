@@ -1,6 +1,6 @@
 # nullpad
 
-A markdown note editor in Gleam with Lustre. Read this before changing code.
+A markdown note editor in Gleam with Lustre. Read this before changing code. How we work (tests first, break-it gate, failure modes, check reviews) is in [docs/PROCESS.md](docs/PROCESS.md).
 
 ## Architecture rules
 
@@ -64,6 +64,9 @@ cd e2e && npx tsc && npm test
 - `node --test test/test_counts.test.mjs` plants each of these with a fake runner.
 - A node test makes its temp directories with `useScratch` (`test/scratch.mjs`), which removes them when the file ends. `node --test test/scratch.test.mjs` runs every node test file with a private `TMPDIR` and fails on what is left. Every `*.test.mjs` under `test/` and `tools/` is a step of the gate.
 - `tools/mutants` plants a bug at a time and runs these checks on it, to find the test that is missing. Its README says how. `node --test tools/mutants/mutants.test.mjs` is a step of the gate.
+- A commit that fixes a bug ends with a `Caught-by:` line naming what found it: a test file, `keystroke_cost`, `hostile_input`, the robot typist, the planted-bug harness, a blind break-it pass, a review, or `aric` for a bug found by hand. The weekly check review counts these lines to see which checks earn their keep.
+- Tools that check our tests (the test-count gate, the planted-bug harness, e2e discovery) and their own tests change only when a real slip gets past them in a real PR, the same rule as the architecture check. No attack rounds for their own sake.
+- No check is deleted, merged or loosened without aric's approval in the weekly check review or the PR.
 
 ## Browser facts
 

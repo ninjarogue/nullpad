@@ -446,7 +446,7 @@ function placeOn(page, target, x, y, rowMark, press) {
     const beside = drawnAt(Math.min(Math.max(x, box.left + 1), box.right - 1), y, rowMark, x);
     if (beside) return beside;
   }
-  if (above) return [Number(nearest.dataset[rowMark]), "", false, characterAt(nearest.textContent, 0)];
+  if (above) return [Number(nearest.dataset[rowMark]), "", false, graphemeAt(nearest.textContent, 0)];
   const drawn = nearest.textContent;
   return [Number(nearest.dataset[rowMark]), drawn.endsWith("\n") ? drawn.slice(0, -1) : drawn, true, "\n"];
 }
@@ -475,7 +475,7 @@ function placeOfPoint(point, rowMark, pointer = Infinity) {
   after.setStart(point.node, point.offset);
   after.setEnd(cell, cell.childNodes.length);
   const rest = after.toString();
-  let next = rest !== "" ? characterAt(rest, 0) : cell === holder ? "\n" : "";
+  let next = rest !== "" ? graphemeAt(rest, 0) : cell === holder ? "\n" : "";
   const rowStart = visible === "" || visible.endsWith("\n");
   if (rowStart && holder.closest("li")) {
     const box = letterAfter(holder, point.node, point.offset);
@@ -502,8 +502,10 @@ function letterAfter(holder, node, offset) {
   return null;
 }
 
-function characterAt(text, offset) {
-  return offset < text.length ? String.fromCodePoint(text.codePointAt(offset)) : "\n";
+const graphemes = new Intl.Segmenter();
+
+export function graphemeAt(text, offset) {
+  return offset < text.length ? graphemes.segment(text.slice(offset)).containing(0).segment : "\n";
 }
 
 // A point level with a line of the field, even beside it, is on that line.
@@ -521,7 +523,7 @@ function inField(press, x, y, field, band, rowMark) {
     press?.target === field &&
     (press.detail > 2 || press.sourceCapabilities?.firesTouchEvents || (onSelected && !press.shiftKey));
   if (kept) return none;
-  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, characterAt(value, point.offset)];
+  return [Number(field.dataset[rowMark]), value.slice(0, point.offset), false, graphemeAt(value, point.offset)];
 }
 
 // The offset in the field where a plain release lands on its selection, or -1.
