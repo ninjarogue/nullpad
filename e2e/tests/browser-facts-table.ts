@@ -340,6 +340,139 @@ export const facts: Fact[] = [
   }),
 
   fact({
+    id: 'vertical-goal-in-whole-pixels',
+    says: "ArrowDown aims at the caret's left edge rounded down to a whole device pixel, and takes the place on the line below nearest that.",
+    relied: [{ file: ffi, text: 'return Math.floor(left * ratio) / ratio - origin;' }],
+    html: `<textarea id="t" style="width:400px;height:200px;font:16px monospace;letter-spacing:0.3px;text-indent:5.4px;padding:0;border:0;overflow:hidden">${'a'.repeat(30)}\n${'a'.repeat(30)}</textarea>`,
+    observe: async (page) => {
+      const cases = await page.evaluate(() => {
+        const field = document.getElementById('t') as HTMLTextAreaElement;
+        const style = getComputedStyle(field);
+        const ruler = document.createElement('div');
+        ruler.style.cssText = `position:absolute;left:0;top:300px;width:${field.clientWidth}px;white-space:pre-wrap;font:${style.font};letter-spacing:${style.letterSpacing};text-indent:${style.textIndent}`;
+        ruler.textContent = `${field.value}​`;
+        document.body.append(ruler);
+        const text = ruler.firstChild as Text;
+        const range = document.createRange();
+        const left = ruler.getBoundingClientRect().left;
+        const x = (offset: number) => {
+          range.setStart(text, offset);
+          range.setEnd(text, offset + 1);
+          return range.getClientRects()[0]!.left - left;
+        };
+        const below = field.value.indexOf('\n') + 1;
+        const nearest = (goal: number) => {
+          let best = below;
+          for (let offset = below; offset <= field.value.length; offset++) if (Math.abs(x(offset) - goal) < Math.abs(x(best) - goal)) best = offset;
+          return best;
+        };
+        const found: { col: number; exact: number; floored: number }[] = [];
+        for (let col = 1; col < below - 1; col++) {
+          const exact = nearest(x(col));
+          const floored = nearest(Math.floor(x(col)));
+          if (exact !== floored) found.push({ col, exact, floored });
+        }
+        ruler.remove();
+        (window as unknown as { exact: Record<number, number> }).exact = Object.fromEntries(found.map((each) => [each.col, each.exact]));
+        return found;
+      });
+      const landed: { col: number; floored: number; landed: number }[] = [];
+      for (const { col, floored } of cases) {
+        await page.evaluate((col: number) => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          field.focus();
+          field.setSelectionRange(col, col);
+        }, col);
+        await page.keyboard.press('ArrowDown');
+        landed.push({ col, floored, landed: await page.evaluate(() => (document.getElementById('t') as HTMLTextAreaElement).selectionStart) });
+      }
+      return { landed };
+    },
+    holds: (seen) => {
+      if (seen.landed.length === 0) return 'no letter of the first line has a left edge whose rounding changes the nearest place below, so this looked at nothing';
+      const missed = seen.landed.filter((each) => each.landed !== each.floored);
+      return missed.length === 0 ? null : instead('where ArrowDown landed from letters whose left edge has a fraction of a pixel', missed.map((each) => ({ col: each.col, landed: each.floored })), missed);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        document.addEventListener('keydown', (event) => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          const exact = (window as unknown as { exact?: Record<number, number> }).exact?.[field.selectionStart];
+          if (event.key !== 'ArrowDown' || exact === undefined) return;
+          event.preventDefault();
+          field.setSelectionRange(exact, exact);
+        });
+      });
+    },
+  }),
+
+  fact({
+    id: 'selection-at-a-wrap-moves-from-the-next-line',
+    says: 'A selection the field made that runs to where a line wraps has its head at the start of the line below: ArrowUp to the start, then ArrowDown, lands at the start of the second line, where from a caret at the end of the first line it lands at the end of the second.',
+    relied: [{ file: ffi, text: 'if (start !== end) return false;' }],
+    html: '<textarea id="t" style="width:120px;height:200px;font:16px monospace;padding:4px;border:0;overflow:hidden">aaaa bbbb cccc dddd eeee</textarea>',
+    observe: async (page) => {
+      const from = async (keys: string[]) => {
+        await page.evaluate(() => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          field.focus();
+          field.setSelectionRange(0, 0);
+        });
+        for (const key of keys) await page.keyboard.press(key);
+        return page.evaluate(() => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          return [field.selectionStart, field.selectionEnd];
+        });
+      };
+      return { selected: await from(['Shift+End', 'ArrowUp', 'ArrowDown']), caret: await from(['End', 'ArrowUp', 'ArrowDown']) };
+    },
+    holds: (seen) => {
+      const expected = { selected: [10, 10], caret: [20, 20] };
+      return same(seen, expected) ? null : instead('the caret after Shift+End or End, then ArrowUp and ArrowDown', expected, seen);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'ArrowDown') event.preventDefault();
+        });
+      });
+    },
+  }),
+
+  fact({
+    id: 'text-with-no-key-can-be-held',
+    says: 'Text put in with no key, as an IME commits outside a composition, sends beforeinput of type insertText with the text as its data and isComposing false, and cancelling it leaves the field as it was.',
+    relied: [{ file: surface, text: 'kind == "insertText"' }],
+    html: '<textarea id="t">hello</textarea>',
+    observe: async (page) => {
+      const session = await page.context().newCDPSession(page);
+      await page.evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as { log: string[] }).log = log;
+        const field = document.getElementById('t') as HTMLTextAreaElement;
+        field.addEventListener('beforeinput', (event) => {
+          log.push(`beforeinput:${event.inputType}:${event.data}:composing=${event.isComposing}`);
+          event.preventDefault();
+        });
+        for (const type of ['keydown', 'input']) field.addEventListener(type, () => log.push(type));
+        field.focus();
+        field.setSelectionRange(5, 5);
+      });
+      await session.send('Input.insertText', { text: 'X' });
+      return page.evaluate(() => ({ events: (window as unknown as { log: string[] }).log, value: (document.getElementById('t') as HTMLTextAreaElement).value }));
+    },
+    holds: (seen) => {
+      const expected = { events: ['beforeinput:insertText:X:composing=false'], value: 'hello' };
+      return same(seen, expected) ? null : instead('the events of text put in with no key, cancelled, and the text left', expected, seen);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        addEventListener('beforeinput', (event) => event.stopImmediatePropagation(), true);
+      });
+    },
+  }),
+
+  fact({
     id: 'arrow-down-drops-a-selection-at-a-wrap',
     says: 'ArrowDown in a text field whose selection runs forward to where a line wraps drops the selection and leaves the caret at its end, at the start of the line below, while from a selection that ends inside a line it goes a line down.',
     relied: [{ file: surface, text: '&& ends_at_wrap(control_id),' }],
@@ -616,7 +749,7 @@ export const facts: Fact[] = [
     says: 'A typed character sends keydown, beforeinput and input, then keyup, with the old text in the first two and the new text in input.',
     relied: [
       { file: surface, text: 'event.on("input", typed),' },
-      { file: surface, text: 'event.advanced("beforeinput", history_decoder(on_event)),' },
+      { file: surface, text: 'decode.one_of(history_decoder(on_event), [' },
     ],
     html: '<textarea id="t">hello</textarea>',
     observe: async (page) => {
