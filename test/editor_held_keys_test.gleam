@@ -566,3 +566,65 @@ pub fn cmd_and_option_move_by_lines_and_words_on_a_mac_test() {
     == Some(editor.MoveCaret(False, editor.Left, editor.ByWord))
   assert editor.browser_act(ctrl("ArrowLeft"), editor.AppleKeyboard) == None
 }
+
+/// The focus comes back while an IME composes behind a held key: it still
+/// composes, so what it composes still goes in after the key.
+pub fn the_focus_coming_back_leaves_a_composition_behind_a_key_composing_test() {
+  let ed = opened() |> step_down |> hold(key("z"))
+  let field = editor.field_buffer(ed)
+  let ed = editor.update(ed, editor.Composing(shown: over(field, "k"))).editor
+  let ed = editor.update(ed, editor.FocusChanged(focused: True)).editor
+  assert editor.replay(ed) == None
+  let ed =
+    editor.update(ed, editor.Composed(shown: over(field, "か"), at: 0)).editor
+  assert editor.text(ed) == note
+
+  let ed = ed |> stepped |> drain
+  assert editor.text(ed) == "zか\nsecond para here\nthird row\n\nlast"
+}
+
+pub fn a_drop_ends_the_steps_still_waiting_test() {
+  let ed = opened() |> step_down
+  let shown = editor.field_buffer(ed)
+  let Outcome(editor: dropped, ..) =
+    editor.update(
+      ed,
+      editor.Dropped(
+        row: 0,
+        visible: "alpha",
+        at_end: False,
+        next: "",
+        text: "x",
+        copy: True,
+        shown:,
+      ),
+    )
+  assert editor.text(dropped)
+    == "alphax beta\n\nsecond para here\nthird row\n\nlast"
+  assert !editor.is_stepping(dropped)
+  assert !editor.is_waiting(dropped)
+}
+
+pub fn a_drag_ends_the_steps_still_waiting_test() {
+  let ed =
+    editor.update(
+      opened(),
+      editor.Pointed(
+        row: 0,
+        visible: "al",
+        at_end: False,
+        next: "",
+        x: 0.0,
+        y: 0.0,
+      ),
+    ).editor
+    |> step_down
+  let Outcome(editor: dragged, ..) =
+    editor.update(
+      ed,
+      editor.Dragged(row: 0, visible: "alpha", at_end: False, next: ""),
+    )
+  assert buffer.selection(editor.buffer(dragged))
+    == #(Position(row: 0, col: 2), Position(row: 0, col: 5))
+  assert !editor.is_stepping(dragged)
+}
