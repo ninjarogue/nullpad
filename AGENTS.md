@@ -10,6 +10,7 @@ A markdown note editor in Gleam with Lustre. Read this before changing code.
 | A core module imports only `gleam/*` and other core modules. | `gleam test` |
 | A core module's JavaScript touches no browser. | review |
 | Every function says what it takes and returns. | `gleam test` |
+| Every test function in `test/*.gleam` is one gleeunit runs: public, no arguments, a name that ends in `_test`, no `@target(erlang)`. A private `*_test`, or a public function with no arguments and another name that asserts, panics, calls `gleeunit/should` or calls a function of its module that does, is a test that never runs. A `*_test` in a module whose name does not end in `_test` is never run either. A `*_test` that takes arguments, whose body is just `Nil`, or that reaches no `assert`, `let assert`, `panic`, `todo` or `gleeunit/should` call (through helpers of any module of `test/`), runs and checks nothing. | `gleam test` |
 | Only a function that returns an `Effect` or `Nil` may change the page. Drawing and decoding code may measure it. | `gleam test` |
 | A decoder takes callbacks and plain values, never app state from the last drawn frame. The editor decides what a key does. | `gleam test`, and review for the second half |
 | `surface` is the only module that draws the text field. | `gleam test` |
@@ -32,6 +33,7 @@ The rules live in `test/architecture/rules.gleam`. It parses every Gleam file wi
 - A check or script that judges code reads the syntax tree, not the text. Pick the tool that can see the real code before the one that is fastest to write, and ship the check with its break cases and the score from an attacker who is not its author.
 - The check was wrong three times when only its author tested it. After adding a rule, have someone who has not read the break list try to get past it, and add what they find.
 - The check is there to stop honest mistakes, not a determined dodge. Change it when a real mistake gets past it in a real PR, or when a rule is added. A rule that keeps cracking moves back to review.
+- The test rule leaves four escapes to review, each listed as `Escapes` in `architecture_test.gleam` so that the day a rule catches one the test says so: a `_test` that asserts only in a closure nobody calls, one that returns before its assert (`use <- bool.guard(True, Nil)`), one that is an `@external` function whose JavaScript checks nothing, and a misnamed function that reaches its assert through a helper of another module. A `main` that reaches an assert only through other functions is not taken for a forgotten test.
 - `test/keystroke_cost.mjs` sends every variant of `editor.Event`, with vim off and on. A new variant with no entry there fails.
 
 ## Checks
@@ -43,7 +45,36 @@ node test/keystroke_cost.mjs
 cd e2e && npx tsc && npm test
 ```
 
-`.githooks/pre-push` runs all of them.
+`.githooks/pre-push` runs the format check, then `node test/test_counts.mjs run`, which runs every other step and holds each to the number of tests it ran last (`test/steps.mjs` says how each is run and read).
+
+- A step that runs no tests, or fewer than `test/test_counts.json` knows, fails. The count is read from what the runner prints or writes (the e2e `report.json`), never from the source.
+- A run with more tests raises the file. Commit it. Only a hand edit lowers a count, so a removal shows in the diff.
+- A run that ends with `test/test_counts.json` different from HEAD (raised by the run, edited by hand, staged and not committed) fails with `commit test/test_counts.json`, so a raise nobody committed cannot pass the hook. `node test/test_counts.mjs run --no-commit-check` skips that for a run kept on one machine and warns that it did. The hook never passes it.
+- Tests that are not checks are held apart, each as its own line: `"<step> expected-fail"` (e2e `test.fail`) and `"<step> todo"` (node `test.todo`, `{ todo: true }`). They still count as run, so hiding a failing test behind either does not lower the count of passes. A rise in a held count fails the gate and needs a hand edit of the file, so it shows in the diff. A fall lowers the line, and it is removed at 0.
+- Every config in `e2e/` is a step. A known count whose step is gone fails. Two steps with one id fail the gate before any runs, because one count is kept for an id. A key twice in `test/test_counts.json` fails it too: `JSON.parse` keeps the last, so the other count would hold nothing.
+- Every file under `e2e/` that looks like a test (a test's name, or a call, with any arguments, through a binding that is the e2e test API) is one a config discovers. A binding is `test` or `describe` from `e2e` or `@e2e-dev/*`, an alias of one, what `extend` gave back, a default, namespace or dynamic import of the module, and any of these exported from a helper under any name and imported or re-exported from there. A `x.config.ts` below the top of `e2e/` is a file like any other. `node test/e2e_discovery.mjs` reads the files with oxc-parser and what each config selects from `e2e list`, and fails on a file no config loads. Bindings are followed by name through a file, not by scope, and an in-body `test.skip(condition, reason)` is not a registration. Its break cases are `node --test test/e2e_discovery.test.mjs`.
+- Every `*.test.mjs` in the repository outside `node_modules` is a step of the gate, or the gate fails and names it.
+- `node --test test/serve.test.mjs` sends the e2e server (`e2e/serve.mjs`) the requests that killed it, and checks it still answers.
+- `git push` runs the gate only in a clone where `core.hooksPath` is `.githooks`. When it is not, a gate run by hand prints a `!!! WARNING` line saying so, pass or fail. Run `git config core.hooksPath .githooks` once per clone.
+- The gate stops what it started when it gets SIGINT, SIGTERM or SIGHUP: the commands, their process groups and the `.e2e/step-*` folders go, and it exits 128 plus the signal.
+- `node --test test/test_counts.test.mjs` plants each of these with a fake runner.
+- A node test makes its temp directories with `useScratch` (`test/scratch.mjs`), which removes them when the file ends. `node --test test/scratch.test.mjs` runs every node test file with a private `TMPDIR` and fails on what is left. Every `*.test.mjs` under `test/` and `tools/` is a step of the gate.
+- `tools/mutants` plants a bug at a time and runs these checks on it, to find the test that is missing. Its README says how. `node --test tools/mutants/mutants.test.mjs` is a step of the gate.
+
+## Browser facts
+
+`e2e/tests/browser-facts-table.ts` lists what the app assumes about Chromium that no spec promises, one fact each, and `e2e/tests/browser-facts.e2e.ts` looks at each on a plain page, not in the app. When Chromium changes one, that test fails first and says which Chromium, which fact, what it did instead and which line relies on it.
+
+- Add a fact when code starts to rely on browser behavior, and when a comment says "Chromium" or "the browser" to explain why code is as it is. Each fact names the text of the code that relies on it (`relied`), which must be in the file exactly once, so a fact whose code is gone fails and says to update or remove it.
+- `relied` must be code, and its `file` must be under `src/` or `assets/`: a test, a tool or a build output holds whether or not the app relies on it, so any other path (and one that climbs out with `..`) fails, and `problemsWithTable` says so, a pending fact included. The file is read with oxc-parser (`.mjs`, `.ts`), a Gleam scanner or a CSS scanner, and text that is only in a comment, only inside a string or a regular expression, or in CSS outside a rule is not counted. Name the code that does the relying, not the comment above it.
+- Known limit: the CSS scanner reads braces and not conditions, so a rule inside `@media not all` or an `@supports` that never matches counts as a rule that applies. `e2e/tests/browser-facts-framework.e2e.ts` keeps a case for it, which fails the day the scanner stops doing that.
+- `relied` must stand on name boundaries: text that starts or ends with a letter, digit, `_`, `$` or `-` is not counted inside a longer name, so `press.detail > 2` is not in `mypress.detail > 2` and `margin-top: calc(1lh);` is not in `--margin-top: calc(1lh);`. Known limits, each with a case in the framework test: code that never runs, a CSS declaration that a later rule overrides, and one inside `@media print` still count as code that relies on a fact.
+- A `pending` fact fails as soon as any of its `relied` text is code in the source: `pending fact now holds in source: un-pend it`.
+- `holds` must name what it expects, and reject what no look at a page gives (`undefined`, `{}`, `[]`, `0`, `''`, and the rest of `nothingSeen`). `problemsWithTable` fails on a `holds` that takes one. So `observe` returns an object with a positive control, such as a typed key that does fire the event, and `holds` fails on a control that did not show.
+- A fact that needs a secure context (the clipboard) sets `url`, and is served at that https address.
+- Each fact has `breaks`, a change planted on the page that it must notice: the second test of every fact fails when the fact still holds with its sabotage planted. A fact no page can be made to break says why in `unbreakable`.
+- A fact for code that is not merged yet is `pending`, with the reason.
+- `e2e/tests/browser-facts-framework.e2e.ts` has the break cases for the machinery in `browser-facts.ts`.
 
 ## Code
 

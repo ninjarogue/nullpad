@@ -121,6 +121,32 @@ test('undoing everything gives the note as it opened, and redoing everything the
   expect(redone.at(-1), 'after Ctrl+Shift+Z as often as it takes').toBe(ended);
 });
 
+for (const typed of ['Q', '## ']) {
+  test(`after ${JSON.stringify(typed)} is typed at the start of a block, undo and redo never bring in text typed in another block`, async (fixtures) => {
+    const editor = new Editing(fixtures);
+    await editor.open('');
+    await editor.write('intro\n\nT\n\nsecond\n\nthird');
+    await editor.click({ word: 'T', at: 1 });
+    await editor.press('Home');
+    await editor.type(typed);
+    const ended = `intro\n\n${typed}T\n\nsecond\n\nthird`;
+    await editor.expectNote(ended);
+    await editor.expectSaved(ended);
+
+    await editor.press(ctrl('z'), ctrl('z'), ctrl('z'));
+    await editor.press(...Array<string>(4).fill(ctrl('Shift+z')));
+    await editor.expectNote(ended);
+    await editor.expectSaved(ended);
+
+    await editor.press(...Array<string>(40).fill(ctrl('z')));
+    await editor.expectNote('');
+    await editor.expectSaved('');
+    await editor.press(...Array<string>(40).fill(ctrl('Shift+z')));
+    await editor.expectNote(ended);
+    await editor.expectSaved(ended);
+  });
+}
+
 test('undo takes back typing made in a block the caret has left', async (fixtures) => {
   const editor = new Editing(fixtures);
   await editor.open(note);

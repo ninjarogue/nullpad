@@ -548,10 +548,26 @@ function caretAt(x, y) {
 
 let pen = null;
 
-export function textWidth(text) {
+function lengthIn(root, name, unit) {
+  const value = root.getPropertyValue(name).trim();
+  if (value === "") return null;
+  const number = value.endsWith(unit) ? Number(value.slice(0, -unit.length)) : NaN;
+  if (Number.isNaN(number)) throw new Error(`${name} is "${value}", not a number of ${unit}`);
+  return number;
+}
+
+export function textWidth(text, heading) {
   const root = getComputedStyle(document.documentElement);
+  const rem = parseFloat(root.fontSize);
+  const scale = heading ? lengthIn(root, `--${heading}`, "rem") : null;
+  if (heading && scale === null) throw new Error(`--${heading} is not set`);
+  const size = heading ? scale * rem : rem;
+  const tracking = heading ? lengthIn(root, `--${heading}-tracking`, "em") ?? 0 : 0;
   pen ??= document.createElement("canvas").getContext("2d");
-  pen.font = `${root.fontSize} ${root.getPropertyValue("--ui-font")}`;
+  pen.font = `${heading ? "bold " : ""}${size}px ${root.getPropertyValue("--ui-font")}`;
+  pen.letterSpacing = `${tracking * size}px`;
+  // As the text field does: a canvas's "auto" leaves out kerning such as ". ".
+  pen.fontKerning = "normal";
   return pen.measureText(text).width;
 }
 
