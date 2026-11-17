@@ -136,7 +136,12 @@ fn field_events(
     // the page's active element, and the browser gives it the focus
     // back: the editor does not hear of it.
     event.on("blur", leave_decoder(on_event)),
-    event.advanced("beforeinput", history_decoder(on_event)),
+    event.advanced(
+      "beforeinput",
+      decode.one_of(history_decoder(on_event), [
+        text_held_behind_page_decoder(on_event),
+      ]),
+    ),
     event.advanced("paste", paste_decoder(on_event)),
     event.advanced("keydown", hold_or_decide_key_decoder(on_event)),
   ]
@@ -500,6 +505,8 @@ pub fn sync(
           replay_when_quiet(dispatch, quiet)
         }),
       ])
+    editor.InSyncInPlace ->
+      effect.batch([effect.from(fn(_) { hold_now() }), painted])
     // Painted before the page is scrolled to the head, which may be painted.
     editor.Write(buffer) ->
       effect.batch([
@@ -513,6 +520,19 @@ pub fn sync(
           focus_later(fn() {
             focus_control(control_id, live_class, painted_class)
           })
+          replay_when_quiet(dispatch, quiet)
+        }),
+      ])
+    editor.WriteInPlace(buffer) ->
+      effect.batch([
+        effect.from(fn(_) {
+          write_now(buffer)
+          focus_in_place(control_id)
+          ask_focus()
+        }),
+        effect.before_paint(fn(dispatch, _) {
+          let quiet = draw_and_settle(dispatch)
+          focus_later(fn() { focus_in_place(control_id) })
           replay_when_quiet(dispatch, quiet)
         }),
       ])
@@ -969,6 +989,33 @@ fn key_held_behind_page_decoder(
   {
     True -> decode.success(handler)
     False -> decode.failure(handler, expected: "a key the page is behind")
+  }
+}
+
+/// Text that comes with no key, as an IME or a dictation puts it in, waits
+/// behind the steps the page owes as a pressed key does.
+fn text_held_behind_page_decoder(
+  on_event: fn(editor.Event) -> msg,
+) -> Decoder(event.Handler(msg)) {
+  use kind <- decode.field("inputType", decode.string)
+  use text <- decode.optional_field(
+    "data",
+    "",
+    decode.optional(decode.string) |> decode.map(option.unwrap(_, "")),
+  )
+  use composing <- decode.optional_field("isComposing", False, decode.bool)
+  use at <- decode.then(time_decoder())
+  let handler =
+    on_event(editor.KeyHeld(editor.HeldPaste(text:, at:)))
+    |> event.handler(prevent_default: True, stop_propagation: False)
+  case
+    kind == "insertText"
+    && text != ""
+    && !composing
+    && editor.keys_wait(current_editor())
+  {
+    True -> decode.success(handler)
+    False -> decode.failure(handler, expected: "text the page is behind")
   }
 }
 

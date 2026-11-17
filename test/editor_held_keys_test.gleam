@@ -384,7 +384,7 @@ pub fn a_select_while_an_ime_composes_behind_a_key_does_not_end_it_test() {
 
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.ControlChanged(shown: over(field, "k"), at: 0))
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
   assert editor.text(ed) == note
   assert !editor.is_stepping(ed)
   assert editor.replay(ed) == None

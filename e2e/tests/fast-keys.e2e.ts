@@ -970,6 +970,47 @@ test('text an IME puts in the field in the frame of Escape wakes it, and the key
   });
 });
 
+test('text an IME commits in the frame of a PageDown, before the page has drawn the block the caret went to, goes where the PageDown put the caret', async ({ app, browser }) => {
+  await app.open('/blank');
+  const origin = new URL(await browser.url()).origin;
+  const note = '# Title here\n\nPara one with words\nsecond line\n\n- item a\n  - nested b\n- item c\n\n> quote q\n\n```\ncode\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nlast para';
+  const committedAfterPageDown = (held: boolean) => {
+    let saved = '';
+    return withRawPage(origin, note, async (raw) => {
+      const frames = () => raw.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      if (held) {
+        await raw.evaluate(() => {
+          const real = window.requestAnimationFrame.bind(window);
+          const waiting: FrameRequestCallback[] = [];
+          window.requestAnimationFrame = (run) => waiting.push(run);
+          (globalThis as { redraw?: () => void }).redraw = () => {
+            window.requestAnimationFrame = real;
+            for (const run of waiting) real(run);
+          };
+          return null;
+        });
+      }
+      for (const key of ['ArrowDown', 'ArrowRight', 'PageDown']) {
+        await raw.keyboard.press(key);
+        if (!held) await frames();
+      }
+      await raw.keyboard.insertText('X');
+      if (held) {
+        await raw.evaluate(() => {
+          (globalThis as { redraw?: () => void }).redraw!();
+          return null;
+        });
+      }
+      await frames();
+      await raw.keyboard.press('Control+e');
+      saved = await raw.getByLabel('Note text').inputValue();
+    }).then(() => saved);
+  };
+  const apart = await committedAfterPageDown(false);
+  expect(apart, 'the text goes at the end of the note').toBe(`${note}X`);
+  expect(await committedAfterPageDown(true)).toBe(apart);
+});
+
 const paintedThenPage = [
   '# Heading one',
   '',

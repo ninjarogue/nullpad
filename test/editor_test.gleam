@@ -708,7 +708,7 @@ pub fn a_move_with_no_press_the_editor_took_selects_nothing_test() {
       at_end: False,
       next: "",
     ))
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
   assert editor.region(ed) == Some(Region(0, 0))
 
   let Outcome(editor: ed, ..) =
@@ -718,7 +718,7 @@ pub fn a_move_with_no_press_the_editor_took_selects_nothing_test() {
       ed,
       editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
     )
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
   assert editor.field_buffer(ed) == caret("Flights are **booked**.", 0, 3)
 }
 
@@ -740,7 +740,7 @@ pub fn the_focus_a_press_brings_does_not_end_it_but_a_blur_does_test() {
       ed,
       editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
     )
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
   assert editor.region(ed) == Some(Region(2, 2))
 }
 
@@ -753,6 +753,27 @@ pub fn a_drag_that_stays_in_place_writes_nothing_test() {
       at_end: False,
       next: "",
     ))
+  assert sync == editor.InSyncInPlace
+}
+
+pub fn what_a_click_reports_leaves_the_page_where_it_is_but_a_move_shows_the_caret_test() {
+  let ed = pressed(live_note, 2, "Fli")
+  let shown = editor.field_buffer(ed)
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.FocusChanged(True))
+  assert sync == editor.InSyncInPlace
+  let Outcome(editor: ed, sync:, ..) = editor.update(ed, editor.Released)
+  assert sync == editor.InSyncInPlace
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown:, at: 0))
+  assert sync == editor.InSyncInPlace
+
+  let moved = buffer.move_to(shown, Position(0, 0))
+  let Outcome(sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: moved, at: 0))
+  assert sync == editor.InSync
+  let Outcome(sync:, ..) =
+    editor.update(ed, editor.KeyPressed(vim.Char("x"), shown:))
   assert sync == editor.InSync
 }
 
@@ -1758,7 +1779,7 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
 
   let Outcome(editor: blurred, sync:, ..) =
     editor.update(ed, editor.FocusChanged(False))
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
   assert editor.region(blurred) == Some(Region(1, 1))
   assert editor.blocks(blurred) == markdown.parse("Hello\n-")
   assert editor.is_idle(blurred)
@@ -1816,7 +1837,7 @@ pub fn a_press_on_a_link_or_a_box_moves_nothing_until_it_drags_test() {
       let_go,
       editor.Dragged(row: 4, visible: "o", at_end: False, next: ""),
     )
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
 
   let Outcome(editor: dragged, ..) =
     editor.update(
@@ -1860,7 +1881,7 @@ pub fn a_double_click_selects_a_word_and_its_drag_selects_whole_words_test() {
       let_go,
       editor.Dragged(row: 0, visible: "a", at_end: False, next: ""),
     )
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
 }
 
 pub fn a_triple_click_selects_a_line_and_its_drag_selects_whole_lines_test() {
@@ -2963,7 +2984,7 @@ pub fn a_press_on_a_painted_selection_holds_it_until_let_go_test() {
   assert buffer.selection(editor.buffer(let_go))
     == #(Position(2, 12), Position(2, 12))
   assert !editor.is_painted(let_go)
-  assert sync == editor.Write(editor.field_buffer(let_go))
+  assert sync == editor.WriteInPlace(editor.field_buffer(let_go))
 }
 
 pub fn a_painted_selection_dragged_and_dropped_moves_and_keeps_no_press_test() {
@@ -2971,7 +2992,7 @@ pub fn a_painted_selection_dragged_and_dropped_moves_and_keeps_no_press_test() {
   let Outcome(editor: held, ..) = selection_pointed(ed, 2, "Flights are ")
   let Outcome(editor: started, sync:, ..) =
     editor.update(held, editor.DragStarted)
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
   let Outcome(editor: dropped, ..) =
     editor.update(
       started,
@@ -2991,7 +3012,7 @@ pub fn a_painted_selection_dragged_and_dropped_moves_and_keeps_no_press_test() {
   let Outcome(editor: after, sync:, ..) =
     editor.update(dropped, editor.Released)
   assert editor.buffer(after) == editor.buffer(dropped)
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
 }
 
 pub fn a_painted_selection_dragged_off_the_page_stays_test() {
@@ -3002,7 +3023,7 @@ pub fn a_painted_selection_dragged_off_the_page_stays_test() {
     editor.update(started, editor.Released)
   assert editor.buffer(let_go) == editor.buffer(ed)
   assert editor.is_painted(let_go)
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
 }
 
 pub fn a_press_on_a_selection_no_longer_painted_is_a_plain_press_test() {
