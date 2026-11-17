@@ -49,6 +49,12 @@ cd e2e && npx tsc && npm test
 
 The robot typist (`e2e/typist/`) types random key scripts into a plain textarea and into nullpad in Chromium and compares text, cursor and selection. `cd e2e && npm run typist` is the short run (120 scripts); `npm run typist:long -- --count 3000 --seed 7` is the long one. A failure prints the seed, the shrunk script and a replay command. `e2e/typist/known.mjs` is the one list of known differences, each with its reason; an open bug's keys are left out until its repro stops differing, and then the run fails until the entry is deleted. `--no-known` types everything.
 
+Three checks look at the browser from outside the page, over the DevTools protocol. Each was shown failing on a planted bug.
+
+- Every error and warning the browser reports fails the e2e test or typist script that caused it (`e2e/browser-problems.mjs`, started before the page loads). `noise` there lists the only ones allowed, each with its reason. A test that provokes one on purpose takes it with `page.takeProblems()`.
+- A touch in a test is a real finger on a phone (`e2e/tests/finger.ts`), never a `PointerEvent` sent from the page: the browser then sends its own trusted events in its own order.
+- After every key of a typist script typed a frame at a time or slowly, the typist reads where the page paints each block (`e2e/typist/shifts.mjs`; the rule is at the top of `run.mjs`, its tests run with `npm run typist`) and fails when a key moved a block it had no business moving. A shift we know about is an `open` entry with a `shift` and a repro in `known.mjs`.
+
 A bug fix lands with its failing test in an earlier commit, written from the goal before the fix.
 
 ## Code
