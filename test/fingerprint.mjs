@@ -200,20 +200,29 @@ export function jsPrinter() {
     if (typeof node !== "object") return JSON.stringify(node);
     if (Array.isArray(node)) return `[${node.map(print).join(",")}]`;
     if (typeof node.type !== "string") return `{${Object.entries(node).filter(([key]) => !hidden.has(key)).map(([key, inner]) => `${key}:${print(inner)}`).join(",")}}`;
-    if (node.type.startsWith("TS") && !typeWrappers.has(node.type) && !handlers[node.type]) return printNode(node);
+    if (node.type.startsWith("TS") && !typeWrappers.has(node.type) && !handlers[node.type]) return typeText(node);
     return (handlers[node.type] ?? generic)(node);
   };
 
   const generic = (node, over = {}) =>
     `{${Object.entries(node)
       .filter(([key]) => !hidden.has(key))
-      .map(([key, inner]) => `${key}:${key in over ? over[key] : rawKeys.has(key) ? printNode(inner) : print(inner)}`)
+      .map(([key, inner]) => `${key}:${key in over ? over[key] : rawKeys.has(key) ? typeText(inner) : print(inner)}`)
       .join(",")}}`;
+
+  /** A type is printed as it is written, except `typeof it`, where `it` is a value and renames with its binding. */
+  const queried = (name) => (name.type === "Identifier" ? print(name) : name.type === "TSQualifiedName" ? `${queried(name.left)}.${name.right.name}` : printNode(name));
+  const typeText = (node) =>
+    JSON.stringify(node, (key, value) => {
+      if (hidden.has(key)) return undefined;
+      if (typeof value === "bigint") return `${value}n`;
+      return value?.type === "TSTypeQuery" ? { type: value.type, exprName: queried(value.exprName), typeArguments: value.typeArguments } : value;
+    });
 
   const target = (key, computed) => (computed ? print(key) : printNode(key));
 
   const pattern = (node, origin, path = "") => {
-    const annotated = (text) => (node.typeAnnotation ? `${text}${printNode(node.typeAnnotation)}` : text);
+    const annotated = (text) => (node.typeAnnotation ? `${text}${typeText(node.typeAnnotation)}` : text);
     switch (node?.type) {
       case "Identifier":
         scope.bind(node.name, `${origin}${path}`);

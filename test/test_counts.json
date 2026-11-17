@@ -4,7 +4,7 @@
   "e2e:e2e.config.ts": 676,
   "e2e:e2e.dpr2.config.mjs": 112,
   "gleam-test": 476,
-  "judges": 58,
+  "judges": 115,
   "keystroke-cost": 119,
   "mutants-tool": 75,
   "pick": 24,

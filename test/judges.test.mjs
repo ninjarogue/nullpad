@@ -384,6 +384,23 @@ pub fn locals_test() {
       assert.deepEqual(named(changes({ [spec]: twins }, { [spec]: swap(twins, "expect(a).toBe(b)", "expect(a).toBe(a)") })), [`weakened-test: ${spec} > locals`]);
     });
 
+    test("a local named in a type (`keyof typeof it`) is renamed with it, and a type of another local is a change", () => {
+      const typed = swap(code, "  expect(sum).toBe(3);\n", "  const edge = { top: 1, below: 2 };\n  const moved = (side: keyof typeof edge) => edge[side] > 0;\n  expect(moved('top')).toBe(true);\n  expect(sum).toBe(3);\n");
+      assert.deepEqual(named(changes({ [spec]: typed }, { [spec]: rename(rename(typed, "edge", "box"), "moved", "shifted") })), []);
+      assert.deepEqual(named(changes({ [spec]: typed }, { [spec]: swap(typed, "keyof typeof edge", "keyof typeof sum") })), [`weakened-test: ${spec} > locals`]);
+    });
+
+    test("a local named in the first words of a statement at the top of a helper a test loads is renamed with it", () => {
+      const helper = "e2e/tests/loop.ts";
+      const looped = "export const seen: number[] = [];\nfor (const entry of [1, 2, 3]) {\n  seen.push(entry + 1);\n}\n";
+      const reader = e2e("import { seen } from './loop.ts';\ntest('reads', async () => {\n  expect(seen.length).toBe(3);\n});");
+      const files = { [spec]: reader, [helper]: looped };
+      const flagged = (text) => named(changes(files, { ...files, [helper]: text }));
+      assert.deepEqual(flagged(rename(looped, "entry", "number")), []);
+      assert.deepEqual(flagged(swap(looped, "entry + 1", "entry + 2")), [`changed-input: ${helper}::stmt:for (const entry of [1, 2, 3]) { seen.push(entry + 1); }`]);
+      assert.deepEqual(flagged(swap(looped, "[1, 2, 3]", "[1, 2]")), [`changed-input: ${helper}::stmt:for (const entry of [1, 2, 3]) { seen.push(entry + 1); }`]);
+    });
+
     test("a renamed key of an object that carries a local is a change, because it names a property", () => {
       const keyed = swap(code, "  expect(sum).toBe(3);\n", "  expect({ sum }).toEqual({ sum: 3 });\n");
       assert.deepEqual(named(changes({ [spec]: keyed }, { [spec]: rename(keyed, "sum", "total") })), [`weakened-test: ${spec} > locals`]);

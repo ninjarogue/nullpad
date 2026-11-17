@@ -587,6 +587,27 @@ function changedScripts(path, was, now) {
 }
 
 /**
+ * What each unit of main's became in this file. A statement is keyed by its first words, which a
+ * renamed local changes, so one with no unit of its key pairs with a new statement that prints alike.
+ */
+function pairedUnits(was, now) {
+  const taken = new Set();
+  const pairs = new Map();
+  for (const [key, unit] of was.decls) {
+    if (now.decls.has(key)) {
+      pairs.set(key, now.decls.get(key));
+      continue;
+    }
+    if (!unit.effect) continue;
+    const found = [...now.decls].find(([other, next]) => next.effect && !was.decls.has(other) && !taken.has(other) && next.print === unit.print);
+    if (found === undefined) continue;
+    taken.add(found[0]);
+    pairs.set(key, found[1]);
+  }
+  return { pairs, taken };
+}
+
+/**
  * What the branch's judges lost or changed since the base's. A test may grow, so new tests,
  * new statements and new assertions are free. It may not shrink: each statement of a base
  * test must still be there, in order, unchanged. A test whose body is the same under another
@@ -625,14 +646,15 @@ export function compare(base, branch) {
       if (was.text !== now.text) items.push({ file: path, id: path, what: "changed-gate", why: "the file changed" });
       continue;
     }
+    const { pairs, taken } = pairedUnits(was, now);
     if (was.role === "gate") {
       for (const [key, unit] of was.decls) {
-        const next = now.decls.get(key);
+        const next = pairs.get(key);
         if (!changed(unit, next, true)) continue;
         items.push({ file: path, id: `${path}::${key}`, what: "changed-gate", why: `${unit.show ?? key} ${next === undefined ? "is gone" : "changed"}` });
       }
-      const goneStatements = [...was.decls].filter(([key, unit]) => unit.effect && !now.decls.has(key)).length;
-      const newStatements = [...now.decls].filter(([key, unit]) => unit.effect && !was.decls.has(key));
+      const goneStatements = [...was.decls].filter(([key, unit]) => unit.effect && !pairs.has(key)).length;
+      const newStatements = [...now.decls].filter(([key, unit]) => unit.effect && !was.decls.has(key) && !taken.has(key));
       if (newStatements.length > goneStatements) {
         for (const [key, unit] of newStatements) items.push({ file: path, id: `${path}::${key}`, what: "changed-gate", why: `${unit.show ?? key} is a statement this branch put at the top of a script that decides` });
       }
@@ -662,10 +684,10 @@ export function compare(base, branch) {
     }
     items.push(...fresh);
     for (const [key, unit] of now.decls) {
-      if (!was.decls.has(key) && unit.disables) items.push({ file: path, id: `${path}::${key}`, what: "disabled", why: `${unit.show ?? key} is new, and it can switch checks off` });
+      if (!was.decls.has(key) && !taken.has(key) && unit.disables) items.push({ file: path, id: `${path}::${key}`, what: "disabled", why: `${unit.show ?? key} is new, and it can switch checks off` });
     }
     for (const [key, unit] of was.decls) {
-      const next = now.decls.get(key);
+      const next = pairs.get(key);
       if (!changed(unit, next, false)) continue;
       const what = next === undefined ? "gone" : "changed";
       const id = `${path}::${key}`;
