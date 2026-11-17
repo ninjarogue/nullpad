@@ -58,25 +58,32 @@ test('picking another note saves this one first', async ({ disk, page }) => {
   expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
 });
 
-test('text typed while the next note loads is saved before it opens', async ({ disk, page }) => {
+test('keys typed while a picked note loads go into it, and never into the note left', async ({ browser, disk, page }) => {
   await disk.hold();
-  await page.row('Trip').tap();
-  await page.text.fill('milk, eggs');
+  const at = await page.rowCentre('Trip');
+  await browser.mouse.move(at.x, at.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('Go ');
+  await expect(page.text).toHaveValue('milk');
 
   await disk.release();
-  await expect(page.text).toHaveValue('# Trip');
-  expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
+  await expect(page.text).toHaveValue('Go # Trip');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([groceries, { ...trip, body: 'Go # Trip' }]);
 });
 
-test('text typed while a new note is made is saved before it opens', async ({ disk, page }) => {
+test('keys typed while a new note is made go into it', async ({ disk, page }) => {
   await disk.hold();
   await page.newNote.tap();
-  await page.text.fill('milk, eggs');
+  await page.text.pressSequentially('eggs');
+  await expect(page.text).toHaveValue('milk');
 
   await disk.release();
-  await expect(page.text).toHaveValue('');
-  await expect(page.currentRow).toHaveText('Untitled');
-  expect(await disk.notes()).toEqual([trip, newNote, { ...groceries, body: 'milk, eggs' }]);
+  await expect(page.text).toHaveValue('eggs');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([trip, groceries, { ...newNote, body: 'eggs' }]);
 });
 
 test('picking the open note again cancels leaving it', async ({ disk, page }) => {
