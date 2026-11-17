@@ -43,14 +43,47 @@ function installTestDisk() {
   const failing = 'testDisk.failing';
   const held = 'testDisk.held';
   const mine = new WeakSet<IDBTransaction>();
+  const how = () => localStorage.getItem(failing);
+  const abortsWrites = () => how() === 'abort' || how() === 'quota';
+
+  // The disk of the test opens its own connections with these, so that a disk
+  // that fails the app does not fail the test's own reads and writes.
+  const open = IDBFactory.prototype.open;
+  const begin = IDBDatabase.prototype.transaction as (this: IDBDatabase, ...args: unknown[]) => IDBTransaction;
+
+  IDBFactory.prototype.open = function (this: IDBFactory, ...args: [string, number?]) {
+    if (how() === 'open-throws') throw new DOMException('The operation is insecure.', 'SecurityError');
+    if (how() === 'open-fails') {
+      const request = {
+        error: new DOMException('Internal error opening backing store for indexedDB.open.', 'UnknownError'),
+      } as IDBOpenDBRequest;
+      setTimeout(() => request.onerror?.(new Event('error')), 0);
+      return request;
+    }
+    return open.apply(this, args);
+  };
+  IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: unknown[]) {
+    if (how() === 'transaction-throws') throw new DOMException('The database connection is closing.', 'InvalidStateError');
+    return begin.apply(this, args);
+  };
 
   const requests = IDBObjectStore.prototype as unknown as Record<string, Request>;
   for (const name of ['getAll', 'get', 'put', 'add', 'delete']) {
     const real = requests[name];
     requests[name] = function (...args) {
       const request = real.apply(this, args);
-      if (localStorage.getItem(failing) && !mine.has(this.transaction)) {
-        request.addEventListener('success', () => this.transaction.abort());
+      if (abortsWrites() && !mine.has(this.transaction)) {
+        const transaction = this.transaction;
+        const aborted = how();
+        request.addEventListener('success', () => {
+          // A browser that aborts for lack of room says why in the transaction's error.
+          if (aborted === 'quota') {
+            Object.defineProperty(transaction, 'error', {
+              value: new DOMException('The disk is full.', 'QuotaExceededError'),
+            });
+          }
+          transaction.abort();
+        });
       }
       return request;
     };
@@ -60,21 +93,21 @@ function installTestDisk() {
   // has to succeed first, so that the abort above can run.
   const commit = IDBTransaction.prototype.commit;
   IDBTransaction.prototype.commit = function () {
-    if (!localStorage.getItem(failing) || mine.has(this)) commit.call(this);
+    if (!abortsWrites() || mine.has(this)) commit.call(this);
   };
 
   const transact = <T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => T) =>
     new Promise<T>((resolve, reject) => {
-      const open = indexedDB.open('nullpad', 1);
-      open.onupgradeneeded = () => open.result.createObjectStore('notes', { keyPath: 'key' });
-      open.onerror = () => reject(open.error);
-      open.onsuccess = () => {
-        const transaction = open.result.transaction('notes', mode);
+      const connection = open.call(indexedDB, 'nullpad', 1);
+      connection.onupgradeneeded = () => connection.result.createObjectStore('notes', { keyPath: 'key' });
+      connection.onerror = () => reject(connection.error);
+      connection.onsuccess = () => {
+        const transaction = begin.call(connection.result, 'notes', mode);
         mine.add(transaction);
         const result = run(transaction.objectStore('notes'));
         transaction.onabort = () => reject(transaction.error);
         transaction.oncomplete = () => {
-          open.result.close();
+          connection.result.close();
           resolve(result);
         };
       };
@@ -171,11 +204,17 @@ export class Disk {
     await this.browser.evaluate((key: string) => testDisk.remove(key), key);
   }
 
-  async fail() {
-    await this.browser.evaluate(() => {
-      localStorage.setItem('testDisk.failing', 'yes');
+  /**
+   * From now on the app's storage fails the way `how` says. The disk of the test keeps working.
+   * `abort` and `quota` let a request succeed and then abort its transaction, `quota` with the
+   * reason in the transaction's error. `open-throws` and `open-fails` fail to open the database,
+   * the first by throwing and the second by an error event. `transaction-throws` fails to begin one.
+   */
+  async fail(how: 'abort' | 'quota' | 'open-throws' | 'open-fails' | 'transaction-throws' = 'abort') {
+    await this.browser.evaluate((how: string) => {
+      localStorage.setItem('testDisk.failing', how);
       return null;
-    });
+    }, how);
   }
 
   async recover() {
