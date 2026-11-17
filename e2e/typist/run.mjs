@@ -412,6 +412,10 @@ async function main() {
     }
     if (failed.length || stale.length || errors.length) exit = 1;
     else console.log('typist: no differences');
+  } catch (error) {
+    // A page that does not come up has usually said why.
+    for (const e of [...new Set(errors)]) console.log(`  browser reported: ${e}`);
+    throw error;
   } finally {
     await browser?.close();
     server.stop();

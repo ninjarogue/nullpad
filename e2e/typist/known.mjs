@@ -146,12 +146,13 @@ export const known = [
     sanitize: (script) => script,
   },
   {
-    id: 'first-list-four-pixels',
+    id: 'first-list-margins',
     kind: 'open',
-    reason: 'A list at the top of the note is drawn 4px lower than the same item in the text field, whose margin the first block gives up, so its text moves 4px when the cursor enters or leaves it.',
+    reason:
+      'A list at the top of the note is drawn 4px lower than the same item in the text field, which gives up its margin there, and what follows the item is 4px lower again, so the text moves 4px or 8px when the cursor enters or leaves it.',
     repro: [{ paste: '- a\n\nb' }, 'Control+Home'],
     pace: 'frame',
-    shift: (problem) => near(problem.change, 4) && problem.blocks.some((b) => b.kind === 'ul' || b.kind === 'ol'),
+    shift: (problem) => (near(problem.change, 4) || near(problem.change, 8)) && problem.blocks.some((b) => b.kind === 'ul' || b.kind === 'ol'),
     sanitize: (script) => script,
   },
   {
