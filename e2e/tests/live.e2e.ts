@@ -1917,6 +1917,22 @@ test('a setext underline typed under a line does not make that line a heading wh
   await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
 });
 
+test('Control+A after a setext underline typed under a line moves no line', async ({ app, browser, disk, page }) => {
+  await openLive({ app, disk, page }, '');
+  for (const key of ['c', 'Enter', '=']) {
+    await browser.keyboard.press(key);
+    await page.nextFrame();
+  }
+  await expect(page.text).toHaveValue('=');
+  await page.nextFrame();
+  const line = await page.placeOf('c');
+  const underline = await page.placeOf('=');
+  await browser.keyboard.press('ControlOrMeta+a');
+  await page.nextFrame();
+  await page.nextFrame();
+  expect({ line: await page.placeOf('c'), underline: await page.placeOf('=') }).toEqual({ line, underline });
+});
+
 test('a press whose hand moves up to four pixels each way selects nothing, and five pixels sideways selects', async ({
   app,
   browser,
