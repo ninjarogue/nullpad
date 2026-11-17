@@ -7,18 +7,27 @@ import type { Disk, Note, Page } from './nullpad.ts';
 
 const stored = (body: string): Note => ({ key: 'live', title: null, body });
 
-const settings = [
-  { width: 1280, root: '16px', font: null, phone: false },
-  { width: 1280, root: '12px', font: null, phone: false },
-  { width: 1280, root: '20px', font: null, phone: false },
-  { width: 1280, root: '16px', font: 'serif', phone: false },
-  { width: 1024, root: '16px', font: null, phone: false },
-  { width: 412, root: '16px', font: null, phone: true },
-] as const;
+type Setting = { width: number; root: string; font: string | null };
 
-async function set(browser: Browser, setting: (typeof settings)[number]) {
+const settings: readonly Setting[] = [
+  { width: 1280, root: '16px', font: null },
+  { width: 1280, root: '12px', font: null },
+  { width: 1280, root: '20px', font: null },
+  { width: 1280, root: '16px', font: 'serif' },
+  { width: 1024, root: '16px', font: null },
+  { width: 1024, root: '20px', font: null },
+  { width: 412, root: '16px', font: null },
+];
+
+const roots = ['12px', '16px', '20px', '24px'];
+const sweep: readonly Setting[] = [
+  ...[320, 412, 768, 900, 1024, 1280, 1600].flatMap((width) => roots.map((root) => ({ width, root, font: null }))),
+  { width: 1280, root: '16px', font: 'serif' },
+];
+
+async function set(browser: Browser, setting: Setting) {
   await browser.setViewport({ width: setting.width, height: 720 });
-  await browser.evaluate((setting: (typeof settings)[number]) => {
+  await browser.evaluate((setting: Setting) => {
     let style = document.getElementById('test-setting');
     if (!style) {
       style = document.createElement('style');
@@ -46,6 +55,13 @@ async function expectPlaceOf(page: Page, word: string) {
   return place!;
 }
 
+async function pressUntil(page: Page, browser: Browser, key: string, value: string) {
+  for (let pressed = 0; pressed < 20 && (await page.text.inputValue()) !== value; pressed++) {
+    await browser.keyboard.press(key);
+  }
+  await expect(page.text).toHaveValue(value);
+}
+
 async function arriveAndLeave(page: Page, browser: Browser, block: string, word: string | null, typed: string) {
   await browser.keyboard.press('ArrowDown');
   await browser.keyboard.press('ArrowDown');
@@ -57,19 +73,22 @@ async function arriveAndLeave(page: Page, browser: Browser, block: string, word:
     below: (await expectPlaceOf(page, 'below')).top,
     size: (await page.sizesOf('[data-test-id="editor"]')).size,
   };
-  for (const _ of block.split('\n')) await browser.keyboard.press('ArrowDown');
-  await expect(page.text).toHaveValue('');
+  await pressUntil(page, browser, 'ArrowDown', '');
   await page.nextFrame();
   const drawn = {
     word: word === null ? null : await expectPlaceOf(page, word),
     below: (await expectPlaceOf(page, 'below')).top,
-    pageLeft: await browser.evaluate(() => {
+    ...(await browser.evaluate(() => {
       const sheet = document.querySelector('.page')!;
-      return sheet.getBoundingClientRect().left + sheet.clientLeft;
-    }),
+      const style = getComputedStyle(sheet);
+      return {
+        pageLeft: sheet.getBoundingClientRect().left + sheet.clientLeft,
+        area: sheet.clientWidth,
+        column: sheet.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+      };
+    })),
   };
-  for (const _ of ['', '', ...block.split('\n')]) await browser.keyboard.press('ArrowUp');
-  await expect(page.text).toHaveValue('top');
+  await pressUntil(page, browser, 'ArrowUp', 'top');
   return { field, drawn };
 }
 
@@ -87,14 +106,15 @@ const containers = [
 for (const { what, prefix, hangs } of containers) {
   for (const level of [1, 2, 3, 4, 5, 6]) {
     const marks = '#'.repeat(level);
-    test(`a heading ${level} ${what} is the same size in the field and drawn, and leaving it moves no word, at 12, 16 and 20px, in a second font and 1024px wide, and on a phone only by what the marks need past the margin`, async ({
+    const sizes = hangs === 'marks' ? sweep : settings;
+    test(`a heading ${level} ${what} is the same size in the field and drawn, and leaving it moves no row and moves its words only by what its marks need past the margin, ${hangs === 'marks' ? 'from 320 to 1600px wide at 12 to 24px' : 'at 12, 16 and 20px, in a second font, 1024px wide and on a phone'}`, async ({
       app,
       browser,
       disk,
       page,
     }) => {
       await open({ app, disk, page }, `${prefix}${marks} Hello world`);
-      for (const setting of settings) {
+      for (const setting of sizes) {
         await set(browser, setting);
         const { field, drawn } = await arriveAndLeave(page, browser, `${prefix}${marks} Hello world`, 'Hello', marks);
         const heading = `[data-test-id^="live-"] h${level}`;
@@ -118,17 +138,23 @@ for (const { what, prefix, hangs } of containers) {
             setting,
             marksOnThePage: true,
           });
-          if (!setting.phone) {
-            expect({ setting, left: field.word!.left }).toEqual({ setting, left: drawn.word!.left });
-          } else {
-            const room = drawn.word!.left - drawn.pageLeft;
-            const marksWide = field.word!.left - field.typed.left;
-            const shift = field.word!.left - drawn.word!.left;
-            expect(
-              Math.abs(shift - Math.max(0, marksWide - room)),
-              `words move by what the marks need past the margin: ${JSON.stringify({ setting, room, marksWide, shift })}`,
-            ).toBeLessThanOrEqual(1);
+          const rem = parseFloat(setting.root);
+          const room = drawn.word!.left - drawn.pageLeft;
+          const marksWide = field.word!.left - field.typed.left;
+          const shift = field.word!.left - drawn.word!.left;
+          const measured = JSON.stringify({ setting, room, marksWide, shift, area: drawn.area, column: drawn.column });
+          expect(
+            Math.abs(shift - Math.max(0, marksWide - room)),
+            `words move by what the marks need past the margin: ${measured}`,
+          ).toBeLessThanOrEqual(1);
+          // A column of 27rem holds about 45 characters of body text.
+          if (drawn.area >= 1.25 * rem + 27 * rem + marksWide) {
+            expect(Math.abs(shift), `the marks fit beside a 45 character column, so the words stay: ${measured}`).toBeLessThanOrEqual(0.5);
           }
+          expect(
+            drawn.column >= 27 * rem - 0.5 || Math.abs(room - 1.25 * rem) <= 0.5,
+            `the margin takes room for marks only from beside a 45 character column: ${measured}`,
+          ).toBe(true);
         }
       }
     });
