@@ -1,10 +1,10 @@
 {
   "e2e-discovery-tool": 41,
   "e2e-server": 6,
-  "e2e:e2e.config.ts": 1602,
+  "e2e:e2e.config.ts": 1618,
   "e2e:e2e.config.ts expected-fail": 4,
   "e2e:e2e.dpr2.config.mjs": 127,
-  "gleam-test": 575,
+  "gleam-test": 582,
   "keystroke-cost": 173,
   "mutants-tool": 75,
   "test-cleanup": 11,
