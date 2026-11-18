@@ -20,6 +20,9 @@ pub type Key {
   Char(String)
   Escape
   Enter
+  /// Tab, and Shift+Tab.
+  Tab
+  BackTab
   /// Control plus a letter: Ctrl("r").
   Ctrl(String)
 }
@@ -143,6 +146,7 @@ pub fn mode(state: State) -> Mode {
 /// Ctrl+C stays the browser's copy). Asking `parse` keeps one list of keys.
 pub fn claims(mode: Mode, key: Key) -> Bool {
   case mode, key {
+    _, Tab | _, BackTab -> False
     Insert, Escape -> True
     Insert, _ -> False
     Normal, Ctrl(_) -> parse(Pending(None, None), key) != Unmapped

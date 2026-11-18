@@ -221,3 +221,60 @@ test('a rule at the end of the note takes the room of the row it replaces', () =
   const wide = block('hr', '', line + 14.6, { height: 2, margin: 14.6, marginBottom: 14.6, row: '2' });
   assert.ok(judge(before, [p('one', 0), wide], { typed: false }).some((problem) => /moved \+4px/.test(problem)));
 });
+
+// Read from the page in two typist replays. Enter in a list item gives the list an empty item, which
+// draws a row and no text: [{"paste":"# head\n\n- item"},"Enter","_","ArrowLeft","Enter"] and
+// ["2","Enter","Control+ArrowUp",{"paste":"# head\n\n- item2"},"ArrowRight","Enter","Control+ArrowRight"].
+const drawnLine = 27.1875;
+const itemGap = 4;
+const drawn = (b, rows) => ({ ...b, rows });
+const head = () => drawn(block('h1', 'head', 0, { height: 40, row: '0', lineHeights: [40] }), [0]);
+const blankAt = (row, top) => drawn(block('div.blank', '', top, { height: drawnLine, row: String(row) }), [0]);
+const list = (text, top, rows) => ({
+  ...block('ul', text, top, { height: rows.length * drawnLine + (rows.length - 1) * itemGap, row: '2' }),
+  rows,
+  lines: rows.flatMap((row, n) => {
+    const at = top + 3 + n * (drawnLine + itemGap);
+    return [{ top: at, left: 20.17, width: 7.36, height: 20 }, ...(n === 0 ? [{ top: at, left: 32, width: 32.3, height: 20 }] : [])];
+  }),
+});
+const itemField = (top, margin = itemGap) => field(top, 1, { height: drawnLine, margin, marginBottom: margin });
+const listTop = 40 + drawnLine + itemGap;
+
+test('a list that gains an empty item on Enter grows by that item, and nothing else moves', () => {
+  const before = [head(), blankAt(1, 40), list('item', listTop, [0]), itemField(listTop + drawnLine + itemGap)];
+  const after = [head(), blankAt(1, 40), list('item', listTop, [0, 1]), itemField(listTop + 2 * drawnLine + 2 * itemGap)];
+  assert.deepEqual(judge(before, after, { typed: true }), []);
+  assert.deepEqual(judge(after, before, { typed: true }), []);
+});
+
+test('the cursor leaving an empty list item draws it in the list, and nothing else moves', () => {
+  const before = [head(), blankAt(1, 40), list('item22', listTop, [0]), itemField(listTop + drawnLine + itemGap), blankAt(4, listTop + 2 * drawnLine + 2 * itemGap)];
+  const after = [head(), blankAt(1, 40), list('item22', listTop, [0, 1]), itemField(listTop + 2 * drawnLine + 2 * itemGap, 0)];
+  assert.deepEqual(judge(before, after, { typed: false }), []);
+});
+
+test('a list that grows while it draws the same rows is caught', () => {
+  const before = [head(), blankAt(1, 40), list('item', listTop, [0]), itemField(listTop + drawnLine + itemGap)];
+  const grown = { ...list('item', listTop, [0, 1]), rows: [0] };
+  const after = [head(), blankAt(1, 40), grown, itemField(listTop + 2 * drawnLine + 2 * itemGap)];
+  assert.ok(judge(before, after, { typed: true }).some((problem) => /ul "item" changed height \+31.19px/.test(problem)));
+});
+
+test('a list that gains an empty item does not excuse a block that moves above it or apart below it', () => {
+  const below = (top) => [drawn(p('after', top), [0]), drawn(p('end', top + line), [0])];
+  const grown = listTop + 2 * drawnLine + 2 * itemGap;
+  const before = [head(), blankAt(1, 40), list('item', listTop, [0]), itemField(listTop + drawnLine + itemGap), ...below(grown)];
+  const after = [head(), blankAt(1, 40), list('item', listTop, [0, 1]), itemField(grown), ...below(grown + drawnLine + itemGap)];
+  assert.deepEqual(judge(before, after, { typed: true }), []);
+  const raised = [moved(after[0], -3), ...after.slice(1)];
+  assert.ok(judge(before, raised, { typed: true }).some((problem) => /the first block moved -3px/.test(problem)));
+  const apart = [...after.slice(0, -1), moved(after.at(-1), 5)];
+  assert.ok(judge(before, apart, { typed: true }).some((problem) => /moved \+5px apart/.test(problem)));
+});
+
+test('the cursor leaving an empty list item does not excuse the blocks below moving further than the item', () => {
+  const before = [head(), blankAt(1, 40), list('item22', listTop, [0]), itemField(listTop + drawnLine + itemGap), blankAt(4, listTop + 2 * drawnLine + 2 * itemGap)];
+  const after = [head(), blankAt(1, 40), list('item22', listTop, [0, 1]), itemField(listTop + 2 * drawnLine + 2 * itemGap + 5, 0)];
+  assert.ok(judge(before, after, { typed: false }).some((problem) => /the text did not change, but the blocks below moved \+5px/.test(problem)));
+});

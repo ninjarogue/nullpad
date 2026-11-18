@@ -3,5 +3,17 @@ set -e
 cd "$(git rev-parse --show-toplevel)"
 
 gleam format --check src test
-node test/test_counts.mjs run
-cd e2e && npm run typist
+
+git fetch --quiet origin main 2>/dev/null || echo "!!! could not fetch origin/main: the base is the copy fetched last" >&2
+base=$(git merge-base HEAD origin/main) || { echo "FAIL no merge base of HEAD and origin/main: git fetch origin main" >&2; exit 1; }
+
+# The judge is main's copy of test/, so a branch cannot edit it to let itself through.
+if git cat-file -e "$base:test/judges.mjs" 2>/dev/null; then
+  judges=$(mktemp -d)
+  trap 'rm -rf "$judges"' EXIT
+  git archive "$base" test | tar -x -C "$judges"
+  node "$judges/test/judges.mjs" run --base "$base" --repo "$PWD"
+else
+  echo "main has no test/judges.mjs yet: this run uses the branch's own copy" >&2
+  node test/judges.mjs run --base "$base"
+fi
