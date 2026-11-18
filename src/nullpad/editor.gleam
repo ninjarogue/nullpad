@@ -113,7 +113,7 @@ pub type Event {
   Composing(shown: Buffer)
   Composed(shown: Buffer, at: Int)
   KeyPressed(key: vim.Key, shown: Buffer)
-  EdgePressed(edge: Edge, x: Float, shown: Buffer)
+  EdgePressed(edge: Edge, x: Option(Float), shown: Buffer)
   EscapePressed(shown: Buffer)
   /// A press at a place on the page, at `x`, `y` in the window. The place
   /// is as `live.position` takes it.
@@ -1734,7 +1734,12 @@ fn widen_field_to_note(editor: Editor, shown: Buffer) -> Outcome {
   }
 }
 
-fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
+fn cross(
+  editor: Editor,
+  edge: Edge,
+  x: Option(Float),
+  shown: Buffer,
+) -> Outcome {
   let base = base(editor, shown)
   let cursor = buffer.cursor(base)
   let lines = buffer.lines(base)
@@ -1753,9 +1758,8 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     shown == field_buffer(editor)
   {
     True, Some(goal), True -> Some(goal)
-    True, _, _ if x >=. 0.0 -> Some(Goal(page_x: x, markdown_col: cursor.col))
-    False, goal, _ if edge == OntoRowBefore || edge == OntoRowAfter -> goal
-    True, _, _ | False, _, _ -> None
+    True, _, _ -> option.map(x, Goal(page_x: _, markdown_col: cursor.col))
+    False, goal, _ -> goal
   }
   let start = Position(row: 0, col: 0)
   let end = end_of_row(list.length(lines) - 1)
@@ -1871,6 +1875,10 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
     | OntoRowBefore
     | OntoRowAfter -> #(base, Done)
   }
+  let goal = case then, is_vertical(edge) {
+    StepTo(_), False -> None
+    StepTo(_), True | Done, _ | Aim(..), _ -> goal
+  }
   let page = case then {
     StepTo(step) ->
       behind(list.append(steps(editor), [step]), held_keys(editor))
@@ -1883,12 +1891,11 @@ fn cross(editor: Editor, edge: Edge, x: Float, shown: Buffer) -> Outcome {
   let wanted_shown = field_buffer(editor)
   let sync = case then, wanted_shown == shown {
     Aim(line, select:), _ ->
-      WriteAndAim(
-        wanted_shown,
-        x: option.map(goal, fn(goal) { goal.page_x }) |> option.unwrap(x),
-        line:,
-        select:,
-      )
+      case goal {
+        Some(Goal(page_x: x, ..)) ->
+          WriteAndAim(wanted_shown, x:, line:, select:)
+        None -> Write(wanted_shown)
+      }
     StepTo(Queued(move:, select:)), _ if first ->
       WriteAndStep(wanted_shown, move:, select:, x: step_x(editor, move))
     StepTo(_), True | Done, True -> InSync

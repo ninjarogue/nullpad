@@ -54,7 +54,11 @@ fn step_down(ed: Editor) -> Editor {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Line(up: False, select: True), x: 0.0, shown:),
+      editor.EdgePressed(
+        editor.Line(up: False, select: True),
+        x: Some(0.0),
+        shown:,
+      ),
     )
   let assert editor.WriteAndStep(..) = sync
   ed
@@ -129,7 +133,7 @@ pub fn a_replayed_step_holds_the_keys_behind_it_until_the_page_takes_it_test() {
       editor.Replayed(
         Some(editor.EdgePressed(
           editor.Line(up: False, select: True),
-          x: 0.0,
+          x: Some(0.0),
           shown:,
         )),
       ),
@@ -244,7 +248,7 @@ pub fn a_replayed_key_the_browser_takes_past_the_field_is_acted_on_test() {
     editor.update(
       ed,
       editor.Replayed(
-        Some(editor.EdgePressed(editor.WidenToNote, x: 0.0, shown:)),
+        Some(editor.EdgePressed(editor.WidenToNote, x: Some(0.0), shown:)),
       ),
     )
   let assert editor.WriteAndAct(whole, key: held) = sync
@@ -260,7 +264,7 @@ pub fn keys_wait_while_the_field_holds_the_note_for_the_browser_test() {
       ed,
       editor.EdgePressed(
         editor.WidenToNote,
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -285,7 +289,7 @@ pub fn a_replayed_key_steers_the_head_the_way_it_moved_it_test() {
       editor.Replayed(
         Some(editor.EdgePressed(
           editor.SelectLeft,
-          x: 0.0,
+          x: Some(0.0),
           shown: editor.field_buffer(ed),
         )),
       ),

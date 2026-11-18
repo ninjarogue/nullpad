@@ -409,7 +409,7 @@ export const facts: Fact[] = [
   fact({
     id: 'selection-at-a-wrap-moves-from-the-next-line',
     says: 'A selection the field made that runs to where a line wraps has its head at the start of the line below: ArrowUp to the start, then ArrowDown, lands at the start of the second line, where from a caret at the end of the first line it lands at the end of the second.',
-    relied: [{ file: ffi, text: 'if (start !== end) return false;' }],
+    relied: [{ file: ffi, text: 'if (!extending || !stepsFromLineAbove(control, head, place)) return place(head);' }],
     html: '<textarea id="t" style="width:120px;height:200px;font:16px monospace;padding:4px;border:0;overflow:hidden">aaaa bbbb cccc dddd eeee</textarea>',
     observe: async (page) => {
       const from = async (keys: string[]) => {
@@ -434,6 +434,43 @@ export const facts: Fact[] = [
       await page.evaluate(() => {
         document.addEventListener('keydown', (event) => {
           if (event.key === 'ArrowDown') event.preventDefault();
+        });
+      });
+    },
+  }),
+
+  fact({
+    id: 'backward-selection-at-a-wrap-extends-from-the-line-above',
+    says: 'Shift+ArrowUp on a backward selection whose head is where a line wraps moves the head on from the line above that wrap, aiming at the start of the line below, so it lands at the start of the line two above; on a forward selection, or from a caret, it moves on from the line below.',
+    relied: [{ file: ffi, text: 'if (control.selectionDirection !== "backward" || head === 0 || control.value[head - 1] === "\\n") return false;' }],
+    html: '<textarea id="t" style="width:120px;height:200px;font:16px monospace;padding:4px;border:0;overflow:hidden">aaaa bbbb cccc dddd eeee</textarea>',
+    observe: async (page) => {
+      const from = async (at: number, keys: string[]) => {
+        await page.evaluate((at: number) => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          field.focus();
+          field.setSelectionRange(at, at);
+        }, at);
+        for (const key of keys) await page.keyboard.press(key);
+        return page.evaluate(() => {
+          const field = document.getElementById('t') as HTMLTextAreaElement;
+          return [field.selectionStart, field.selectionEnd];
+        });
+      };
+      return {
+        backward: await from(24, ['Shift+Home', 'Shift+ArrowUp']),
+        forward: await from(14, ['Shift+End', 'Shift+ArrowUp']),
+        caret: await from(24, ['Home', 'Shift+ArrowUp']),
+      };
+    },
+    holds: (seen) => {
+      const expected = { backward: [0, 24], forward: [10, 14], caret: [10, 20] };
+      return same(seen, expected) ? null : instead('the selection after Shift+Home, Shift+End or Home, then Shift+ArrowUp', expected, seen);
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'ArrowUp' && event.shiftKey) event.preventDefault();
         });
       });
     },
