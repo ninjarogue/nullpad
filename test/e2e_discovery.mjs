@@ -202,7 +202,8 @@ const registrations = (program, resolver) => registeredCalls(program, resolver).
 export function discovered(dir) {
   const files = new Set();
   for (const name of e2eConfigs(dir)) {
-    const run = spawnSync("npx", ["e2e", "list", "--config", name, "--reporter", "json", "--pass-with-no-tests"], { cwd: dir, encoding: "utf8", env: { ...process.env, E2E_TELEMETRY_DISABLED: "1", NODE_DISABLE_COMPILE_CACHE: "1" }, timeout: 120_000 });
+    const run = spawnSync("npx", ["e2e", "list", "--config", name, "--reporter", "json", "--pass-with-no-tests"], { cwd: dir, encoding: "utf8", env: { ...process.env, E2E_TELEMETRY_DISABLED: "1", NODE_DISABLE_COMPILE_CACHE: "1" }, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+    if (run.error) throw new Error(`e2e list for ${name} did not finish: ${run.error.message}`);
     let pairs;
     try {
       ({ pairs } = JSON.parse(run.stdout));

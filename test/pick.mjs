@@ -272,6 +272,7 @@ async function perConfig(repo) {
   const pairs = [];
   for (const config of steps.e2eConfigs(join(repo, "e2e"))) {
     const run = spawnSync("npx", ["e2e", "list", "--config", config, "--reporter", "json", "--pass-with-no-tests"], { cwd: join(repo, "e2e"), encoding: "utf8", env: { ...process.env, E2E_TELEMETRY_DISABLED: "1" }, maxBuffer: 1 << 26 });
+    if (run.error) throw new Error(`e2e list for ${config} did not finish: ${run.error.message}`);
     const listed = JSON.parse(run.stdout);
     for (const file of new Set(listed.pairs.map((pair) => pair.file))) pairs.push({ config, file });
   }
