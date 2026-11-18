@@ -16,6 +16,18 @@ pub fn empty_input_has_no_blocks_test() {
   assert markdown.parse("\n  \n\t\n") == []
 }
 
+pub fn a_setext_underline_is_its_run_of_marks_without_the_container_or_trailing_spaces_test() {
+  assert markdown.setext_underline("---") == "---"
+  assert markdown.setext_underline("=") == "="
+  assert markdown.setext_underline("   ===") == "==="
+  assert markdown.setext_underline("-----   ") == "-----"
+  assert markdown.setext_underline("> ---") == "---"
+  assert markdown.setext_underline(">===") == "==="
+  assert markdown.setext_underline("> > -  ") == "-"
+  assert markdown.setext_underline(">\t  ---") == "---"
+  assert markdown.setext_underline("  \t===") == "==="
+}
+
 pub fn headings_have_six_levels_test() {
   assert markdown.parse("# a\n## b\n### c\n#### d\n##### e\n###### f")
     == [

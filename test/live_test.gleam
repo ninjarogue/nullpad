@@ -8,7 +8,10 @@ import gleam/order
 import gleam/string
 import nullpad/buffer.{Position}
 import nullpad/live.{Region}
-import nullpad/markdown
+import nullpad/markdown.{
+  type Block, type Inline, Block, BulletList, H1, Heading, Item, OrderedList,
+  Paragraph, Quote, Text, Tight,
+}
 
 const note =
   "# Trip
@@ -582,4 +585,130 @@ pub fn the_text_of_a_list_item_starts_past_its_marks_test() {
   assert live.text_col(blocks, 4) == None
   assert live.text_col(blocks, 6) == Some(2)
   assert live.text_col(blocks, 8) == Some(2)
+}
+
+fn as_typed(note: String) -> List(Block) {
+  markdown.parse(note)
+  |> live.setext_as_typed(buffer.lines(buffer.from_text(note)))
+}
+
+fn paragraph(first: Int, last: Int, text: List(Inline)) -> Block {
+  Block(first, last, Paragraph(text))
+}
+
+fn text_of(source: String) -> List(Inline) {
+  let assert [Block(content: Paragraph(text), ..)] = markdown.parse(source)
+  text
+}
+
+pub fn a_setext_heading_is_drawn_as_its_text_then_its_underline_as_typed_test() {
+  assert as_typed("Hello\n===")
+    == [paragraph(0, 1, [Text("Hello"), Text("\n===")])]
+  assert as_typed("Hello\n-") == [paragraph(0, 1, [Text("Hello"), Text("\n-")])]
+  assert as_typed("Hello\n-----")
+    == [paragraph(0, 1, [Text("Hello"), Text("\n-----")])]
+}
+
+pub fn a_setext_heading_of_several_rows_keeps_its_marks_and_rows_test() {
+  let text = text_of("Foo *bar*\nbaz `qux`\nend")
+  assert as_typed("Foo *bar*\nbaz `qux`\nend\n---")
+    == [paragraph(0, 3, list.append(text, [Text("\n---")]))]
+  assert as_typed("Foo *bar*\nbaz `qux`\nend\n===")
+    == [paragraph(0, 3, list.append(text, [Text("\n===")]))]
+}
+
+pub fn an_underline_is_drawn_without_its_indent_and_trailing_spaces_test() {
+  assert as_typed("Hello\n   ===  ")
+    == [paragraph(0, 1, [Text("Hello"), Text("\n===")])]
+  assert as_typed("Hello  \n-  ")
+    == [paragraph(0, 1, [Text("Hello"), Text("\n-")])]
+}
+
+pub fn an_underline_in_a_quote_is_drawn_without_the_quote_marks_test() {
+  assert as_typed("> Hello\n> ---")
+    == [
+      Block(0, 1, Quote([paragraph(0, 1, [Text("Hello"), Text("\n---")])])),
+    ]
+  assert as_typed(">Hello\n>===")
+    == [
+      Block(0, 1, Quote([paragraph(0, 1, [Text("Hello"), Text("\n===")])])),
+    ]
+}
+
+pub fn an_underline_in_a_list_item_is_drawn_without_the_item_indent_test() {
+  assert as_typed("- Hello\n  ===")
+    == [
+      Block(
+        0,
+        1,
+        BulletList(Tight, [
+          Item(0, 2, None, [paragraph(0, 1, [Text("Hello"), Text("\n===")])]),
+        ]),
+      ),
+    ]
+  assert as_typed("1. Hello\n   ---")
+    == [
+      Block(
+        0,
+        1,
+        OrderedList(1, Tight, [
+          Item(0, 3, None, [paragraph(0, 1, [Text("Hello"), Text("\n---")])]),
+        ]),
+      ),
+    ]
+}
+
+pub fn each_heading_takes_the_underline_of_its_own_row_test() {
+  assert as_typed(
+      "# Atx\n\nOne\n===\n\n> Two\n> ---\n\n- Three\n  ===\n\nFour\n---",
+    )
+    == [
+      Block(0, 0, Heading(H1, [Text("Atx")], "# ")),
+      paragraph(2, 3, [Text("One"), Text("\n===")]),
+      Block(5, 6, Quote([paragraph(5, 6, [Text("Two"), Text("\n---")])])),
+      Block(
+        8,
+        9,
+        BulletList(Tight, [
+          Item(8, 2, None, [paragraph(8, 9, [Text("Three"), Text("\n===")])]),
+        ]),
+      ),
+      paragraph(11, 12, [Text("Four"), Text("\n---")]),
+    ]
+}
+
+pub fn a_note_with_no_setext_heading_is_left_as_it_parses_test() {
+  let notes = [
+    "",
+    "# Title\n\nPara\ntext\n\n- a\n- b\n\n> q\n\n---\n\n```\ncode\n```",
+    "| a | b |\n|-|-|\n| 1 | 2 |",
+    "Hello\n\n---",
+    "---\nfoo",
+    "## Hello ##\n===",
+  ]
+  assert list.map(notes, as_typed) == list.map(notes, markdown.parse)
+}
+
+pub fn five_thousand_headings_each_take_the_underline_of_their_own_row_test() {
+  let count = 5000
+  let underline = fn(index) {
+    case index % 2 {
+      0 -> "==="
+      _ -> "---"
+    }
+  }
+  let note =
+    list.repeat(Nil, count)
+    |> list.index_map(fn(_, index) { "Head\n" <> underline(index) })
+    |> string.join("\n\n")
+  let expected =
+    list.repeat(Nil, count)
+    |> list.index_map(fn(_, index) {
+      paragraph(index * 3, index * 3 + 1, [
+        Text("Head"),
+        Text("\n" <> underline(index)),
+      ])
+    })
+  let same = as_typed(note) == expected
+  assert same
 }

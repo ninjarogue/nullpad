@@ -1724,6 +1724,43 @@ pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_t
     == Some(live.Title(level: markdown.H2, typed_marks: ""))
 }
 
+fn underlined(line: String, underline: String) -> Editor {
+  let end = string.length(underline)
+  let ed =
+    live(line)
+    |> show(caret(line <> "\n", 1, 0))
+    |> show(caret(underline, 0, end))
+  editor.update(
+    ed,
+    editor.EdgePressed(editor.Up, x: Some(0.0), shown: caret(underline, 0, end)),
+  ).editor
+}
+
+pub fn an_underline_under_a_line_leaves_both_rows_body_text_when_the_caret_moves_up_test() {
+  let dash = underlined("Hello", "-")
+  assert editor.text(dash) == "Hello\n-"
+  assert editor.region(dash) == Some(Region(0, 1))
+  assert editor.kind(dash) == Some(live.Body)
+  assert editor.frame(dash) == Some(live.Body)
+  let assert [markdown.Block(0, 1, markdown.Paragraph(_))] = editor.blocks(dash)
+
+  let equals = underlined("Hello", "===")
+  assert editor.text(equals) == "Hello\n==="
+  assert editor.region(equals) == Some(Region(0, 1))
+  assert editor.kind(equals) == Some(live.Body)
+  assert editor.frame(equals) == Some(live.Body)
+  let assert [markdown.Block(0, 1, markdown.Paragraph(_))] =
+    editor.blocks(equals)
+}
+
+pub fn a_note_opened_on_a_setext_heading_sets_the_field_as_body_text_test() {
+  let ed = live("Hello\n---\n\nbelow")
+  assert editor.region(ed) == Some(Region(0, 1))
+  assert editor.kind(ed) == Some(live.Body)
+  let assert [markdown.Block(0, 1, markdown.Paragraph(_)), ..] =
+    editor.blocks(ed)
+}
+
 pub fn moving_inside_a_block_never_changes_how_the_field_is_set_test() {
   let heading = "Hello\n-"
   let ed = live(heading)

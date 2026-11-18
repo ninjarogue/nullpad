@@ -894,6 +894,28 @@ test('the caret moving between a heading and its underline keeps the heading as 
   }
 });
 
+for (const underline of ['-', '===']) {
+  test(`an underline of ${underline} typed under a line leaves that line body text when the caret leaves`, async ({
+    app,
+    browser,
+    disk,
+    page,
+  }) => {
+    await openLive({ app, disk, page }, '');
+    await browser.keyboard.type(`Hello\n${underline}`);
+    await expect(page.text).toHaveValue(underline);
+    await browser.keyboard.press('ArrowUp');
+    await expect(page.text).toHaveValue(`Hello\n${underline}`);
+    await expect.poll(() => sizeOf(page)).toBe('16px');
+
+    await browser.keyboard.press('Escape');
+    await expect(page.preview.getByRole('heading')).toHaveCount(0);
+    await expect(page.inPreview('p')).toHaveCount(1);
+    await expect.poll(() => page.innerText('p')).toBe(`Hello\n${underline}`);
+    expect((await page.sizesOf('[data-test-id="preview"] p')).size).toBe('16px');
+  });
+}
+
 test('a line typed between a line and its underline stays on its own row', async ({
   app,
   browser,

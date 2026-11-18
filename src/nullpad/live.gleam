@@ -537,6 +537,13 @@ fn shift_item(item: Item, move: fn(Int) -> Int) -> Item {
   )
 }
 
+pub fn setext_as_typed(
+  blocks: List(Block),
+  lines _lines: List(String),
+) -> List(Block) {
+  blocks
+}
+
 /// The blocks with the box at the row and column of `task` ticked or not.
 pub fn tick(blocks: List(Block), task: Task, checked: Bool) -> List(Block) {
   list.map(blocks, tick_block(_, task, checked))

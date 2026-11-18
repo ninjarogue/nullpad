@@ -941,6 +941,10 @@ pub fn atx_heading_prefix(line: String) -> String {
   }
 }
 
+pub fn setext_underline(line: String) -> String {
+  line
+}
+
 /// The optional closing run of `#` goes when a space or tab comes before it,
 /// or when it is all there is: `# foo #` is "foo", `# foo#` is "foo#".
 fn heading_content(after_marks: List(String)) -> List(String) {
