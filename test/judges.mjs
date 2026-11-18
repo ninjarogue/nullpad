@@ -208,7 +208,7 @@ function attribute(step, name) {
 
 const seconds = (ms) => (ms < 90_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`);
 const plain = (text) => text.replace(/\u001b\[[0-9;]*m/g, "");
-const gleamFilesIn = (output) => [...new Set([...plain(output).matchAll(/(?:┌─|-->)\s+(\S+?\.gleam):\d+/g)].map((found) => found[1]))];
+const gleamFilesIn = (output) => [...new Set(plain(output).split(/^(?=error|warning)/m).filter((block) => block.startsWith("error")).flatMap((block) => [...block.matchAll(/(?:┌─|-->)\s+(\S+?\.gleam):\d+/g)].map((found) => found[1])))];
 
 /**
  * Lays this branch's `src/` and `assets/` over main's copy and runs main's gate steps there.
