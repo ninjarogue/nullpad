@@ -3,6 +3,7 @@ import { expect } from 'e2e';
 import type { App } from 'e2e';
 import type { Browser } from '@e2e-dev/web';
 import { test } from './nullpad.ts';
+import type { Page } from './nullpad.ts';
 
 test.beforeEach(async ({ app, page }) => {
   await app.open('/');
@@ -124,4 +125,121 @@ test('the dash of a new item is drawn where the dots of the items above are', as
   expect(dot).not.toBeNull();
   expect(dash).not.toBeNull();
   expect(Math.abs((dot.left + dot.right) / 2 - (dash.left + dash.right) / 2)).toBeLessThan(1);
+});
+
+type Marked = { typed: string; field: string; whole: string; left: string };
+
+const bullets: Marked = { typed: '- a', field: '- b\n  - ', whole: '- a\n- b\n  - ', left: '- a\n- b' };
+const numbers: Marked = { typed: '1. a', field: '2. b\n   1. ', whole: '1. a\n2. b\n   1. ', left: '1. a\n2. b' };
+
+/** Types `a`, Enter, `b`, Enter, Tab: the caret is on an empty item typed right under the words of `b`. */
+async function typeEmptySubItem(browser: Browser, page: Page, marked: Marked) {
+  await browser.keyboard.type(marked.typed);
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('b');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.press('Tab');
+  await expect(page.text).toHaveValue(marked.field);
+}
+
+const headings = (browser: Browser) => browser.locator('.page h2');
+
+const leavings: [string, (browser: Browser, page: Page) => Promise<void>][] = [
+  ['clicking another item', async (_, page) => page.drawn('li').first().click()],
+  ['an arrow up', (browser) => browser.keyboard.press('ArrowUp')],
+];
+
+for (const [kind, marked] of [['bullet', bullets], ['numbered', numbers]] as const) {
+  for (const [how, leave] of leavings) {
+    test(`an empty ${kind} sub-item goes when the caret leaves it by ${how}, and is not drawn as part of the item above`, async ({ browser, page }) => {
+      await typeEmptySubItem(browser, page, marked);
+      await leave(browser, page);
+      await expect(page.text).toBeFocused();
+      await expect(headings(browser)).toHaveCount(0);
+      await page.showMarkdown();
+      await expect(page.text).toHaveValue(marked.left);
+    });
+
+    test(`one Ctrl+Z brings an empty ${kind} sub-item back that ${how} took out, with the caret in it`, async ({ browser, page }) => {
+      await typeEmptySubItem(browser, page, marked);
+      await leave(browser, page);
+      await expect(headings(browser)).toHaveCount(0);
+      await browser.keyboard.press('Control+z');
+      await expect(page.text).toHaveValue(marked.field);
+      await browser.keyboard.type('c');
+      await page.showMarkdown();
+      await expect(page.text).toHaveValue(`${marked.whole}c`);
+    });
+  }
+}
+
+test('an empty sub-item goes when Escape leaves the field, and one Ctrl+Z brings it back', async ({ browser, page }) => {
+  await typeEmptySubItem(browser, page, bullets);
+  await browser.keyboard.press('Escape');
+  await expect(page.preview).toBeVisible();
+  await expect(page.inPreview('h2')).toHaveCount(0);
+  await expect(page.items).toHaveText(['a', 'b']);
+  await page.items.first().click();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.press('Control+z');
+  await expect(page.text).toHaveValue(bullets.field);
+  await browser.keyboard.type('c');
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue(`${bullets.whole}c`);
+});
+
+test('an empty sub-item goes when the field loses the focus to the title', async ({ browser, page }) => {
+  await typeEmptySubItem(browser, page, bullets);
+  await page.title.click();
+  await expect(page.title).toBeFocused();
+  await expect(headings(browser)).toHaveCount(0);
+  await expect(page.items).toHaveText(['a', 'b']);
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue(bullets.left);
+});
+
+test('a click below an empty sub-item puts the caret where it was clicked, though the rows move up', async ({ browser, page }) => {
+  await browser.keyboard.type('- a');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('b');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('after');
+  await page.drawn('li').nth(1).click();
+  await browser.keyboard.press('End');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.press('Tab');
+  await expect(page.text).toHaveValue(bullets.field);
+  await expect.poll(() => page.placeOf('after')).not.toBeNull();
+  const at = await page.pointAt('after');
+  await browser.mouse.move(at.x, at.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await browser.keyboard.type('Z');
+  await expect(headings(browser)).toHaveCount(0);
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('- a\n- b\n\nZafter');
+});
+
+test('an empty item with no words over it stays when the caret leaves it', async ({ browser, page }) => {
+  await browser.keyboard.type('- a');
+  await browser.keyboard.press('Enter');
+  await expect(page.text).toHaveValue('- ');
+  await page.drawn('li').first().click();
+  await expect(page.text).toBeFocused();
+  await page.showMarkdown();
+  await expect(page.text).toHaveValue('- a\n- ');
+});
+
+test('the markdown view keeps an empty sub-item when the caret leaves it', async ({ browser, page }) => {
+  await page.markdown.tap();
+  await expect(page.markdown).toHaveAttribute('aria-pressed', 'true');
+  await browser.keyboard.type('- a');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.type('b');
+  await browser.keyboard.press('Enter');
+  await browser.keyboard.press('Tab');
+  await browser.keyboard.press('ArrowUp');
+  await browser.keyboard.press('ArrowUp');
+  await expect(page.text).toHaveValue(bullets.whole);
 });
