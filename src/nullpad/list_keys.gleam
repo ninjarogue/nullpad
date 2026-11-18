@@ -130,7 +130,14 @@ fn new_item(
     }
     False, True, [] -> {
       let carried = markdown.carry(marks.lead)
-      Ok(set_rows(lines, from.row, [string.trim_end(carried), carried]))
+      let before = case marks.mark {
+        NumberMark(number:, delimiter:) -> NumberMark(number - 1, delimiter)
+        BulletMark(_) -> marks.mark
+      }
+      lines
+      |> renumber(here.following, after: before)
+      |> set_rows(from.row, [string.trim_end(carried), carried])
+      |> Ok
     }
     False, False, _ -> {
       let words = case on_item_row {
@@ -227,19 +234,7 @@ fn widen(
   let by =
     string.length(markdown.mark_text(mark))
     - string.length(markdown.mark_text(marks.mark))
-  let at = string.length(marks.lead)
-  use text, row <- list.index_map(lines)
-  case by == 0 || row < first || row > last || string.trim(text) == "" {
-    True -> text
-    False -> {
-      let after = string.drop_start(text, at)
-      let after = case by > 0 {
-        True -> string.repeat(" ", by) <> after
-        False -> drop_spaces(after, -by)
-      }
-      string.slice(text, 0, at) <> after
-    }
-  }
+  push(lines, first, last, string.length(marks.lead), by)
 }
 
 fn remark(row: String, marks: ItemMarks, mark: Mark) -> String {
@@ -260,7 +255,9 @@ fn indent(
   use above <- result.try(marks_of(lines, previous))
   let at = string.length(marks.lead)
   let by = words_col(above) - at
-  case by > 0 {
+  // CommonMark ends an empty item at a blank row, so nothing nests in one.
+  let roomy = previous.blocks != [] || !here.loose
+  case by > 0 && roomy {
     False -> Error(Nil)
     True -> {
       let mark = case marks.mark, last_number(previous) {
@@ -301,15 +298,86 @@ fn outdent(
           NumberMark(number + 1, delimiter)
         NumberMark(..), BulletMark(_) | BulletMark(_), _ -> marks.mark
       }
-      let first = case marks.mark {
-        NumberMark(delimiter:, ..) -> NumberMark(0, delimiter)
-        BulletMark(_) -> marks.mark
+      let first = case marks.mark, last_number(here.item) {
+        NumberMark(delimiter:, ..), Some(last) -> NumberMark(last, delimiter)
+        NumberMark(delimiter:, ..), None -> NumberMark(0, delimiter)
+        BulletMark(_), _ -> marks.mark
       }
+      let words =
+        words_col(
+          ItemMarks(..marks, lead: string.slice(marks.lead, 0, at), mark:),
+        )
+      let below = #(last_row(here.item) + 1, last_row(parent.item))
       lines
       |> renumber(here.following, after: first)
+      |> renumber(
+        starts_below(here.item, parent.item),
+        after: NumberMark(0, ""),
+      )
+      |> push(below.0, below.1, at, words - string.length(marks.lead))
       |> renumber(parent.following, after: mark)
       |> shift(selection, here.item, marks, at, -by, mark)
       |> Ok
+    }
+  }
+}
+
+/// The items of a numbered list that will sit right under the words of
+/// `item` once it moves out of `parent`. They are numbered from 1, since
+/// CommonMark lets only a list that starts at 1 begin right under words.
+fn starts_below(item: Item, parent: Item) -> List(Item) {
+  let has_list =
+    list.any(item.blocks, fn(block: Block) {
+      case block.content {
+        BulletList(..) | OrderedList(..) -> True
+        Paragraph(..)
+        | Heading(..)
+        | Quote(..)
+        | CodeBlock(..)
+        | Rule
+        | Table(..) -> False
+      }
+    })
+  let end = last_row(item)
+  let next =
+    list.find(parent.blocks, fn(block: Block) { block.first_row > end })
+  case has_list, next {
+    False, Ok(Block(first_row:, content: OrderedList(items:, ..), ..)) ->
+      case first_row == end + 1 {
+        True -> items
+        False -> []
+      }
+    True, _
+    | False, Error(Nil)
+    | False, Ok(Block(content: BulletList(..), ..))
+    | False, Ok(Block(content: Paragraph(..), ..))
+    | False, Ok(Block(content: Heading(..), ..))
+    | False, Ok(Block(content: Quote(..), ..))
+    | False, Ok(Block(content: CodeBlock(..), ..))
+    | False, Ok(Block(content: Rule, ..))
+    | False, Ok(Block(content: Table(..), ..))
+    -> []
+  }
+}
+
+/// Rows `first` to `last` move `by` columns at column `at`.
+fn push(
+  lines: List(String),
+  first: Int,
+  last: Int,
+  at: Int,
+  by: Int,
+) -> List(String) {
+  use text, row <- list.index_map(lines)
+  case by == 0 || row < first || row > last || string.trim(text) == "" {
+    True -> text
+    False -> {
+      let after = string.drop_start(text, at)
+      let after = case by > 0 {
+        True -> string.repeat(" ", by) <> after
+        False -> drop_spaces(after, -by)
+      }
+      string.slice(text, 0, at) <> after
     }
   }
 }
