@@ -54,7 +54,7 @@ const extensions = [".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"
 const keyOf = (node) => (node.computed ? stringOf(node.property) : node.property.type === "Identifier" ? node.property.name : null);
 const nameOf = (node) => (node.type === "Identifier" ? node.name : stringOf(node));
 
-function bindings(programs) {
+export function bindings(programs) {
   const state = new Map([...programs.keys()].map((file) => [file, { env: new Map(), exports: new Map() }]));
   let changed = false;
   const set = (map, name, value) => {
@@ -178,7 +178,7 @@ const spell = (node) => {
   return node.type === "ImportExpression" ? `import(${JSON.stringify(stringOf(node.source) ?? "...")})` : "...";
 };
 
-function registrations(program, { valueOf }) {
+export function registeredCalls(program, { valueOf }) {
   const found = [];
   walk(program, (node) => {
     if (node.type !== "CallExpression") return;
@@ -192,10 +192,12 @@ function registrations(program, { valueOf }) {
       const inBody = args.length < 2 || (args.length === 2 && isText(args[1]));
       if (inBody) return;
     }
-    found.push(`${spell(callee)}(${stringOf(args[0]) === null ? "..." : JSON.stringify(stringOf(args[0]))}, ...)`);
+    found.push(node);
   });
   return found;
 }
+
+const registrations = (program, resolver) => registeredCalls(program, resolver).map((node) => `${spell(node.callee)}(${stringOf(node.arguments[0]) === null ? "..." : JSON.stringify(stringOf(node.arguments[0]))}, ...)`);
 
 export function discovered(dir) {
   const files = new Set();

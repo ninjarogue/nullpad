@@ -4,8 +4,10 @@
   "e2e:e2e.config.ts": 703,
   "e2e:e2e.dpr2.config.mjs": 112,
   "gleam-test": 526,
+  "judges": 145,
   "keystroke-cost": 121,
   "mutants-tool": 75,
-  "test-cleanup": 10,
+  "pick": 24,
+  "test-cleanup": 12,
   "test-counts": 79
 }

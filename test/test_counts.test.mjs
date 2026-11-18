@@ -798,7 +798,7 @@ describe("a counts file that the run raised, or that was changed by hand, and is
     assert.deepEqual(off.selected, ["gleam-test"]);
     assert.match(counts.parseArgs(["run", "--no-such-flag"]).error, /--no-such-flag/);
     const hook = readFileSync(join(root, ".githooks/pre-push"), "utf8");
-    assert.match(hook, /node test\/test_counts\.mjs run/);
+    assert.match(hook, /test\/judges\.mjs"? run/);
     assert.doesNotMatch(hook, /no-commit-check/);
   });
 
