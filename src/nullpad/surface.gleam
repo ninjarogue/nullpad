@@ -909,7 +909,8 @@ fn from_control(text: String, start: Int, end: Int, backward: Bool) -> Buffer {
   |> buffer.select(anchor: position(text, anchor), head: position(text, head))
 }
 
-fn position(text: String, offset: Int) -> Position {
+/// The place after the first `offset` UTF-16 units of `text`.
+pub fn position(text: String, offset: Int) -> Position {
   let #(before, _) = utf16_split(text, offset)
   buffer.end_of(before)
 }
@@ -928,7 +929,8 @@ fn to_control(buffer: Buffer) -> #(String, Int, Int, Bool) {
   )
 }
 
-fn offset(lines: List(String), position: Position) -> Int {
+/// How many UTF-16 units of the note, whose rows are `lines`, lie before `position`.
+pub fn offset(lines: List(String), position: Position) -> Int {
   let rows_above =
     list.take(lines, position.row)
     |> list.fold(0, fn(sum, line) { sum + utf16_length(line) + 1 })
