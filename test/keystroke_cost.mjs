@@ -204,8 +204,6 @@ globalThis.document = {
   documentElement: {},
   createElement: () => ({ getContext: () => ({ measureText: (text) => ({ width: text.length * 8 }) }) }),
 };
-// Types `- b` over `  - ` in place of the caret's row: the caret is on an empty
-// item right under the words of its parent, which goes when the caret leaves.
 const under_words = (field) => {
   const row = buffer.cursor(field).row;
   const shown = buffer.replace(field, new buffer.Position(row, 0), new buffer.Position(row, 1e6), "- b\n  - ");

@@ -132,7 +132,6 @@ type Marked = { typed: string; field: string; whole: string; left: string };
 const bullets: Marked = { typed: '- a', field: '- b\n  - ', whole: '- a\n- b\n  - ', left: '- a\n- b' };
 const numbers: Marked = { typed: '1. a', field: '2. b\n   1. ', whole: '1. a\n2. b\n   1. ', left: '1. a\n2. b' };
 
-/** Types `a`, Enter, `b`, Enter, Tab: the caret is on an empty item typed right under the words of `b`. */
 async function typeEmptySubItem(browser: Browser, page: Page, marked: Marked) {
   await browser.keyboard.type(marked.typed);
   await browser.keyboard.press('Enter');

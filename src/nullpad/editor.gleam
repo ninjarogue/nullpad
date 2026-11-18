@@ -14,13 +14,12 @@ import nullpad/live.{type Region, Region}
 import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
-/// Every change to `buffer` goes through `edit` or `compose`, once an event.
-/// `edit` takes out an empty item typed under an item's words that the
-/// selection leaves, and records the change in `history`, except while a
-/// drag is under way: the browser moves dragged text in two changes, and the
-/// drag's end records both as one step. `composing` is while an IME composes
-/// in the field, from its first change through `compose` to the next through
-/// `edit`: undo and redo wait for it to end.
+/// Every change to `buffer` goes through `edit` or `compose`. `edit`
+/// records it in `history`, except while a drag is under way: the browser
+/// moves dragged text in two changes, and the drag's end records both as
+/// one step. `composing` is while an IME composes in the field, from its
+/// first change through `compose` to the next through `edit`: undo and redo
+/// wait for it to end.
 ///
 /// `waiting` holds the steps of the head over the drawn page that the page
 /// has not placed yet. Only the first is asked for, so each step starts
@@ -615,8 +614,6 @@ fn travel(
   }
 }
 
-/// The press that put the selection where it is, read once the edit is in:
-/// an empty item taken out on the way moves the rows below it.
 fn pressed(editor: Editor, press: fn(Position, Position) -> Press) -> Editor {
   let #(anchor, head) = buffer.selection(editor.buffer)
   Editor(..editor, press: Some(press(anchor, head)))
@@ -951,10 +948,6 @@ fn edit(editor: Editor, buffer: Buffer) -> Editor {
   put(editor, after_leaving(editor, buffer))
 }
 
-/// `buffer` without the empty item the selection left, over the drawn page,
-/// where the item reads as part of the words above it. Not while an IME
-/// composes, which leaves the parse stale, nor while a drag or a held press
-/// keeps places of the note that taking a row out would move.
 fn after_leaving(editor: Editor, buffer: Buffer) -> Buffer {
   let held = editor.composing || editor.dragging || editor.press != None
   case editor.field, held {

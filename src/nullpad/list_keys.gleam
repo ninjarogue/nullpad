@@ -85,7 +85,6 @@ pub fn leave(
   }
 }
 
-/// The checks go from the cheapest, so an ordinary edit stops at the first.
 fn left(
   old: Buffer,
   blocks: List(Block),
@@ -111,9 +110,6 @@ fn left(
   }
 }
 
-/// Whether `below` is indented deeper than a marker that stands `under`
-/// columns in, so that something is nested in it. Taking the marker's row out
-/// would hand that to the item above, at a depth where it may no longer nest.
 fn hangs(below: String, under: Int) -> Bool {
   let #(depth, rest) = indent_of(below, 0)
   rest != "" && depth > under
@@ -178,10 +174,6 @@ fn holding(blocks: List(Block), row: Int, chain: List(Level)) -> Held {
   }
 }
 
-/// The empty item that `row` was typed as, when it is a marker alone right
-/// under the words of the innermost item of `held`, indented into it. That
-/// item's own row is not one. CommonMark reads such a row as part of the
-/// words.
 fn unborn(held: Held, lines: List(String), row: Int) -> Result(Item, Nil) {
   let text = line(lines, row)
   case held.chain, markdown.lone_item(text) {
@@ -425,6 +417,8 @@ fn outdent(
       let below = #(last_row(here.item) + 1, last_row(parent.item))
       lines
       |> renumber(here.following, after: first)
+      // CommonMark lets only a numbered list that starts at 1 begin right
+      // under words.
       |> renumber(
         starts_below(here.item, parent.item),
         after: NumberMark(0, ""),
@@ -437,9 +431,6 @@ fn outdent(
   }
 }
 
-/// The items of a numbered list that will sit right under the words of
-/// `item` once it moves out of `parent`. They are numbered from 1, since
-/// CommonMark lets only a list that starts at 1 begin right under words.
 fn starts_below(item: Item, parent: Item) -> List(Item) {
   let has_list =
     list.any(item.blocks, fn(block: Block) {
@@ -475,7 +466,6 @@ fn starts_below(item: Item, parent: Item) -> List(Item) {
   }
 }
 
-/// Rows `first` to `last` move `by` columns at column `at`.
 fn push(
   lines: List(String),
   first: Int,

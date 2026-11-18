@@ -99,13 +99,10 @@ fn case_() -> qcheck.Generator(Case) {
   )
 }
 
-/// One open list while a note is written: its depth, the number its next
-/// item takes and the column its items' words start at.
 type Open {
   Open(depth: Int, next: Int, words_col: Int)
 }
 
-/// The note `case_` describes, and the row of each item.
 fn note(c: Case) -> #(List(String), List(Int)) {
   let prefix = case c.quoted {
     True -> "> "
@@ -208,7 +205,6 @@ fn start(c: Case) -> Buffer {
     [row, ..] -> row
     [] -> 0
   }
-  // A negative `at` puts the caret in the first empty item, when there is one.
   let row = case
     c.at < 0,
     list.find(item_rows, fn(row) { bare(line_at(row)) })
@@ -222,7 +218,6 @@ fn start(c: Case) -> Buffer {
   |> buffer.select(anchor: at, head: at)
 }
 
-/// Every word of the note in order, with the number of items it is in.
 fn words(blocks: List(Block), depth: Int) -> List(#(String, Int)) {
   list.flat_map(blocks, fn(block) {
     case block.content {
@@ -257,7 +252,6 @@ fn split(text: String, depth: Int) -> List(#(String, Int)) {
   |> list.map(fn(word) { #(word, depth) })
 }
 
-/// The innermost item that holds `row`.
 fn holder(blocks: List(Block), row: Int) -> Option(Item) {
   list.fold(blocks, None, fn(found, block) {
     case found, block.content {
@@ -290,7 +284,6 @@ fn item_end(item: Item) -> Int {
   })
 }
 
-/// Each numbered list's items, by the number typed in front of them.
 fn numbers(blocks: List(Block), lines: List(String)) -> List(List(Int)) {
   list.flat_map(blocks, fn(block) {
     case block.content {
@@ -389,7 +382,6 @@ fn fill(buffer: Buffer, typed: String) -> Buffer {
   }
 }
 
-/// A row that holds an item's marker and nothing after it.
 fn bare(line: String) -> Bool {
   let rest =
     string.to_graphemes(line)
@@ -411,7 +403,6 @@ fn bare(line: String) -> Bool {
   }
 }
 
-/// The note with `|` at the caret.
 fn shown(buffer: Buffer) -> String {
   let at = buffer.cursor(buffer)
   list.index_map(buffer.lines(buffer), fn(line, row) {
@@ -448,7 +439,6 @@ pub fn list_keys_keep_words_depths_and_numbers_test() {
   run(start(c), c.keys, 0)
 }
 
-/// The headings the note draws.
 fn headings(blocks: List(Block)) -> Int {
   use count, block <- list.fold(blocks, 0)
   count
@@ -467,10 +457,6 @@ fn without_row(lines: List(String), row: Int) -> List(String) {
   list.append(list.take(lines, row), list.drop(lines, row + 1))
 }
 
-/// What leaving the row the caret is on may do to `before`: nothing, or take
-/// out that row alone when it is a marker with nothing after it that the
-/// parse reads as words, not as an item. Never a word, and never the depth of
-/// a word. A heading may go, and none may come.
 fn check_leave(before: Buffer, to: Buffer, focused: Bool) -> Nil {
   let blocks = markdown.parse(buffer.text(before))
   let after = list_keys.leave(from: before, blocks:, to:, focused:)
@@ -496,7 +482,6 @@ fn check_leave(before: Buffer, to: Buffer, focused: Bool) -> Nil {
   }
 }
 
-/// Whether the parse reads `row` as the start of an item.
 fn starts_item(blocks: List(Block), row: Int) -> Bool {
   case holder(blocks, row) {
     Some(item) -> item.row == row
