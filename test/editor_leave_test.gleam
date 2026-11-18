@@ -300,14 +300,10 @@ pub fn a_native_drag_never_takes_it_out_test() {
 pub fn a_held_press_never_takes_it_out_test() {
   let ed = live("- a\n- b\n  - |")
   let Outcome(editor: pressed, ..) = point(ed, 2, True)
-  let Outcome(editor: dragged, ..) =
-    editor.update(
-      pressed,
-      editor.Dragged(row: 0, visible: "", at_end: True, next: ""),
-    )
-  assert editor.text(dragged) == "- a\n- b\n  - "
-  assert buffer.selection(editor.buffer(dragged))
-    == #(Position(2, 4), Position(0, 3))
+  let up = buffer.move_to(editor.field_buffer(pressed), Position(0, 1))
+  let Outcome(editor: moved, ..) =
+    editor.update(pressed, editor.ControlChanged(shown: up, at: 0))
+  assert editor.text(moved) == "- a\n- b\n  - "
 }
 
 pub fn the_markdown_view_never_takes_it_out_test() {

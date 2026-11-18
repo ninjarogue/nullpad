@@ -14,12 +14,13 @@ import nullpad/live.{type Region, Region}
 import nullpad/markdown.{type Block}
 import nullpad/vim.{Step}
 
-/// Every change to `buffer` goes through `edit` or `compose`. `edit`
-/// records it in `history`, except while a drag is under way: the browser
-/// moves dragged text in two changes, and the drag's end records both as
-/// one step. `composing` is while an IME composes in the field, from its
-/// first change through `compose` to the next through `edit`: undo and redo
-/// wait for it to end.
+/// Every change to `buffer` goes through `edit` or `compose`, once an event.
+/// `edit` takes out an empty item typed under an item's words that the
+/// selection leaves, and records the change in `history`, except while a
+/// drag is under way: the browser moves dragged text in two changes, and the
+/// drag's end records both as one step. `composing` is while an IME composes
+/// in the field, from its first change through `compose` to the next through
+/// `edit`: undo and redo wait for it to end.
 ///
 /// `waiting` holds the steps of the head over the drawn page that the page
 /// has not placed yet. Only the first is asked for, so each step starts
@@ -364,31 +365,25 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
     Composing(shown:) -> compose(editor, shown)
     KeyPressed(key:, shown:) -> typed(editor, shown, Some(key), realign)
     EdgePressed(edge:, x:, shown:) -> cross(editor, edge, x, shown)
-    EscapePressed(shown:) -> {
-      let outcome = typed(editor, shown, None, realign)
-      case outcome.editor.field {
-        Whole -> outcome
+    EscapePressed(shown:) ->
+      case editor.field {
+        Whole -> typed(editor, shown, None, realign)
         Part(..) -> {
-          let left = outcome.editor.buffer
+          let left = base(editor, shown)
           let editor =
-            Editor(..outcome.editor, focus: Away, waiting: [])
+            Editor(..editor, focus: Away, waiting: [])
             |> edit(buffer.move_to(left, buffer.cursor(left)))
             |> realign
-          Outcome(..outcome, editor:, sync: Release(field_buffer(editor)))
+          Outcome(editor:, sync: Release(field_buffer(editor)), requests: [])
         }
       }
-    }
     Pointed(row:, visible:, at_end:, next:, x:, y:) -> {
       let at = place(editor.buffer, row:, visible:, at_end:, next:)
       let editor =
-        Editor(
-          ..editor,
-          focus: Focused,
-          press: Some(PressedAt(at)),
-          waiting: [],
-        )
+        Editor(..editor, focus: Focused, press: None, waiting: [])
         |> edit(buffer.move_to(editor.buffer, at))
         |> realign
+        |> pressed(fn(_, head) { PressedAt(head) })
       Outcome(
         editor:,
         sync: Press(Some(field_buffer(editor)), x:, y:),
@@ -399,14 +394,10 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       let at = place(editor.buffer, row:, visible:, at_end:, next:)
       let #(start, end) = buffer.word_at(editor.buffer, at)
       let editor =
-        Editor(
-          ..editor,
-          focus: Focused,
-          press: Some(PressedOnWord(start:, end:)),
-          waiting: [],
-        )
+        Editor(..editor, focus: Focused, press: None, waiting: [])
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
+        |> pressed(PressedOnWord)
       Outcome(
         editor:,
         sync: Press(Some(field_buffer(editor)), x:, y:),
@@ -417,14 +408,10 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       let at = place(editor.buffer, row:, visible:, at_end:, next:)
       let #(start, end) = line_at(editor, at.row)
       let editor =
-        Editor(
-          ..editor,
-          focus: Focused,
-          press: Some(PressedOnLine(start:, end:)),
-          waiting: [],
-        )
+        Editor(..editor, focus: Focused, press: None, waiting: [])
         |> edit(buffer.select(editor.buffer, anchor: start, head: end))
         |> realign
+        |> pressed(PressedOnLine)
       Outcome(
         editor:,
         sync: Press(Some(field_buffer(editor)), x:, y:),
@@ -435,13 +422,9 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       let from = base(editor, shown)
       let #(anchor, _) = buffer.selection(from)
       let editor =
-        Editor(
-          ..editor,
-          focus: Focused,
-          press: Some(PressedAt(anchor)),
-          waiting: [],
-        )
+        Editor(..editor, focus: Focused, press: None, waiting: [])
         |> reach(from, anchor, row:, visible:, at_end:, next:)
+        |> pressed(fn(anchor, _) { PressedAt(anchor) })
       Outcome(
         editor:,
         sync: Press(Some(field_buffer(editor)), x:, y:),
@@ -594,13 +577,14 @@ pub fn update(editor: Editor, event: Event) -> Outcome {
       }
       let changed =
         Editor(..editor, focus:, press:, waiting:) |> edit(editor.buffer)
-      let changed = case focus {
-        Away -> changed
-        Focused -> realign(changed)
+      let changed = case focus, changed.buffer == editor.buffer {
+        Away, True -> changed
+        Away, False | Focused, _ -> realign(changed)
       }
-      let sync = case field_buffer(changed) == field_buffer(editor) {
-        True -> InSync
-        False -> Write(field_buffer(changed))
+      let sync = case field_buffer(changed) == field_buffer(editor), focus {
+        True, Focused | True, Away -> InSync
+        False, Focused -> Write(field_buffer(changed))
+        False, Away -> WriteQuietly(field_buffer(changed))
       }
       Outcome(editor: changed, sync:, requests: [])
     }
@@ -623,12 +607,19 @@ fn travel(
       Outcome(editor:, sync: InSync, requests: [])
     False, Focused, Ok(history) ->
       Editor(..editor, history:)
-      |> edit(history.present(history))
+      |> put(history.present(history))
       |> realign
       |> write
     False, Focused, Error(Nil) | False, Away, _ ->
       Outcome(editor:, sync: WriteQuietly(field_buffer(editor)), requests: [])
   }
+}
+
+/// The press that put the selection where it is, read once the edit is in:
+/// an empty item taken out on the way moves the rows below it.
+fn pressed(editor: Editor, press: fn(Position, Position) -> Press) -> Editor {
+  let #(anchor, head) = buffer.selection(editor.buffer)
+  Editor(..editor, press: Some(press(anchor, head)))
 }
 
 fn next_step(editor: Editor, x: Float) -> Outcome {
@@ -805,7 +796,8 @@ fn compose(editor: Editor, shown: Buffer) -> Outcome {
       let count = list.length(buffer.lines(shown))
       let held = Region(rows.first_row, rows.first_row + count - 1)
       let drawn = live.shift(drawn, from: rows, to: held)
-      keep_history(editor, typed(editor, shown, None, hold(_, held, drawn)))
+      let owned = Editor(..editor, composing: True)
+      keep_history(editor, typed(owned, shown, None, hold(_, held, drawn)))
     }
     Whole, _ ->
       keep_history(editor, typed(editor, shown, None, fn(editor) { editor }))
@@ -956,6 +948,32 @@ pub fn field_buffer(editor: Editor) -> Buffer {
 }
 
 fn edit(editor: Editor, buffer: Buffer) -> Editor {
+  put(editor, after_leaving(editor, buffer))
+}
+
+/// `buffer` without the empty item the selection left, over the drawn page,
+/// where the item reads as part of the words above it. Not while an IME
+/// composes, which leaves the parse stale, nor while a drag or a held press
+/// keeps places of the note that taking a row out would move.
+fn after_leaving(editor: Editor, buffer: Buffer) -> Buffer {
+  let held = editor.composing || editor.dragging || editor.press != None
+  case editor.field, held {
+    Part(parsed:, composing: False, ..), False ->
+      list_keys.leave(
+        from: editor.buffer,
+        blocks: parsed,
+        to: buffer,
+        focused: editor.focus == Focused,
+      )
+    Part(composing: True, ..), _
+    | Part(composing: False, ..), True
+    | Whole, _
+    -> buffer
+  }
+}
+
+/// What `edit` lands, and what undo and redo land as it is.
+fn put(editor: Editor, buffer: Buffer) -> Editor {
   let field = case editor.field {
     Whole -> Whole
     Part(rows:, drawn:, parsed:, composing:) -> {
