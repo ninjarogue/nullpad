@@ -8,6 +8,7 @@
 //// Imported by: `preview`, `storage`, `surface`, the shell, tests.
 //// Imports: stdlib, and `markdown.ffi.mjs` for two Unicode classes.
 
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -1893,6 +1894,84 @@ fn find_task(blocks: List(Block), row: Int, col: Int) -> Result(Task, Nil) {
     }
     Heading(..) | Paragraph(..) | CodeBlock(..) | Table(..) | Rule -> Error(Nil)
   }
+}
+
+/// How an item's row starts: `lead` is what comes before the item's own
+/// marker (quote marks, and the markers or indent of the items around it),
+/// then the marker, then `gap` spaces up to the item's words or box.
+pub type ItemMarks {
+  ItemMarks(lead: String, mark: Mark, gap: Int)
+}
+
+pub type Mark {
+  BulletMark(String)
+  NumberMark(number: Int, delimiter: String)
+}
+
+/// The marks that start `item` on `line`, the line of its first row.
+/// `Error` for a row that holds a tab.
+pub fn item_marks(line: String, item: Item) -> Result(ItemMarks, Nil) {
+  let end = case item.task {
+    Some(task) -> task.col - 1
+    None -> item.content_col
+  }
+  let start = string.to_utf_codepoints(line) |> list.take(end)
+  let prefix =
+    start
+    |> string.from_utf_codepoints
+    |> string.to_graphemes
+    |> list.reverse
+  use <- bool.guard(list.contains(prefix, "\t"), Error(Nil))
+  let #(spaces, rest) = list.split_while(prefix, fn(char) { char == " " })
+  let gap = list.length(spaces)
+  case rest {
+    ["-" as bullet, ..lead]
+    | ["+" as bullet, ..lead]
+    | ["*" as bullet, ..lead] ->
+      Ok(ItemMarks(lead: backwards(lead), mark: BulletMark(bullet), gap:))
+    ["." as delimiter, ..rest] | [")" as delimiter, ..rest] -> {
+      let #(digits, lead) = list.split_while(rest, is_digit)
+      case int.parse(backwards(digits)) {
+        Ok(number) ->
+          Ok(ItemMarks(
+            lead: backwards(lead),
+            mark: NumberMark(number, delimiter),
+            gap:,
+          ))
+        Error(Nil) -> Error(Nil)
+      }
+    }
+    _ -> Error(Nil)
+  }
+}
+
+fn backwards(chars: List(String)) -> String {
+  chars |> list.reverse |> string.concat
+}
+
+fn is_digit(char: String) -> Bool {
+  string.contains("0123456789", char) && char != ""
+}
+
+pub fn mark_text(mark: Mark) -> String {
+  case mark {
+    BulletMark(bullet) -> bullet
+    NumberMark(number:, delimiter:) -> int.to_string(number) <> delimiter
+  }
+}
+
+/// What a new row inside the same containers starts with, given the `lead`
+/// of a row: quote marks stay, and the markers of items become spaces.
+pub fn carry(lead: String) -> String {
+  use char <- string_map(lead)
+  case char {
+    ">" | " " -> char
+    _ -> " "
+  }
+}
+
+fn string_map(text: String, change: fn(String) -> String) -> String {
+  text |> string.to_graphemes |> list.map(change) |> string.concat
 }
 
 pub type Run {

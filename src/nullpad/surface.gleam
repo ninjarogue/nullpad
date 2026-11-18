@@ -1153,8 +1153,9 @@ fn key_decoder(
   use ctrl <- decode.field("ctrlKey", decode.bool)
   use meta <- decode.field("metaKey", decode.bool)
   use alt <- decode.field("altKey", decode.bool)
+  use shift <- decode.field("shiftKey", decode.bool)
   use composing <- decode.field("isComposing", decode.bool)
-  let key = parse_key(name, ctrl, meta || alt || composing)
+  let key = parse_key(name, ctrl, shift, meta || alt || composing)
   case key, result.map(key, editor.claims(current_editor(), _)) {
     Ok(key), Ok(True) -> {
       use shown <- decode.map(shown_decoder())
@@ -1411,11 +1412,21 @@ fn escape_decoder(
   }
 }
 
-fn parse_key(name: String, ctrl: Bool, ignore: Bool) -> Result(vim.Key, Nil) {
+/// Shift+Enter stays the browser's, a line break with no list marker.
+fn parse_key(
+  name: String,
+  ctrl: Bool,
+  shift: Bool,
+  ignore: Bool,
+) -> Result(vim.Key, Nil) {
   case ignore, name, string.length(name) {
     True, _, _ -> Error(Nil)
     False, "Escape", _ -> Ok(vim.Escape)
-    False, "Enter", _ -> Ok(vim.Enter)
+    False, "Enter", _ if shift -> Error(Nil)
+    False, "Enter", _ if !ctrl -> Ok(vim.Enter)
+    False, "Tab", _ if ctrl -> Error(Nil)
+    False, "Tab", _ if shift -> Ok(vim.BackTab)
+    False, "Tab", _ -> Ok(vim.Tab)
     False, _, 1 if ctrl -> Ok(vim.Ctrl(name))
     False, _, 1 -> Ok(vim.Char(name))
     False, _, _ -> Error(Nil)

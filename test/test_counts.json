@@ -5,9 +5,11 @@
   "e2e:e2e.config.ts expected-fail": 4,
   "e2e:e2e.dpr2.config.mjs": 127,
   "gleam-test": 588,
+  "judges": 145,
   "keystroke-cost": 173,
   "mutants-tool": 75,
-  "test-cleanup": 11,
+  "pick": 24,
+  "test-cleanup": 12,
   "test-counts": 79,
   "typist-shifts": 28
 }

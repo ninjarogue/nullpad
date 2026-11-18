@@ -236,6 +236,8 @@ const events = {
     ["i", (field) => new editor.KeyPressed(new vim.Char("i"), field)],
     ["Escape", (field) => new editor.KeyPressed(new vim.Escape(), field)],
     ["Enter", (field) => new editor.KeyPressed(new vim.Enter(), field)],
+    ["Tab", (field) => new editor.KeyPressed(new vim.Tab(), field)],
+    ["Shift Tab", (field) => new editor.KeyPressed(new vim.BackTab(), field)],
     ["Ctrl r", (field) => new editor.KeyPressed(new vim.Ctrl("r"), field)],
   ],
   EdgePressed: [

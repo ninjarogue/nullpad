@@ -21,10 +21,12 @@ Research how others solve it first (Haiku subagents), then put our option next t
 
 ## Before a PR is ready
 
-1. **Checks pass.** `.githooks/pre-push` runs format, unit and spec tests, the architecture check, keystroke cost and the browser suite. The gate fails if a step runs zero tests or fewer than last time.
-2. **Break-it gate.** An agent that has not seen the code or tests uses the app at desktop and phone sizes and tries to break the change. Not ready until that pass is clean.
-3. **Planted bugs.** An agent that has not seen the tests plants bugs and reports which ones the tests caught and missed. Missed ones get a test.
-4. **Base check.** Test on a branch that contains the current tip of `main`, and name the commit tested.
+1. **Checks pass.** `.githooks/pre-push` runs format, unit, property and spec tests, the architecture check, keystroke cost, the browser suite and the robot typist. The gate fails if a step runs zero tests or fewer than last time. Tests picked from the diff run first, then everything.
+2. **Main's tests judge the branch.** The gate runs `main`'s copy of the tests, and its own scripts, against the branch. Removing, weakening or skipping a `main` test, or changing what it reads, fails unless a commit says why: `Changes-test: <test or file> — <reason>`. Put those lines in the PR description.
+3. **Eyes from outside the page.** The browser checks listen through the Chrome DevTools Protocol: any error or warning the browser reports fails the test, phone tests tap with real touches, and the robot typist fails when a key moves text it didn't touch.
+4. **Break-it gate.** An agent that has not seen the code or tests uses the app at desktop and phone sizes and tries to break the change. Not ready until that pass is clean.
+5. **Planted bugs.** An agent that has not seen the tests plants bugs and reports which ones the tests caught and missed. Missed ones get a test.
+6. **Base check.** Test on a branch that contains the current tip of `main`, and name the commit tested.
 
 ## When a bug gets past our checks
 
