@@ -85,8 +85,7 @@ pub fn leave(
   }
 }
 
-/// `row`, when it holds an empty item that `new` has left. The checks are
-/// in the order of what they cost, so an ordinary edit stops at the first.
+/// The checks go from the cheapest, so an ordinary edit stops at the first.
 fn left(
   old: Buffer,
   blocks: List(Block),
@@ -127,9 +126,6 @@ fn indent_of(text: String, count: Int) -> #(Int, String) {
   }
 }
 
-/// `buffer` without `row`, which is never the first, with the selection
-/// moved along: a place below `row` goes up a row, and one on it goes to the
-/// end of the row above.
 fn without(buffer: Buffer, row: Int) -> Buffer {
   let lines = buffer.lines(buffer)
   let above = Position(row: row - 1, col: string.length(line(lines, row - 1)))

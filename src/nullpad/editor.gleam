@@ -972,7 +972,6 @@ fn after_leaving(editor: Editor, buffer: Buffer) -> Buffer {
   }
 }
 
-/// What `edit` lands, and what undo and redo land as it is.
 fn put(editor: Editor, buffer: Buffer) -> Editor {
   let field = case editor.field {
     Whole -> Whole
