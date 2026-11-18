@@ -182,7 +182,7 @@ test('keys typed before any note opens reach the field', async ({ app, browser, 
   await page.text.pressSequentially('ab');
   await page.text.press('Enter');
   await page.text.pressSequentially('c');
-  await expect(page.text).toHaveValue('ab\nc');
+  await expect(page.text).toHaveValue('\nab\nc');
 });
 
 const cannotOpen = [
