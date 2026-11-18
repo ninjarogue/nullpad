@@ -6,9 +6,11 @@
 ////
 //// Imported by: `editor`. Imports: `buffer`, `markdown`.
 
+import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
@@ -35,10 +37,13 @@ pub fn press(
 ) -> Result(Buffer, Nil) {
   let #(anchor, head) = buffer.selection(buffer)
   let lines = buffer.lines(buffer)
-  case
-    anchor.row == head.row,
-    holding(blocks, head.row, []) |> unborn(lines, head.row)
-  {
+  let held = holding(blocks, head.row, [])
+  let held = case unborn(held, lines, head.row) {
+    Ok(item) ->
+      Held(..held, chain: [Level(item, None, [], False), ..held.chain])
+    Error(Nil) -> held
+  }
+  case anchor.row == head.row, held {
     True, Held(chain: [here, ..parents], in_code: False) ->
       case key {
         NewItem -> {
@@ -54,15 +59,95 @@ pub fn press(
 }
 
 /// `new`, without the empty item that the selection left on its way there
-/// from `old`.
+/// from `old`: a marker alone right under an item's words (`  - ` under
+/// `- b`), which CommonMark reads as part of them and draws as a heading or
+/// as stray text. It lasts while an end of the selection is on its row and
+/// the field is `focused`. Then its row goes, and the rows below and the
+/// selection move up with it. `blocks` are the parse of `old`.
+///
+/// It stays when a row down to it differs between `old` and `new`, in code,
+/// when something is nested in it, and when the parser sees an item there
+/// (`- b` over `  - c` over `  - `). One goes at a time. Parses nothing.
 pub fn leave(
   from old: Buffer,
   blocks blocks: List(Block),
   to new: Buffer,
   focused focused: Bool,
 ) -> Buffer {
-  let _ = #(old, blocks, focused)
-  new
+  let #(anchor, head) = buffer.selection(old)
+  let rows = case anchor.row == head.row {
+    True -> [head.row]
+    False -> [head.row, anchor.row]
+  }
+  case list.find_map(rows, left(old, blocks, new, focused, _)) {
+    Ok(row) -> without(new, row)
+    Error(Nil) -> new
+  }
+}
+
+/// `row`, when it holds an empty item that `new` has left. The checks are
+/// in the order of what they cost, so an ordinary edit stops at the first.
+fn left(
+  old: Buffer,
+  blocks: List(Block),
+  new: Buffer,
+  focused: Bool,
+  row: Int,
+) -> Result(Int, Nil) {
+  let lines = buffer.lines(old)
+  let after = buffer.lines(new)
+  use _ <- result.try(markdown.lone_item(line(lines, row)))
+  let #(anchor, head) = buffer.selection(new)
+  let on_it = focused && { anchor.row == row || head.row == row }
+  use <- bool.guard(on_it, Error(Nil))
+  let same = list.take(lines, row + 1) == list.take(after, row + 1)
+  use <- bool.guard(!same, Error(Nil))
+  let held = holding(blocks, row, [])
+  use <- bool.guard(held.in_code, Error(Nil))
+  use item <- result.try(unborn(held, lines, row))
+  use marks <- result.try(marks_of(lines, item))
+  case hangs(line(after, row + 1), string.length(marks.lead)) {
+    True -> Error(Nil)
+    False -> Ok(row)
+  }
+}
+
+/// Whether `below` is indented deeper than a marker that stands `under`
+/// columns in, so that something is nested in it. Taking the marker's row out
+/// would hand that to the item above, at a depth where it may no longer nest.
+fn hangs(below: String, under: Int) -> Bool {
+  let #(depth, rest) = indent_of(below, 0)
+  rest != "" && depth > under
+}
+
+fn indent_of(text: String, count: Int) -> #(Int, String) {
+  case text {
+    " " <> rest | ">" <> rest -> indent_of(rest, count + 1)
+    _ -> #(count, text)
+  }
+}
+
+/// `buffer` without `row`, which is never the first, with the selection
+/// moved along: a place below `row` goes up a row, and one on it goes to the
+/// end of the row above.
+fn without(buffer: Buffer, row: Int) -> Buffer {
+  let lines = buffer.lines(buffer)
+  let above = Position(row: row - 1, col: string.length(line(lines, row - 1)))
+  let up = fn(place: Position) {
+    case int.compare(place.row, row) {
+      order.Lt -> place
+      order.Eq -> above
+      order.Gt -> Position(..place, row: place.row - 1)
+    }
+  }
+  let #(anchor, head) = buffer.selection(buffer)
+  buffer.replace(
+    buffer,
+    from: above,
+    to: Position(row:, col: string.length(line(lines, row))),
+    with: "",
+  )
+  |> buffer.select(anchor: up(anchor), head: up(head))
 }
 
 /// An item that holds the caret's row, and the items around it in its list.
@@ -97,24 +182,22 @@ fn holding(blocks: List(Block), row: Int, chain: List(Level)) -> Held {
   }
 }
 
-/// A row that is a marker alone right under an item's words is read as
-/// part of those words, but was typed as an empty item nested in it.
-fn unborn(held: Held, lines: List(String), row: Int) -> Held {
+/// The empty item that `row` was typed as, when it is a marker alone right
+/// under the words of the innermost item of `held`, indented into it. That
+/// item's own row is not one. CommonMark reads such a row as part of the
+/// words.
+fn unborn(held: Held, lines: List(String), row: Int) -> Result(Item, Nil) {
   let text = line(lines, row)
   case held.chain, markdown.lone_item(text) {
     [here, ..], Ok(lone) if here.item.row != row -> {
       let item = Item(..lone, row:)
-      case markdown.item_marks(text, item) {
-        Ok(marks) ->
-          case string.length(marks.lead) >= here.item.content_col {
-            True ->
-              Held(..held, chain: [Level(item, None, [], False), ..held.chain])
-            False -> held
-          }
-        Error(Nil) -> held
+      use marks <- result.try(markdown.item_marks(text, item))
+      case string.length(marks.lead) >= here.item.content_col {
+        True -> Ok(item)
+        False -> Error(Nil)
       }
     }
-    [_, ..], Ok(_) | [], Ok(_) | _, Error(Nil) -> held
+    [_, ..], Ok(_) | [], Ok(_) | _, Error(Nil) -> Error(Nil)
   }
 }
 
