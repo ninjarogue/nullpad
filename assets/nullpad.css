@@ -896,3 +896,32 @@ button[aria-pressed="true"] {
     max-width: 10rem;
   }
 }
+
+/* A bullet's dot is drawn where the item's typed dash hangs in the field:
+   on the "-" of "- " whose space ends at the words, so the dot stays put
+   when the item is clicked into. */
+.preview ul > li:not(.task) {
+  position: relative;
+}
+
+.preview ul > li:not(.task)::marker {
+  content: none;
+}
+
+.preview ul > li:not(.task)::before {
+  --dot: radial-gradient(circle, var(--ink) 0.15em, transparent calc(0.15em + 0.5px));
+  background: var(--dot) center 55% / 100% 1lh no-repeat;
+  color: transparent;
+  content: "-";
+  position: absolute;
+  right: calc(100% + 0.28em);
+  top: 0;
+}
+
+.preview ul ul > li:not(.task)::before {
+  --dot: radial-gradient(circle, transparent calc(0.15em - 1px), var(--ink) calc(0.15em - 1px), var(--ink) 0.15em, transparent calc(0.15em + 0.5px));
+}
+
+.preview ul ul ul > li:not(.task)::before {
+  background: linear-gradient(var(--ink), var(--ink)) center 55% / 0.28em 0.28em no-repeat;
+}
