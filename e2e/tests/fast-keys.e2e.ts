@@ -1065,3 +1065,35 @@ test('a letter typed in the frame of a PageDown from a selection the page paints
   expect(afterTheFrame, 'the letter is typed').toContain('x');
   expect(await typedAfterPageDown(true)).toBe(afterTheFrame);
 });
+
+const listKeys = [
+  { name: 'Enter at the end of a list item', body: '- one\n- two', keys: ['Enter', 'Shift+ArrowUp', 'Shift+ArrowDown', 'x', 'Enter'], slow: '- one\n- two\n- x\n- Y' },
+  { name: 'Tab on a list item', body: '- one\n- two', keys: ['Enter', 'x', 'Shift+ArrowUp', 'ArrowLeft', 'Tab'], slow: '- one\n  - tYwo\n- x' },
+  { name: 'Shift+Tab on a nested list item', body: '- one\n  - two', keys: ['Enter', 'x', 'Shift+ArrowUp', 'ArrowLeft', 'Shift+Tab'], slow: '- one\n- tYwo\n  - x' },
+];
+
+for (const { name, body, keys: pressed, slow } of listKeys) {
+  test(`${name}, behind a step that waits for the page, lands as it does a frame apart`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    const typed = async (together: boolean) => {
+      await editor.open(body);
+      await browser.keyboard.press(ctrl('End'));
+      await page.nextFrame();
+      if (together) await page.beforeRedraw(async () => {
+        for (const key of pressed) await browser.keyboard.press(key);
+      });
+      else for (const key of pressed) await page.pressBeforeRedraw(key);
+      await page.nextFrame();
+      await browser.keyboard.type('Y');
+      await page.nextFrame();
+      await expect(page.text).toBeFocused();
+      await page.markdown.tap();
+      return page.text.inputValue();
+    };
+    const apart = await typed(false);
+    expect(apart, 'the list key works on the item a frame apart').toBe(slow);
+
+    expect(await typed(true)).toBe(apart);
+  });
+}
