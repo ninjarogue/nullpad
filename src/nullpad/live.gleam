@@ -143,14 +143,21 @@ fn lone_heading(
   }
 }
 
+/// An item with nothing after its marker yet hangs as it will once a space
+/// follows, so typing the space moves nothing.
 fn marker(lines: List(String), item: Item) -> String {
-  lines
-  |> list.drop(item.row)
-  |> list.first
-  |> result.unwrap("")
-  |> string.to_utf_codepoints
-  |> list.take(item.content_col)
-  |> string.from_utf_codepoints
+  let typed =
+    lines
+    |> list.drop(item.row)
+    |> list.first
+    |> result.unwrap("")
+    |> string.to_utf_codepoints
+    |> list.take(item.content_col)
+    |> string.from_utf_codepoints
+  case item.blocks, string.ends_with(typed, " ") {
+    [], False -> typed <> " "
+    _, _ -> typed
+  }
 }
 
 /// Where a click on the drawn page lands in the source. `row` is the first
