@@ -3045,3 +3045,61 @@ pub fn a_press_on_a_selection_no_longer_painted_is_a_plain_press_test() {
   assert editor.buffer(plain) == editor.buffer(pointed)
   assert sync == pointed_sync
 }
+
+fn column_after(between: editor.Edge, note: String) -> Float {
+  let ed = pressed(note, 0, "")
+  let line = fn(ed, up) {
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.LineInField(up:, select: False),
+        x: 3.0,
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  }
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.LineInField(up: False, select: False),
+        x: 40.0,
+        shown: caret(note, 0, 0),
+      ),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.Aimed(shown: caret(note, 1, 4)))
+  let Outcome(editor: ed, ..) = line(ed, True)
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.Aimed(shown: caret(note, 0, 0)))
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(between, x: 0.0, shown: editor.field_buffer(ed)),
+    )
+  let assert Outcome(sync: editor.WriteAndAim(x:, ..), ..) = line(ed, False)
+  x
+}
+
+pub fn a_key_that_moves_nothing_keeps_the_column_of_a_run_test() {
+  let note = "alpha one\nbravo two"
+  assert column_after(editor.ToNoteStart, note) == 40.0
+  assert column_after(editor.SelectToNoteStart, note) == 40.0
+  assert column_after(editor.ToNoteEnd, note) == 3.0
+}
+
+pub fn a_run_from_left_of_the_text_keeps_its_column_test() {
+  let note = "- alpha one\nbravo two"
+  let ed = pressed(note, 0, "")
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: False, select: True),
+        x: -0.5,
+        shown: caret(note, 0, 1),
+      ),
+    )
+  let assert editor.WriteAndStep(move: editor.LineDown, x: Some(-0.5), ..) =
+    sync
+}
