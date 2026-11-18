@@ -92,6 +92,15 @@ describe("e2e tests: what makes one weaker", () => {
     assert.match(gone.items[0].why, /2 tests/);
   });
 
+  test("the second of two tests with the same title gone, when helpers register them in loops", () => {
+    const addsBoth = "function addsBoth(name: string) {\n  test(name, async () => {\n    expect(add(1, 2)).toBe(3);\n    expect(add(2, 2)).toBe(4);\n  });\n}\nfor (const name of ['one', 'two']) addsBoth(name);\n";
+    const addsOne = "function addsOne(name: string) {\n  test(name, async () => {\n    expect(add(1, 2)).toBe(3);\n  });\n}\nfor (const name of ['three', 'four']) addsOne(name);\n";
+    assert.deepEqual(named(changes({ [spec]: e2e(addsBoth + addsOne) }, { [spec]: e2e(addsBoth) })), [
+      `removed-test: ${spec} > <name>`,
+      `changed-input: ${spec}::stmt:for (const name of ['three', 'four']) addsOne(name);`,
+    ]);
+  });
+
   test("a file moved with its tests unchanged is not a removal", () => {
     assert.deepEqual(named(changes(before, { "e2e/tests/total.e2e.ts": sums })), []);
   });
