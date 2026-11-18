@@ -210,3 +210,46 @@ test('marks such as === and ~~ show as the characters typed, in the source and i
   await page.showPage();
   expect(await ligatures('[data-test-id="preview"] code')).toEqual(['none', 'none']);
 });
+
+const phoneNotes = {
+  short: 'milk',
+  long: Array.from({ length: 80 }, (_, i) => `paragraph number ${i} has a few words in it`).join('\n\n'),
+};
+
+for (const [size, body] of Object.entries(phoneNotes)) {
+  test(`on a phone the strip of notes, the toolbar and the page fill the window one under the other, with a ${size} note`, async ({
+    browser,
+    page,
+  }) => {
+    const finger = await page.phone();
+    await page.text.fill(body);
+    await finger.tapOn(page.markdown);
+    await expect(page.markdown).toHaveAttribute('aria-pressed', 'false');
+    await page.nextFrame();
+
+    const painted = await browser.evaluate(() => {
+      const box = (selector: string) => {
+        const { top, bottom, height } = document.querySelector(selector)!.getBoundingClientRect();
+        return { top, bottom, height };
+      };
+      const sheet = document.querySelector('.page')!;
+      return {
+        window: innerHeight,
+        strip: box('.sidebar'),
+        toolbar: box('.toolbar'),
+        page: box('.page'),
+        pageOverflow: sheet.scrollHeight - sheet.clientHeight,
+        documentOverflow: document.documentElement.scrollHeight - innerHeight,
+      };
+    });
+    const near = (actual: number, expected: number) => expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1);
+    near(painted.strip.top, 0);
+    near(painted.toolbar.top, painted.strip.bottom);
+    near(painted.page.top, painted.toolbar.bottom);
+    near(painted.page.bottom, painted.window);
+    near(painted.page.height, painted.window - painted.strip.height - painted.toolbar.height);
+    expect(painted.page.height).toBeGreaterThan(painted.window / 2);
+    expect(painted.documentOverflow).toBeLessThanOrEqual(0);
+    if (size === 'long') expect(painted.pageOverflow).toBeGreaterThan(0);
+  });
+}

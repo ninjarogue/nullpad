@@ -25,4 +25,5 @@ simplifile = ">= 2.7.0 and < 3.0.0"
 
 [tools.lustre.html]
 title = "nullpad"
+links = [{ rel = "icon", href = "data:," }]
 stylesheets = [{ href = "/nullpad.css" }]

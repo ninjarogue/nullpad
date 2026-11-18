@@ -40,6 +40,13 @@ export const classes = {
 
 const times = (n, key) => Array.from({ length: n }, () => key);
 
+/** Whether a key can change the text: a paste, a character, Enter, Backspace and Delete, with Ctrl for a word. */
+export const editsText = (key) => {
+  if (typeof key !== 'string') return key.paste !== undefined;
+  const last = key.split('+').at(-1) || '+';
+  return /^(Enter|Backspace|Delete)$/.test(last) || (last.length === 1 && !/(^|\+)Control\+/.test(key));
+};
+
 const notes = {
   rich: '# Head one\n\nbody text here\nmore body\n\n- item a\n- item b\n\n> quote line\n\n```\ncode\n```\n\nSetext\n======\n\nlast para',
   plain: 'alpha beta\n\nsecond para here\nthird row\n\nlast',
@@ -56,6 +63,49 @@ export const preludes = [
   { note: 'plain', keys: ['Control+End', 'Home', ...times(2, 'Shift+ArrowUp')] },
   { note: 'plain', keys: ['Control+Home', 'ArrowDown', 'ArrowRight', ...times(4, 'Shift+ArrowRight')] },
 ].map((p) => ({ keys: [{ paste: notes[p.note] }, ...p.keys] }));
+
+/**
+ * One block of every kind a note holds, in the variants a person types. Each is a list of rows. A
+ * tour joins one variant of each kind, in an order the seed picks, so that the cursor enters every
+ * kind of block, and leaves it, with the blocks of other kinds on either side.
+ */
+const blockKinds = {
+  paragraph: [['alpha beta gamma', 'delta epsilon'], ['a single row of words']],
+  h1: [['# Heading one']],
+  h2: [['## Heading two']],
+  h3: [['### Heading three']],
+  h4: [['#### Heading four']],
+  h5: [['##### Heading five']],
+  h6: [['###### Heading six']],
+  setextTitle: [['Setext title', '============']],
+  setextSub: [['Setext sub', '----------']],
+  bullets: [['- apple', '- banana', '- cherry'], ['* star one', '* star two']],
+  numbers: [['1. one', '2. two'], ['3) three', '4) four']],
+  tasks: [['- [ ] to do', '- [x] done']],
+  quote: [['> quoted line', '> second quoted']],
+  fence: [['```', 'code here', '```'], ['```js', 'let a = 1;', '```']],
+  indented: [['    indented code']],
+  table: [['| a | b |', '|---|---|', '| 1 | 2 |']],
+  rule: [['---'], ['***']],
+};
+
+/**
+ * Scripts that visit every kind of block. Each pastes a note made of one block of each kind
+ * (blank rows between), puts the cursor at the top and walks it down through every row and back
+ * up, so that every block is entered from above and from below.
+ */
+export function tours(count, seed) {
+  const r = rng(seed ^ 0x7077);
+  return Array.from({ length: count }, () => {
+    const order = Object.keys(blockKinds);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(r() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const rows = order.flatMap((kind, i) => [...(i ? [''] : []), ...pick(r, blockKinds[kind])]);
+    return [{ paste: rows.join('\n') }, 'Control+Home', ...times(rows.length, 'ArrowDown'), ...times(rows.length, 'ArrowUp')];
+  });
+}
 
 export function makeScripts(count, length, seed) {
   const r = rng(seed);
