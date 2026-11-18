@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { judge as problemsOf } from './shifts.mjs';
+import { judge as problemsOf } from '../e2e/typist/shifts.mjs';
 
 const judge = (before, after, step) => problemsOf(before, after, step).map((problem) => problem.text);
 
