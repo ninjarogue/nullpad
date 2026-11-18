@@ -2,6 +2,7 @@ import { expect } from 'e2e';
 import { chromium, devices } from 'playwright-core';
 import { ctrl, Editing, offsetOf, withRawPage } from './editing.ts';
 import type { Fixtures, Spot } from './editing.ts';
+import { imeKey as sendImeKey } from './ime.ts';
 import { pause, test } from './nullpad.ts';
 
 const note = 'alpha one\n\nbravo two words\n\ncharlie three';
@@ -466,8 +467,7 @@ test('a key an IME sends while the page is behind goes to the IME, and is not ty
   const origin = new URL(await browser.url()).origin;
   await withRawPage(origin, note, async (raw) => {
     const session = await raw.context().newCDPSession(raw);
-    const imeKey = (type: 'rawKeyDown' | 'keyUp') =>
-      session.send('Input.dispatchKeyEvent', { type, key: 'k', code: 'KeyK', windowsVirtualKeyCode: 229, nativeVirtualKeyCode: 229 });
+    const imeKey = (type: 'rawKeyDown' | 'keyUp') => sendImeKey(session, type);
     await raw.evaluate(() => {
       const seen: { key: string; ime: boolean; held: boolean }[] = [];
       document.querySelector('textarea')!.addEventListener('keydown', (key) => {
@@ -621,8 +621,7 @@ async function composeBehind(origin: string, steps: ImeStep[], frames: boolean) 
   const seen: string[] = [];
   await withRawPage(origin, note, async (raw) => {
     const session = await raw.context().newCDPSession(raw);
-    const imeKey = (type: 'rawKeyDown' | 'keyUp') =>
-      session.send('Input.dispatchKeyEvent', { type, key: 'k', code: 'KeyK', windowsVirtualKeyCode: 229, nativeVirtualKeyCode: 229 });
+    const imeKey = (type: 'rawKeyDown' | 'keyUp') => sendImeKey(session, type);
     if (frames) {
       await raw.evaluate(() => {
         const held: FrameRequestCallback[] = [];

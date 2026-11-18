@@ -1,4 +1,6 @@
 import { expect } from 'e2e';
+import { live } from '../engine.ts';
+import { Ime } from './ime.ts';
 import { autosaveMs, groceries, newNote, pause, test, trip } from './nullpad.ts';
 
 test.beforeEach(async ({ app, disk, page }) => {
@@ -117,6 +119,61 @@ test('keys typed for a picked note that fails to load stay out of the note kept'
   await expect(page.text).toHaveValue('milk, eggs');
   await expect(page.saveState).toHaveText('Saved');
   expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
+});
+
+test('text an IME commits while a picked note loads goes into it, and never into the note left', async ({ browser, disk, page }) => {
+  await disk.hold();
+  await page.row('Trip').tap();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('Go ');
+  const ime = await Ime.on(live().page());
+  await ime.compose('k');
+  await expect(page.text).toHaveValue('kmilk');
+  await ime.compose('か');
+  await expect(page.text).toHaveValue('かmilk');
+  await ime.commit('か');
+  await expect(page.text).toHaveValue('milk');
+
+  await disk.release();
+  await expect(page.text).toHaveValue('Go か# Trip');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([groceries, { ...trip, body: 'Go か# Trip' }]);
+});
+
+test('a picked note that loads while an IME composes waits for it to commit, then takes the text', async ({
+  browser,
+  disk,
+  page,
+}) => {
+  await disk.hold();
+  await page.row('Trip').tap();
+  await expect(page.text).toBeFocused();
+  await browser.evaluate(() => {
+    const seen = { started: 0, ended: 0 };
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    field.addEventListener('compositionstart', () => seen.started++);
+    field.addEventListener('compositionend', () => seen.ended++);
+    (globalThis as { compositions?: typeof seen }).compositions = seen;
+    return null;
+  });
+  const compositions = () => browser.evaluate(() => ({ ...(globalThis as { compositions?: object }).compositions }));
+  const ime = await Ime.on(live().page());
+  await ime.compose('k');
+  await expect(page.text).toHaveValue('kmilk');
+
+  await disk.release();
+  await expect(page.currentRow).toHaveText('Trip');
+  await page.nextFrame();
+  await page.nextFrame();
+  expect(await compositions()).toEqual({ started: 1, ended: 0 });
+  await expect(page.text).toHaveValue('kmilk');
+
+  await ime.compose('か');
+  await ime.commit('か');
+  await expect(page.text).toHaveValue('か# Trip');
+  expect(await compositions()).toEqual({ started: 1, ended: 1 });
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([groceries, { ...trip, body: 'か# Trip' }]);
 });
 
 test('keys typed while a new note is made go into it', async ({ disk, page }) => {
