@@ -623,6 +623,53 @@ pub fn picking_another_note_while_a_picked_note_waits_for_an_ime_opens_it_first_
   assert editor.text(drain(arrived)) == "third"
 }
 
+pub fn a_key_held_after_a_composition_ends_unseen_opens_the_note_that_waits_for_it_test() {
+  let choosing = editor.set_choosing(opened(), True).editor |> hold(key("Z"))
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "か"))
+  let waiting = editor.open(ed, "next").editor
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(waiting, editor.KeyHeld(key("Q")))
+  let assert Ok(put) = written(sync)
+  assert buffer.text(put) == "next"
+  assert editor.text(ed) == "next"
+  assert !editor.is_choosing(ed)
+  assert editor.text(drain(ed)) == "ZQnext"
+  assert !editor.keys_wait(drain(ed))
+}
+
+pub fn a_key_held_after_a_composition_ends_unseen_goes_into_the_note_kept_test() {
+  let choosing = editor.set_choosing(opened(), True).editor |> hold(key("Z"))
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "か"))
+  let stayed = editor.set_choosing(ed, False).editor
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(stayed, editor.KeyHeld(key("x")))
+  assert written(sync) == Ok(field)
+  assert editor.replay(ed) == Some(key("x"))
+  assert editor.text(drain(ed)) == "x" <> note
+  assert !editor.keys_wait(drain(ed))
+}
+
+pub fn a_key_held_after_a_composition_ends_unseen_waits_for_the_picked_note_test() {
+  let choosing = editor.set_choosing(opened(), True).editor |> hold(key("Z"))
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "か"))
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.KeyHeld(key("Q")))
+  assert written(sync) == Ok(field)
+  assert editor.text(ed) == note
+  assert editor.is_choosing(ed)
+  assert editor.replay(ed) == None
+
+  let arrived = editor.open(ed, "next").editor
+  assert editor.text(drain(arrived)) == "ZQnext"
+  assert !editor.keys_wait(drain(arrived))
+}
+
 pub fn choosing_another_note_drops_the_keys_waiting_behind_a_step_test() {
   let choosing =
     opened() |> step_down |> hold(key("x")) |> editor.set_choosing(True)

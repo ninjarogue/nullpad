@@ -176,6 +176,28 @@ test('a picked note that loads while an IME composes waits for it to commit, the
   expect(await disk.notes()).toEqual([groceries, { ...trip, body: 'か# Trip' }]);
 });
 
+test('a picked note opens on the first key after a plain Enter ends a composition with no compositionend', async ({
+  browser,
+  disk,
+  page,
+}) => {
+  await disk.hold();
+  await page.row('Trip').tap();
+  await expect(page.text).toBeFocused();
+  const ime = await Ime.on(live().page());
+  await ime.compose('か');
+  await expect(page.text).toHaveValue('かmilk');
+  await browser.keyboard.press('Enter');
+  await expect(page.text).toHaveValue('か\nmilk');
+
+  await disk.release();
+  await expect(page.currentRow).toHaveText('Trip');
+  await browser.keyboard.type('Q');
+  await expect(page.text).toHaveValue('Q# Trip');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([groceries, { ...trip, body: 'Q# Trip' }]);
+});
+
 test('keys typed while a new note is made go into it', async ({ disk, page }) => {
   await disk.hold();
   await page.newNote.tap();
