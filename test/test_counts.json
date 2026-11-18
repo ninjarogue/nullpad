@@ -1,15 +1,15 @@
 {
-  "e2e-discovery-tool": 41,
+  "e2e-discovery-tool": 43,
   "e2e-server": 6,
-  "e2e:e2e.config.ts": 1614,
+  "e2e:e2e.config.ts": 1630,
   "e2e:e2e.config.ts expected-fail": 4,
   "e2e:e2e.dpr2.config.mjs": 127,
-  "gleam-test": 588,
-  "judges": 145,
-  "keystroke-cost": 173,
+  "gleam-test": 635,
+  "judges": 146,
+  "keystroke-cost": 175,
   "mutants-tool": 75,
   "pick": 24,
-  "test-cleanup": 12,
+  "test-cleanup": 13,
   "test-counts": 79,
-  "typist-shifts": 28
+  "typist-shifts": 33
 }
