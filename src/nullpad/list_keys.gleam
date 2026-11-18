@@ -38,7 +38,7 @@ pub fn press(
   let #(anchor, head) = buffer.selection(buffer)
   let lines = buffer.lines(buffer)
   let held = holding(blocks, head.row, [])
-  let held = case unborn(held, lines, head.row) {
+  let held = case empty_child_under_words(held, lines, head.row) {
     Ok(item) ->
       Held(..held, chain: [Level(item, None, [], False), ..held.chain])
     Error(Nil) -> held
@@ -102,15 +102,15 @@ fn left(
   use <- bool.guard(!same, Error(Nil))
   let held = holding(blocks, row, [])
   use <- bool.guard(held.in_code, Error(Nil))
-  use item <- result.try(unborn(held, lines, row))
+  use item <- result.try(empty_child_under_words(held, lines, row))
   use marks <- result.try(marks_of(lines, item))
-  case hangs(line(after, row + 1), string.length(marks.lead)) {
+  case nests_under(line(after, row + 1), string.length(marks.lead)) {
     True -> Error(Nil)
     False -> Ok(row)
   }
 }
 
-fn hangs(below: String, under: Int) -> Bool {
+fn nests_under(below: String, under: Int) -> Bool {
   let #(depth, rest) = indent_of(below, 0)
   rest != "" && depth > under
 }
@@ -174,7 +174,11 @@ fn holding(blocks: List(Block), row: Int, chain: List(Level)) -> Held {
   }
 }
 
-fn unborn(held: Held, lines: List(String), row: Int) -> Result(Item, Nil) {
+fn empty_child_under_words(
+  held: Held,
+  lines: List(String),
+  row: Int,
+) -> Result(Item, Nil) {
   let text = line(lines, row)
   case held.chain, markdown.lone_item(text) {
     [here, ..], Ok(lone) if here.item.row != row -> {

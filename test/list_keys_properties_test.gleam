@@ -207,7 +207,7 @@ fn start(c: Case) -> Buffer {
   }
   let row = case
     c.at < 0,
-    list.find(item_rows, fn(row) { bare(line_at(row)) })
+    list.find(item_rows, fn(row) { marker_only(line_at(row)) })
   {
     True, Ok(row) -> row
     True, Error(Nil) | False, _ -> picked
@@ -248,7 +248,7 @@ fn words_of(text: List(Inline), depth: Int) -> List(#(String, Int)) {
 fn split(text: String, depth: Int) -> List(#(String, Int)) {
   string.replace(text, "\n", " ")
   |> string.split(" ")
-  |> list.filter(fn(word) { word != "" && !bare(word) })
+  |> list.filter(fn(word) { word != "" && !marker_only(word) })
   |> list.map(fn(word) { #(word, depth) })
 }
 
@@ -338,9 +338,9 @@ fn check(
   let story =
     string.inspect(key)
     <> " turned\n"
-    <> shown(before)
+    <> with_caret(before)
     <> "\ninto\n"
-    <> shown(after)
+    <> with_caret(after)
   assert list.map(now, fn(w) { w.0 }) == list.map(was, fn(w) { w.0 }) as story
   let moved = case holder(blocks, buffer.cursor(before).row) {
     Some(item) ->
@@ -370,7 +370,7 @@ fn fill(buffer: Buffer, typed: String) -> Buffer {
     [line, ..] -> line
     [] -> ""
   }
-  case head.col == string.length(line) && bare(line) {
+  case head.col == string.length(line) && marker_only(line) {
     True -> {
       let space = case string.ends_with(line, " ") {
         True -> ""
@@ -382,7 +382,7 @@ fn fill(buffer: Buffer, typed: String) -> Buffer {
   }
 }
 
-fn bare(line: String) -> Bool {
+fn marker_only(line: String) -> Bool {
   let rest =
     string.to_graphemes(line)
     |> list.drop_while(fn(c) { c == " " || c == ">" })
@@ -403,7 +403,7 @@ fn bare(line: String) -> Bool {
   }
 }
 
-fn shown(buffer: Buffer) -> String {
+fn with_caret(buffer: Buffer) -> String {
   let at = buffer.cursor(buffer)
   list.index_map(buffer.lines(buffer), fn(line, row) {
     case row == at.row {
@@ -462,18 +462,18 @@ fn check_leave(before: Buffer, to: Buffer, focused: Bool) -> Nil {
   let after = list_keys.leave(from: before, blocks:, to:, focused:)
   let story =
     "leaving\n"
-    <> shown(before)
+    <> with_caret(before)
     <> "\nfor\n"
-    <> shown(to)
+    <> with_caret(to)
     <> "\ngave\n"
-    <> shown(after)
+    <> with_caret(after)
   case buffer.lines(after) == buffer.lines(before) {
     True -> Nil
     False -> {
       let row = buffer.cursor(before).row
       let lines = buffer.lines(before)
       assert buffer.lines(after) == without_row(lines, row) as story
-      assert bare(line_of(lines, row)) as story
+      assert marker_only(line_of(lines, row)) as story
       assert !starts_item(blocks, row) as story
       let parsed = markdown.parse(buffer.text(after))
       assert words(parsed, 0) == words(blocks, 0) as story
