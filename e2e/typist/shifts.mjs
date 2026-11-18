@@ -8,10 +8,11 @@
 
 /**
  * A block of the note as the page paints it: a drawn element above or below the text field, or the
- * text field's own part. `row` is the first row of the note the block draws, `lines` the painted
- * lines of text in it, `lineHeights` the line heights its text is set in. A `frozen` field keeps
- * the layout of the rows it replaced until the page commits it.
- * @typedef {{ kind: string, text: string, row: string | null, field: boolean, frozen: boolean, box: Box, marginTop: number, marginBottom: number, lines: Box[], lineHeights: number[] }} Block
+ * text field's own part. `row` is the first row of the note the block draws, `rows` every row it
+ * draws counted from the first, `lines` the painted lines of text in it, `lineHeights` the line
+ * heights its text is set in. A `frozen` field keeps the layout of the rows it replaced until the
+ * page commits it.
+ * @typedef {{ kind: string, text: string, row: string | null, rows: number[], field: boolean, frozen: boolean, box: Box, marginTop: number, marginBottom: number, lines: Box[], lineHeights: number[] }} Block
  */
 
 const tolerance = 0.5;
@@ -57,8 +58,10 @@ export async function capture(cdp) {
     const index = blocks.length;
     const parts = [];
     const lineHeights = new Set();
+    const rows = new Set();
     const walk = (node) => {
       owner.set(node, index);
+      if (isElement(node) && attribute(node, 'data-row') !== null) rows.add(Number(attribute(node, 'data-row')));
       if (nodes.nodeType[node] === 3) parts.push(word(nodes.nodeValue[node]));
       else if (layoutOf.has(node) && children[node].some((child) => nodes.nodeType[child] === 3)) {
         const height = lineHeightOf(node);
@@ -75,6 +78,7 @@ export async function capture(cdp) {
       kind: field ? 'field' : [name, ...own.filter((c) => c === 'blank' || c === 'table-scroll')].join('.'),
       text: parts.join(''),
       row: field ? null : attribute(root, 'data-row'),
+      rows: field ? [] : [...rows].sort((a, b) => a - b).map((row, _, [first]) => row - first),
       field,
       frozen: field && (own.includes('framed') || own.includes('held')),
       box: boxOf(root),
@@ -99,8 +103,11 @@ export async function capture(cdp) {
   return blocks;
 }
 
-/** What makes two blocks the same block in both pages. The rows hold still unless the text changed. */
-const key = (block, typed) => (block.field ? null : `${block.kind}\0${typed ? '' : block.row}\0${block.text}`);
+/**
+ * What makes two blocks the same block in both pages: the rows it draws and its text. An empty list
+ * item draws a row and no text. The rows hold still unless the text changed.
+ */
+const key = (block, typed) => (block.field ? null : `${block.kind}\0${typed ? '' : block.row}\0${block.rows}\0${block.text}`);
 
 /**
  * The pairs [before, after] of blocks that are the same block in both, and never the text field.
