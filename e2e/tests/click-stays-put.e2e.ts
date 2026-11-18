@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { clickSeries, Editing, withRawPage } from './editing.ts';
+import { clickSeries, ctrl, Editing, withRawPage } from './editing.ts';
 import { drawnWords, drawnWordsInPage, wordAt } from './guards.ts';
 import type { Box } from './guards.ts';
 import { test } from './nullpad.ts';
@@ -192,3 +192,50 @@ for (const marks of ['#', '###', '######']) {
     expect(moved, 'words that moved when the heading was clicked').toEqual([]);
   });
 }
+
+for (const cut of [{ name: 'a line the page shows only part of', starts: 'row5x' }, { name: 'a heading at the top the page shows only part of', starts: 'head' }]) {
+  test(`a click on ${cut.name} leaves the page where it was`, async (fixtures) => {
+    const { browser, page } = fixtures;
+    const editor = new Editing(fixtures);
+    const rows = Array.from({ length: 40 }, (_, index) => `row${index}x of the note`);
+    await editor.open(`# head\n\n${rows.join('\n\n')}`);
+    await editor.press('Escape');
+    await page.nextFrame();
+    const at = await browser.evaluate((starts: string) => {
+      const sheet = document.querySelector('.page')!;
+      const line = [...sheet.querySelectorAll('[data-row]')].find((each) => each.textContent!.startsWith(starts))!;
+      sheet.scrollTop += line.getBoundingClientRect().top - sheet.getBoundingClientRect().top + line.getBoundingClientRect().height / 2;
+      const box = line.getBoundingClientRect();
+      return { x: box.left + 5, y: box.bottom - 4, top: box.top, page: sheet.getBoundingClientRect().top, scrolled: sheet.scrollTop };
+    }, cut.starts);
+    expect(at.top, 'the top of the line clicked is above the top of the page').toBeLessThan(at.page);
+    await editor.clickAt(at.x, at.y);
+    await page.nextFrame();
+    await page.nextFrame();
+
+    expect(await browser.evaluate(() => document.querySelector('.page')!.scrollTop), 'how far the page is scrolled').toBe(at.scrolled);
+  });
+}
+
+test('a click on a painted selection on a line the page shows only part of leaves the page where it was', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  const rows = Array.from({ length: 40 }, (_, index) => `row${index}x of the note`);
+  await editor.open(`# head\n\n${rows.join('\n\n')}`);
+  await editor.press(ctrl('a'));
+  await page.nextFrame();
+  expect(await browser.evaluate(() => CSS.highlights.get('nullpad-selection')?.size ?? 0), 'painted selections').toBe(1);
+  const at = await browser.evaluate(() => {
+    const sheet = document.querySelector('.page')!;
+    const line = [...sheet.querySelectorAll('[data-row]')].find((each) => each.textContent!.startsWith('row5x'))!;
+    sheet.scrollTop += line.getBoundingClientRect().top - sheet.getBoundingClientRect().top + line.getBoundingClientRect().height / 2;
+    const box = line.getBoundingClientRect();
+    return { x: box.left + 5, y: box.bottom - 4, top: box.top, page: sheet.getBoundingClientRect().top, scrolled: sheet.scrollTop };
+  });
+  expect(at.top, 'the top of the line clicked is above the top of the page').toBeLessThan(at.page);
+  await editor.clickAt(at.x, at.y);
+  await page.nextFrame();
+  await page.nextFrame();
+
+  expect(await browser.evaluate(() => document.querySelector('.page')!.scrollTop), 'how far the page is scrolled').toBe(at.scrolled);
+});

@@ -114,6 +114,32 @@ test('the check sees a cursor that has been scrolled out of view', async (fixtur
   expect(await cursorProblem(browser, 'scrolling')).toContain('out of view');
 });
 
+test('after a click the check takes a cursor on a line the page cuts as in view, and after keys it does not', async (fixtures) => {
+  const { browser, page } = fixtures;
+  const editor = new Editing(fixtures);
+  await browser.setViewport({ width: 800, height: 500 });
+  await editor.open(note);
+  const scrollBy = (by: number) =>
+    browser.evaluate((by: number) => {
+      document.querySelector('.page')!.scrollTop = by;
+      return null;
+    }, by);
+  const top = await browser.evaluate(() => {
+    const sheet = document.querySelector('.page')!;
+    const field = document.querySelector('[data-test-id="editor"]')!;
+    return field.getBoundingClientRect().top - sheet.getBoundingClientRect().top + sheet.scrollTop;
+  });
+
+  await scrollBy(top + 8);
+  await page.nextFrame();
+  expect(await cursorProblem(browser, 'scrolling', true)).toBeNull();
+  expect(await cursorProblem(browser, 'scrolling')).toContain('out of view');
+
+  await scrollBy(top + 200);
+  await page.nextFrame();
+  expect(await cursorProblem(browser, 'scrolling', true)).toContain('out of view');
+});
+
 test('the check sees a cursor that has no text field to be in', async (fixtures) => {
   const { browser } = fixtures;
   const editor = new Editing(fixtures);

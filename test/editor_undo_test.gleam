@@ -444,7 +444,7 @@ pub fn a_select_while_composing_does_not_end_the_composition_test() {
     editor.update(ed, editor.Composing(shown: caret("one n", 0, 5))).editor
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret("one n", 0, 5), at: 0))
-  assert sync == editor.InSync
+  assert sync == editor.InSyncInPlace
   let ed =
     editor.update(ed, editor.Composing(shown: caret("one に", 0, 5))).editor
 

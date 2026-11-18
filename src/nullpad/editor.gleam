@@ -422,7 +422,13 @@ pub type Edge {
 
 pub type Sync {
   InSync
+  /// As `InSync`, but the page stays where it is. A text field does not
+  /// scroll to a caret that a click puts on a line it shows only part of.
+  InSyncInPlace
   Write(Buffer)
+  /// As `Write`, but the page stays where it is, for the release that ends a
+  /// click on the painted selection.
+  WriteInPlace(Buffer)
   WriteQuietly(Buffer)
   WriteAndAim(Buffer, x: Float, line: Line, select: Bool)
   WriteAndStep(Buffer, move: Move, select: Bool, x: Option(Float))
@@ -594,9 +600,52 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 }
 
 pub fn update(editor: Editor, event: Event) -> Outcome {
-  case editor.note_choice {
+  let outcome = case editor.note_choice {
     Chosen -> follow(editor, event)
     Choosing(keys:) -> choosing(editor, keys, event)
+  }
+  case
+    outcome.sync == InSync
+    && reports(event)
+    && outcome.editor.buffer == editor.buffer
+  {
+    True -> Outcome(..outcome, sync: InSyncInPlace)
+    False -> outcome
+  }
+}
+
+/// Whether `event` reports what the field or the pointer did, rather than a
+/// key. A report that changes nothing leaves the page where it is.
+fn reports(event: Event) -> Bool {
+  case event {
+    ControlChanged(..)
+    | FocusChanged(..)
+    | Released
+    | Dragged(..)
+    | DragStarted -> True
+    Composing(..)
+    | Composed(..)
+    | KeyPressed(..)
+    | EdgePressed(..)
+    | EscapePressed(..)
+    | Pointed(..)
+    | LinePointed(..)
+    | ShiftPointed(..)
+    | Grabbed(..)
+    | WordPressed(..)
+    | SelectionPointed(..)
+    | Stepped(..)
+    | Unstepped(..)
+    | FieldStepped(..)
+    | Aimed(..)
+    | SteppedPast
+    | Settled(..)
+    | Dropped(..)
+    | UndoAsked
+    | RedoAsked
+    | KeyHeld(..)
+    | Replayed(None) -> False
+    Replayed(Some(event)) -> reports(event)
   }
 }
 
@@ -1083,11 +1132,17 @@ fn apply(editor: Editor, event: Event) -> Outcome {
     Released -> {
       let let_go = Editor(..editor, press: None, dragging: False)
       case editor.press, editor.dragging {
-        Some(PressedOnSelection(at)), False ->
-          Editor(..let_go, focus: Focused)
-          |> edit(buffer.move_to(editor.buffer, at))
-          |> realign
-          |> write
+        Some(PressedOnSelection(at)), False -> {
+          let clicked =
+            Editor(..let_go, focus: Focused)
+            |> edit(buffer.move_to(editor.buffer, at))
+            |> realign
+          Outcome(
+            editor: clicked,
+            sync: WriteInPlace(field_buffer(clicked)),
+            requests: [],
+          )
+        }
         Some(PressedOnSelection(_)), True
         | Some(PressedAt(_)), _
         | Some(PressedOnWord(..)), _
@@ -1175,7 +1230,9 @@ fn apply(editor: Editor, event: Event) -> Outcome {
           Outcome(..outcome, sync: WriteAndAct(whole, key:))
         WriteAndRead(_), None
         | InSync, _
+        | InSyncInPlace, _
         | Write(_), _
+        | WriteInPlace(_), _
         | WriteQuietly(_), _
         | WriteAndAim(..), _
         | WriteAndStep(..), _
