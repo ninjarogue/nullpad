@@ -5,6 +5,7 @@ import type { Editing } from './editing.ts';
 import { cursorProblem } from './guards.ts';
 import { pause } from './nullpad.ts';
 
+/** A line break, pressed as Shift+Enter, which starts no list item, so the field holds exactly the rows typed. */
 export const ENTER = '\n';
 export const BACKSPACE = '\b';
 export const UP = '↑';
@@ -256,7 +257,7 @@ export const walked: { name: string; draws: string[]; note: string; keys: string
 
 function keyName(key: string) {
   const names: Record<string, string> = {
-    [ENTER]: 'Enter',
+    [ENTER]: 'Shift+Enter',
     [BACKSPACE]: 'Backspace',
     [UP]: 'ArrowUp',
     [DOWN]: 'ArrowDown',
@@ -370,7 +371,7 @@ export async function typeAndMeasure(browser: Browser, text: string, keys: strin
     const heldBefore = was.field;
     let move = 0;
     if (key === ENTER) {
-      await browser.keyboard.press('Enter');
+      await browser.keyboard.press(keyName(ENTER));
       text = text.slice(0, caret) + '\n' + text.slice(caret);
       caret += 1;
     } else if (key === BACKSPACE) {
