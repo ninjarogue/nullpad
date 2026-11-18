@@ -144,7 +144,7 @@ pub fn undo_puts_back_the_selection_typed_over_test() {
   assert history.present(undone(typed)) == selected
 }
 
-pub fn a_history_keeps_a_bounded_number_of_steps_test() {
+pub fn undo_goes_back_a_thousand_edits_and_no_further_test() {
   let typed =
     int.range(1, 1501, history.new(at("", 0)), fn(history, step) {
       history.record(history, at(shown(history) <> "\n", step), at: 0)

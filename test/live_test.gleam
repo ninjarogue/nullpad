@@ -51,7 +51,7 @@ pub fn a_selection_reveals_every_block_it_touches_test() {
   assert reveal(6, 3) == Region(2, 7)
 }
 
-pub fn a_row_past_the_note_is_kept_as_asked_test() {
+pub fn an_empty_note_still_holds_its_one_row_in_the_field_test() {
   assert live.reveal([], from: 0, to: 0) == Region(0, 0)
 }
 
@@ -93,7 +93,7 @@ pub fn the_field_is_set_like_the_blocks_of_the_note_it_holds_test() {
   assert field_kind(12, 14) == live.Mono
 }
 
-pub fn a_field_with_a_blank_row_beside_its_block_is_set_like_the_block_test() {
+pub fn a_field_holding_a_blank_row_and_two_items_hangs_like_its_first_item_test() {
   assert field_kind(0, 1) == live.Title(markdown.H1)
   assert field_kind(4, 7) == live.ListItem(task: True, marker: "- [ ] ")
   assert field_kind(8, 10) == live.ListItem(task: False, marker: "1. ")
@@ -161,7 +161,7 @@ pub fn an_item_with_nothing_after_its_marker_hangs_as_if_a_space_followed_test()
   assert marker("- [ ] ") == "- [ ] "
 }
 
-pub fn the_marker_stops_where_code_in_the_item_begins_test() {
+pub fn a_dash_followed_by_code_hangs_as_a_dash_and_one_space_test() {
   assert marker("-     a") == "- "
 }
 
