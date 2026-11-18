@@ -498,7 +498,6 @@ pub fn a_key_typed_after_a_note_does_not_open_goes_into_the_note_kept_test() {
   assert editor.text(drain(typed)) == "x" <> note
 }
 
-/// What the field is written with, if anything.
 fn written(sync: editor.Sync) -> Result(buffer.Buffer, Nil) {
   case sync {
     editor.InSync | editor.InSyncInPlace | editor.HoldSelection(..) ->

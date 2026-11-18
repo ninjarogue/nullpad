@@ -4,7 +4,6 @@ import type { CDPSession, Page as Tab } from 'playwright-core';
 export const imeKey = (session: CDPSession, type: 'rawKeyDown' | 'keyUp') =>
   session.send('Input.dispatchKeyEvent', { type, key: 'k', code: 'KeyK', windowsVirtualKeyCode: 229, nativeVirtualKeyCode: 229 });
 
-/** An IME typing into the focused field of `tab`, over the DevTools protocol, as the browser sees one. */
 export class Ime {
   private constructor(private readonly session: CDPSession) {}
 
@@ -12,7 +11,6 @@ export class Ime {
     return new Ime(await tab.context().newCDPSession(tab));
   }
 
-  /** A key that makes the IME show `text`, not yet committed, with the caret after it. */
   async compose(text: string) {
     await imeKey(this.session, 'rawKeyDown');
     await this.session.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });

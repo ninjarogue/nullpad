@@ -37,11 +37,7 @@ pub opaque type Editor {
 type Choice {
   Chosen
   Choosing(keys: List(Held))
-  /// The picked note arrived while an IME composed in the field of the note
-  /// left. It opens, with `keys` and what was composed, when that ends.
   Opening(text: String, keys: List(Held))
-  /// The picked note did not open while an IME composed for it. The note
-  /// stays, without what was composed, when that ends.
   Staying
 }
 
@@ -511,8 +507,6 @@ fn fresh_keys(vim_enabled: Bool) -> Keys {
   }
 }
 
-/// An IME that composes for a note being switched to owns the field, so a
-/// note that arrives meanwhile is shown when it ends.
 pub fn open(editor: Editor, text: String) -> Outcome {
   let wait = fn(keys) {
     let editor = Editor(..editor, note_choice: Opening(text:, keys:))
@@ -688,8 +682,6 @@ fn reports(event: Event) -> Bool {
   }
 }
 
-/// An IME that starts composing while a note is picked composes for it: the
-/// field is left to it, and what it composed joins the keys when it ends.
 fn choosing(editor: Editor, event: Event) -> Outcome {
   let unchanged = Outcome(editor:, sync: InSync, requests: [])
   let wait = fn(held) {
