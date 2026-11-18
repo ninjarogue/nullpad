@@ -178,6 +178,22 @@ describe("a file under e2e/ that looks like a test", () => {
   });
 });
 
+describe("what the configs discover", () => {
+  test("is read whole however long the list of tests is", () => {
+    const many = `import { test } from '@e2e-dev/web';\nimport { expect } from 'e2e';\nfor (let n = 0; n < 3000; n++) test(\`\${"a test with a long name ".repeat(19)}\${n}\`, ${body});\n`;
+    const { status, out } = check(toy({ "tests/ok.e2e.ts": okTest, "tests/many.e2e.ts": many }));
+    assert.equal(status, 0, out.slice(0, 2000));
+    assert.match(out, /one of the 2 the configs discover/);
+  });
+
+  test("cannot be read when the runner does not start, and the failure says why", () => {
+    const run = spawnSync(process.execPath, [join(root, "test/e2e_discovery.mjs"), toy(notTests)], { encoding: "utf8", env: { ...process.env, PATH: "" }, timeout: 120_000 });
+    const out = `${run.stdout}${run.stderr}`;
+    assert.equal(run.status, 1, out);
+    assert.match(out, /ENOENT/);
+  });
+});
+
 const lazily = (make) => {
   let value;
   return () => (value ??= make());
