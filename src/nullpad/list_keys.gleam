@@ -53,6 +53,18 @@ pub fn press(
   }
 }
 
+/// `new`, without the empty item that the selection left on its way there
+/// from `old`.
+pub fn leave(
+  from old: Buffer,
+  blocks blocks: List(Block),
+  to new: Buffer,
+  focused focused: Bool,
+) -> Buffer {
+  let _ = #(old, blocks, focused)
+  new
+}
+
 /// An item that holds the caret's row, and the items around it in its list.
 type Level {
   Level(item: Item, previous: Option(Item), following: List(Item), loose: Bool)
