@@ -1,7 +1,9 @@
 //// Random lists and random Enter, Tab and Shift+Tab presses. After every
 //// press that does something, the note is parsed again and three promises
 //// are checked: no words are lost or reordered, items the key did not move
-//// keep their depth, and every numbered list counts up by one.
+//// keep their depth, and every numbered list counts up by one. Then the
+//// selection leaves the row it is on, and the only change that may follow
+//// is that row, a marker with nothing after it, going.
 
 import gleam/int
 import gleam/list
@@ -444,4 +446,93 @@ pub fn list_keys_keep_words_depths_and_numbers_test() {
   let config = qcheck.default_config() |> qcheck.with_test_count(800)
   use c <- qcheck.run(config, case_())
   run(start(c), c.keys, 0)
+}
+
+/// The headings the note draws.
+fn headings(blocks: List(Block)) -> Int {
+  use count, block <- list.fold(blocks, 0)
+  count
+  + case block.content {
+    Heading(..) -> 1
+    BulletList(items:, ..) | OrderedList(items:, ..) ->
+      list.fold(items, 0, fn(inner, item: Item) {
+        inner + headings(item.blocks)
+      })
+    Quote(blocks:) -> headings(blocks)
+    Paragraph(..) | CodeBlock(..) | Rule | Table(..) -> 0
+  }
+}
+
+fn without_row(lines: List(String), row: Int) -> List(String) {
+  list.append(list.take(lines, row), list.drop(lines, row + 1))
+}
+
+/// What leaving the row the caret is on may do to `before`: nothing, or take
+/// out that row alone when it is a marker with nothing after it that the
+/// parse reads as words, not as an item. Never a word, and never the depth of
+/// a word. A heading may go, and none may come.
+fn check_leave(before: Buffer, to: Buffer, focused: Bool) -> Nil {
+  let blocks = markdown.parse(buffer.text(before))
+  let after = list_keys.leave(from: before, blocks:, to:, focused:)
+  let story =
+    "leaving\n"
+    <> shown(before)
+    <> "\nfor\n"
+    <> shown(to)
+    <> "\ngave\n"
+    <> shown(after)
+  case buffer.lines(after) == buffer.lines(before) {
+    True -> Nil
+    False -> {
+      let row = buffer.cursor(before).row
+      let lines = buffer.lines(before)
+      assert buffer.lines(after) == without_row(lines, row) as story
+      assert bare(line_of(lines, row)) as story
+      assert !starts_item(blocks, row) as story
+      let parsed = markdown.parse(buffer.text(after))
+      assert words(parsed, 0) == words(blocks, 0) as story
+      assert headings(parsed) <= headings(blocks) as story
+    }
+  }
+}
+
+/// Whether the parse reads `row` as the start of an item.
+fn starts_item(blocks: List(Block), row: Int) -> Bool {
+  case holder(blocks, row) {
+    Some(item) -> item.row == row
+    None -> False
+  }
+}
+
+fn line_of(lines: List(String), row: Int) -> String {
+  case list.drop(lines, row) {
+    [line, ..] -> line
+    [] -> ""
+  }
+}
+
+fn run_leaving(buffer: Buffer, keys: List(list_keys.Key)) -> Nil {
+  assert list_keys.leave(
+      from: buffer,
+      blocks: markdown.parse(buffer.text(buffer)),
+      to: buffer,
+      focused: True,
+    )
+    == buffer
+  check_leave(buffer, buffer.move_to(buffer, Position(0, 0)), True)
+  check_leave(buffer, buffer, False)
+  case keys {
+    [] -> Nil
+    [key, ..rest] ->
+      case list_keys.press(buffer, markdown.parse(buffer.text(buffer)), key) {
+        Error(Nil) -> Nil
+        Ok(after) -> run_leaving(after, rest)
+      }
+  }
+}
+
+pub fn leaving_an_empty_item_loses_no_word_and_moves_no_item_test() {
+  let config = qcheck.default_config() |> qcheck.with_test_count(800)
+  use c <- qcheck.run(config, case_())
+  run_leaving(start(c), c.keys)
 }
