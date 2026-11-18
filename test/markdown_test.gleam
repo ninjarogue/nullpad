@@ -409,6 +409,30 @@ pub fn a_long_run_of_spaces_around_a_marker_is_read_whole_test() {
   assert !lone("-" <> gap <> "b")
 }
 
+pub fn the_end_of_a_row_loses_only_the_white_space_trim_end_takes_test() {
+  assert markdown.trim_end("a  ") == "a"
+  assert markdown.trim_end("a \t\u{0B}\u{0C}\r\n\u{85}\u{2028}\u{2029}") == "a"
+  assert markdown.trim_end(" a b ") == " a b"
+  assert markdown.trim_end("a\u{A0}") == "a\u{A0}"
+  assert markdown.trim_end("a \u{301}") == "a \u{301}"
+  assert markdown.trim_end("\u{600} ") == "\u{600}"
+  assert markdown.trim_end("   ") == ""
+  assert markdown.trim_end("") == ""
+  let gap = string.repeat(" ", 20_000)
+  assert markdown.trim_end("a" <> gap <> "b" <> gap) == "a" <> gap <> "b"
+}
+
+pub fn a_row_is_blank_when_nothing_but_white_space_is_in_it_test() {
+  assert markdown.is_blank("")
+  assert markdown.is_blank(" \t\u{0B}\u{0C}\r\n\u{85}\u{2028}\u{2029}")
+  assert !markdown.is_blank(" a ")
+  assert !markdown.is_blank("\u{A0}")
+  assert !markdown.is_blank(" \u{301}")
+  let gap = string.repeat(" ", 20_000)
+  assert markdown.is_blank(gap)
+  assert !markdown.is_blank(gap <> "a" <> gap)
+}
+
 pub fn a_marker_ends_at_one_space_when_code_follows_it_test() {
   assert content_col("-     a") == 2
 }

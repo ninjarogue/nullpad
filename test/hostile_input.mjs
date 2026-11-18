@@ -7,6 +7,17 @@
 // Not part of `gleam test`: timings are too noisy for CI.
 
 import {
+  Position,
+  from_text,
+  move_to,
+} from "../build/dev/javascript/nullpad/nullpad/buffer.mjs";
+import {
+  Indent,
+  NewItem,
+  Outdent,
+  press,
+} from "../build/dev/javascript/nullpad/nullpad/list_keys.mjs";
+import {
   lone_item,
   parse,
 } from "../build/dev/javascript/nullpad/nullpad/markdown.mjs";
@@ -151,6 +162,29 @@ const marker_rows = {
     " ".repeat(n) + "-" + " ".repeat(n),
 };
 
+const keys = {
+  "Enter at the end of a row with a long gap inside": {
+    key: new NewItem(),
+    row: 0,
+    note: (n) => "- a" + " ".repeat(n * 2) + "b",
+  },
+  "Tab on a row with a long gap inside": {
+    key: new Indent(),
+    row: 1,
+    note: (n) => "- a\n- b" + " ".repeat(n * 2) + "c",
+  },
+  "Tab on an item with a long gap in the row under it": {
+    key: new Indent(),
+    row: 1,
+    note: (n) => "- a\n- b\n  c" + " ".repeat(n * 2) + "d",
+  },
+  "Shift+Tab on a row with a long gap inside": {
+    key: new Outdent(),
+    row: 1,
+    note: (n) => "- a\n  - b" + " ".repeat(n * 2) + "c",
+  },
+};
+
 function time(work, source) {
   let fastest = Infinity;
   for (let run = 0; run < RUNS; run++) {
@@ -174,6 +208,15 @@ const cases = [
     name,
     build,
     lone_item,
+  ]),
+  ...Object.entries(keys).map(([name, { key, row, note }]) => [
+    name,
+    (n) => {
+      const text = note(n);
+      const at = new Position(row, text.split("\n")[row].length);
+      return { buffer: move_to(from_text(text), at), blocks: parse(text) };
+    },
+    ({ buffer, blocks }) => press(buffer, blocks, key),
   ]),
 ];
 

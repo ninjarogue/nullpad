@@ -160,7 +160,7 @@ fn new_item(
       }
       lines
       |> renumber(here.following, after: before)
-      |> set_rows(from.row, [string.trim_end(carried), carried])
+      |> set_rows(from.row, [markdown.trim_end(carried), carried])
       |> Ok
     }
     False, False, _ -> {
@@ -173,7 +173,7 @@ fn new_item(
       let row = line(lines, from.row)
       let kept_before =
         string.slice(row, 0, from.col)
-        |> string.trim_end
+        |> markdown.trim_end
         |> string.length
         |> int.max(words)
       let rest = string.drop_start(row, to.col)
@@ -182,7 +182,7 @@ fn new_item(
       let mark = next(marks.mark)
       let carried = markdown.carry(marks.lead)
       let gap = case here.loose {
-        True -> "\n" <> string.trim_end(carried)
+        True -> "\n" <> markdown.trim_end(carried)
         False -> ""
       }
       let prefix = gap <> "\n" <> carried <> marker(marks, mark, item)
@@ -313,7 +313,7 @@ fn outdent(
   use outer <- result.try(marks_of(lines, parent.item))
   let at = string.length(outer.lead)
   let by = string.length(marks.lead) - at
-  let blank = string.slice(marks.lead, at, by) |> string.trim == ""
+  let blank = markdown.is_blank(string.slice(marks.lead, at, by))
   case by > 0 && blank {
     False -> Error(Nil)
     True -> {
@@ -393,7 +393,7 @@ fn push(
   by: Int,
 ) -> List(String) {
   use text, row <- list.index_map(lines)
-  case by == 0 || row < first || row > last || string.trim(text) == "" {
+  case by == 0 || row < first || row > last || markdown.is_blank(text) {
     True -> text
     False -> {
       let after = string.drop_start(text, at)
@@ -436,7 +436,7 @@ fn shift(
 ) -> Buffer {
   let last = last_row(item)
   let moved = fn(row, text) {
-    case row < item.row || row > last || string.trim(text) == "" {
+    case row < item.row || row > last || markdown.is_blank(text) {
       True -> text
       False -> {
         let after = string.drop_start(text, at)

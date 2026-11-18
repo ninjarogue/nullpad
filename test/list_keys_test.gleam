@@ -292,3 +292,20 @@ pub fn enter_in_a_loose_list_keeps_a_blank_row_between_items_test() {
   assert press("1. a\n\n2. b|\n\n3. c", vim.Enter)
     == "1. a\n\n2. b\n\n3. |\n\n4. c"
 }
+
+pub fn a_long_run_of_spaces_inside_a_row_changes_nothing_the_keys_do_test() {
+  let gap = string.repeat(" ", 20_000)
+  assert press("- a" <> gap <> "b|", vim.Enter) == "- a" <> gap <> "b\n- |"
+  assert press("- a" <> gap <> "|b", vim.Enter) == "- a\n- |b"
+  assert press("- a\n- b" <> gap <> "c|", vim.Tab)
+    == "- a\n  - b" <> gap <> "c|"
+  assert press("- a\n  - b" <> gap <> "c|", vim.BackTab)
+    == "- a\n- b" <> gap <> "c|"
+  assert press("- a\n- b|\n  c" <> gap <> "d", vim.Tab)
+    == "- a\n  - b|\n    c" <> gap <> "d"
+}
+
+pub fn a_row_of_only_spaces_inside_an_item_is_not_moved_with_it_test() {
+  assert press("- a\n- b|\n    \n  c", vim.Tab) == "- a\n  - b|\n    \n    c"
+  assert press("- a\n  - b|\n  \n    c", vim.BackTab) == "- a\n- b|\n  \n  c"
+}

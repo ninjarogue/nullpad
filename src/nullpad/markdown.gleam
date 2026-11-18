@@ -1932,7 +1932,19 @@ fn after_digits(text: String, count: Int) -> #(Int, String) {
   }
 }
 
-fn is_blank(text: String) -> Bool {
+/// `text` without the white space at its end, as `string.trim_end` takes it
+/// off. That one is a regex that tries again from every space of a run
+/// inside the text, so a row with a long run of spaces in it is slow.
+pub fn trim_end(text: String) -> String {
+  string.to_utf_codepoints(text)
+  |> list.reverse
+  |> list.drop_while(fn(char) { is_blank(string.from_utf_codepoints([char])) })
+  |> list.reverse
+  |> string.from_utf_codepoints
+}
+
+/// Whether `text` is nothing but the white space `string.trim` takes off.
+pub fn is_blank(text: String) -> Bool {
   case text {
     "" -> True
     " " <> rest
