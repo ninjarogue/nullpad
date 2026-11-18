@@ -981,9 +981,14 @@ fn key_held_behind_page_decoder(
   let handler =
     on_event(editor.KeyHeld(held))
     |> event.handler(prevent_default: True, stop_propagation: True)
+  let claimed =
+    parse_key(key, ctrl, shift, meta || alt || composing)
+    |> result.map(editor.claims(current_editor(), _))
   case
     editor.keys_wait(current_editor())
-    && editor.replay_matches_browser(held, keyboard())
+    && {
+      claimed == Ok(True) || editor.replay_matches_browser(held, keyboard())
+    }
     && !composing
     && key_code != 229
   {
