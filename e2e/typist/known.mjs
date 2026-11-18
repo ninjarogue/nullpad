@@ -1,3 +1,6 @@
+const near = (n, to) => Math.abs(Math.abs(n) - to) < 0.2;
+const fieldText = (problem) => problem.blocks.filter((b) => b.kind === 'field').map((b) => b.text);
+
 export const isVertical = (k) => /^(Control\+)?(Shift\+)?Arrow(Up|Down)$|^(Shift\+)?Page(Up|Down)$/.test(k);
 const isPage = (k) => /Page(Up|Down)$/.test(k);
 const isShiftHorizontal = (k) => /^(Control\+)?Shift\+(Arrow(Left|Right)|Home|End)$/.test(k);
@@ -72,6 +75,63 @@ export const known = [
       const beside = /Right$/.test(k) ? c.value.slice(c.head, c.head + 2) : c.value.slice(Math.max(0, c.head - 2), c.head);
       return anyMark.test(beside);
     },
+    sanitize: (script) => script,
+  },
+  {
+    id: 'fence-one-pixel',
+    kind: 'open',
+    reason: 'A fenced code block is drawn 1px taller than the rows of its text field, so everything below it moves 1px when the cursor enters or leaves it.',
+    repro: [{ paste: '```\ncode\n```' }, 'Enter', 'ArrowUp'],
+    pace: 'frame',
+    shift: (problem) => near(problem.change, 1) && problem.blocks.some((b) => b.kind === 'pre'),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'unclosed-fence-row',
+    kind: 'open',
+    reason: 'A code fence that is never closed is drawn as an empty block with both fence rows, 21px more than its one row in the text field.',
+    repro: ['3', { paste: '```\ncode\n```' }, 'Control+Home'],
+    pace: 'frame',
+    shift: (problem) => near(problem.change, 21) && problem.blocks.some((b) => b.kind === 'pre' && b.text === ''),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'indented-code-panel',
+    kind: 'open',
+    reason:
+      'An indented code block is drawn as a panel with 43px of padding above and below its lines, but its rows in the text field are bare lines with no fence rows to stand for the padding, so the blocks below move 43px when the cursor enters or leaves it.',
+    repro: [{ paste: 'a\n\n    code\n\nb' }, 'Control+Home', 'ArrowDown', 'ArrowDown'],
+    pace: 'frame',
+    shift: (problem) => (near(problem.change, 43) || near(problem.change, 44)) && problem.blocks.some((b) => b.kind === 'pre'),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'table-height',
+    kind: 'open',
+    reason:
+      'A table is drawn with cell padding and borders, so it is not as tall as the rows it opens as in the text field: a table with one body row is 10.37px shorter than its three rows, and the blocks below move that much when the cursor enters or leaves it.',
+    repro: [{ paste: '| a | b |\n|---|---|\n| 1 | 2 |\n\nb' }, 'Control+Home'],
+    pace: 'frame',
+    shift: (problem) => problem.blocks.some((b) => b.kind === 'div.table-scroll'),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'first-list-margins',
+    kind: 'open',
+    reason:
+      'A list at the top of the note is drawn 4px lower than the same item in the text field, which gives up its margin there, and what follows the item is 4px lower again, so the text moves 4px or 8px when the cursor enters or leaves it.',
+    repro: [{ paste: '- a\n\nb' }, 'Control+Home'],
+    pace: 'frame',
+    shift: (problem) => (near(problem.change, 4) || near(problem.change, 8)) && problem.blocks.some((b) => b.kind === 'ul' || b.kind === 'ol'),
+    sanitize: (script) => script,
+  },
+  {
+    id: 'code-span-over-rows',
+    kind: 'open',
+    reason: 'A code span that runs over two rows is drawn on one line, but its text field has two, so the blocks below move one line when the cursor enters it.',
+    repro: ['`', 'Enter', '`', 'Enter', 'Control+ArrowUp'],
+    pace: 'frame',
+    shift: (problem) => fieldText(problem).some((text) => /`[^`]*\n[^`]*`/.test(text)),
     sanitize: (script) => script,
   },
 ];

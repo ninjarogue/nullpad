@@ -117,6 +117,7 @@ function toy(files, { configs = {} } = {}) {
   symlinkSync(join(real, "node_modules"), join(dir, "node_modules"));
   copyFileSync(join(real, "package.json"), join(dir, "package.json"));
   copyFileSync(join(real, "e2e.config.ts"), join(dir, "e2e.config.ts"));
+  copyFileSync(join(real, "engine.ts"), join(dir, "engine.ts"));
   for (const [name, text] of Object.entries({ ...configs, ...files })) {
     mkdirSync(dirname(join(dir, name)), { recursive: true });
     writeFileSync(join(dir, name), text);
