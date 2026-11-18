@@ -35,7 +35,7 @@ pub type Action {
   Select(at: Int, length: Int, backward: Bool)
   Point(pointer: Pointer, row: Int, col: Int, at_end: Bool)
   Key(key: vim.Key)
-  Edge(edge: editor.Edge, x: Float)
+  Edge(edge: editor.Edge, x: Option(Float))
   Escape
   Release
   StartDrag
@@ -227,7 +227,7 @@ pub fn anything() -> Generator(Action) {
   gen.weighted(#(10, typing()), [
     #(6, qcheck.map4(pointer(), row(), offset(), qcheck.bool(), Point)),
     #(5, qcheck.map(key(), Key)),
-    #(4, qcheck.map2(edge(), x(), Edge)),
+    #(4, qcheck.map2(edge(), aimed_x(), Edge)),
     #(1, qcheck.return(Escape)),
     #(1, qcheck.return(Release)),
     #(1, qcheck.return(StartDrag)),
