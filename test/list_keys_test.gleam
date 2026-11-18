@@ -94,6 +94,12 @@ pub fn enter_on_an_empty_item_ends_the_list_test() {
   assert press("- [ ] a\n- [ ] |", vim.Enter) == "- [ ] a\n\n|"
 }
 
+pub fn ending_an_empty_item_inside_a_numbered_list_keeps_the_count_test() {
+  assert press("1. a\n2. |\n3. b\n4. c", vim.Enter) == "1. a\n\n|\n2. b\n3. c"
+  assert press("8. a\n9. |\n10. b\n    - x", vim.Enter)
+    == "8. a\n\n|\n9. b\n   - x"
+}
+
 pub fn enter_on_an_empty_nested_item_moves_it_out_a_level_test() {
   assert press("- a\n  - b\n  - |", vim.Enter) == "- a\n  - b\n- |"
   assert press("1. a\n   - b\n   - |", vim.Enter) == "1. a\n   - b\n2. |"
@@ -119,6 +125,10 @@ pub fn tab_nests_an_item_under_the_one_above_test() {
   assert press("- a\n- b|\n  - c", vim.Tab) == "- a\n  - b|\n    - c"
 }
 
+pub fn tab_under_an_empty_item_of_a_loose_list_changes_nothing_test() {
+  assert press("- a\n\n-\n\n- b|", vim.Tab) == "- a\n\n-\n\n- b|"
+}
+
 pub fn tab_on_a_first_item_changes_nothing_test() {
   assert press("- a|", vim.Tab) == "- a|"
   assert press("plain|", vim.Tab) == "plain|"
@@ -127,6 +137,15 @@ pub fn tab_on_a_first_item_changes_nothing_test() {
 pub fn shift_tab_moves_a_nested_item_out_test() {
   assert press("- a\n  - b|", vim.BackTab) == "- a\n- b|"
   assert press("1. a\n   1. b|", vim.BackTab) == "1. a\n2. b|"
+}
+
+pub fn shift_tab_keeps_the_items_below_under_the_moved_item_test() {
+  assert press("1. a\n   1. b|\n      1. x\n   2. c", vim.BackTab)
+    == "1. a\n2. b|\n   1. x\n   2. c"
+  assert press("- a\n  1) b\n  2) c|\n  3) d", vim.BackTab)
+    == "- a\n  1) b\n2) c|\n   1) d"
+  assert press("10. a\n    - b|\n    - c", vim.BackTab) == "10. a\n- b|\n  - c"
+  assert press("- a\n  - b|\n  2) c", vim.BackTab) == "- a\n- b|\n  1) c"
 }
 
 pub fn shift_tab_on_a_top_item_changes_nothing_test() {
