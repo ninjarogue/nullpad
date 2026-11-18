@@ -941,8 +941,14 @@ pub fn atx_heading_prefix(line: String) -> String {
   }
 }
 
+/// The run of `=` or `-` on the last row of a setext heading, without the
+/// quote marks and indent before it and the spaces after it.
 pub fn setext_underline(line: String) -> String {
   line
+  |> string.to_graphemes
+  |> list.drop_while(fn(char) { char == ">" || char == " " || char == "\t" })
+  |> list.take_while(fn(char) { char == "=" || char == "-" })
+  |> string.concat
 }
 
 /// The optional closing run of `#` goes when a space or tab comes before it,

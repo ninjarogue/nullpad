@@ -281,7 +281,12 @@ pub fn laying_out_one_line_then_moving_away_matches_laying_out_the_whole_note_te
     )
   let typed = list.fold(actions, start, script.run)
   let away = script.run(typed, leaving(typed.editor, how, shift)).editor
-  assert editor.blocks(away) == markdown.parse(editor.text(away))
+  let text = editor.text(away)
+  assert editor.blocks(away)
+    == live.setext_as_typed(
+      markdown.parse(text),
+      buffer.lines(buffer.from_text(text)),
+    )
     as "the page drawn is not the page the whole note lays out"
 }
 

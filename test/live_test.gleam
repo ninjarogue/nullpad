@@ -305,6 +305,10 @@ const corpus = [
   Drawn(["# Heading **one**"], "Heading one"),
   Drawn(["## Packing"], "Packing"),
   Drawn(["Setext", "======"], "Setext"),
+  Drawn(["Setext", "======"], "Setext\n======"),
+  Drawn(["Hello", "---  "], "Hello\n---"),
+  Drawn(["> Hello", "> ---"], "Hello\n---"),
+  Drawn(["- Hello", "  ==="], "Hello\n==="),
   Drawn(
     [
       "A **bold** _it_ *em* ~~gone~~ `co*de` [link](http://x.y \"t\") \\*esc\\* &amp; tail",

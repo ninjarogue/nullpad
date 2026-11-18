@@ -54,7 +54,7 @@ the page: undo across blocks, and a selection that leaves the field.
 ## Markdown
 
 The parser is hand-written and follows [CommonMark](https://spec.commonmark.org/0.31.2/)
-for what nullpad supports: headings (`#` and underlined with `===` or `---`),
+for what nullpad supports: headings (`#`, and a line underlined with `===` or `---`, which the page draws as body text with its underline),
 paragraphs, thematic breaks, block quotes with lazy lines, bullet and ordered
 lists (nested, tight or loose), fenced and indented code blocks, emphasis,
 code spans, inline links and backslash escapes. From GitHub Flavored Markdown

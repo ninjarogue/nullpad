@@ -405,7 +405,10 @@ for (const [block, words] of [
   });
 }
 
-for (const block of ['- Hello\n  ===', '> Hello\n> ---']) {
+for (const [block, container, drawn] of [
+  ['- Hello\n  ===', 'li', 'Hello ==='],
+  ['> Hello\n> ---', 'blockquote', 'Hello ---'],
+]) {
   test(`a setext heading of two rows, ${JSON.stringify(block)}, is set as body text in the field`, async ({
     app,
     browser,
@@ -413,7 +416,8 @@ for (const block of ['- Hello\n  ===', '> Hello\n> ---']) {
     page,
   }) => {
     await open({ app, disk, page }, block);
-    await expect(page.drawnIn('live-below', 'h1, h2')).toHaveText('Hello');
+    await expect(page.drawnIn('live-below', 'h1, h2')).toHaveCount(0);
+    await expect(page.drawnIn('live-below', container)).toHaveText(drawn);
     await browser.keyboard.press('ArrowDown');
     await browser.keyboard.press('ArrowDown');
     await expect(page.text).toHaveValue(block);

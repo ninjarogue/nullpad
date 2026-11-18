@@ -66,7 +66,7 @@ const allTyped: { name: string; draws: string[]; samples: Sample[] }[] = [
   },
   {
     name: 'setext headings and the lines that look like their underline',
-    draws: ['h1', 'h2', 'p', 'ul', 'ol', 'blockquote'],
+    draws: ['p', 'ul', 'ol', 'blockquote'],
     samples: [
       { name: 'a line then a dash', keys: rows('text', '-') },
       { name: 'equals signs and dashes', keys: rows('Title', '===', '', 'Sub', '---', '', 'body') },
@@ -153,7 +153,7 @@ const allTyped: { name: string; draws: string[]; samples: Sample[] }[] = [
   },
   {
     name: 'marks typed at the start of a row that is already there',
-    draws: ['h1', 'h2', 'ul', 'blockquote', 'pre', 'p'],
+    draws: ['h1', 'ul', 'blockquote', 'pre', 'p'],
     samples: [
       { name: 'a list marker on the second line of a paragraph', keys: rows('one', 'two', 'three') + `${UP}${HOME}- ${DOWN}x` },
       { name: 'a quote marker on the second line of a paragraph', keys: rows('one', 'two', 'three') + `${UP}${HOME}> ${DOWN}x` },

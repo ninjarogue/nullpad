@@ -869,7 +869,7 @@ test('a dash typed under a line leaves that line drawn as it was', async ({ app,
   }
 });
 
-test('the caret moving between a heading and its underline keeps the heading as it is', async ({
+test('the caret moving between a line and its underline keeps the field as it is', async ({
   app,
   browser,
   disk,
@@ -882,14 +882,14 @@ test('the caret moving between a heading and its underline keeps the heading as 
 
   await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('Hello\n-');
-  await expect.poll(() => sizeOf(page)).toBe('24px');
-  const heading = await page.fieldFont();
+  await expect.poll(() => sizeOf(page)).toBe('16px');
+  const font = await page.fieldFont();
   const words = await page.placeOf('Hello');
 
   for (const key of ['ArrowDown', 'End', 'ArrowUp', 'Home', 'ArrowDown']) {
     await browser.keyboard.press(key);
     await expect(page.text).toHaveValue('Hello\n-');
-    expect({ key, font: await page.fieldFont() }).toEqual({ key, font: heading });
+    expect({ key, font: await page.fieldFont() }).toEqual({ key, font });
     expect({ key, words: await page.placeOf('Hello') }).toEqual({ key, words });
   }
 });
@@ -926,7 +926,7 @@ test('a line typed between a line and its underline stays on its own row', async
   await browser.keyboard.type('Hello\n--');
   await browser.keyboard.press('ArrowUp');
   await expect(page.text).toHaveValue('Hello\n--');
-  await expect.poll(() => sizeOf(page)).toBe('24px');
+  await expect.poll(() => sizeOf(page)).toBe('16px');
 
   await browser.keyboard.press('End');
   await browser.keyboard.press('Enter');
@@ -1121,7 +1121,8 @@ test('a window switch while a row is typed keeps the page as it is', async ({ ap
   await expect(page.drawnIn('live-above', 'p')).toHaveText('Hello');
 
   await browser.keyboard.press('Escape');
-  await expect(page.preview.getByRole('heading')).toHaveText('Hello');
+  await expect(page.preview.getByRole('heading')).toHaveCount(0);
+  await expect.poll(() => page.innerText('p')).toBe('Hello\n--');
 });
 
 test('a click on the title while a row is typed lays out the page', async ({ app, browser, disk, page }) => {
@@ -1129,7 +1130,8 @@ test('a click on the title while a row is typed lays out the page', async ({ app
   await browser.keyboard.type('Hello\n-');
   await expect(page.text).toHaveValue('-');
   await page.title.tap();
-  await expect(page.preview.getByRole('heading')).toHaveText('Hello');
+  await expect(page.preview.getByRole('heading')).toHaveCount(0);
+  await expect.poll(() => page.innerText('p')).toBe('Hello\n-');
 });
 
 test('Escape after a selection across blocks keeps only the caret, so a key typed later replaces nothing', async ({
@@ -1396,7 +1398,8 @@ test('a row joined by Delete or Backspace leaves the rows around it drawn while 
   expect((await page.fieldFont()).size).toBe('16px');
 
   await browser.keyboard.press('ArrowDown');
-  await expect(page.drawn('h2')).toHaveText('text');
+  await expect(page.drawn('h2')).toHaveCount(0);
+  await expect(page.drawn('p')).toHaveText(['text -', 'after']);
   await page.markdown.tap();
   await expect(page.text).toHaveValue('text\n-\n\nafter');
 });

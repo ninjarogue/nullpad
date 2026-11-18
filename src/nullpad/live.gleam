@@ -9,7 +9,7 @@ import gleam/string
 import nullpad/buffer.{type Position, Position}
 import nullpad/markdown.{
   type Block, type Item, type Level, type Task, Block, BulletList, CodeBlock,
-  Heading, Item, OrderedList, Paragraph, Quote, Rule, Table, Task,
+  Heading, Item, OrderedList, Paragraph, Quote, Rule, Table, Task, Text,
 }
 
 pub const row_mark = "row"
@@ -537,11 +537,57 @@ fn shift_item(item: Item, move: fn(Int) -> Int) -> Item {
   )
 }
 
+/// The blocks as the page draws them: a setext heading is a paragraph over
+/// the same rows, its words and then its underline as typed, so an underline
+/// never makes the line above a heading. `lines` are the rows of the note
+/// `blocks` came from. Headings come in row order, so each one reads its
+/// underline from where the last one left off.
 pub fn setext_as_typed(
   blocks: List(Block),
-  lines _lines: List(String),
+  lines: List(String),
 ) -> List(Block) {
+  let #(_, blocks) = list.map_fold(blocks, Rest(0, lines), as_typed_block)
   blocks
+}
+
+type Rest {
+  Rest(row: Int, lines: List(String))
+}
+
+fn as_typed_block(rest: Rest, block: Block) -> #(Rest, Block) {
+  case block.content {
+    Heading(text:, ..) if block.first_row < block.last_row -> {
+      let rest =
+        Rest(block.last_row, list.drop(rest.lines, block.last_row - rest.row))
+      let underline = case rest.lines {
+        [line, ..] -> markdown.setext_underline(line)
+        [] -> ""
+      }
+      let words = list.append(text, [Text("\n" <> underline)])
+      #(rest, Block(..block, content: Paragraph(words)))
+    }
+    BulletList(spacing:, items:) -> {
+      let #(rest, items) = list.map_fold(items, rest, as_typed_item)
+      #(rest, Block(..block, content: BulletList(spacing:, items:)))
+    }
+    OrderedList(start:, spacing:, items:) -> {
+      let #(rest, items) = list.map_fold(items, rest, as_typed_item)
+      #(rest, Block(..block, content: OrderedList(start:, spacing:, items:)))
+    }
+    Quote(blocks:) -> {
+      let #(rest, blocks) = list.map_fold(blocks, rest, as_typed_block)
+      #(rest, Block(..block, content: Quote(blocks)))
+    }
+    Heading(..) | Paragraph(..) | CodeBlock(..) | Rule | Table(..) -> #(
+      rest,
+      block,
+    )
+  }
+}
+
+fn as_typed_item(rest: Rest, item: Item) -> #(Rest, Item) {
+  let #(rest, blocks) = list.map_fold(item.blocks, rest, as_typed_block)
+  #(rest, Item(..item, blocks:))
 }
 
 /// The blocks with the box at the row and column of `task` ticked or not.

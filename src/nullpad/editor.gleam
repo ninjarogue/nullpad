@@ -2136,6 +2136,7 @@ fn common(
 
 fn parse(buffer: Buffer) -> List(Block) {
   markdown.parse(buffer.text(buffer))
+  |> live.setext_as_typed(buffer.lines(buffer))
 }
 
 fn realign(editor: Editor) -> Editor {

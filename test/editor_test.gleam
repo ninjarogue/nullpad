@@ -1700,6 +1700,11 @@ fn point(ed: Editor, row: Int) -> Editor {
   ).editor
 }
 
+fn drawn_from(text: String) -> List(markdown.Block) {
+  markdown.parse(text)
+  |> live.setext_as_typed(buffer.lines(buffer.from_text(text)))
+}
+
 pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_test() {
   let ed = live("~~wow~~") |> show(caret("~~wow~~\n", 1, 0))
   assert editor.region(ed) == Some(Region(1, 1))
@@ -1719,9 +1724,8 @@ pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_t
       editor.EdgePressed(editor.Up, x: Some(0.0), shown: caret("-", 0, 1)),
     )
   assert editor.region(ed) == Some(Region(0, 1))
-  assert editor.blocks(ed) == markdown.parse("~~wow~~\n-")
-  assert editor.kind(ed)
-    == Some(live.Title(level: markdown.H2, typed_marks: ""))
+  assert editor.blocks(ed) == drawn_from("~~wow~~\n-")
+  assert editor.kind(ed) == Some(live.Body)
 }
 
 fn underlined(line: String, underline: String) -> Editor {
@@ -1762,18 +1766,15 @@ pub fn a_note_opened_on_a_setext_heading_sets_the_field_as_body_text_test() {
 }
 
 pub fn moving_inside_a_block_never_changes_how_the_field_is_set_test() {
-  let heading = "Hello\n-"
-  let ed = live(heading)
-  assert editor.kind(ed)
-    == Some(live.Title(level: markdown.H2, typed_marks: ""))
+  let text = "Hello\n-"
+  let ed = live(text)
+  assert editor.kind(ed) == Some(live.Body)
 
-  let ed = show(ed, caret(heading, 1, 1))
+  let ed = show(ed, caret(text, 1, 1))
   assert editor.region(ed) == Some(Region(0, 1))
-  assert editor.kind(ed)
-    == Some(live.Title(level: markdown.H2, typed_marks: ""))
-  let ed = show(ed, caret(heading, 0, 2))
-  assert editor.kind(ed)
-    == Some(live.Title(level: markdown.H2, typed_marks: ""))
+  assert editor.kind(ed) == Some(live.Body)
+  let ed = show(ed, caret(text, 0, 2))
+  assert editor.kind(ed) == Some(live.Body)
 
   let table = "| a | b |\n|-|-|\n| 1 | 2 |"
   let ed = live(table)
@@ -1849,20 +1850,19 @@ pub fn leaving_the_field_draws_the_page_from_the_text_test() {
     editor.update(ed, editor.FocusChanged(False))
   assert sync == editor.InSyncInPlace
   assert editor.region(blurred) == Some(Region(1, 1))
-  assert editor.blocks(blurred) == markdown.parse("Hello\n-")
+  assert editor.blocks(blurred) == drawn_from("Hello\n-")
   assert editor.is_idle(blurred)
 
   let Outcome(editor: back, sync:, ..) =
     editor.update(blurred, editor.FocusChanged(True))
   assert sync == editor.Write(caret("Hello\n-", 1, 1))
   assert editor.region(back) == Some(Region(0, 1))
-  assert editor.kind(back)
-    == Some(live.Title(level: markdown.H2, typed_marks: ""))
+  assert editor.kind(back) == Some(live.Body)
 
   let Outcome(editor: escaped, sync:, ..) =
     editor.update(ed, editor.EscapePressed(shown: caret("-", 0, 1)))
   assert sync == editor.Release(caret("Hello\n-", 1, 1))
-  assert editor.blocks(escaped) == markdown.parse("Hello\n-")
+  assert editor.blocks(escaped) == drawn_from("Hello\n-")
 }
 
 pub fn a_tick_keeps_the_page_as_it_was_laid_out_but_for_the_box_test() {
@@ -2057,7 +2057,7 @@ pub fn joining_two_rows_keeps_the_page_and_moves_the_rows_below_up_test() {
     )
   assert editor.blocks(left) == editor.blocks(deleted)
   let left = point(left, 3)
-  assert editor.blocks(left) == markdown.parse("text\n-\n\nafter")
+  assert editor.blocks(left) == drawn_from("text\n-\n\nafter")
 }
 
 pub fn a_row_joined_inside_the_field_keeps_the_rows_below_drawn_test() {

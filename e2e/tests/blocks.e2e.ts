@@ -134,8 +134,8 @@ test('each line of a setext heading shows on its own line', async ({ page }) => 
   await page.text.fill('Foo\nbar\n===');
   await page.showPage();
 
-  await expect(page.preview.getByRole('heading', { level: 1 })).toHaveText(['Foo bar']);
-  await expect.poll(() => page.innerText('h1')).toBe('Foo\nbar');
+  await expect(page.preview.getByRole('heading')).toHaveCount(0);
+  await expect.poll(() => page.innerText('p')).toBe('Foo\nbar\n===');
 });
 
 test('a quote shows its text inside a quote', async ({ page }) => {
@@ -291,22 +291,23 @@ test('a thematic break ends a list', async ({ page }) => {
   await expect(page.items).toHaveText(['foo', 'bar']);
 });
 
-test('=== under a line makes a level 1 heading', async ({ page }) => {
+test('=== under a line stays body text with the line above', async ({ page }) => {
   await page.text.fill('Title\n===');
   await page.showPage();
 
-  await expect(page.preview.getByRole('heading')).toHaveText(['Title']);
-  await expect(page.preview.getByRole('heading', 'Title', { level: 1 })).toBeVisible();
-  await expect(page.paragraphs).toHaveCount(0);
+  await expect(page.preview.getByRole('heading')).toHaveCount(0);
+  await expect(page.paragraphs).toHaveCount(1);
+  await expect.poll(() => page.innerText('p')).toBe('Title\n===');
 });
 
-test('--- under a line makes a level 2 heading', async ({ page }) => {
+test('--- under a line stays body text with the line above', async ({ page }) => {
   await page.text.fill('Title\n---');
   await page.showPage();
 
-  await expect(page.preview.getByRole('heading')).toHaveText(['Title']);
-  await expect(page.preview.getByRole('heading', 'Title', { level: 2 })).toBeVisible();
+  await expect(page.preview.getByRole('heading')).toHaveCount(0);
   await expect(page.rules).toHaveCount(0);
+  await expect(page.paragraphs).toHaveCount(1);
+  await expect.poll(() => page.innerText('p')).toBe('Title\n---');
 });
 
 test('a line of 10,000 > shows a page and keeps the note as typed', async ({ page }) => {
