@@ -37,6 +37,12 @@ pub opaque type Editor {
 type Choice {
   Chosen
   Choosing(keys: List(Held))
+  /// The picked note arrived while an IME composed in the field of the note
+  /// left. It opens, with `keys` and what was composed, when that ends.
+  Opening(text: String, keys: List(Held))
+  /// The picked note did not open while an IME composed for it. The note
+  /// stays, without what was composed, when that ends.
+  Staying
 }
 
 type Page {
@@ -505,7 +511,22 @@ fn fresh_keys(vim_enabled: Bool) -> Keys {
   }
 }
 
+/// An IME that composes for a note being switched to owns the field, so a
+/// note that arrives meanwhile is shown when it ends.
 pub fn open(editor: Editor, text: String) -> Outcome {
+  let wait = fn(keys) {
+    let editor = Editor(..editor, note_choice: Opening(text:, keys:))
+    Outcome(editor:, sync: InSync, requests: [])
+  }
+  case editor.note_choice, editor.ime {
+    Choosing(keys:), ComposingBehindHeldKeys -> wait(keys)
+    Opening(..), _ | Staying, _ -> wait([])
+    Chosen, _ | Choosing(..), NotComposing | Choosing(..), ComposingHere ->
+      open_now(editor, text)
+  }
+}
+
+fn open_now(editor: Editor, text: String) -> Outcome {
   let keys = fresh_keys(editor.keys != PlainKeys)
   let buffer = buffer.from_text(text)
   let field = case editor.field {
@@ -531,23 +552,45 @@ pub fn open(editor: Editor, text: String) -> Outcome {
 }
 
 pub fn set_choosing(editor: Editor, choosing: Bool) -> Outcome {
-  let editor = case editor.note_choice, choosing {
-    Chosen, True ->
-      Editor(..editor, page_backlog: CaughtUp, note_choice: Choosing([]))
-    Choosing(..), False -> Editor(..editor, note_choice: Chosen)
-    Chosen, False | Choosing(..), True -> editor
+  let choose = fn(editor) {
+    Editor(..editor, page_backlog: CaughtUp, note_choice: Choosing([]))
   }
-  Outcome(editor:, sync: InSync, requests: [])
+  case editor.note_choice, choosing {
+    Chosen, True -> Outcome(editor: choose(editor), sync: InSync, requests: [])
+    Opening(text:, keys:), True -> {
+      let opened = open_now(Editor(..editor, note_choice: Choosing(keys)), text)
+      Outcome(..opened, editor: choose(opened.editor))
+    }
+    Staying, True -> {
+      let editor = Editor(..choose(editor), ime: ComposingBehindHeldKeys)
+      Outcome(editor:, sync: InSync, requests: [])
+    }
+    Choosing(..), False -> {
+      let choice = case editor.ime {
+        ComposingBehindHeldKeys -> Staying
+        NotComposing | ComposingHere -> Chosen
+      }
+      let editor = Editor(..editor, note_choice: choice)
+      Outcome(editor:, sync: InSync, requests: [])
+    }
+    Chosen, False | Choosing(..), True | Opening(..), False | Staying, False ->
+      Outcome(editor:, sync: InSync, requests: [])
+  }
 }
 
+/// Whether the editor holds keys for a note being picked. It does not once
+/// the note has come, while it waits for an IME to show it.
 pub fn is_choosing(editor: Editor) -> Bool {
-  editor.note_choice != Chosen
+  case editor.note_choice {
+    Choosing(..) -> True
+    Chosen | Opening(..) | Staying -> False
+  }
 }
 
 fn chosen_keys(editor: Editor) -> List(Held) {
   case editor.note_choice {
-    Chosen -> []
-    Choosing(keys:) -> keys
+    Chosen | Staying -> []
+    Choosing(keys:) | Opening(keys:, ..) -> keys
   }
 }
 
@@ -597,7 +640,8 @@ pub fn set_vim(editor: Editor, enabled: Bool) -> Outcome {
 pub fn update(editor: Editor, event: Event) -> Outcome {
   let outcome = case editor.note_choice {
     Chosen -> follow(editor, event)
-    Choosing(keys:) -> choosing(editor, keys, event)
+    Choosing(..) | Opening(..) -> choosing(editor, event)
+    Staying -> staying(editor, event)
   }
   case
     outcome.sync == InSync
@@ -644,19 +688,44 @@ fn reports(event: Event) -> Bool {
   }
 }
 
-fn choosing(editor: Editor, keys: List(Held), event: Event) -> Outcome {
+/// An IME that starts composing while a note is picked composes for it: the
+/// field is left to it, and what it composed joins the keys when it ends.
+fn choosing(editor: Editor, event: Event) -> Outcome {
+  let unchanged = Outcome(editor:, sync: InSync, requests: [])
   let wait = fn(held) {
-    let choice = Choosing(list.append(keys, [held]))
-    Outcome(
-      editor: Editor(..editor, note_choice: choice),
-      sync: InSync,
-      requests: [],
-    )
+    let choice = case editor.note_choice {
+      Opening(text:, keys:) -> Opening(text:, keys: list.append(keys, held))
+      Choosing(..) | Chosen | Staying ->
+        Choosing(list.append(chosen_keys(editor), held))
+    }
+    Outcome(..unchanged, editor: Editor(..editor, note_choice: choice))
+  }
+  let for_choice = case editor.note_choice, editor.ime {
+    Opening(..), _ | Choosing(..), ComposingBehindHeldKeys -> True
+    Choosing(..), NotComposing
+    | Choosing(..), ComposingHere
+    | Chosen, _
+    | Staying, _
+    -> False
   }
   case event {
-    KeyHeld(held:) -> wait(held)
-    UndoAsked -> wait(HeldMenuUndo)
-    RedoAsked -> wait(HeldMenuRedo)
+    KeyHeld(held:) -> wait([held])
+    UndoAsked -> wait([HeldMenuUndo])
+    RedoAsked -> wait([HeldMenuRedo])
+    Composing(..) if for_choice || editor.ime == NotComposing ->
+      Outcome(
+        ..unchanged,
+        editor: Editor(..editor, ime: ComposingBehindHeldKeys),
+      )
+    ControlChanged(..) if for_choice -> unchanged
+    Composed(shown:, at:) if for_choice -> {
+      let composed = wait(ime_text_held(editor, shown, at)).editor
+      case composed.note_choice {
+        Opening(text:, keys:) ->
+          open_now(Editor(..composed, note_choice: Choosing(keys)), text)
+        Choosing(..) | Chosen | Staying -> put_back(composed)
+      }
+    }
     ControlChanged(..)
     | Composing(..)
     | Composed(..)
@@ -681,6 +750,50 @@ fn choosing(editor: Editor, keys: List(Held), event: Event) -> Outcome {
     | Dropped(..)
     | FocusChanged(..)
     | Replayed(..) -> keep_note(editor, follow(editor, event))
+  }
+}
+
+fn staying(editor: Editor, event: Event) -> Outcome {
+  case event {
+    Composing(..) | ControlChanged(..) ->
+      Outcome(editor:, sync: InSync, requests: [])
+    Composed(..) -> put_back(Editor(..editor, note_choice: Chosen))
+    KeyPressed(..)
+    | EdgePressed(..)
+    | EscapePressed(..)
+    | Pointed(..)
+    | LinePointed(..)
+    | ShiftPointed(..)
+    | Grabbed(..)
+    | WordPressed(..)
+    | SelectionPointed(..)
+    | Dragged(..)
+    | Stepped(..)
+    | Unstepped(..)
+    | FieldStepped(..)
+    | Aimed(..)
+    | SteppedPast
+    | Settled(..)
+    | Released
+    | DragStarted
+    | Dropped(..)
+    | FocusChanged(..)
+    | UndoAsked
+    | RedoAsked
+    | KeyHeld(..)
+    | Replayed(..) -> follow(editor, event)
+  }
+}
+
+fn put_back(editor: Editor) -> Outcome {
+  let editor = Editor(..editor, ime: NotComposing)
+  Outcome(editor:, sync: WriteQuietly(field_buffer(editor)), requests: [])
+}
+
+fn ime_text_held(editor: Editor, shown: Buffer, at: Int) -> List(Held) {
+  case ime_inserted_text(field_buffer(editor), shown) {
+    Ok("") | Error(Nil) -> []
+    Ok(text) -> [HeldPaste(text:, at:)]
   }
 }
 
@@ -2144,8 +2257,12 @@ pub fn tick(editor: Editor, task: markdown.Task, checked: Bool) -> Outcome {
       }
       Outcome(editor:, sync:, requests: [])
     }
-    Choosing(..), _, _ | Chosen, Error(_), _ | Chosen, _, [] ->
-      Outcome(editor:, sync: InSync, requests: [])
+    Choosing(..), _, _
+    | Opening(..), _, _
+    | Staying, _, _
+    | Chosen, Error(_), _
+    | Chosen, _, []
+    -> Outcome(editor:, sync: InSync, requests: [])
   }
 }
 
@@ -2158,8 +2275,13 @@ pub fn buffer(editor: Editor) -> Buffer {
   editor.buffer
 }
 
+/// The text of the note the editor holds. A note that came while an IME
+/// composes in the field of the one left is the one held, before it shows.
 pub fn text(editor: Editor) -> String {
-  buffer.text(editor.buffer)
+  case editor.note_choice {
+    Opening(text:, ..) -> text
+    Chosen | Choosing(..) | Staying -> buffer.text(editor.buffer)
+  }
 }
 
 pub fn region(editor: Editor) -> Option(Region) {
