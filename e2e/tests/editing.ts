@@ -379,7 +379,7 @@ export async function withRawPage(origin: string, body: string, run: (page: RawP
     await field.waitFor();
     await field.click();
     for (const [index, line] of body.split('\n').entries()) {
-      if (index > 0) await page.keyboard.press('Enter');
+      if (index > 0) await page.keyboard.press('Shift+Enter');
       if (line !== '') await page.keyboard.type(line);
     }
     await page.keyboard.press('Control+Home');
