@@ -672,6 +672,123 @@ pub fn a_key_held_after_a_composition_ends_unseen_waits_for_the_picked_note_test
   assert !editor.keys_wait(drain(arrived))
 }
 
+pub fn a_note_that_arrives_while_a_failed_switch_waits_for_an_ime_waits_too_test() {
+  let choosing = editor.set_choosing(opened(), True).editor
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "k"))
+  let stayed = editor.set_choosing(ed, False).editor
+
+  let Outcome(editor: ed, sync:, ..) = editor.open(stayed, "next")
+  assert written(sync) == Error(Nil)
+  assert editor.field_buffer(ed) == field
+  assert editor.text(ed) == "next"
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Composed(shown: over(field, "か"), at: 0))
+  let assert Ok(put) = written(sync)
+  assert buffer.text(put) == "next"
+  assert editor.text(drain(ed)) == "かnext"
+}
+
+pub fn a_note_picked_again_after_a_failed_switch_waits_for_the_ime_still_composing_test() {
+  let choosing = editor.set_choosing(opened(), True).editor
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "k"))
+  let picked =
+    editor.set_choosing(ed, False).editor |> editor.set_choosing(True)
+
+  let Outcome(editor: ed, sync:, ..) = editor.open(picked.editor, "third")
+  assert written(sync) == Error(Nil)
+  assert editor.field_buffer(ed) == field
+  assert editor.text(ed) == "third"
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.Composed(shown: over(field, "か"), at: 0))
+  let assert Ok(put) = written(sync)
+  assert buffer.text(put) == "third"
+  assert editor.text(drain(ed)) == "かthird"
+}
+
+pub fn a_picked_note_that_arrives_while_a_composition_begun_before_the_pick_goes_on_opens_at_once_test() {
+  let ed = opened()
+  let field = editor.field_buffer(ed)
+  let ed = editor.update(ed, editor.Composing(shown: over(field, "k"))).editor
+  let choosing = editor.set_choosing(ed, True).editor
+
+  let Outcome(editor: ed, sync:, ..) = editor.open(choosing, "next")
+  let assert Ok(put) = written(sync)
+  assert buffer.text(put) == "next"
+  assert editor.text(ed) == "next"
+  assert !editor.keys_wait(ed)
+}
+
+pub fn a_switch_that_fails_while_a_composition_begun_before_the_pick_goes_on_lets_it_end_in_the_note_kept_test() {
+  let ed = opened()
+  let field = editor.field_buffer(ed)
+  let ed = editor.update(ed, editor.Composing(shown: over(field, "k"))).editor
+  let stayed =
+    editor.set_choosing(ed, True).editor |> editor.set_choosing(False)
+  assert !editor.keys_wait(stayed.editor)
+
+  let ed =
+    editor.update(
+      stayed.editor,
+      editor.Composed(shown: over(field, "か"), at: 0),
+    ).editor
+  assert editor.text(ed) == "か" <> note
+}
+
+pub fn a_box_ticked_while_a_failed_switch_waits_for_an_ime_changes_nothing_test() {
+  let box = markdown.Task(checked: False, row: 0, col: 3)
+  let listed = editor.new(vim: False, live: True, paint: True)
+  let listed = editor.open(listed, "- [ ] milk").editor
+  let choosing = editor.set_choosing(listed, True).editor
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "k"))
+  let stayed = editor.set_choosing(ed, False).editor
+
+  let Outcome(editor: ticked, sync:, ..) = editor.tick(stayed, box, True)
+  assert sync == editor.InSync
+  assert editor.text(ticked) == "- [ ] milk"
+}
+
+pub fn text_composed_while_a_picked_note_loads_keeps_the_time_it_was_composed_at_test() {
+  let choosing = editor.set_choosing(opened(), True).editor
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "k"))
+  let ed =
+    editor.update(ed, editor.Composed(shown: over(field, "か"), at: 4321)).editor
+
+  let arrived = editor.open(ed, "next").editor
+  assert editor.replay(arrived) == Some(editor.HeldPaste(text: "か", at: 4321))
+}
+
+pub fn the_field_changing_while_a_failed_switch_waits_for_an_ime_leaves_the_note_kept_test() {
+  let choosing = editor.set_choosing(opened(), True).editor
+  let field = editor.field_buffer(choosing)
+  use ed <- composing_while_choosing(choosing, over(field, "k"))
+  let stayed = editor.set_choosing(ed, False).editor
+  let moved = buffer.move_to(field, Position(row: 0, col: 6))
+  let ed = editor.update(stayed, editor.Aimed(shown: moved)).editor
+
+  let Outcome(editor: ed, sync:, ..) =
+    editor.update(ed, editor.ControlChanged(shown: over(moved, "k"), at: 0))
+  assert written(sync) == Error(Nil)
+  assert editor.text(ed) == note
+  let ed = editor.update(ed, editor.Composing(shown: over(moved, "か"))).editor
+  assert editor.text(ed) == note
+
+  let ed =
+    editor.update(ed, editor.Composed(shown: over(moved, "か"), at: 0)).editor
+  assert editor.text(drain(ed)) == note
+}
+
+pub fn choosing_a_note_drops_a_step_still_owed_test() {
+  let ed = opened() |> step_down
+  assert editor.is_stepping(ed)
+  assert !editor.is_stepping(editor.set_choosing(ed, True).editor)
+}
+
 pub fn choosing_another_note_drops_the_keys_waiting_behind_a_step_test() {
   let choosing =
     opened() |> step_down |> hold(key("x")) |> editor.set_choosing(True)

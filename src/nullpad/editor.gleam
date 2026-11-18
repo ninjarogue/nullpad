@@ -551,8 +551,8 @@ pub fn set_choosing(editor: Editor, choosing: Bool) -> Outcome {
   }
   case editor.note_choice, choosing {
     Chosen, True -> Outcome(editor: choose(editor), sync: InSync, requests: [])
-    Opening(text:, keys:), True -> {
-      let opened = open_now(Editor(..editor, note_choice: Choosing(keys)), text)
+    Opening(text:, ..), True -> {
+      let opened = open_now(editor, text)
       Outcome(..opened, editor: choose(opened.editor))
     }
     Staying, True -> {
