@@ -56,9 +56,7 @@ const listKeys = `(async () => {
     const c = event.target;
     if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || c.tagName !== 'TEXTAREA') return;
     const value = c.value;
-    const back = c.selectionDirection === 'backward';
-    const [anchor, head] = back ? [c.selectionEnd, c.selectionStart] : [c.selectionStart, c.selectionEnd];
-    const pressed = press(select(from_text(value), at(value, anchor), at(value, head)), parse(value), new NewItem());
+    const pressed = press(select(from_text(value), at(value, c.selectionStart), at(value, c.selectionEnd)), parse(value), new NewItem());
     if (!pressed.isOk()) return;
     event.preventDefault();
     const next = text(pressed[0]);
@@ -68,8 +66,8 @@ const listKeys = `(async () => {
     while (tail < value.length - same && tail < next.length - same && value[value.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
     c.setSelectionRange(same, value.length - tail);
     document.execCommand('insertText', false, next.slice(same, next.length - tail));
-    const [anchorAt, headAt] = selection(pressed[0]).map((position) => offset(next, position));
-    c.setSelectionRange(Math.min(anchorAt, headAt), Math.max(anchorAt, headAt), headAt < anchorAt ? 'backward' : 'forward');
+    const caret = offset(next, selection(pressed[0])[1]);
+    c.setSelectionRange(caret, caret);
   }, true);
 })()`;
 const read = `(async () => {
