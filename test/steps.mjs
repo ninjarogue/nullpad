@@ -205,7 +205,7 @@ export const e2eTypes = step({ id: "e2e-types", cwd: e2eDir, counted: false, com
 
 export const e2eDiscovery = step({ id: "e2e-discovery", cwd: root, counted: false, command: () => ["node", "test/e2e_discovery.mjs"], ...needsE2e });
 
-export const typist = step({ id: "typist", cwd: e2eDir, counted: false, command: () => ["npm", "run", "typist"], needs: needsE2e.needs, hint: needsE2e.hint });
+export const typist = step({ id: "typist", cwd: e2eDir, counted: false, command: () => ["npm", "run", "typist"], ...needsE2e });
 
 export function e2eConfigs(dir = e2eDir) {
   return readdirSync(dir, { withFileTypes: true })
