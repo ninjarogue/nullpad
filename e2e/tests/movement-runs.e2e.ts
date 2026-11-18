@@ -790,24 +790,33 @@ for (const run of runs) {
 
 const underHeadings = [`# ${'word '.repeat(50)}end`, '', `### ${'word '.repeat(70)}end`, '', 'below'];
 
-for (const [name, row] of [['an h1', 1], ['an h3', 3]] as const) {
-  test(`Up and Shift+Up from the blank row below ${name} the page wraps reach the same rows of it, a key at a time`, async (fixtures) => {
+// A text field moves Shift+Up on a backward selection whose head is at the
+// start of a wrapped line on from the line above, so from the start of one
+// line it lands at the start of the line two above. From the blank row below
+// the h3 the selection is painted across rows and each Shift+Up lands a line
+// above; from inside the h3 it is in the field and lands two lines above.
+for (const [name, row, skips] of [['an h1', 1, true], ['an h3', 3, false]] as const) {
+  const title = skips
+    ? `Shift+Up from the blank row below ${name} the page wraps reaches the rows a plain text field does, a key at a time`
+    : `Up and Shift+Up from the blank row below ${name} the page wraps reach the same rows of it, a key at a time`;
+  test(title, async (fixtures) => {
     const editor = new Editing(fixtures);
     const body = underHeadings.join('\n');
     const lines = body.split('\n');
-    const heads = async (step: string) => {
+    const heads = async (step: string, presses: number) => {
       await editor.open(body);
       await fixtures.browser.keyboard.press(ctrl('End'));
       await fixtures.browser.keyboard.press('Home');
       for (let up = 4; up > row; up--) await fixtures.browser.keyboard.press('ArrowUp');
       const seen: string[] = [];
-      for (let press = 0; press < 3; press++) {
+      for (let press = 0; press < presses; press++) {
         await fixtures.browser.keyboard.press(step);
         const got = await look(editor, lines);
         seen.push('problem' in got ? got.problem : show(got.head));
       }
       return seen;
     };
-    expect(await heads('Shift+ArrowUp')).toEqual(await heads('ArrowUp'));
+    const up = await heads('ArrowUp', 5);
+    expect(await heads('Shift+ArrowUp', 3)).toEqual(skips ? [up[0], up[2], up[4]] : up.slice(0, 3));
   });
 }

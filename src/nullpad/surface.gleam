@@ -1288,21 +1288,21 @@ fn edge_decoder(
         let #(first, last) = caret_line(control_id)
         let #(_, _, x) = head()
         case up && first || !up && last, pending {
-          True, _ -> Ok(#(edge, from_press(x)))
-          False, True -> Ok(#(editor.Line(up:, select: False), -1.0))
-          False, False -> Ok(#(editor.LineInField(up:, select: False), x))
+          True, _ -> Ok(#(edge, Some(from_press(x))))
+          False, True -> Ok(#(editor.Line(up:, select: False), None))
+          False, False -> Ok(#(editor.LineInField(up:, select: False), Some(x)))
         }
       }
-      editor.Line(..) | editor.Page(..) if pending -> Ok(#(edge, -1.0))
+      editor.Line(..) | editor.Page(..) if pending -> Ok(#(edge, None))
       editor.Line(up:, select:) -> {
         let #(first, last, x) = head()
         case up && first || !up && last || !select {
-          True -> Ok(#(edge, x))
-          False -> Ok(#(editor.LineInField(up:, select: True), x))
+          True -> Ok(#(edge, Some(x)))
+          False -> Ok(#(editor.LineInField(up:, select: True), Some(x)))
         }
       }
-      editor.NextRow(..) -> Ok(#(edge, from_press(head().2)))
-      editor.LineInField(..) | editor.Page(..) -> Ok(#(edge, head().2))
+      editor.NextRow(..) -> Ok(#(edge, Some(from_press(head().2))))
+      editor.LineInField(..) | editor.Page(..) -> Ok(#(edge, Some(head().2)))
       editor.JoinBefore
       | editor.JoinAfter
       | editor.SelectBefore
@@ -1318,7 +1318,7 @@ fn edge_decoder(
       | editor.OntoRowAfter
       | editor.ToNoteStart
       | editor.ToNoteEnd
-      | editor.WidenToNote -> Ok(#(edge, 0.0))
+      | editor.WidenToNote -> Ok(#(edge, None))
     }
   }
   case edge {
@@ -1518,7 +1518,7 @@ type StepLanding {
 
 fn step_landing_decoder() -> Decoder(StepLanding) {
   use kind <- decode.field("kind", decode.string)
-  use x <- decode.optional_field("x", None, decode.map(decode.float, aimed_x))
+  use x <- decode.optional_field("x", None, decode.optional(decode.float))
   case kind {
     "waitsForPage" -> decode.success(StepWaitsForPage)
     "pastEnd" -> decode.success(StepPastEnd)
@@ -1531,13 +1531,6 @@ fn step_landing_decoder() -> Decoder(StepLanding) {
       decode.success(StepLanded(row:, visible:, at_end:, next:, x:))
     }
     _ -> decode.success(StepNowhere(x:))
-  }
-}
-
-fn aimed_x(x: Float) -> Option(Float) {
-  case x >=. 0.0 {
-    True -> Some(x)
-    False -> None
   }
 }
 

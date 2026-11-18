@@ -184,3 +184,79 @@ test('keys typed before any note opens reach the field', async ({ app, browser, 
   await page.text.pressSequentially('c');
   await expect(page.text).toHaveValue('ab\nc');
 });
+
+const cannotOpen = [
+  { how: 'open-throws', why: 'The operation is insecure.' },
+  { how: 'open-fails', why: 'Internal error opening backing store for indexedDB.open.' },
+] as const;
+
+for (const { how, why } of cannotOpen) {
+  test(`storage that cannot be opened (${how}) says why, and is opened again once it can`, async ({ app, disk, page }) => {
+    await disk.fail(how);
+    await app.open('/');
+    await expect(page.problem).toHaveText(`Storage is not working: ${why}`);
+    await expect(page.rows).toHaveCount(0);
+
+    await disk.recover();
+    await page.newNote.tap();
+    await expect(page.rows).toHaveCount(3);
+    await expect(page.problem).toBeHidden();
+    await page.text.fill('milk, eggs');
+    await expect(page.saveState).toHaveText('Unsaved');
+    await expect(page.saveState).toHaveText('Saved');
+    expect((await disk.notes()).map((note) => note.body)).toEqual(['# Trip', 'milk', 'milk, eggs']);
+  });
+}
+
+test('a save that cannot begin a transaction says why, keeps the text and saves it once it can', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await app.open('/');
+  await expect(page.text).toHaveValue('milk');
+
+  await disk.fail('transaction-throws');
+  await page.text.fill('milk, eggs');
+  await expect(page.problem).toHaveText('Storage is not working: The database connection is closing.');
+  await expect(page.saveState).toHaveText('Unsaved');
+  await expect(page.text).toHaveValue('milk, eggs');
+  expect(await disk.notes()).toEqual([trip, groceries]);
+
+  await disk.recover();
+  await expect(page.saveState).toHaveText('Saved', { timeout: retryMs + 3000 });
+  await expect(page.problem).toBeHidden();
+  await expect(page.text).toHaveValue('milk, eggs');
+  expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
+});
+
+test('a note that cannot be read because no transaction begins says why and keeps the open note', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await app.open('/');
+  await expect(page.text).toHaveValue('milk');
+
+  await disk.fail('transaction-throws');
+  await page.row('Trip').tap();
+  await expect(page.problem).toHaveText('Storage is not working: The database connection is closing.');
+  await expect(page.currentRow).toHaveText('Groceries');
+  await expect(page.text).toHaveValue('milk');
+});
+
+test('a transaction the disk aborts with a reason shows the reason and keeps the text', async ({
+  app,
+  disk,
+  page,
+}) => {
+  await app.open('/');
+  await expect(page.text).toHaveValue('milk');
+
+  await disk.fail('quota');
+  await page.text.fill('milk, eggs');
+  await expect(page.problem).toHaveText('Storage is not working: The disk is full.');
+  await expect(page.saveState).toHaveText('Unsaved');
+  await expect(page.text).toHaveValue('milk, eggs');
+  expect(await disk.notes()).toEqual([trip, groceries]);
+});

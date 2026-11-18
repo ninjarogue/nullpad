@@ -182,7 +182,7 @@ pub fn text_that_joins_two_blocks_brings_both_into_the_field_once_the_caret_leav
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Up, x: 0.0, shown: caret("x", 0, 1)),
+      editor.EdgePressed(editor.Up, x: Some(0.0), shown: caret("x", 0, 1)),
     )
   assert sync
     == editor.WriteAndAim(
@@ -209,7 +209,7 @@ pub fn arrow_up_at_the_top_of_the_field_moves_to_the_row_above_test() {
 
   let shown = editor.field_buffer(ed)
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.EdgePressed(editor.Up, x: 24.0, shown:))
+    editor.update(ed, editor.EdgePressed(editor.Up, x: Some(24.0), shown:))
   assert sync
     == editor.WriteAndAim(
       caret("", 0, 0),
@@ -224,7 +224,7 @@ pub fn arrow_down_at_the_bottom_of_the_field_moves_to_the_row_below_test() {
   let shown = caret("# Trip", 0, 3)
   let Outcome(editor: ed, sync:, ..) =
     live(live_note)
-    |> editor.update(editor.EdgePressed(editor.Down, x: 9.5, shown:))
+    |> editor.update(editor.EdgePressed(editor.Down, x: Some(9.5), shown:))
 
   assert sync
     == editor.WriteAndAim(
@@ -241,7 +241,7 @@ pub fn an_arrow_after_an_aim_aims_again_on_the_line_beside_with_the_kept_column_
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.Down,
-      x: 9.5,
+      x: Some(9.5),
       shown: caret("# Trip", 0, 3),
     ))
   let Outcome(editor: ed, ..) =
@@ -251,7 +251,7 @@ pub fn an_arrow_after_an_aim_aims_again_on_the_line_beside_with_the_kept_column_
       ed,
       editor.EdgePressed(
         editor.LineInField(up: False, select: False),
-        x: 0.0,
+        x: Some(0.0),
         shown: caret("", 0, 0),
       ),
     )
@@ -277,7 +277,10 @@ pub fn backspace_at_the_start_of_the_field_joins_the_row_above_test() {
     ))
   let shown = editor.field_buffer(ed)
   let Outcome(editor: ed, sync:, ..) =
-    editor.update(ed, editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:))
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.JoinBefore, x: Some(0.0), shown:),
+    )
 
   assert editor.text(ed) == "one\ntwo\nthree"
   assert sync == editor.InSync
@@ -288,7 +291,7 @@ pub fn delete_at_the_end_of_the_field_joins_the_row_below_test() {
   let shown = caret("one", 0, 3)
   let Outcome(editor: ed, sync:, ..) =
     live("one\n\ntwo")
-    |> editor.update(editor.EdgePressed(editor.JoinAfter, x: 0.0, shown:))
+    |> editor.update(editor.EdgePressed(editor.JoinAfter, x: Some(0.0), shown:))
 
   assert editor.text(ed) == "one\ntwo"
   assert sync == editor.InSync
@@ -299,7 +302,7 @@ pub fn an_edge_key_with_no_row_to_go_to_changes_nothing_test() {
   let shown = caret("only", 0, 0)
   let Outcome(editor: ed, sync:, ..) =
     live("only")
-    |> editor.update(editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:))
+    |> editor.update(editor.EdgePressed(editor.JoinBefore, x: Some(0.0), shown:))
 
   assert sync == editor.InSync
   assert editor.text(ed) == "only"
@@ -310,7 +313,7 @@ pub fn an_arrow_with_no_row_to_go_to_goes_to_the_start_or_end_test() {
     live("only one")
     |> editor.update(editor.EdgePressed(
       editor.Up,
-      x: 30.0,
+      x: Some(30.0),
       shown: caret("only one", 0, 4),
     ))
   assert sync == editor.Write(caret("only one", 0, 0))
@@ -319,7 +322,11 @@ pub fn an_arrow_with_no_row_to_go_to_goes_to_the_start_or_end_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 0.0, shown: caret("only one", 0, 4)),
+      editor.EdgePressed(
+        editor.Down,
+        x: Some(0.0),
+        shown: caret("only one", 0, 4),
+      ),
     )
   assert sync == editor.Write(caret("only one", 0, 8))
 }
@@ -333,12 +340,12 @@ pub fn an_arrow_with_no_row_to_go_to_ends_a_selection_at_the_start_or_end_test()
     )
   let Outcome(sync:, ..) =
     live("abc def")
-    |> editor.update(editor.EdgePressed(editor.Up, x: 30.0, shown: held))
+    |> editor.update(editor.EdgePressed(editor.Up, x: Some(30.0), shown: held))
   assert sync == editor.Write(caret("abc def", 0, 0))
 
   let Outcome(sync:, ..) =
     live("abc def")
-    |> editor.update(editor.EdgePressed(editor.Down, x: 30.0, shown: held))
+    |> editor.update(editor.EdgePressed(editor.Down, x: Some(30.0), shown: held))
   assert sync == editor.Write(caret("abc def", 0, 7))
 }
 
@@ -399,7 +406,7 @@ pub fn an_arrow_at_the_edge_of_the_field_already_there_changes_nothing_test() {
     live("only")
     |> editor.update(editor.EdgePressed(
       editor.Up,
-      x: 0.0,
+      x: Some(0.0),
       shown: caret("only", 0, 0),
     ))
   assert sync == editor.InSync
@@ -409,7 +416,7 @@ pub fn edge_keys_never_cross_with_the_whole_note_in_the_field_test() {
   let Outcome(editor: whole, ..) =
     editor.new(vim: False, live: False, paint: True) |> editor.open("one\ntwo")
   let edge = fn(edge, shown) {
-    editor.update(whole, editor.EdgePressed(edge, x: 9.0, shown:))
+    editor.update(whole, editor.EdgePressed(edge, x: Some(9.0), shown:))
   }
 
   let Outcome(editor: ed, sync:, ..) = edge(editor.Up, caret("one\ntwo", 0, 2))
@@ -432,7 +439,7 @@ pub fn an_arrow_crosses_from_the_rows_the_field_holds_now_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.Down,
-      x: 0.0,
+      x: Some(0.0),
       shown: caret("# Trip", 0, 0),
     ))
   assert editor.region(ed) == Some(Region(1, 1))
@@ -440,7 +447,7 @@ pub fn an_arrow_crosses_from_the_rows_the_field_holds_now_test() {
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Up, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.Up, x: Some(0.0), shown: caret("", 0, 0)),
     )
   assert sync
     == editor.WriteAndAim(
@@ -510,7 +517,7 @@ pub fn escape_collapses_a_selection_across_blocks_to_its_head_test() {
       ed,
       editor.EdgePressed(
         editor.SelectToNoteEnd,
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -603,7 +610,11 @@ pub fn the_page_is_drawn_from_the_text_after_every_change_but_typing_composing_o
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.JoinBefore, x: 0.0, shown: caret("> a", 0, 0)),
+      editor.EdgePressed(
+        editor.JoinBefore,
+        x: Some(0.0),
+        shown: caret("> a", 0, 0),
+      ),
     )
   assert editor.text(ed)
     == "# Trips\n> a\n\nFlights are **booked**.\n\n- one\n- two"
@@ -817,7 +828,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.Line(up: False, select: True),
-      x: 12.5,
+      x: Some(12.5),
       shown: caret("# Trip", 0, 3),
     ))
   assert sync
@@ -836,7 +847,7 @@ pub fn shift_and_an_arrow_up_or_down_ask_to_step_on_the_drawn_page_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: True, select: True),
-        x: 7.0,
+        x: Some(7.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -856,7 +867,7 @@ pub fn an_arrow_up_or_down_stepped_on_the_drawn_page_moves_the_caret_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: False),
-        x: 7.0,
+        x: Some(7.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -890,7 +901,7 @@ pub fn an_arrow_up_on_the_first_row_steps_up_the_drawn_page_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: True, select: False),
-        x: 7.0,
+        x: Some(7.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -908,13 +919,17 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.Line(up: False, select: True),
-      x: 12.5,
+      x: Some(12.5),
       shown:,
     ))
   let Outcome(editor: ed, sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Line(up: True, select: True), x: 12.5, shown:),
+      editor.EdgePressed(
+        editor.Line(up: True, select: True),
+        x: Some(12.5),
+        shown:,
+      ),
     )
   assert sync == editor.InSync
 
@@ -955,7 +970,7 @@ pub fn a_step_pressed_before_the_last_is_placed_waits_for_it_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -973,7 +988,7 @@ pub fn the_keys_that_step_a_painted_head_ask_the_page_for_the_step_test() {
   assert editor.is_painted(ed)
   let shown = editor.field_buffer(ed)
   let asks = fn(edge) {
-    editor.update(ed, editor.EdgePressed(edge, x: 3.0, shown:)).sync
+    editor.update(ed, editor.EdgePressed(edge, x: Some(3.0), shown:)).sync
   }
   assert asks(editor.SelectRight)
     == editor.WriteAndStep(shown, move: editor.LetterOn, select: True, x: None)
@@ -1007,7 +1022,7 @@ pub fn a_painted_letter_step_into_a_row_lands_before_its_marks_and_steps_through
   let press = fn(ed, edge) {
     editor.update(
       ed,
-      editor.EdgePressed(edge, x: 3.0, shown: editor.field_buffer(ed)),
+      editor.EdgePressed(edge, x: Some(3.0), shown: editor.field_buffer(ed)),
     ).editor
   }
   let step = fn(ed, visible, next) {
@@ -1053,7 +1068,7 @@ pub fn a_step_with_nothing_past_the_head_goes_to_the_end_or_the_start_test() {
   let past = fn(edge) {
     let Outcome(editor: ed, ..) =
       live(live_note)
-      |> editor.update(editor.EdgePressed(edge, x: 9.0, shown:))
+      |> editor.update(editor.EdgePressed(edge, x: Some(9.0), shown:))
     let Outcome(editor: ed, ..) = editor.update(ed, editor.SteppedPast)
     buffer.selection(editor.buffer(ed))
   }
@@ -1075,7 +1090,7 @@ pub fn a_line_step_with_nothing_drawn_past_the_head_stops_on_the_row_past_it_tes
       ed,
       editor.EdgePressed(
         editor.Line(up:, select: True),
-        x: 9.0,
+        x: Some(9.0),
         shown: editor.field_buffer(ed),
       ),
     ).editor
@@ -1105,7 +1120,7 @@ pub fn a_press_escape_or_a_blur_ends_the_waiting_steps_test() {
       ed,
       editor.EdgePressed(
         editor.SelectRight,
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -1144,13 +1159,17 @@ pub fn a_change_the_editor_did_not_write_ends_the_waiting_steps_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.Line(up: False, select: True),
-      x: 9.0,
+      x: Some(9.0),
       shown:,
     ))
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Line(up: False, select: True), x: 9.0, shown:),
+      editor.EdgePressed(
+        editor.Line(up: False, select: True),
+        x: Some(9.0),
+        shown:,
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(caret("# TXrip", 0, 4), at: 0))
@@ -1230,7 +1249,7 @@ pub fn the_page_settles_the_head_a_key_moved_and_never_the_anchor_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.SelectToNoteEnd, x: 0.0, shown: inside),
+      editor.EdgePressed(editor.SelectToNoteEnd, x: Some(0.0), shown: inside),
     )
   assert editor.is_painted(ed)
   let from = buffer.selection(editor.buffer(ed))
@@ -1270,7 +1289,7 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.Line(up: False, select: True),
-      x: 12.5,
+      x: Some(12.5),
       shown: caret("# Trip", 0, 3),
     ))
   let Outcome(editor: ed, ..) =
@@ -1289,7 +1308,7 @@ pub fn a_step_moves_the_head_and_keeps_the_anchor_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 12.5,
+        x: Some(12.5),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -1321,7 +1340,7 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.Line(up: False, select: True),
-      x: 9.0,
+      x: Some(9.0),
       shown:,
     ))
   let Outcome(editor: ed, sync:, ..) =
@@ -1330,7 +1349,11 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Line(up: False, select: True), x: 9.0, shown:),
+      editor.EdgePressed(
+        editor.Line(up: False, select: True),
+        x: Some(9.0),
+        shown:,
+      ),
     )
   assert sync
     == editor.WriteAndStep(
@@ -1344,7 +1367,11 @@ pub fn a_step_the_page_had_no_place_for_lets_the_next_step_go_test() {
 pub fn a_step_the_field_took_lets_the_steps_behind_it_go_test() {
   let shown = caret("# Trip", 0, 3)
   let down =
-    editor.EdgePressed(editor.Line(up: False, select: True), x: 9.0, shown:)
+    editor.EdgePressed(
+      editor.Line(up: False, select: True),
+      x: Some(9.0),
+      shown:,
+    )
   let Outcome(editor: ed, ..) = live(live_note) |> editor.update(down)
   let Outcome(editor: ed, ..) = editor.update(ed, down)
   let took = selected("# Trip", from: Position(0, 3), to: Position(0, 6))
@@ -1372,7 +1399,7 @@ fn step_to(
   let shown = editor.field_buffer(ed)
   editor.update(
     ed,
-    editor.EdgePressed(editor.Line(up: False, select: True), x:, shown:),
+    editor.EdgePressed(editor.Line(up: False, select: True), x: Some(x), shown:),
   ).editor
   |> editor.update(editor.Stepped(row:, visible:, at_end:, next: "", x: Some(x)))
 }
@@ -1386,7 +1413,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
       ed.editor,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed.editor),
       ),
     )
@@ -1411,7 +1438,7 @@ pub fn the_next_step_aims_where_the_last_step_aimed_from_where_it_landed_test() 
       ed,
       editor.EdgePressed(
         editor.Line(up: True, select: True),
-        x: 3.0,
+        x: Some(3.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -1426,7 +1453,7 @@ pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
       ed,
       editor.EdgePressed(
         editor.SelectBefore,
-        x: 0.0,
+        x: Some(0.0),
         shown: caret("Flights are **booked**.", 0, 0),
       ),
     )
@@ -1449,7 +1476,7 @@ pub fn shift_arrows_at_the_ends_of_the_field_cross_one_character_test() {
       ed,
       editor.EdgePressed(
         editor.SelectAfter,
-        x: 0.0,
+        x: Some(0.0),
         shown: caret("Flights are **booked**.", 0, 23),
       ),
     )
@@ -1463,7 +1490,7 @@ pub fn select_all_takes_the_whole_note_into_the_field_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.SelectAll,
-      x: 0.0,
+      x: Some(0.0),
       shown: caret("# Trip", 0, 2),
     ))
 
@@ -1483,7 +1510,7 @@ pub fn selecting_to_the_ends_of_the_note_keeps_the_anchor_test() {
       ed,
       editor.EdgePressed(
         editor.SelectToNoteEnd,
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -1496,7 +1523,7 @@ pub fn selecting_to_the_ends_of_the_note_keeps_the_anchor_test() {
       ed,
       editor.EdgePressed(
         editor.SelectToNoteStart,
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -1527,7 +1554,7 @@ pub fn a_press_after_a_selection_across_blocks_puts_one_block_back_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.SelectAll,
-      x: 0.0,
+      x: Some(0.0),
       shown: caret("# Trip", 0, 0),
     ))
   let Outcome(editor: ed, sync:, ..) =
@@ -1563,7 +1590,7 @@ pub fn selection_keys_never_cross_with_the_whole_note_in_the_field_test() {
     editor.SelectAfter,
   ])
   let Outcome(sync:, ..) =
-    editor.update(whole, editor.EdgePressed(edge, x: 0.0, shown:))
+    editor.update(whole, editor.EdgePressed(edge, x: Some(0.0), shown:))
   assert sync == editor.InSync
 }
 
@@ -1596,7 +1623,7 @@ pub fn select_all_paints_the_whole_note_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.SelectAll,
-      x: 0.0,
+      x: Some(0.0),
       shown: caret("# Trip", 0, 2),
     ))
   assert editor.is_painted(ed)
@@ -1607,7 +1634,7 @@ pub fn a_selection_across_blocks_is_not_painted_out_of_focus_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.SelectAll,
-      x: 0.0,
+      x: Some(0.0),
       shown: caret("# Trip", 0, 2),
     ))
   let Outcome(editor: blurred, ..) =
@@ -1629,7 +1656,11 @@ pub fn a_selection_across_blocks_is_not_painted_where_it_cannot_be_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       opened.editor,
-      editor.EdgePressed(editor.SelectAll, x: 0.0, shown: caret("# Trip", 0, 2)),
+      editor.EdgePressed(
+        editor.SelectAll,
+        x: Some(0.0),
+        shown: caret("# Trip", 0, 2),
+      ),
     )
   assert editor.region(ed) == Some(Region(0, 5))
   assert !editor.is_painted(ed)
@@ -1640,7 +1671,7 @@ pub fn a_click_takes_the_paint_off_test() {
     live(live_note)
     |> editor.update(editor.EdgePressed(
       editor.SelectAll,
-      x: 0.0,
+      x: Some(0.0),
       shown: caret("# Trip", 0, 2),
     ))
   let Outcome(editor: ed, ..) =
@@ -1685,7 +1716,7 @@ pub fn a_dash_typed_under_a_line_keeps_the_page_until_the_caret_leaves_its_row_t
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Up, x: 0.0, shown: caret("-", 0, 1)),
+      editor.EdgePressed(editor.Up, x: Some(0.0), shown: caret("-", 0, 1)),
     )
   assert editor.region(ed) == Some(Region(0, 1))
   assert editor.blocks(ed) == markdown.parse("~~wow~~\n-")
@@ -1959,7 +1990,7 @@ pub fn joining_two_rows_keeps_the_page_and_moves_the_rows_below_up_test() {
   let Outcome(editor: deleted, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.JoinAfter, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.JoinAfter, x: Some(0.0), shown: caret("", 0, 0)),
     )
   assert editor.text(deleted) == "text\n-\n\nafter"
   assert editor.region(deleted) == Some(Region(1, 1))
@@ -1972,7 +2003,11 @@ pub fn joining_two_rows_keeps_the_page_and_moves_the_rows_below_up_test() {
   let Outcome(editor: backspaced, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.JoinBefore, x: 0.0, shown: caret("-", 0, 0)),
+      editor.EdgePressed(
+        editor.JoinBefore,
+        x: Some(0.0),
+        shown: caret("-", 0, 0),
+      ),
     )
   assert editor.text(backspaced) == "text\n-\n\nafter"
   assert editor.region(backspaced) == Some(Region(1, 1))
@@ -2012,7 +2047,7 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 0.0,
+        x: Some(0.0),
         shown: caret("para one", 0, 8),
       ),
     )
@@ -2032,7 +2067,7 @@ pub fn composing_over_a_selection_across_blocks_keeps_the_rows_after_it_drawn_te
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -2072,7 +2107,7 @@ pub fn a_key_the_browser_acts_on_widens_the_field_to_the_note_test() {
       ed,
       editor.EdgePressed(
         editor.WidenToNote,
-        x: 0.0,
+        x: Some(0.0),
         shown: caret("bravo two", 0, 0),
       ),
     )
@@ -2090,7 +2125,7 @@ pub fn a_key_the_browser_acts_on_widens_the_field_to_the_note_test() {
 pub fn an_arrow_past_the_rows_the_field_holds_moves_one_character_without_the_note_test() {
   let note = "alpha one\n\nbravo two"
   let edge = fn(ed, edge, shown) {
-    editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
+    editor.update(ed, editor.EdgePressed(edge, x: Some(0.0), shown:))
   }
   let Outcome(editor: ed, sync:, ..) =
     edge(pressed(note, 2, ""), editor.OntoRowBefore, caret("bravo two", 0, 0))
@@ -2111,7 +2146,7 @@ pub fn an_arrow_past_the_rows_the_field_holds_moves_one_character_without_the_no
 pub fn ctrl_and_home_or_end_goes_to_the_ends_of_the_note_without_the_note_test() {
   let note = "alpha one\n\nbravo two"
   let edge = fn(ed, edge, shown) {
-    editor.update(ed, editor.EdgePressed(edge, x: 0.0, shown:))
+    editor.update(ed, editor.EdgePressed(edge, x: Some(0.0), shown:))
   }
   let Outcome(editor: ed, sync:, ..) =
     edge(
@@ -2135,7 +2170,7 @@ pub fn ctrl_and_an_arrow_aims_at_the_runs_column_on_the_row_above_or_below_test(
   let row = fn(ed, up, select, shown) {
     editor.update(
       ed,
-      editor.EdgePressed(editor.NextRow(up:, select:), 30.0, shown),
+      editor.EdgePressed(editor.NextRow(up:, select:), Some(30.0), shown),
     )
   }
   let Outcome(sync:, ..) =
@@ -2169,7 +2204,7 @@ pub fn ctrl_and_an_arrow_on_a_selection_moves_from_its_head_test() {
     let shown = selected(note, from, to)
     editor.update(
       ed,
-      editor.EdgePressed(editor.NextRow(up:, select: False), 30.0, shown),
+      editor.EdgePressed(editor.NextRow(up:, select: False), Some(30.0), shown),
     )
   }
   let Outcome(sync:, ..) = row(True, Position(0, 2), Position(2, 3))
@@ -2198,7 +2233,7 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
       ed,
       editor.EdgePressed(
         editor.NextRow(up: True, select: False),
-        x: 60.0,
+        x: Some(60.0),
         shown: caret(note, 2, 9),
       ),
     )
@@ -2209,7 +2244,7 @@ pub fn ctrl_and_an_arrow_again_keeps_the_runs_column_test() {
       ed,
       editor.EdgePressed(
         editor.NextRow(up: True, select: False),
-        x: 12.0,
+        x: Some(12.0),
         shown: caret(note, 1, 2),
       ),
     )
@@ -2221,7 +2256,11 @@ fn run_down(note: String) -> Editor {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 40.0, shown: caret("alpha one", 0, 4)),
+      editor.EdgePressed(
+        editor.Down,
+        x: Some(40.0),
+        shown: caret("alpha one", 0, 4),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.Aimed(shown: caret("", 0, 0)))
@@ -2236,7 +2275,7 @@ pub fn another_note_starts_a_new_run_test() {
       opened,
       editor.EdgePressed(
         editor.Down,
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(opened),
       ),
     )
@@ -2249,7 +2288,11 @@ pub fn showing_the_markdown_or_the_page_starts_a_new_run_test() {
   let Outcome(sync:, ..) =
     editor.update(
       shown,
-      editor.EdgePressed(editor.Down, x: 0.0, shown: editor.field_buffer(shown)),
+      editor.EdgePressed(
+        editor.Down,
+        x: Some(0.0),
+        shown: editor.field_buffer(shown),
+      ),
     )
   let assert editor.WriteAndAim(x: 0.0, ..) = sync
 }
@@ -2280,7 +2323,7 @@ pub fn a_move_that_changes_nothing_keeps_the_runs_column_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.Down, x: Some(0.0), shown: caret("", 0, 0)),
     )
   let assert editor.WriteAndAim(x: 40.0, ..) = sync
 }
@@ -2290,7 +2333,11 @@ pub fn a_key_that_moves_across_ends_the_run_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.WidenToNote, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(
+        editor.WidenToNote,
+        x: Some(0.0),
+        shown: caret("", 0, 0),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(
@@ -2300,7 +2347,11 @@ pub fn a_key_that_moves_across_ends_the_run_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 3.0, shown: editor.field_buffer(ed)),
+      editor.EdgePressed(
+        editor.Down,
+        x: Some(3.0),
+        shown: editor.field_buffer(ed),
+      ),
     )
   let assert editor.WriteAndAim(x: 3.0, ..) = sync
 }
@@ -2312,7 +2363,7 @@ pub fn a_caret_the_browser_moved_since_starts_a_new_run_test() {
       ed,
       editor.EdgePressed(
         editor.Up,
-        x: 12.0,
+        x: Some(12.0),
         shown: caret("alpha one\nab", 1, 1),
       ),
     )
@@ -2325,14 +2376,22 @@ pub fn a_key_that_moves_nothing_keeps_the_run_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.WidenToNote, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(
+        editor.WidenToNote,
+        x: Some(0.0),
+        shown: caret("", 0, 0),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.ControlChanged(shown: caret(note, 1, 0), at: 0))
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 0.0, shown: editor.field_buffer(ed)),
+      editor.EdgePressed(
+        editor.Down,
+        x: Some(0.0),
+        shown: editor.field_buffer(ed),
+      ),
     )
   let assert editor.WriteAndAim(x: 40.0, ..) = sync
 }
@@ -2355,7 +2414,11 @@ pub fn a_press_where_the_caret_is_ends_the_run_test() {
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 0.0, shown: editor.field_buffer(ed)),
+      editor.EdgePressed(
+        editor.Down,
+        x: Some(0.0),
+        shown: editor.field_buffer(ed),
+      ),
     )
   let assert editor.WriteAndAim(x: 0.0, ..) = sync
 }
@@ -2367,7 +2430,7 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 40.0,
+        x: Some(40.0),
         shown: caret("alpha one\nbravo two", 0, 4),
       ),
     )
@@ -2387,7 +2450,7 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
       ed,
       editor.EdgePressed(
         editor.SelectLeft,
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -2396,7 +2459,7 @@ pub fn a_step_of_a_letter_ends_the_run_before_the_next_step_aims_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: True, select: True),
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -2422,7 +2485,7 @@ pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: False),
-        x: -1.0,
+        x: None,
         shown: caret(note, 0, 4),
       ),
     )
@@ -2436,7 +2499,7 @@ pub fn a_line_the_field_stepped_starts_the_run_at_its_column_test() {
       ed,
       editor.EdgePressed(
         editor.LineInField(up: True, select: False),
-        x: 3.0,
+        x: Some(3.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -2452,7 +2515,7 @@ pub fn a_run_from_the_start_of_a_row_lands_at_the_start_of_rows_test() {
         ed,
         editor.EdgePressed(
           editor.Line(up: False, select: False),
-          x: -1.0,
+          x: None,
           shown: caret(note, 0, col),
         ),
       )
@@ -2476,7 +2539,7 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 40.0,
+        x: Some(40.0),
         shown: caret("alpha one", 0, 4),
       ),
     )
@@ -2496,7 +2559,7 @@ pub fn an_arrow_after_a_selecting_step_keeps_the_runs_column_test() {
       ed,
       editor.EdgePressed(
         editor.LineInField(up: True, select: False),
-        x: 0.0,
+        x: Some(0.0),
         shown: editor.field_buffer(ed),
       ),
     )
@@ -2516,7 +2579,7 @@ pub fn a_step_that_lands_in_the_field_is_aimed_on_the_line_it_reached_test() {
       ed,
       editor.EdgePressed(
         editor.Line(up: False, select: True),
-        x: 40.0,
+        x: Some(40.0),
         shown: caret(note, 0, 4),
       ),
     )
@@ -2548,7 +2611,7 @@ pub fn a_page_step_past_the_note_goes_to_its_end_test() {
       ed,
       editor.EdgePressed(
         editor.Page(up: False, select: False),
-        x: 4.0,
+        x: Some(4.0),
         shown: caret("alpha one", 0, 2),
       ),
     )
@@ -2568,7 +2631,7 @@ pub fn a_page_key_goes_from_the_start_or_end_of_a_selection_and_keeps_it_with_no
         ed,
         editor.EdgePressed(
           editor.Page(up:, select: False),
-          x: 4.0,
+          x: Some(4.0),
           shown: selected(note, from, to),
         ),
       )
@@ -2595,14 +2658,18 @@ pub fn an_arrow_through_a_blank_row_aims_where_the_last_one_did_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 40.0, shown: caret("alpha one", 0, 4)),
+      editor.EdgePressed(
+        editor.Down,
+        x: Some(40.0),
+        shown: caret("alpha one", 0, 4),
+      ),
     )
   let Outcome(editor: ed, ..) =
     editor.update(ed, editor.Aimed(shown: caret("", 0, 0)))
   let Outcome(sync:, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.Down, x: 0.0, shown: caret("", 0, 0)),
+      editor.EdgePressed(editor.Down, x: Some(0.0), shown: caret("", 0, 0)),
     )
   let assert editor.WriteAndAim(x: 40.0, ..) = sync
 }
@@ -2616,7 +2683,7 @@ pub fn a_line_step_onto_a_fence_takes_the_runs_column_test() {
         ed,
         editor.EdgePressed(
           editor.Line(up: False, select: True),
-          x: 20.0,
+          x: Some(20.0),
           shown: editor.field_buffer(ed),
         ),
       )
@@ -2652,14 +2719,16 @@ pub fn a_run_begun_by_a_step_in_the_frame_of_a_press_keeps_the_column_from_befor
       editor.Stepped(row:, visible:, at_end:, next: "", x: Some(40.0)),
     )
   }
-  let Outcome(editor: ed, ..) = down(ed, -1.0) |> stepped(1, "xy", True)
+  let Outcome(editor: ed, ..) = down(ed, None) |> stepped(1, "xy", True)
   assert buffer.cursor(editor.buffer(ed)) == Position(row: 1, col: 2)
 
-  let Outcome(editor: ed, sync:, ..) = down(ed, 0.0) |> stepped(4, "", False)
+  let Outcome(editor: ed, sync:, ..) =
+    down(ed, Some(0.0)) |> stepped(4, "", False)
   assert buffer.cursor(editor.buffer(ed)) == Position(row: 2, col: 5)
   let assert editor.Write(_) = sync
 
-  let Outcome(editor: ed, sync:, ..) = down(ed, 0.0) |> stepped(4, "", False)
+  let Outcome(editor: ed, sync:, ..) =
+    down(ed, Some(0.0)) |> stepped(4, "", False)
   assert buffer.cursor(editor.buffer(ed)) == Position(row: 3, col: 5)
   let assert editor.Write(_) = sync
 }
@@ -2673,7 +2742,7 @@ pub fn a_line_step_past_a_fence_stops_on_the_fence_test() {
         ed,
         editor.EdgePressed(
           editor.Line(up: False, select:),
-          x: 0.0,
+          x: Some(0.0),
           shown: caret("", 0, 0),
         ),
       )
@@ -2854,7 +2923,11 @@ pub fn selecting_all_from_an_underline_leaves_the_line_above_as_drawn_test() {
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.SelectAll, x: 0.0, shown: caret("=", 0, 1)),
+      editor.EdgePressed(
+        editor.SelectAll,
+        x: Some(0.0),
+        shown: caret("=", 0, 1),
+      ),
     )
   assert buffer.selection(editor.buffer(ed))
     == #(Position(0, 0), Position(1, 1))
@@ -2937,7 +3010,11 @@ pub fn a_selection_reaching_another_row_lays_out_the_row_typed_as_another_block_
   let Outcome(editor: ed, ..) =
     editor.update(
       ed,
-      editor.EdgePressed(editor.SelectAll, x: 0.0, shown: caret("# b", 0, 3)),
+      editor.EdgePressed(
+        editor.SelectAll,
+        x: Some(0.0),
+        shown: caret("# b", 0, 3),
+      ),
     )
   assert editor.region(ed) == Some(Region(0, 1))
   assert editor.blocks(ed) == markdown.parse("- a\n# b")
@@ -3044,4 +3121,62 @@ pub fn a_press_on_a_selection_no_longer_painted_is_a_plain_press_test() {
     )
   assert editor.buffer(plain) == editor.buffer(pointed)
   assert sync == pointed_sync
+}
+
+fn column_after(between: editor.Edge, note: String) -> Float {
+  let ed = pressed(note, 0, "")
+  let line = fn(ed, up) {
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.LineInField(up:, select: False),
+        x: Some(3.0),
+        shown: editor.field_buffer(ed),
+      ),
+    )
+  }
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.LineInField(up: False, select: False),
+        x: Some(40.0),
+        shown: caret(note, 0, 0),
+      ),
+    )
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.Aimed(shown: caret(note, 1, 4)))
+  let Outcome(editor: ed, ..) = line(ed, True)
+  let Outcome(editor: ed, ..) =
+    editor.update(ed, editor.Aimed(shown: caret(note, 0, 0)))
+  let Outcome(editor: ed, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(between, x: None, shown: editor.field_buffer(ed)),
+    )
+  let assert Outcome(sync: editor.WriteAndAim(x:, ..), ..) = line(ed, False)
+  x
+}
+
+pub fn a_key_that_moves_nothing_keeps_the_column_of_a_run_test() {
+  let note = "alpha one\nbravo two"
+  assert column_after(editor.ToNoteStart, note) == 40.0
+  assert column_after(editor.SelectToNoteStart, note) == 40.0
+  assert column_after(editor.ToNoteEnd, note) == 3.0
+}
+
+pub fn a_run_from_left_of_the_text_keeps_its_column_test() {
+  let note = "- alpha one\nbravo two"
+  let ed = pressed(note, 0, "")
+  let Outcome(sync:, ..) =
+    editor.update(
+      ed,
+      editor.EdgePressed(
+        editor.Line(up: False, select: True),
+        x: Some(-0.5),
+        shown: caret(note, 0, 1),
+      ),
+    )
+  let assert editor.WriteAndStep(move: editor.LineDown, x: Some(-0.5), ..) =
+    sync
 }

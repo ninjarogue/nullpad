@@ -112,7 +112,7 @@ function opened(text) {
 }
 
 // A step the page takes is first asked for.
-const asked = (field) => new editor.EdgePressed(new editor.Line(false, true), 40, field);
+const asked = (field) => new editor.EdgePressed(new editor.Line(false, true), new option.Some(40), field);
 
 const typed = (field) => {
   const caret = buffer.cursor(field);
@@ -239,33 +239,33 @@ const events = {
     ["Ctrl r", (field) => new editor.KeyPressed(new vim.Ctrl("r"), field)],
   ],
   EdgePressed: [
-    ["Up", (field) => new editor.EdgePressed(new editor.Up(), 0, field)],
-    ["Down", (field) => new editor.EdgePressed(new editor.Down(), 0, field)],
-    ["JoinBefore", (field) => new editor.EdgePressed(new editor.JoinBefore(), 0, field)],
-    ["JoinAfter", (field) => new editor.EdgePressed(new editor.JoinAfter(), 0, field)],
-    ["Line up selecting", (field) => new editor.EdgePressed(new editor.Line(true, true), 0, field)],
-    ["Line down selecting", (field) => new editor.EdgePressed(new editor.Line(false, true), 0, field)],
-    ["Line down", (field) => new editor.EdgePressed(new editor.Line(false, false), 0, field)],
-    ["Beside up", (field) => new editor.EdgePressed(new editor.LineInField(true, false), 0, field)],
-    ["Beside down selecting", (field) => new editor.EdgePressed(new editor.LineInField(false, true), 0, field)],
-    ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), 0, field)],
-    ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), 0, field)],
-    ["SelectLeft", (field) => new editor.EdgePressed(new editor.SelectLeft(), 0, field)],
-    ["SelectRight", (field) => new editor.EdgePressed(new editor.SelectRight(), 0, field)],
-    ["SelectLineStart", (field) => new editor.EdgePressed(new editor.SelectLineStart(), 0, field)],
-    ["SelectLineEnd", (field) => new editor.EdgePressed(new editor.SelectLineEnd(), 0, field)],
-    ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToNoteStart(), 0, field)],
-    ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToNoteEnd(), 0, field)],
-    ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
-    ["Page up", (field) => new editor.EdgePressed(new editor.Page(true, false), 0, field)],
-    ["Page down selecting", (field) => new editor.EdgePressed(new editor.Page(false, true), 0, field)],
-    ["Before", (field) => new editor.EdgePressed(new editor.OntoRowBefore(), 0, field)],
-    ["After", (field) => new editor.EdgePressed(new editor.OntoRowAfter(), 0, field)],
-    ["ToStart", (field) => new editor.EdgePressed(new editor.ToNoteStart(), 0, field)],
-    ["ToEnd", (field) => new editor.EdgePressed(new editor.ToNoteEnd(), 0, field)],
-    ["Widen", (field) => new editor.EdgePressed(new editor.WidenToNote(), 0, field)],
-    ["Row up", (field) => new editor.EdgePressed(new editor.NextRow(true, false), 0, field)],
-    ["Row down selecting", (field) => new editor.EdgePressed(new editor.NextRow(false, true), 0, field)],
+    ["Up", (field) => new editor.EdgePressed(new editor.Up(), new option.Some(0), field)],
+    ["Down", (field) => new editor.EdgePressed(new editor.Down(), new option.Some(0), field)],
+    ["JoinBefore", (field) => new editor.EdgePressed(new editor.JoinBefore(), new option.Some(0), field)],
+    ["JoinAfter", (field) => new editor.EdgePressed(new editor.JoinAfter(), new option.Some(0), field)],
+    ["Line up selecting", (field) => new editor.EdgePressed(new editor.Line(true, true), new option.Some(0), field)],
+    ["Line down selecting", (field) => new editor.EdgePressed(new editor.Line(false, true), new option.Some(0), field)],
+    ["Line down", (field) => new editor.EdgePressed(new editor.Line(false, false), new option.Some(0), field)],
+    ["Beside up", (field) => new editor.EdgePressed(new editor.LineInField(true, false), new option.Some(0), field)],
+    ["Beside down selecting", (field) => new editor.EdgePressed(new editor.LineInField(false, true), new option.Some(0), field)],
+    ["SelectBefore", (field) => new editor.EdgePressed(new editor.SelectBefore(), new option.Some(0), field)],
+    ["SelectAfter", (field) => new editor.EdgePressed(new editor.SelectAfter(), new option.Some(0), field)],
+    ["SelectLeft", (field) => new editor.EdgePressed(new editor.SelectLeft(), new option.Some(0), field)],
+    ["SelectRight", (field) => new editor.EdgePressed(new editor.SelectRight(), new option.Some(0), field)],
+    ["SelectLineStart", (field) => new editor.EdgePressed(new editor.SelectLineStart(), new option.Some(0), field)],
+    ["SelectLineEnd", (field) => new editor.EdgePressed(new editor.SelectLineEnd(), new option.Some(0), field)],
+    ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToNoteStart(), new option.Some(0), field)],
+    ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToNoteEnd(), new option.Some(0), field)],
+    ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), new option.Some(0), field)],
+    ["Page up", (field) => new editor.EdgePressed(new editor.Page(true, false), new option.Some(0), field)],
+    ["Page down selecting", (field) => new editor.EdgePressed(new editor.Page(false, true), new option.Some(0), field)],
+    ["Before", (field) => new editor.EdgePressed(new editor.OntoRowBefore(), new option.Some(0), field)],
+    ["After", (field) => new editor.EdgePressed(new editor.OntoRowAfter(), new option.Some(0), field)],
+    ["ToStart", (field) => new editor.EdgePressed(new editor.ToNoteStart(), new option.Some(0), field)],
+    ["ToEnd", (field) => new editor.EdgePressed(new editor.ToNoteEnd(), new option.Some(0), field)],
+    ["Widen", (field) => new editor.EdgePressed(new editor.WidenToNote(), new option.Some(0), field)],
+    ["Row up", (field) => new editor.EdgePressed(new editor.NextRow(true, false), new option.Some(0), field)],
+    ["Row down selecting", (field) => new editor.EdgePressed(new editor.NextRow(false, true), new option.Some(0), field)],
   ],
   EscapePressed: [["", (field) => new editor.EscapePressed(field)]],
   Pointed: [
@@ -305,7 +305,7 @@ const events = {
   Unstepped: [
     ["", (field) => [asked(field), new editor.Unstepped(new option.Some(40))]],
     ["after a window", (field) => [
-      new editor.EdgePressed(new editor.Page(false, false), 0, field),
+      new editor.EdgePressed(new editor.Page(false, false), new option.Some(0), field),
       new editor.Unstepped(new option.Some(40)),
     ]],
   ],
@@ -314,7 +314,7 @@ const events = {
   SteppedPast: [
     ["", (field) => [asked(field), new editor.SteppedPast()]],
     ["past the end of the note", (field) => [
-      new editor.EdgePressed(new editor.Page(false, false), 0, field),
+      new editor.EdgePressed(new editor.Page(false, false), new option.Some(0), field),
       new editor.SteppedPast(),
     ]],
   ],
@@ -370,7 +370,7 @@ const events = {
       asked(field),
       new editor.KeyHeld(heldX),
       new editor.Stepped(row + 9, "", false, "", new option.Some(40)),
-      (now) => new editor.Replayed(new option.Some(new editor.EdgePressed(new editor.Line(false, true), 40, now))),
+      (now) => new editor.Replayed(new option.Some(new editor.EdgePressed(new editor.Line(false, true), new option.Some(40), now))),
     ]],
     ["an undo", (field, row) => [
       new editor.ControlChanged(typed(field), 0),

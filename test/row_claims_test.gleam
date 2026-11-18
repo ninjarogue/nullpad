@@ -623,8 +623,8 @@ fn apply(edited: editor.Editor, edit: Typing) -> editor.Editor {
     JoinUp | JoinDown -> field
   }
   let event = case edit {
-    JoinUp -> editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:)
-    JoinDown -> editor.EdgePressed(editor.JoinAfter, x: 0.0, shown:)
+    JoinUp -> editor.EdgePressed(editor.JoinBefore, x: Some(0.0), shown:)
+    JoinDown -> editor.EdgePressed(editor.JoinAfter, x: Some(0.0), shown:)
     Type(_) | Enter | Backspace -> editor.ControlChanged(shown:, at: 0)
   }
   editor.update(edited, event).editor

@@ -381,9 +381,9 @@ export function caretLine(id) {
   return [first, last];
 }
 
-function fieldCaretLine(control) {
+function fieldCaretLine(control, extending = false) {
   const place = measure(control);
-  const caret = headCaret(control, place);
+  const caret = headCaret(control, place, extending);
   return [
     caret.top === place(0).top,
     caret.top === place(control.value.length).top,
@@ -391,24 +391,34 @@ function fieldCaretLine(control) {
   ];
 }
 
-function headCaret(control, place) {
+function headCaret(control, place, extending = false) {
   const head = control.selectionDirection === "backward" ? control.selectionStart : control.selectionEnd;
+  if (control.selectionStart !== control.selectionEnd) {
+    if (!extending || !stepsFromLineAbove(control, head, place)) return place(head);
+    return { ...place(head), top: place(head - 1).top };
+  }
   if (!atLineEnd(control, head, place)) return place(head);
   const end = place(head - 1);
   return { top: end.top, x: end.right, height: end.height };
 }
 
+// A text field moves the head of a selection that sits where a line wraps
+// as if it were at the start of the line below, wherever the step that put
+// it there aimed. Shift with Up or Down on a backward selection moves it on
+// from the line above instead, with the x of the start of the line below.
+function stepsFromLineAbove(control, head, place) {
+  if (control.selectionDirection !== "backward" || head === 0 || control.value[head - 1] === "\n") return false;
+  return place(head - 1).top !== place(head).top;
+}
+
 // Where a line wraps, the end of that line and the start of the next share
 // an offset, and the caret may be drawn at either. Only a move to the line's
-// start tells which, and the selection is put back as it was. The browser
-// moves the head of a selection it made from the start of the next line,
-// and aims for its x there.
+// start tells which, and the selection is put back as it was.
 function atLineEnd(control, head, place) {
   const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = control;
   if (head === 0 || control.value[head - 1] === "\n" || document.activeElement !== control) return false;
   const last = aimedHere(control);
   if (last) return last.atEnd;
-  if (start !== end) return false;
   if (place(head - 1).top === place(head).top) return false;
   const anchor = direction === "backward" ? end : start;
   getSelection().modify("extend", "backward", "lineboundary");
@@ -500,7 +510,10 @@ function aimIn(control, liveClass, paintedClass, x, line, select, rowStart) {
     while (offset + step >= 0 && offset + step <= text.length && place(offset + step).top === top) offset += step;
     return offset;
   };
-  const wrapEnd = headCaret(control, place).top !== place(head).top;
+  const wrapEnd =
+    line === "head" && start !== end
+      ? aimedHere(control)?.atEnd === true
+      : headCaret(control, place, select).top !== place(head).top;
   const headStart = wrapEnd ? lineFrom(head - 1, -1) : lineFrom(head, -1);
   let from;
   if (line === "first") from = head === 0 ? 0 : text.lastIndexOf("\n", head - 1) + 1;
@@ -1113,7 +1126,7 @@ export function headLine(id, liveClass, paintedClass, painted) {
   const rowStart = at === 0 || control.value[at - 1] === "\n";
   const head = painted && headPlace();
   if (head) return [true, true, rowStart ? 0 : goalX(head.box.left, columnLeft(page))];
-  const [first, last, x] = fieldCaretLine(control);
+  const [first, last, x] = fieldCaretLine(control, true);
   const across = headXFromText(control, liveClass, paintedClass, x);
   if (undrawn(control)) return [true, true, across];
   return [first, last, across];
@@ -1150,15 +1163,15 @@ export function stepHead(...args) {
   try {
     return stepFrom(...args);
   } catch {
-    return { kind: "nowhere", x: args[11] ?? -1 };
+    return { kind: "nowhere", x: args[11] ?? null };
   }
 }
 
 function stepFrom(
   id, liveClass, paintedClass, rowMark, headRow, headOffset, onward, rowStart, granularity, forward, select, x, fieldFirst, rowCount,
 ) {
-  x ??= -1;
-  if (x < 0 && rowStart) x = 0;
+  x ??= null;
+  if (x === null && rowStart) x = 0;
   const answer = (kind) => ({ kind, x });
   const landedAt = ([row, visible, atEnd, next]) =>
     row >= 0 ? { kind: "landed", row, visible, atEnd, next, x } : answer("nowhere");
@@ -1179,13 +1192,13 @@ function stepFrom(
   const drawnLast = held ? held[1] - grown : Infinity;
   const moved = (place) => (place[0] > drawnLast ? [place[0] + grown, ...place.slice(1)] : place);
   if (pressAwaitingDraw !== null && first === undefined) return answer("waitsForPage");
-  const edge = granularity !== "line" || fieldCaretLine(control)[forward ? 1 : 0];
+  const edge = granularity !== "line" || fieldCaretLine(control, select)[forward ? 1 : 0];
   if (inField && granularity !== "page" && !edge) {
     if (granularity !== "line") {
       getSelection().modify(select ? "extend" : "move", forward ? "forward" : "backward", granularity);
       return answer("inField");
     }
-    if (x < 0) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+    if (x === null) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
     noteAim(control, null, aimIn(control, liveClass, paintedClass, x, forward ? "below" : "above", select, rowStart));
     return answer("inField");
   }
@@ -1198,8 +1211,8 @@ function stepFrom(
       if (!holder) return answer("nowhere");
       box = caretBox(...pointIn(holder, headOffset, onward));
     }
-    if (x < 0 && inField) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
-    else if (x < 0) x = goalX(box.left, columnLeft(page));
+    if (x === null && inField) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+    else if (x === null) x = goalX(box.left, columnLeft(page));
     const place = pageStep(page, rowMark, box, forward, columnLeft(page) + x);
     return place ? landedAt(moved(place)) : answer("pastEnd");
   }
@@ -1208,13 +1221,13 @@ function stepFrom(
   try {
     let landed;
     if (inField) {
-      if (x < 0) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
+      if (x === null) x = headXFromText(control, liveClass, paintedClass, headCaret(control, measure(control)).x);
       landed = beside(marks, part, forward);
     } else {
       const holder = marks[lastAtOrBefore(rows, headRow)];
       if (!holder) return answer("nowhere");
       const [node, offset] = pointIn(holder, headOffset, onward);
-      if (x < 0) x = goalX(caretBox(node, offset).left, columnLeft(page));
+      if (x === null) x = goalX(caretBox(node, offset).left, columnLeft(page));
       selection.collapse(node, offset);
       landed = step(selection, page, rowMark, granularity, forward);
       const from = { node, offset };

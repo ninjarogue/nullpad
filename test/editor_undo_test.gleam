@@ -80,7 +80,10 @@ pub fn undo_takes_back_a_join_and_redo_joins_again_test() {
   let ed = live("one\n\ntwo") |> point(2, False)
   let shown = editor.field_buffer(ed)
   let joined =
-    editor.update(ed, editor.EdgePressed(editor.JoinBefore, x: 0.0, shown:)).editor
+    editor.update(
+      ed,
+      editor.EdgePressed(editor.JoinBefore, x: Some(0.0), shown:),
+    ).editor
   assert editor.text(joined) == "one\ntwo"
 
   let back = undo(joined)
@@ -291,7 +294,7 @@ fn backspace(ed: Editor) -> Editor {
     Position(row: 0, col: 0) ->
       editor.update(
         ed,
-        editor.EdgePressed(editor.JoinBefore, x: 0.0, shown: field),
+        editor.EdgePressed(editor.JoinBefore, x: Some(0.0), shown: field),
       ).editor
     Position(row:, col: 0) -> {
       let above = list.drop(buffer.lines(field), row - 1) |> list.first
