@@ -1,5 +1,5 @@
 import { expect } from 'e2e';
-import { groceries, newNote, pause, test, trip } from './nullpad.ts';
+import { autosaveMs, groceries, newNote, pause, test, trip } from './nullpad.ts';
 
 test.beforeEach(async ({ app, disk, page }) => {
   await disk.seed([trip, groceries]);
@@ -72,6 +72,51 @@ test('keys typed while a picked note loads go into it, and never into the note l
   await expect(page.text).toHaveValue('Go # Trip');
   await expect(page.saveState).toHaveText('Saved');
   expect(await disk.notes()).toEqual([groceries, { ...trip, body: 'Go # Trip' }]);
+});
+
+test('keys typed for a picked note that does not open go into neither note', async ({ browser, disk, page }) => {
+  await page.text.fill('milk, eggs');
+  await disk.hold();
+  await page.row('Trip').tap();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('Go ');
+  await page.row('Groceries').tap();
+  await expect(page.text).toBeFocused();
+
+  await disk.release();
+  await expect(page.saveState).toHaveText('Saved');
+  await expect(page.currentRow).toHaveText('Groceries');
+  await pause(autosaveMs + 200);
+  await expect(page.text).toHaveValue('milk, eggs');
+  expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
+
+  await browser.keyboard.press('End');
+  await browser.keyboard.type(', bread');
+  await expect(page.text).toHaveValue('milk, eggs, bread');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs, bread' }]);
+});
+
+test('keys typed for a picked note that fails to load stay out of the note kept', async ({ browser, disk, page }) => {
+  await disk.hold();
+  await disk.fail();
+  await page.row('Trip').tap();
+  await expect(page.text).toBeFocused();
+  await browser.keyboard.type('Go ');
+
+  await disk.release();
+  await expect(page.problem).toHaveText(/^Storage is not working: /);
+  await expect(page.currentRow).toHaveText('Groceries');
+  await pause(autosaveMs + 200);
+  await expect(page.text).toHaveValue('milk');
+  expect(await disk.notes()).toEqual([trip, groceries]);
+  await disk.recover();
+  await page.text.focus();
+  await browser.keyboard.press('End');
+  await browser.keyboard.type(', eggs');
+  await expect(page.text).toHaveValue('milk, eggs');
+  await expect(page.saveState).toHaveText('Saved');
+  expect(await disk.notes()).toEqual([trip, { ...groceries, body: 'milk, eggs' }]);
 });
 
 test('keys typed while a new note is made go into it', async ({ disk, page }) => {

@@ -473,12 +473,29 @@ pub fn keys_typed_while_a_chosen_note_loads_go_into_it_test() {
   assert editor.replay(arrived) == Some(key("Z"))
 }
 
-pub fn keys_typed_while_choosing_go_into_the_note_kept_test() {
-  let choosing = editor.set_choosing(opened(), True).editor |> hold(key("Z"))
-  let stayed = editor.set_choosing(choosing, False).editor
+pub fn keys_typed_for_a_note_that_does_not_open_go_nowhere_test() {
+  let choosing =
+    editor.set_choosing(opened(), True).editor
+    |> hold(key("Z"))
+    |> hold(key("Y"))
+  let Outcome(editor: stayed, sync:, ..) = editor.set_choosing(choosing, False)
+  assert sync == editor.InSync
   assert editor.text(stayed) == note
-  assert editor.replay(stayed) == Some(key("Z"))
+  assert editor.replay(stayed) == None
+  assert !editor.keys_wait(stayed)
+  assert !editor.is_choosing(stayed)
   assert editor.set_choosing(stayed, False).editor == stayed
+  assert editor.text(drain(stayed)) == note
+}
+
+pub fn a_key_typed_after_a_note_does_not_open_goes_into_the_note_kept_test() {
+  let stayed =
+    editor.set_choosing(opened(), True).editor
+    |> hold(key("Z"))
+    |> editor.set_choosing(False)
+  let typed = stayed.editor |> hold(key("x"))
+  assert editor.replay(typed) == Some(key("x"))
+  assert editor.text(drain(typed)) == "x" <> note
 }
 
 pub fn choosing_another_note_drops_the_keys_waiting_behind_a_step_test() {
