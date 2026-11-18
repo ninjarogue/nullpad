@@ -1887,6 +1887,32 @@ pub type Mark {
   NumberMark(number: Int, delimiter: String)
 }
 
+/// The empty item `line` holds when it is a marker and nothing else, read
+/// as if it stood alone. Right under words CommonMark reads such a line as
+/// part of them, though it was typed as an item.
+pub fn lone_item(line: String) -> Result(Item, Nil) {
+  let chars = string.to_graphemes(string.trim_end(line))
+  let #(_, rest) =
+    list.split_while(chars, fn(char) { char == " " || char == ">" })
+  let item =
+    Item(row: 0, content_col: string.length(line), task: None, blocks: [])
+  case rest {
+    ["-"] | ["+"] | ["*"] -> Ok(item)
+    [_, ..] -> {
+      let #(digits, after) = list.split_while(rest, is_digit)
+      case digits, after {
+        [_, ..], ["."] | [_, ..], [")"] ->
+          case list.length(digits) <= 9 {
+            True -> Ok(item)
+            False -> Error(Nil)
+          }
+        [], _ | [_, ..], _ -> Error(Nil)
+      }
+    }
+    [] -> Error(Nil)
+  }
+}
+
 /// The marks that start `item` on `line`, the line of its first row.
 /// `Error` for a row that holds a tab.
 pub fn item_marks(line: String, item: Item) -> Result(ItemMarks, Nil) {

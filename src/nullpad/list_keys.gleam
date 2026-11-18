@@ -14,8 +14,8 @@ import gleam/string
 import nullpad/buffer.{type Buffer, type Position, Position}
 import nullpad/markdown.{
   type Block, type Item, type ItemMarks, type Mark, Block, BulletList,
-  BulletMark, CodeBlock, Heading, ItemMarks, Loose, NumberMark, OrderedList,
-  Paragraph, Quote, Rule, Table,
+  BulletMark, CodeBlock, Heading, Item, ItemMarks, Loose, NumberMark,
+  OrderedList, Paragraph, Quote, Rule, Table,
 }
 
 pub type Key {
@@ -35,7 +35,10 @@ pub fn press(
 ) -> Result(Buffer, Nil) {
   let #(anchor, head) = buffer.selection(buffer)
   let lines = buffer.lines(buffer)
-  case anchor.row == head.row, holding(blocks, head.row, []) {
+  case
+    anchor.row == head.row,
+    holding(blocks, head.row, []) |> unborn(lines, head.row)
+  {
     True, Held(chain: [here, ..parents], in_code: False) ->
       case key {
         NewItem -> {
@@ -79,6 +82,27 @@ fn holding(blocks: List(Block), row: Int, chain: List(Level)) -> Held {
     | Ok(Block(content: Paragraph(..), ..))
     | Ok(Block(content: Rule, ..))
     | Error(Nil) -> Held(chain, False)
+  }
+}
+
+/// A row that is a marker alone right under an item's words is read as
+/// part of those words, but was typed as an empty item nested in it.
+fn unborn(held: Held, lines: List(String), row: Int) -> Held {
+  let text = line(lines, row)
+  case held.chain, markdown.lone_item(text) {
+    [here, ..], Ok(lone) if here.item.row != row -> {
+      let item = Item(..lone, row:)
+      case markdown.item_marks(text, item) {
+        Ok(marks) ->
+          case string.length(marks.lead) >= here.item.content_col {
+            True ->
+              Held(..held, chain: [Level(item, None, [], False), ..held.chain])
+            False -> held
+          }
+        Error(Nil) -> held
+      }
+    }
+    [_, ..], Ok(_) | [], Ok(_) | _, Error(Nil) -> held
   }
 }
 

@@ -105,6 +105,15 @@ pub fn enter_on_an_empty_nested_item_moves_it_out_a_level_test() {
   assert press("1. a\n   - b\n   - |", vim.Enter) == "1. a\n   - b\n2. |"
 }
 
+pub fn an_empty_item_right_under_its_parents_words_is_still_an_item_test() {
+  assert press("- a\n- b\n  - |", vim.Enter) == "- a\n- b\n- |"
+  assert press("1. a\n2. b\n   1. |", vim.Enter) == "1. a\n2. b\n3. |"
+  assert press("- a\n- b\n  - |\n    1. f\n    2. g", vim.Tab)
+    == "- a\n- b\n  - |\n    1. f\n    2. g"
+  assert press("- b\n  - |", vim.BackTab) == "- b\n- |"
+  assert press("> - b\n>   - |", vim.Enter) == "> - b\n> - |"
+}
+
 pub fn enter_outside_a_list_starts_a_line_test() {
   assert press("plain|", vim.Enter) == "plain\n|"
   assert press("pla|in", vim.Enter) == "pla\n|in"
