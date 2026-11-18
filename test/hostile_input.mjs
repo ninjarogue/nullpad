@@ -6,7 +6,10 @@
 //
 // Not part of `gleam test`: timings are too noisy for CI.
 
-import { parse } from "../build/dev/javascript/nullpad/nullpad/markdown.mjs";
+import {
+  lone_item,
+  parse,
+} from "../build/dev/javascript/nullpad/nullpad/markdown.mjs";
 import { display_title } from "../build/dev/javascript/nullpad/nullpad/storage.mjs";
 import { None } from "../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 
@@ -141,6 +144,13 @@ const titles = {
     "```\n" + "\n".repeat(n) + "a",
 };
 
+const marker_rows = {
+  "a row with a long gap inside": (n) => "a" + " ".repeat(n * 2) + "b",
+  "a marker, a long gap, and a word": (n) => "-" + " ".repeat(n * 2) + "b",
+  "a marker between two long gaps": (n) =>
+    " ".repeat(n) + "-" + " ".repeat(n),
+};
+
 function time(work, source) {
   let fastest = Infinity;
   for (let run = 0; run < RUNS; run++) {
@@ -159,6 +169,11 @@ const cases = [
     name,
     build,
     (body) => display_title(new None(), body),
+  ]),
+  ...Object.entries(marker_rows).map(([name, build]) => [
+    name,
+    build,
+    lone_item,
   ]),
 ];
 

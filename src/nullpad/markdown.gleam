@@ -1891,25 +1891,60 @@ pub type Mark {
 /// as if it stood alone. Right under words CommonMark reads such a line as
 /// part of them, though it was typed as an item.
 pub fn lone_item(line: String) -> Result(Item, Nil) {
-  let chars = string.to_graphemes(string.trim_end(line))
-  let #(_, rest) =
-    list.split_while(chars, fn(char) { char == " " || char == ">" })
-  let item =
-    Item(row: 0, content_col: string.length(line), task: None, blocks: [])
-  case rest {
-    ["-"] | ["+"] | ["*"] -> Ok(item)
-    [_, ..] -> {
-      let #(digits, after) = list.split_while(rest, is_digit)
-      case digits, after {
-        [_, ..], ["."] | [_, ..], [")"] ->
-          case list.length(digits) <= 9 {
-            True -> Ok(item)
-            False -> Error(Nil)
-          }
-        [], _ | [_, ..], _ -> Error(Nil)
+  let lone = case after_lead(line) {
+    "-" <> rest | "+" <> rest | "*" <> rest -> is_blank(rest)
+    rest ->
+      case after_digits(rest, 0) {
+        #(count, "." <> rest)
+          | #(count, ")" <> rest)
+          if count > 0 && count <= 9
+        -> is_blank(rest)
+        _ -> False
       }
-    }
-    [] -> Error(Nil)
+  }
+  case lone {
+    True ->
+      Ok(Item(row: 0, content_col: string.length(line), task: None, blocks: []))
+    False -> Error(Nil)
+  }
+}
+
+fn after_lead(text: String) -> String {
+  case text {
+    " " <> rest | ">" <> rest -> after_lead(rest)
+    _ -> text
+  }
+}
+
+fn after_digits(text: String, count: Int) -> #(Int, String) {
+  case text {
+    "0" <> rest
+    | "1" <> rest
+    | "2" <> rest
+    | "3" <> rest
+    | "4" <> rest
+    | "5" <> rest
+    | "6" <> rest
+    | "7" <> rest
+    | "8" <> rest
+    | "9" <> rest -> after_digits(rest, count + 1)
+    _ -> #(count, text)
+  }
+}
+
+fn is_blank(text: String) -> Bool {
+  case text {
+    "" -> True
+    " " <> rest
+    | "\t" <> rest
+    | "\n" <> rest
+    | "\u{0B}" <> rest
+    | "\u{0C}" <> rest
+    | "\r" <> rest
+    | "\u{85}" <> rest
+    | "\u{2028}" <> rest
+    | "\u{2029}" <> rest -> is_blank(rest)
+    _ -> False
   }
 }
 

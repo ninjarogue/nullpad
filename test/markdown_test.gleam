@@ -364,6 +364,51 @@ pub fn an_empty_item_is_all_marker_and_the_spaces_after_it_test() {
   assert content_col("- [ ]   ") == 8
 }
 
+fn lone(line: String) -> Bool {
+  case markdown.lone_item(line) {
+    Ok(_) -> True
+    Error(Nil) -> False
+  }
+}
+
+pub fn a_marker_alone_on_a_row_is_a_lone_item_test() {
+  assert markdown.lone_item("  - ")
+    == Ok(Item(row: 0, content_col: 4, task: None, blocks: []))
+  assert lone("-")
+  assert lone("+")
+  assert lone("*  ")
+  assert lone("1.")
+  assert lone("   12) ")
+  assert lone("123456789.")
+  assert lone("> - ")
+  assert lone(">   1.\t")
+  assert lone("- \u{85}")
+}
+
+pub fn anything_else_on_the_row_is_no_lone_item_test() {
+  assert !lone("")
+  assert !lone("   ")
+  assert !lone("- a")
+  assert !lone("-a")
+  assert !lone("- [ ]")
+  assert !lone("- -")
+  assert !lone("--")
+  assert !lone("a -")
+  assert !lone("1234567890.")
+  assert !lone("1")
+  assert !lone("1.5")
+  assert !lone("1 .")
+  assert !lone("- \u{301}")
+}
+
+pub fn a_long_run_of_spaces_around_a_marker_is_read_whole_test() {
+  let gap = string.repeat(" ", 20_000)
+  assert lone("-" <> gap)
+  assert lone(gap <> "-" <> gap)
+  assert !lone("a" <> gap <> "b")
+  assert !lone("-" <> gap <> "b")
+}
+
 pub fn a_marker_ends_at_one_space_when_code_follows_it_test() {
   assert content_col("-     a") == 2
 }
