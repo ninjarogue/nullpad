@@ -204,6 +204,14 @@ globalThis.document = {
   documentElement: {},
   createElement: () => ({ getContext: () => ({ measureText: (text) => ({ width: text.length * 8 }) }) }),
 };
+// Types `- b` over `  - ` in place of the caret's row: the caret is on an empty
+// item right under the words of its parent, which goes when the caret leaves.
+const under_words = (field) => {
+  const row = buffer.cursor(field).row;
+  const shown = buffer.replace(field, new buffer.Position(row, 0), new buffer.Position(row, 1e6), "- b\n  - ");
+  return new editor.ControlChanged(shown, 0);
+};
+
 const events = {
   ControlChanged: [
     ["typed", (field) => new editor.ControlChanged(typed(field), 0)],
@@ -211,6 +219,16 @@ const events = {
     ["typed after a pause", (field) => [
       new editor.ControlChanged(typed(field), 0),
       (now) => new editor.ControlChanged(typed(now), 60000),
+    ]],
+    ["off an empty sub-item", () => [
+      new editor.Released(),
+      under_words,
+      (now) => new editor.ControlChanged(buffer.move_to(now, new buffer.Position(0, 0)), 0),
+    ]],
+    ["typed in the words over an empty sub-item", () => [
+      new editor.Released(),
+      under_words,
+      (now) => new editor.ControlChanged(typed(buffer.move_to(now, new buffer.Position(0, 1))), 0),
     ]],
   ],
   Composing: [
@@ -243,23 +261,34 @@ const events = {
     ["SelectToStart", (field) => new editor.EdgePressed(new editor.SelectToStart(), 0, field)],
     ["SelectToEnd", (field) => new editor.EdgePressed(new editor.SelectToEnd(), 0, field)],
     ["SelectAll", (field) => new editor.EdgePressed(new editor.SelectAll(), 0, field)],
+    ["Up off an empty sub-item", () => [new editor.Released(), under_words, (now) => new editor.EdgePressed(new editor.Up(), 0, now)]],
+    ["Down off an empty sub-item", () => [new editor.Released(), under_words, (now) => new editor.EdgePressed(new editor.Down(), 0, now)]],
+    ["SelectAll off an empty sub-item", () => [new editor.Released(), under_words, (now) => new editor.EdgePressed(new editor.SelectAll(), 0, now)]],
   ],
-  EscapePressed: [["", (field) => new editor.EscapePressed(field)]],
+  EscapePressed: [
+    ["", (field) => new editor.EscapePressed(field)],
+    ["off an empty sub-item", () => [new editor.Released(), under_words, (now) => new editor.EscapePressed(now)]],
+  ],
   Pointed: [
     ["a row above", (_, row) => new editor.Pointed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.Pointed(row + 9, "", false, "", 0, 0)],
+    ["a row above, off an empty sub-item", (_, row) => [under_words, new editor.Pointed(Math.max(0, row - 9), "", true, "", 0, 0)]],
+    ["a row below, off an empty sub-item", (_, row) => [under_words, new editor.Pointed(row + 9, "", false, "", 0, 0)]],
   ],
   WordPointed: [
     ["a row above", (_, row) => new editor.WordPointed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.WordPointed(row + 9, "", false, "", 0, 0)],
+    ["a row below, off an empty sub-item", (_, row) => [under_words, new editor.WordPointed(row + 9, "", false, "", 0, 0)]],
   ],
   LinePointed: [
     ["a row above", (_, row) => new editor.LinePointed(Math.max(0, row - 9), "", true, "", 0, 0)],
     ["a row below", (_, row) => new editor.LinePointed(row + 9, "", false, "", 0, 0)],
+    ["a row below, off an empty sub-item", (_, row) => [under_words, new editor.LinePointed(row + 9, "", false, "", 0, 0)]],
   ],
   ShiftPointed: [
     ["a row above", (field, row) => new editor.ShiftPointed(Math.max(0, row - 9), "", true, "", field, 0, 0)],
     ["a row below", (field, row) => new editor.ShiftPointed(row + 9, "", false, "", field, 0, 0)],
+    ["a row below, from an empty sub-item", (_, row) => [under_words, (now) => new editor.ShiftPointed(row + 9, "", false, "", now, 0, 0)]],
   ],
   Grabbed: [
     ["a row above", (_, row) => new editor.Grabbed(Math.max(0, row - 9), "", true, "", 0, 0)],
@@ -300,6 +329,7 @@ const events = {
   FocusChanged: [
     ["blur", () => new editor.FocusChanged(false)],
     ["focus", () => new editor.FocusChanged(true)],
+    ["blur on an empty sub-item", () => [under_words, new editor.FocusChanged(false)]],
   ],
   UndoAsked: [
     ["nothing to undo", () => new editor.UndoAsked()],
@@ -309,11 +339,22 @@ const events = {
       new editor.Pointed(row + 9, "", false),
       new editor.UndoAsked(),
     ]],
+    ["an empty sub-item taken out", (_, row) => [
+      under_words,
+      new editor.Pointed(row + 9, "", false, "", 0, 0),
+      new editor.UndoAsked(),
+    ]],
   ],
   RedoAsked: [
     ["nothing to redo", () => new editor.RedoAsked()],
     ["an undone character", (field) => [
       new editor.ControlChanged(typed(field), 0),
+      new editor.UndoAsked(),
+      new editor.RedoAsked(),
+    ]],
+    ["an empty sub-item brought back", (_, row) => [
+      under_words,
+      new editor.Pointed(row + 9, "", false, "", 0, 0),
       new editor.UndoAsked(),
       new editor.RedoAsked(),
     ]],
