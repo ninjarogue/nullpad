@@ -1102,18 +1102,18 @@ const put = (dir, path, text) => {
   writeFileSync(join(dir, path), text);
 };
 
-function toy({ withJudges = true } = {}) {
+function toy({ withJudges = true, files = {}, gleam = fakeGleam } = {}) {
   const home = scratch.make("judges-toy-");
   const bin = join(home, "bin");
   mkdirSync(bin);
-  writeFileSync(join(bin, "gleam"), fakeGleam);
+  writeFileSync(join(bin, "gleam"), gleam);
   chmodSync(join(bin, "gleam"), 0o755);
   const origin = join(home, "origin.git");
   git(home, "init", "--bare", "-b", "main", origin);
   const first = join(home, "first");
   mkdirSync(first);
   git(first, "init", "-b", "main");
-  for (const [path, text] of Object.entries(toyFiles)) put(first, path, text);
+  for (const [path, text] of Object.entries({ ...toyFiles, ...files })) put(first, path, text);
   copyFileSync(join(root, "test", "steps.mjs"), join(first, "test", "steps_real.mjs"));
   for (const path of copied) if (withJudges || !/judges|inventory|fingerprint|pick/.test(path)) {
     mkdirSync(join(first, path, ".."), { recursive: true });
@@ -1360,6 +1360,83 @@ describe("the pre-push gate on a branch", () => {
     branch.edit(toyTest, 'test("adds negatives", () => {\n  assert.equal(add(-1, -1), -2);\n});\n', "");
     branch.commit("add the judges and drop a test");
     caught(branch.push(), /adds negatives/);
+  });
+});
+
+// Prints, in gleam 1.19's format, the warning for a src file with a `todo`, and the blocks for each test file that calls a function src no longer has.
+const compilingGleam = `#!/bin/sh
+[ "$1" = format ] && exit 0
+cat <<EOF
+  Compiling nullpad
+warning: Todo found
+  ┌─ $PWD/src/toy.gleam:6:3
+  │
+6 │   todo as "not implemented"
+  │   ^^^^^^^^^^^^^^^^^^^^^^^^^ This code is incomplete
+
+This code will crash if it is run. Be sure to finish it before
+running your program.
+
+EOF
+broken=$(grep -l "toy\\.add(" test/*.gleam)
+for file in $broken; do
+  at=$(grep -n "toy\\.add(" "$file" | head -1)
+  cat <<EOF
+warning: Unused imported module
+  ┌─ $PWD/$file:1:1
+  │
+1 │ import toy
+  │ ^^^^^^^^^^ This imported module is never used
+
+error: Unknown module value
+  ┌─ $PWD/$file:\${at%%:*}:7
+  │
+\${at%%:*} │\${at#*:}
+
+The module \\\`toy\\\` does not have a \\\`add\\\` value.
+
+EOF
+done
+[ -n "$broken" ] && exit 1
+[ "$1" = test ] && echo "3 passed, no failures"
+exit 0
+`;
+
+describe("main's gleam files that no longer compile on the branch", () => {
+  const base = toy({
+    gleam: compilingGleam,
+    files: {
+      "src/toy.gleam": 'pub fn add(a: Int, b: Int) -> Int {\n  a + b\n}\n\npub fn later() -> Int {\n  todo as "not implemented"\n}\n',
+      "test/sum_test.gleam": "import toy\n\npub fn adds_test() {\n  assert toy.add(1, 2) == 3\n}\n",
+      "test/helpers.gleam": "import toy\n\npub fn three() -> Int {\n  toy.add(1, 2)\n}\n",
+      "test/more_test.gleam": "import toy\n\npub fn more_test() {\n  assert 2 == 2\n}\n\nfn spare() -> Int {\n  toy.add(0, 0)\n}\n",
+      "test/test_counts.json": '{\n  "gleam-test": 3,\n  "toy": 3\n}\n',
+      "test/steps.mjs": 'import { gleamTest, nodeTest } from "./steps_real.mjs";\nexport * from "./steps_real.mjs";\nexport const gateSteps = () => [gleamTest, nodeTest("toy", "test/toy.test.mjs")];\n',
+    },
+  });
+  const renamed = () => {
+    const branch = base.branch();
+    branch.edit("src/toy.gleam", "pub fn add(", "pub fn plus(");
+    for (const file of ["test/sum_test.gleam", "test/helpers.gleam", "test/more_test.gleam"]) branch.edit(file, "toy.add(", "toy.plus(");
+    return branch;
+  };
+  const trailer = (file) => `Changes-test: ${file} — add is called plus now`;
+
+  test("pass when a trailer covers each, though gleam also warns about a todo in src", () => {
+    const branch = renamed();
+    branch.commit(`add is plus now\n\n${trailer("test/sum_test.gleam")}\n${trailer("test/helpers.gleam")}\n${trailer("test/more_test.gleam")}`);
+    const run = branch.push();
+    assert.equal(run.status, 0, run.out);
+    assert.match(run.out, /3 of main's tests fail or do not compile here, covered by a trailer:\n {2}Changes-test: test\/sum_test\.gleam — .*\n {2}Changes-test: test\/helpers\.gleam — .*\n {2}Changes-test: test\/more_test\.gleam — /);
+  });
+
+  test("fail when one of them has no trailer, and name it", () => {
+    const branch = renamed();
+    branch.commit(`add is plus now\n\n${trailer("test/sum_test.gleam")}\n${trailer("test/helpers.gleam")}`);
+    const run = branch.push();
+    assert.equal(run.status, 1, run.out);
+    assert.match(run.out, /main's tests fail on this branch's code/);
+    assert.match(run.out, /more_test\.gleam:8:7/);
   });
 });
 
