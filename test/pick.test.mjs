@@ -36,7 +36,7 @@ describe("which gleeunit modules a change picks, on this repository", () => {
 
   test("a change to a module that few tests import picks few", () => {
     assert.ok(order(["src/nullpad/vim.gleam"]).length < order(["src/nullpad/markdown.gleam"]).length);
-    assert.deepEqual(order(["src/nullpad/library.gleam"]).filter((module) => module !== "architecture_test"), ["library_test"]);
+    assert.deepEqual(order(["src/nullpad/library.gleam"]).filter((module) => module !== "architecture_test"), ["library_test", "properties_test"]);
   });
 
   test("the ffi file of a module is part of it", () => {

@@ -300,7 +300,7 @@ describe("what an honest edit of the real helpers and specs does", () => {
     const cases = [
       edited(page, /(class Page \{[\s\S]*?constructor\([\s\S]*?\) \{\n[\s\S]*?\n)(  \}\n)/, "$1    this.footer = screen.getByTestId('footer');\n$2"),
       edited(page, "export const pause = (ms: number) =>", "export const pause = (ms: number): Promise<unknown> =>"),
-      edited(page, "function recordCrashes", "export function recordCrashes"),
+      edited(page, "function installTestDisk", "export function installTestDisk"),
       edited(page, "  /** How far down the page of the note is scrolled. */", "  extra() {\n    return 1;\n  }\n\n  /** How far down the page of the note is scrolled. */"),
       edited("e2e/tests/layout.e2e.ts", "const widths = [390, 1280];", "const widths = [390, 1280, 2560];"),
       edited("e2e/tests/layout.e2e.ts", "for (const width of widths) {\n", "for (const width of widths) {\n  const label = `at ${width}`;\n"),

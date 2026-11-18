@@ -866,8 +866,8 @@ export function compare(base, branch) {
       }
       continue;
     }
-    for (const unit of was.tests.values()) {
-      const next = now.tests.get(unit.id);
+    for (const [key, unit] of was.tests) {
+      const next = now.tests.get(key);
       if (next === undefined) {
         const same = unit.setup ? [] : movedTo(path, unit).map((copy) => copy.unit.mods);
         if (!unit.setup && same.some((mods) => rank(mods) <= rank(unit.mods) && marked(mods).length <= marked(unit.mods).length)) continue;
