@@ -1051,6 +1051,54 @@ export const facts: Fact[] = [
   }),
 
   fact({
+    id: 'a-key-during-a-composition-says-so',
+    says: 'A key pressed while an IME composes says isComposing true or has keyCode 229, a plain Enter the IME does not take included, so a key that says neither proves no composition is live.',
+    relied: [{ file: surface, text: '&& key_code != 229' }],
+    html: '<textarea id="t"></textarea>',
+    observe: async (page) => {
+      const session = await page.context().newCDPSession(page);
+      await page.evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as { log: string[] }).log = log;
+        const field = document.getElementById('t')!;
+        for (const type of ['keydown', 'compositionstart', 'compositionend']) {
+          field.addEventListener(type, (event) => {
+            const key = event as KeyboardEvent;
+            log.push(type === 'keydown' ? `keydown ${key.key} composing=${key.isComposing} keyCode=${key.keyCode}` : type);
+          });
+        }
+        field.focus();
+      });
+      await page.keyboard.press('q');
+      const imeKey = (type: 'rawKeyDown' | 'keyUp') =>
+        session.send('Input.dispatchKeyEvent', { type, key: 'k', code: 'KeyK', windowsVirtualKeyCode: 229, nativeVirtualKeyCode: 229 });
+      await imeKey('rawKeyDown');
+      await session.send('Input.imeSetComposition', { text: 'か', selectionStart: 1, selectionEnd: 1 });
+      await imeKey('keyUp');
+      await page.keyboard.press('Enter');
+      const log = await page.evaluate(() => (window as unknown as { log: string[] }).log);
+      const started = log.indexOf('compositionstart');
+      const ended = log.indexOf('compositionend');
+      return { before: log.slice(0, Math.max(started, 0)), during: started < 0 ? [] : log.slice(started + 1, ended < 0 ? undefined : ended) };
+    },
+    holds: (seen) => {
+      if (!seen.before.includes('keydown q composing=false keyCode=81')) return instead('the keys before the composition', ['keydown q composing=false keyCode=81'], seen.before);
+      if (!seen.during.some((event) => event.startsWith('keydown Enter '))) return instead('the events while the IME composed, which hold no Enter', 'a keydown of Enter', seen.during);
+      for (const event of seen.during) {
+        if (event.startsWith('keydown ') && !event.includes('composing=true') && !event.endsWith('keyCode=229')) {
+          return `${JSON.stringify(event)} came while the IME composed and says neither isComposing true nor keyCode 229`;
+        }
+      }
+      return null;
+    },
+    breaks: async (page) => {
+      await page.evaluate(() => {
+        Object.defineProperty(KeyboardEvent.prototype, 'isComposing', { get: () => false, configurable: true });
+      });
+    },
+  }),
+
+  fact({
     id: 'href-schemes-after-stripping',
     says: 'A link still has the javascript: scheme with spaces or control characters before it or tabs and newlines inside it, and not with a no-break space, a zero-width space, or a control character inside the scheme.',
     relied: [

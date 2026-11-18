@@ -555,7 +555,10 @@ pub fn text_composed_while_a_picked_note_loads_goes_into_it_after_the_keys_befor
 }
 
 pub fn a_picked_note_that_arrives_while_an_ime_composes_waits_for_it_to_end_test() {
-  let choosing = editor.set_choosing(opened(), True).editor |> hold(key("Z"))
+  let choosing =
+    editor.set_choosing(opened(), True).editor
+    |> hold(key("Z"))
+    |> hold(key("Y"))
   let field = editor.field_buffer(choosing)
   use ed <- composing_while_choosing(choosing, over(field, "k"))
 
@@ -567,7 +570,6 @@ pub fn a_picked_note_that_arrives_while_an_ime_composes_waits_for_it_to_end_test
   assert editor.keys_wait(ed)
   assert editor.replay(ed) == None
 
-  let ed = hold(ed, key("Y"))
   let Outcome(editor: ed, sync:, ..) =
     editor.update(ed, editor.Composing(shown: over(field, "か")))
   assert written(sync) == Error(Nil)

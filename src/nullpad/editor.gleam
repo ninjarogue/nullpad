@@ -700,7 +700,14 @@ fn choosing(editor: Editor, event: Event) -> Outcome {
     | Staying, _
     -> False
   }
+  let ended = fn(composed: Outcome) {
+    case composed.editor.note_choice {
+      Opening(text:, ..) -> open_now(composed.editor, text)
+      Choosing(..) | Chosen | Staying -> put_back(composed.editor)
+    }
+  }
   case event {
+    KeyHeld(held:) if for_choice -> ended(wait([held]))
     KeyHeld(held:) -> wait([held])
     UndoAsked -> wait([HeldMenuUndo])
     RedoAsked -> wait([HeldMenuRedo])
@@ -710,14 +717,8 @@ fn choosing(editor: Editor, event: Event) -> Outcome {
         editor: Editor(..editor, ime: ComposingBehindHeldKeys),
       )
     ControlChanged(..) if for_choice -> unchanged
-    Composed(shown:, at:) if for_choice -> {
-      let composed = wait(ime_text_held(editor, shown, at)).editor
-      case composed.note_choice {
-        Opening(text:, keys:) ->
-          open_now(Editor(..composed, note_choice: Choosing(keys)), text)
-        Choosing(..) | Chosen | Staying -> put_back(composed)
-      }
-    }
+    Composed(shown:, at:) if for_choice ->
+      ended(wait(ime_text_held(editor, shown, at)))
     ControlChanged(..)
     | Composing(..)
     | Composed(..)
@@ -750,6 +751,10 @@ fn staying(editor: Editor, event: Event) -> Outcome {
     Composing(..) | ControlChanged(..) ->
       Outcome(editor:, sync: InSync, requests: [])
     Composed(..) -> put_back(Editor(..editor, note_choice: Chosen))
+    KeyHeld(held:) -> {
+      let kept = put_back(Editor(..editor, note_choice: Chosen))
+      Outcome(..kept, editor: hold_key(kept.editor, held).editor)
+    }
     KeyPressed(..)
     | EdgePressed(..)
     | EscapePressed(..)
@@ -772,7 +777,6 @@ fn staying(editor: Editor, event: Event) -> Outcome {
     | FocusChanged(..)
     | UndoAsked
     | RedoAsked
-    | KeyHeld(..)
     | Replayed(..) -> follow(editor, event)
   }
 }
