@@ -534,12 +534,7 @@ pub fn set_choosing(editor: Editor, choosing: Bool) -> Outcome {
   let editor = case editor.note_choice, choosing {
     Chosen, True ->
       Editor(..editor, page_backlog: CaughtUp, note_choice: Choosing([]))
-    Choosing(keys:), False ->
-      Editor(
-        ..editor,
-        page_backlog: behind(steps(editor), keys),
-        note_choice: Chosen,
-      )
+    Choosing(..), False -> Editor(..editor, note_choice: Chosen)
     Chosen, False | Choosing(..), True -> editor
   }
   Outcome(editor:, sync: InSync, requests: [])
