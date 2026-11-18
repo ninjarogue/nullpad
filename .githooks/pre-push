@@ -17,4 +17,3 @@ else
   echo "main has no test/judges.mjs yet: this run uses the branch's own copy" >&2
   node test/judges.mjs run --base "$base"
 fi
-cd e2e && npm run typist

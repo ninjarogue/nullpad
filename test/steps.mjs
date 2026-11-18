@@ -205,6 +205,8 @@ export const e2eTypes = step({ id: "e2e-types", cwd: e2eDir, counted: false, com
 
 export const e2eDiscovery = step({ id: "e2e-discovery", cwd: root, counted: false, command: () => ["node", "test/e2e_discovery.mjs"], ...needsE2e });
 
+export const typist = step({ id: "typist", cwd: e2eDir, counted: false, command: () => ["npm", "run", "typist"], needs: needsE2e.needs, hint: needsE2e.hint });
+
 export function e2eConfigs(dir = e2eDir) {
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /\.config\.(?:ts|mts|js|mjs)$/.test(entry.name))
@@ -226,5 +228,5 @@ export const e2e = (config, args = []) => step({
 });
 
 export function gateSteps() {
-  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), nodeTest("e2e-server", "test/serve.test.mjs"), nodeTest("e2e-discovery-tool", "test/e2e_discovery.test.mjs"), nodeTest("judges", "test/judges.test.mjs"), nodeTest("pick", "test/pick.test.mjs"), nodeTest("typist-shifts", "test/typist_shifts.test.mjs"), e2eTypes, e2eDiscovery, ...e2eConfigs().map((config) => e2e(config))];
+  return [gleamTest, keystrokeCost, nodeTest("test-counts", "test/test_counts.test.mjs"), nodeTest("mutants-tool", "tools/mutants/mutants.test.mjs"), nodeTest("test-cleanup", "test/scratch.test.mjs"), nodeTest("e2e-server", "test/serve.test.mjs"), nodeTest("e2e-discovery-tool", "test/e2e_discovery.test.mjs"), nodeTest("judges", "test/judges.test.mjs"), nodeTest("pick", "test/pick.test.mjs"), nodeTest("typist-shifts", "test/typist_shifts.test.mjs"), e2eTypes, e2eDiscovery, ...e2eConfigs().map((config) => e2e(config)), typist];
 }
